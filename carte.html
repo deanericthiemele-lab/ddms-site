@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <title>Carte Incidents Abidjan - Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+  <style>
+    body { margin:0; font-family: Arial, sans-serif; }
+    #map { height: 100vh; }
+
+    /* Bouton retour */
+    .btn-back {
+      padding:8px 12px;
+      font-weight:bold;
+      border:none;
+      border-radius:5px;
+      background:#111;
+      color:white;
+      cursor:pointer;
+    }
+
+    /* Sélecteur mois (haut droite) */
+    .month-selector {
+      position:absolute;
+      top:15px;
+      right:20px;
+      background:white;
+      padding:10px 12px;
+      box-shadow:0 0 10px rgba(0,0,0,0.3);
+      border-radius:6px;
+      z-index:1000;
+      font-weight:bold;
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+
+    /* Résumé incidents (sous mois) */
+    #summaryBox{
+      position:absolute;
+      top:65px;
+      right:20px;
+      background:white;
+      padding:8px 10px;
+      width:260px;
+      box-shadow:0 0 10px rgba(0,0,0,0.3);
+      border-radius:6px;
+      z-index:1000;
+      font-size:12px;
+      line-height:18px;
+      max-height:70vh;
+      overflow:auto;
+    }
+
+    /* Panel gauche */
+    #leftPanel{
+      position:absolute;
+      top:65px;
+      left:20px;
+      width:260px;
+      background:white;
+      padding:8px 10px;
+      box-shadow:0 0 10px rgba(0,0,0,0.3);
+      border-radius:6px;
+      z-index:1000;
+      font-size:12px;
+      line-height:18px;
+      max-height:70vh;
+      overflow:auto;
+    }
+
+    /* Bouton retour container */
+    #topLeftBar{
+      position:absolute;
+      top:15px;
+      left:20px;
+      z-index:1000;
+    }
+
+    /* Texte au centre des cercles */
+    .circle-label{
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      text-align:center;
+      font-weight:bold;
+      color:white;            /* demandé texte blanc */
+      font-size:12px;         /* un peu plus petit */
+      width:100%;
+      height:100%;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.65); /* lisible sur jaune */
+    }
+
+    /* Légende */
+    .legend {
+      background:white;
+      padding:12px;
+      line-height:22px;
+      color:#333;
+      font-size:14px;
+      box-shadow:0 0 8px rgba(0,0,0,0.2);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="topLeftBar" style="display:flex; gap:8px;">
+    <button class="btn-back" onclick="window.location.href='ingenierie.html'">⬅ Retour Ingénierie</button>
+    <button class="btn-back" onclick="window.location.href='cic.html'">CIC</button>
+  </div>
+
+  <div class="month-selector">
+    <span>Mois :</span>
+    <select id="monthSelect"></select>
+    <button onclick="reloadAll()">Afficher</button>
+  </div>
+
+  <div id="summaryBox"><b>Résumé Incidents</b><hr>Chargement…</div>
+  <div id="leftPanel"><b>Localisations</b><hr>Chargement…</div>
+
+  <div id="map"></div>
+
+  <!-- Libs -->
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js">
+function showCableDetails(groupCounts, total){
+
+  let html = "<b>Détail Causes - Cable</b><hr>";
+
+  // On récupère toutes les causes Cable depuis causeGroups
+  const cableCauses = causeGroups["Cable"] || [];
+
+  let detail = [];
+
+  DATA_JSON.forEach(row=>{
+      const cause = (row["CAUSE RÉELLE"] || "").toUpperCase().trim();
+      if(cableCauses.includes(cause)){
+          if(!detail[cause]) detail[cause] = 0;
+          detail[cause]++;
+      }
+  });
+
+  const sorted = Object.entries(detail)
+      .sort((a,b)=> b[1]-a[1]);
+
+  sorted.forEach(([c,v])=>{
+      const pct = total ? ((v/total)*100).toFixed(1) : "0.0";
+      html += c + " : " + v + " (" + pct + "%)<br>";
+  });
+
+  L.popup()
+    .setLatLng(map.getCenter())
+    .setContent(html)
+    .openOn(map);
+}
+
+
+function showCategoryDetails(categoryName, selectedMonth){
+
+  let html = "<b>Détail Causes - " + categoryName + "</b><hr>";
+
+  const causesList = causeGroups[categoryName] || [];
+  let detail = {};
+  let totalMonth = 0;
+
+  DATA_JSON.forEach(row=>{
+      const d = toJSDate(row["DATE DE CRÉATION"]);
+      if(!d) return;
+      const m = d.getMonth() + 1;
+      if(m !== selectedMonth) return;
+
+      totalMonth++;
+
+      const cause = (row["CAUSE RÉELLE"] || "").toUpperCase().trim();
+
+      if(causesList.includes(cause)){
+          if(!detail[cause]) detail[cause] = 0;
+          detail[cause]++;
+      }
+  });
+
+  const sorted = Object.entries(detail)
+      .sort((a,b)=> b[1]-a[1]);
+
+  sorted.forEach(([c,v])=>{
+      const pct = totalMonth ? ((v/totalMonth)*100).toFixed(1) : "0.0";
+      html += c + " : " + v + " (" + pct + "%)<br>";
+  });
+
+  if(sorted.length === 0){
+      html += "Aucune donnée";
+  }
+
+  L.popup()
+    .setLatLng(map.getCenter())
+    .setContent(html)
+    .openOn(map);
+}
+
+</script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js">
+function showCableDetails(groupCounts, total){
+
+  let html = "<b>Détail Causes - Cable</b><hr>";
+
+  // On récupère toutes les causes Cable depuis causeGroups
+  const cableCauses = causeGroups["Cable"] || [];
+
+  let detail = [];
+
+  DATA_JSON.forEach(row=>{
+      const cause = (row["CAUSE RÉELLE"] || "").toUpperCase().trim();
+      if(cableCauses.includes(cause)){
+          if(!detail[cause]) detail[cause] = 0;
+          detail[cause]++;
+      }
+  });
+
+  const sorted = Object.entries(detail)
+      .sort((a,b)=> b[1]-a[1]);
+
+  sorted.forEach(([c,v])=>{
+      const pct = total ? ((v/total)*100).toFixed(1) : "0.0";
+      html += c + " : " + v + " (" + pct + "%)<br>";
+  });
+
+  L.popup()
+    .setLatLng(map.getCenter())
+    .setContent(html)
+    .openOn(map);
+}
+
+
+function showCategoryDetails(categoryName, selectedMonth){
+
+  let html = "<b>Détail Causes - " + categoryName + "</b><hr>";
+
+  const causesList = causeGroups[categoryName] || [];
+  let detail = {};
+  let totalMonth = 0;
+
+  DATA_JSON.forEach(row=>{
+      const d = toJSDate(row["DATE DE CRÉATION"]);
+      if(!d) return;
+      const m = d.getMonth() + 1;
+      if(m !== selectedMonth) return;
+
+      totalMonth++;
+
+      const cause = (row["CAUSE RÉELLE"] || "").toUpperCase().trim();
+
+      if(causesList.includes(cause)){
+          if(!detail[cause]) detail[cause] = 0;
+          detail[cause]++;
+      }
+  });
+
+  const sorted = Object.entries(detail)
+      .sort((a,b)=> b[1]-a[1]);
+
+  sorted.forEach(([c,v])=>{
+      const pct = totalMonth ? ((v/totalMonth)*100).toFixed(1) : "0.0";
+      html += c + " : " + v + " (" + pct + "%)<br>";
+  });
+
+  if(sorted.length === 0){
+      html += "Aucune donnée";
+  }
+
+  L.popup()
+    .setLatLng(map.getCenter())
+    .setContent(html)
+    .openOn(map);
+}
+
+</script>
+
+  <script>
+    // === MAP INIT ===
+    const map = L.map('map').setView([5.34, -4.03], 11);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // Contour Abidjan (simplifié)
+    const abidjanBoundary = L.polygon([
+      [5.44, -4.15],
+      [5.45, -4.05],
+      [5.43, -3.92],
+      [5.38, -3.85],
+      [5.28, -3.88],
+      [5.22, -3.95],
+      [5.23, -4.10],
+      [5.30, -4.15]
+    ], { color:'#000', weight:3, fillOpacity:0 }).addTo(map);
+
+    map.fitBounds(abidjanBoundary.getBounds());
+
+    // Communes Abidjan (points)
+    const communesCoords = {
+      "COCODY":[5.36,-3.96],
+      "PLATEAU":[5.32,-4.02],
+      "MARCORY":[5.29,-3.97],
+      "TREICHVILLE":[5.30,-4.01],
+      "YOPOUGON":[5.33,-4.09],
+      "PORT-BOUET":[5.26,-3.94],
+      "ABOBO":[5.43,-4.01],
+      "BINGERVILLE":[5.35,-3.88]
+    };
+
+    
+    const abidjanZones = ["COCODY","PLATEAU","MARCORY","TREICHVILLE","YOPOUGON","PORT-BOUET","PORT BOUET","ABOBO","BINGERVILLE"];
+
+    function isAbidjan(loc){
+        if(!loc) return false;
+        const clean = loc.toUpperCase().replace(/-/g," ").trim();
+        return abidjanZones.some(z => clean.includes(z.replace(/-/g," ")));
+    }
+
+
+    // Causes "Cable" (liste fournie)
+    const causesCable = [
+      "BRINS FO MAUVAIS",
+      "CÂBLE FO COUPÉ",
+      "CABLE FO COUPE",           // tolérance
+      "COUPURE FO FTTX",
+      "JARRETIERES CENTRAL",
+      "PROBLÈME TRANSMISSION",
+      "PROBLEME TRANSMISSION",
+      "DERCO",
+      "CUIVRE DÉFFECTUEUX",
+      "CUIVRE DEFFECTUEUX",
+      "COUPURE FO ROA",
+      "FO DÉFFECTUEUX",
+      "FO DEFFECTUEUX"
+    ];
+
+    // Groupes causes (résumé à droite)
+    const causeGroups = {
+      "Cable": causesCable,
+      "Bande passante": ["BANDE PASSANTE SATURÉE","BANDE PASSANTE SATUREE","PROBLÈME BANDE PASSANTE","PROBLEME BANDE PASSANTE","USAGE CLIENT"],
+      "Environnement client": ["PROBLÈME ENVIRONNEMENT CLIENT","PROBLEME ENVIRONNEMENT CLIENT","PROBLÈME EQUIPEMENTS OCI CHEZ LE CLIENT","PROBLEME EQUIPEMENTS OCI CHEZ LE CLIENT","PB EQPT OCI CHEZ LE CLIENT","ATTENTE RDV CLIENT","JARRETIERES CLIENT","PROBLÈME EQUIPEMENTS CLIENT","PROBLEME EQUIPEMENTS CLIENT","CÂBLE RÉSEAUX RJ45","CABLE RESEAUX RJ45"],
+      "BLR": ["PROBLÈME RADIO BLR/FH","PROBLEME RADIO BLR/FH","FAISCEAU DÉFFECTUEUX","FAISCEAU DEFFECTUEUX","POE DÉFFECTUEUX","POE DEFFECTUEUX","PB SWITCH BLR"],
+      "Autocom": ["PERTE DE CONFIG COMPTE CLIENT","PB AUTOCOM","PROBLÈME CONFIG IMS","PROBLEME CONFIG IMS","COMPTE SIP"],
+      "Erreur signalisation": ["RÉITÉRATION DE SIGNALISATION","REITERATION DE SIGNALISATION","ERREUR DE SIGNALISATION"],
+      "Central OCI": ["ALIGNEMENT PORT OLT PB MGPLX","PROBLÈME IP & CONFIG","PROBLEME IP & CONFIG","PROBLÈME EQUIPEMENTS D’ACCÈS","PROBLEME EQUIPEMENTS D’ACCES","PROBLEME EQUIPEMENTS D'ACCES","PB MODEM CENTRAL","PROBLÈME OCB/CSN","PROBLEME OCB/CSN","PB PE"],
+      "VSAT": ["VSAT"],
+      "Supervision": ["PROBLÈME DE SUPERVISION CORTEX","PROBLEME DE SUPERVISION CORTEX","SUPERVISION CORTEX"],
+      "Energie": ["PB ENERGIE","PB ÉNERGIE"],
+      "Autres": []
+    };
+
+    // Couleurs volumes (zones)
+    function getColor(total){
+      if(total >= 80) return "#b30000";
+      if(total >= 50) return "#e34a33";
+      if(total >= 30) return "#fc8d59";
+      if(total >= 15) return "#fdcc8a";
+      return "#2b8cbe";
+    }
+
+    // Critique (panels) : basé sur % global
+    function styleCritical(pct){
+      if(pct >= 25) return "color:#b30000;font-weight:bold";
+      if(pct >= 15) return "color:#e34a33";
+      return "";
+    }
+
+    // Regroupement intelligent villes intérieur
+    function normaliserVille(loc){
+      loc = (loc || "").toUpperCase().trim();
+      if(loc.includes("BOUAKE")) return "BOUAKE";
+      if(loc.includes("DALOA")) return "DALOA";
+      if(loc.includes("YAMOUSSOUKRO")) return "YAMOUSSOUKRO";
+      if(loc.includes("SAN PEDRO")) return "SAN PEDRO";
+      if(loc.includes("KORHOGO")) return "KORHOGO";
+      if(loc.includes("MAN")) return "MAN";
+      if(loc.includes("GAGNOA")) return "GAGNOA";
+      return loc;
+    }
+
+    // Parse date excel OU string JJ/MM/AAAA
+    function toJSDate(v){
+      if(v == null || v === "") return null;
+      if(typeof v === "number"){
+        return new Date((v - 25569) * 86400 * 1000);
+      }
+      if(typeof v === "string"){
+        const m = v.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+        if(m){
+          const dd = parseInt(m[1],10), mm = parseInt(m[2],10), yy = parseInt(m[3],10);
+          return new Date(yy, mm-1, dd);
+        }
+        const d2 = new Date(v);
+        return isNaN(d2.getTime()) ? null : d2;
+      }
+      return null;
+    }
+
+    // Layers
+    let layers = [];
+    function clearMapLayers(){
+      layers.forEach(l => map.removeLayer(l));
+      layers = [];
+    }
+
+    // Légende volume
+    let legendControl = null;
+    function updateLegend(total){
+      if(legendControl) map.removeControl(legendControl);
+      legendControl = L.control({position:'bottomright'});
+      legendControl.onAdd = function(){
+        const div = L.DomUtil.create('div','legend');
+        div.innerHTML += "<b>Code Couleur Volume</b><br><br>";
+        div.innerHTML += "<span style='color:#b30000'>■</span> ≥ 80 : Critique<br>";
+        div.innerHTML += "<span style='color:#e34a33'>■</span> 50 - 79 : Très élevé<br>";
+        div.innerHTML += "<span style='color:#fc8d59'>■</span> 30 - 49 : Élevé<br>";
+        div.innerHTML += "<span style='color:#fdcc8a'>■</span> 15 - 29 : Moyen<br>";
+        div.innerHTML += "<span style='color:#2b8cbe'>■</span> < 15 : Faible<br>";
+        div.innerHTML += "<hr><b>Total Mois :</b> " + total;
+        return div;
+      };
+      legendControl.addTo(map);
+    }
+
+    // Data cache (évite de re-fetch à chaque mois)
+    let DATA_JSON = null;
+
+    async function loadData(){
+      if(DATA_JSON) return DATA_JSON;
+      const response = await fetch('data.xlsx');
+      const arrayBuffer = await response.arrayBuffer();
+      const wb = XLSX.read(arrayBuffer, {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      DATA_JSON = XLSX.utils.sheet_to_json(sheet);
+      return DATA_JSON;
+    }
+
+    
+function normaliserAbidjan(loc){
+    loc = (loc || "").toUpperCase()
+        .replace(/-/g," ")
+        .replace(/\s+/g," ")
+        .trim();
+
+    if(loc.includes("YOPOUGON")) return "YOPOUGON";
+    if(loc.includes("PORT BOUET")) return "PORT-BOUET";
+
+    return loc;
+}
+
+function computeForMonth(json, selectedMonth){
+      // Zones Abidjan (cercles)
+      const zoneCounts = {}; // loc -> {cable, autre}
+      // Summary causes
+      const groupCounts = {};
+      Object.keys(causeGroups).forEach(k => groupCounts[k] = 0);
+
+      // Panels left
+      const abjLoc = {};      // commune -> count
+      const intLoc = {};      // ville normalisée -> count
+      let total = 0, totalAbj = 0, totalInt = 0;
+
+      json.forEach(row => {
+        const d = toJSDate(row["DATE DE CRÉATION"]);
+        if(!d) return;
+        const m = d.getMonth() + 1;
+        if(m !== selectedMonth) return;
+
+        total++;
+
+        const locRaw = (row["LOCALISATION CLIENT"] || "").toUpperCase().trim();
+        const cause = (row["CAUSE RÉELLE"] || "").toUpperCase().trim();
+
+        // Cable vs autre par zone (Abidjan cercles)
+        if(!zoneCounts[locRaw]) zoneCounts[locRaw] = {cable:0, autre:0};
+        if(causesCable.includes(cause)) zoneCounts[locRaw].cable++;
+        else zoneCounts[locRaw].autre++;
+
+        // Abidjan vs intérieur totals (pour résumé)
+        if(isAbidjan(locRaw)){
+          totalAbj++;
+          const locNorm = normaliserAbidjan(locRaw);
+        abjLoc[locNorm] = (abjLoc[locNorm] || 0) + 1;
+        }else{
+          totalInt++;
+          const ville = normaliserVille(locRaw);
+          intLoc[ville] = (intLoc[ville] || 0) + 1;
+        }
+
+        // Group causes (résumé à droite)
+        let matched = false;
+        for(const g in causeGroups){
+          if(causeGroups[g].includes(cause)){
+            groupCounts[g]++;
+            matched = true;
+            break;
+          }
+        }
+        if(!matched) groupCounts["Autres"]++;
+      });
+
+      return { zoneCounts, groupCounts, abjLoc, intLoc, total, totalAbj, totalInt };
+    }
+
+    function renderMap(zoneCounts){
+      clearMapLayers();
+
+      // Cercles uniquement pour communes Abidjan connues
+      for(const loc in zoneCounts){
+        if(!communesCoords[loc]) continue;
+
+        const cable = zoneCounts[loc].cable;
+        const autre = zoneCounts[loc].autre;
+        const totalZone = cable + autre;
+        const pctCable = totalZone ? ((cable/totalZone)*100).toFixed(0) : 0;
+        const pctAutre = totalZone ? ((autre/totalZone)*100).toFixed(0) : 0;
+
+        const circle = L.circle(communesCoords[loc],{
+          radius: 1900,
+          color:"#111",
+          weight:2,
+          fillColor: getColor(totalZone),
+          fillOpacity: 0.9
+        }).addTo(map);
+        layers.push(circle);
+
+        const label = L.marker(communesCoords[loc],{
+          icon: L.divIcon({
+            className:'circle-label',
+            html:`<div>
+                    <div style="font-size:13px">${loc}</div>
+                    <div>Cable: ${cable} (${pctCable}%)</div>
+                    <div>Autre: ${autre} (${pctAutre}%)</div>
+                  </div>`,
+            iconSize:[320,150]
+          })
+        }).addTo(map);
+        layers.push(label);
+      }
+    }
+
+    function renderSummary(groupCounts, total, totalAbj, totalInt){
+      // Cable vs non-cable global
+      const cableTotal = groupCounts["Cable"] || 0;
+      const nonCableTotal = total - cableTotal;
+      const pctCableGlobal = total ? ((cableTotal/total)*100).toFixed(1) : "0.0";
+      const pctNonCableGlobal = total ? ((nonCableTotal/total)*100).toFixed(1) : "0.0";
+
+      const pctAbj = total ? ((totalAbj/total)*100).toFixed(1) : "0.0";
+      const pctInt = total ? ((totalInt/total)*100).toFixed(1) : "0.0";
+
+      const sorted = Object.entries(groupCounts)
+        .filter(([k,v]) => v > 0)
+        .sort((a,b)=> b[1]-a[1]);
+
+      let html = "<b>Résumé Incidents</b><hr>";
+      html += `<b>Abidjan :</b> ${totalAbj} (${pctAbj}%)<br>`;
+      html += `<b>Intérieur :</b> ${totalInt} (${pctInt}%)<hr>`;
+
+      html += `<b><span style='cursor:pointer;color:#b30000' onmouseenter="showCableDetails(groupCounts, total)" onmouseleave="map.closePopup()">Cable :</span></b> ${cableTotal} (${pctCableGlobal}%)<br>`;
+      html += `<b>Non-Cable Global :</b> ${nonCableTotal} (${pctNonCableGlobal}%)<hr>`;
+
+      
+sorted.forEach(([k,v])=>{
+  const pct = total ? ((v/total)*100).toFixed(1) : "0.0";
+  const st = (parseFloat(pct) >= 30) ? "style='color:#b30000;font-weight:bold;cursor:pointer'" :
+             (parseFloat(pct) >= 15) ? "style='color:#e34a33;cursor:pointer'" :
+             "style='cursor:pointer'";
+
+  html += `<div ${st} onmouseenter="showCategoryDetails('${k}', parseInt(document.getElementById('monthSelect').value))" onmouseleave="map.closePopup()">${k} : ${v} (${pct}%)</div>`;
+});
+
+
+      document.getElementById("summaryBox").innerHTML = html;
+    }
+
+    function renderLeftPanel(abjLoc, intLoc, total, totalAbj, totalInt){
+      const sortedAbj = Object.entries(abjLoc).sort((a,b)=> b[1]-a[1]);
+      const sortedInt = Object.entries(intLoc).sort((a,b)=> b[1]-a[1]);
+
+      const pctAbj = total ? ((totalAbj/total)*100).toFixed(1) : "0.0";
+      const pctInt = total ? ((totalInt/total)*100).toFixed(1) : "0.0";
+
+      let html = "<b>Localisations</b><hr>";
+      html += `<b>Abidjan : ${totalAbj} (${pctAbj}%)</b><br>`;
+
+      sortedAbj.forEach(([loc,vol])=>{
+        const pct = total ? ((vol/total)*100).toFixed(1) : "0.0";
+        html += `<div style="${styleCritical(parseFloat(pct))}">${loc} : ${vol} (${pct}%)</div>`;
+      });
+
+      html += `<hr><b>Intérieur : ${totalInt} (${pctInt}%)</b><br>`;
+      sortedInt.forEach(([loc,vol])=>{
+        const pct = total ? ((vol/total)*100).toFixed(1) : "0.0";
+        html += `<div style="${styleCritical(parseFloat(pct))}">${loc} : ${vol} (${pct}%)</div>`;
+      });
+
+      document.getElementById("leftPanel").innerHTML = html;
+    }
+
+    async function reloadAll(){
+      const selectedMonth = parseInt(document.getElementById("monthSelect").value, 10);
+      const json = await loadData();
+      const r = computeForMonth(json, selectedMonth);
+      renderMap(r.zoneCounts);
+      renderSummary(r.groupCounts, r.total, r.totalAbj, r.totalInt);
+      renderLeftPanel(r.abjLoc, r.intLoc, r.total, r.totalAbj, r.totalInt);
+      updateLegend(r.total);
+    }
+
+    // Init month selector
+    const monthSelect = document.getElementById("monthSelect");
+    const currentMonth = new Date().getMonth() + 1;
+    for(let i=1;i<=12;i++){
+      const opt = document.createElement("option");
+      opt.value = i;
+      opt.textContent = i;
+      if(i === currentMonth) opt.selected = true;
+      monthSelect.appendChild(opt);
+    }
+
+    // Auto load
+    window.addEventListener("load", () => { reloadAll(); });
+  
+function showCableDetails(groupCounts, total){
+
+  let html = "<b>Détail Causes - Cable</b><hr>";
+
+  // On récupère toutes les causes Cable depuis causeGroups
+  const cableCauses = causeGroups["Cable"] || [];
+
+  let detail = [];
+
+  DATA_JSON.forEach(row=>{
+      const cause = (row["CAUSE RÉELLE"] || "").toUpperCase().trim();
+      if(cableCauses.includes(cause)){
+          if(!detail[cause]) detail[cause] = 0;
+          detail[cause]++;
+      }
+  });
+
+  const sorted = Object.entries(detail)
+      .sort((a,b)=> b[1]-a[1]);
+
+  sorted.forEach(([c,v])=>{
+      const pct = total ? ((v/total)*100).toFixed(1) : "0.0";
+      html += c + " : " + v + " (" + pct + "%)<br>";
+  });
+
+  L.popup()
+    .setLatLng(map.getCenter())
+    .setContent(html)
+    .openOn(map);
+}
+
+
+function showCategoryDetails(categoryName, selectedMonth){
+
+  let html = "<b>Détail Causes - " + categoryName + "</b><hr>";
+
+  const causesList = causeGroups[categoryName] || [];
+  let detail = {};
+  let totalMonth = 0;
+
+  DATA_JSON.forEach(row=>{
+      const d = toJSDate(row["DATE DE CRÉATION"]);
+      if(!d) return;
+      const m = d.getMonth() + 1;
+      if(m !== selectedMonth) return;
+
+      totalMonth++;
+
+      const cause = (row["CAUSE RÉELLE"] || "").toUpperCase().trim();
+
+      if(causesList.includes(cause)){
+          if(!detail[cause]) detail[cause] = 0;
+          detail[cause]++;
+      }
+  });
+
+  const sorted = Object.entries(detail)
+      .sort((a,b)=> b[1]-a[1]);
+
+  sorted.forEach(([c,v])=>{
+      const pct = totalMonth ? ((v/totalMonth)*100).toFixed(1) : "0.0";
+      html += c + " : " + v + " (" + pct + "%)<br>";
+  });
+
+  if(sorted.length === 0){
+      html += "Aucune donnée";
+  }
+
+  L.popup()
+    .setLatLng(map.getCenter())
+    .setContent(html)
+    .openOn(map);
+}
+
+</script>
+</body>
+</html>

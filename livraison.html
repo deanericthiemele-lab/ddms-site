@@ -1,0 +1,265 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Livraison – Dossiers livrés</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+body{font-family:Arial,Helvetica,sans-serif;margin:20px;font-size:14px;}
+button{background:#d3d3d3;border:none;padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer;}
+.topbar{display:flex;justify-content:flex-start;margin-bottom:10px;}
+h1{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:16px;margin:10px 0;}
+.search{margin:10px 0;}
+.search input{width:300px;padding:6px 8px;border:1px solid #aaa;border-radius:6px;}
+table{border-collapse:collapse;width:100%;margin-top:10px;}
+th,td{border:1px solid #ccc;padding:6px 8px;}
+th{background:#f2f2f2;}
+td.num{text-align:right;}
+</style>
+</head>
+
+<body>
+
+<div class="topbar">
+<button onclick="location.href='suivi_dossiers.html'">⬅ Retour</button>
+</div>
+
+<h1 id="titre">Dossiers livrés : 0</h1>
+
+<div class="search">
+<input id="searchInput" placeholder="Rechercher sur tous les champs">
+</div>
+
+<div style="margin:10px 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+<label>Début : <input type="date" id="dateDebut"></label>
+<label>Fin : <input type="date" id="dateFin"></label>
+
+<label>Mois :
+<select id="moisSelect">
+<option value="">Tous</option>
+<option value="0">Janvier</option>
+<option value="1">Février</option>
+<option value="2">Mars</option>
+<option value="3">Avril</option>
+<option value="4">Mai</option>
+<option value="5">Juin</option>
+<option value="6">Juillet</option>
+<option value="7">Août</option>
+<option value="8">Septembre</option>
+<option value="9">Octobre</option>
+<option value="10">Novembre</option>
+<option value="11">Décembre</option>
+</select>
+</label>
+
+<span id="totalGlobal" style="font-weight:bold;margin-left:10px;">
+Total : 0
+</span>
+
+<button onclick="applyFilters()">Filtrer</button>
+<button onclick="exportExcel()">Export Excel</button>
+<button onclick="refreshData()">Refresh</button>
+</div>
+
+<table id="tableLivraison">
+<thead>
+<tr id="tableHeader"></tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<script>
+let allRows=[];
+let displayedRows=[];
+let lastFilterUsed=null;
+
+const dateColumns=[
+ "Date MES & MEF",
+ "Date de création",
+ "Date de MAD"
+];
+
+function parseDate(v){
+ if(!v) return null;
+ if(typeof v==="number"){
+  const p=XLSX.SSF.parse_date_code(v);
+  return p?new Date(p.y,p.m-1,p.d):null;
+ }
+ const d=new Date(v);
+ return isNaN(d)?null:d;
+}
+
+function formatDateFR(dateObj){
+ const d=("0"+dateObj.getDate()).slice(-2);
+ const m=("0"+(dateObj.getMonth()+1)).slice(-2);
+ const y=dateObj.getFullYear();
+ return `${d}/${m}/${y}`;
+}
+
+function renderTable(rows){
+
+ rows.sort((a,b)=>{
+  const dA=parseDate(a["Date MES & MEF"]);
+  const dB=parseDate(b["Date MES & MEF"]);
+  if(!dA && !dB) return 0;
+  if(!dA) return 1;
+  if(!dB) return -1;
+  return dB-dA;
+ });
+
+ displayedRows=rows;
+
+ const headerRow=document.getElementById("tableHeader");
+ const tbody=document.querySelector("#tableLivraison tbody");
+
+ headerRow.innerHTML="";
+ tbody.innerHTML="";
+
+ if(rows.length===0){
+   tbody.innerHTML="<tr><td colspan='1'>Aucune donnée</td></tr>";
+   document.getElementById("titre").textContent="Dossiers livrés : 0";
+   document.getElementById("totalGlobal").textContent="Total : 0";
+   return;
+ }
+
+ const columns=Object.keys(rows[0]);
+
+ columns.forEach(col=>{
+   headerRow.innerHTML+=`<th>${col}</th>`;
+ });
+
+ rows.forEach(r=>{
+   let rowHtml="<tr>";
+   columns.forEach(col=>{
+     let value=r[col];
+
+     if(dateColumns.includes(col)){
+        const parsed=parseDate(value);
+        if(parsed) value=formatDateFR(parsed);
+     }
+
+     if(typeof value==="number" && !dateColumns.includes(col)){
+        rowHtml+=`<td class="num">${value.toLocaleString("fr-FR")}</td>`;
+     }else{
+        rowHtml+=`<td>${value??""}</td>`;
+     }
+   });
+   rowHtml+="</tr>";
+   tbody.innerHTML+=rowHtml;
+ });
+
+ document.getElementById("titre").textContent="Dossiers livrés : "+rows.length;
+ calculateTotal(rows);
+}
+
+function applyFilters(source){
+
+ if(source) lastFilterUsed=source;
+
+ const debut=document.getElementById("dateDebut").value;
+ const fin=document.getElementById("dateFin").value;
+ const search=document.getElementById("searchInput").value.toLowerCase();
+ const mois=document.getElementById("moisSelect").value;
+
+ const d1=debut?new Date(debut):null;
+ const d2=fin?new Date(fin):null;
+
+ const filtered=allRows.filter(r=>{
+
+  const d=parseDate(r["Date MES & MEF"]);
+
+  if(lastFilterUsed==="mois" && mois!=="" && d){
+     return d.getMonth()==mois;
+  }
+
+  if(lastFilterUsed==="date"){
+     if(d1 && d && d<d1) return false;
+     if(d2 && d && d>d2) return false;
+  }
+
+  if(lastFilterUsed==="search"){
+     if(search && !JSON.stringify(r).toLowerCase().includes(search)) return false;
+  }
+
+  return true;
+ });
+
+ renderTable(filtered);
+}
+
+function calculateTotal(rows){
+ let total=0;
+ rows.forEach(r=>{
+   if(typeof r["Total"]==="number"){
+     total+=r["Total"];
+   }
+ });
+ document.getElementById("totalGlobal").textContent="Total : "+total.toLocaleString("fr-FR");
+}
+
+function exportExcel(){
+ if(displayedRows.length===0){
+   alert("Aucune donnée à exporter");
+   return;
+ }
+ const ws=XLSX.utils.json_to_sheet(displayedRows);
+ const wb=XLSX.utils.book_new();
+ XLSX.utils.book_append_sheet(wb,ws,"Livraison");
+ XLSX.writeFile(wb,"export_livraison.xlsx");
+}
+
+function refreshData(){
+ document.getElementById("dateDebut").value="";
+ document.getElementById("dateFin").value="";
+ document.getElementById("moisSelect").value="";
+ document.getElementById("searchInput").value="";
+ lastFilterUsed=null;
+ renderTable(allRows);
+}
+
+document.getElementById("searchInput").addEventListener("keyup",()=>applyFilters("search"));
+
+document.getElementById("moisSelect").addEventListener("change",()=>{
+ document.getElementById("dateDebut").value="";
+ document.getElementById("dateFin").value="";
+ applyFilters("mois");
+});
+
+document.getElementById("dateDebut").addEventListener("change",()=>{
+ document.getElementById("moisSelect").value="";
+ applyFilters("date");
+});
+
+document.getElementById("dateFin").addEventListener("change",()=>{
+ document.getElementById("moisSelect").value="";
+ applyFilters("date");
+});
+
+fetch("input.xlsx?v="+Date.now())
+.then(r=>r.arrayBuffer())
+.then(b=>{
+ const wb=XLSX.read(b,{type:"array"});
+ const firstSheetName=wb.SheetNames[0];
+ const ws=wb.Sheets[firstSheetName];
+
+ const rawData=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
+ const headers=rawData[0];
+
+ allRows=rawData.slice(1)
+  .filter(row=>row.some(cell=>cell!==""))
+  .map(row=>{
+    let obj={};
+    headers.forEach((h,i)=>{ obj[h]=row[i]; });
+    return obj;
+  });
+
+ renderTable(allRows);
+});
+</script>
+
+</body>
+</html>

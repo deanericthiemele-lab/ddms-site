@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<title>📄 Résiliations</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { color: #FF6600; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+    th { background: #f2f2f2; }
+    #search { margin: 10px 0; padding: 6px; width: 25%; }
+    .kpi { display: inline-block; margin: 5px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa; cursor:pointer; }
+    .popup { display: none; position: fixed; top: 10%; left: 10%; width: 80%; height: 80%; background: white; border: 2px solid #333; overflow: auto; padding: 10px; z-index:1000; }
+    .popup table { width: 100%; }
+    .close { float: right; cursor: pointer; font-size: 18px; font-weight: bold; }
+    .tableau-scroll {
+      max-height: 500px;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      margin-bottom: 20px;
+    }
+    .tableau-scroll table {
+      min-width: 600px;
+    }
+  </style>
+</head>
+<body>
+<h1>📄 Résiliations</h1>
+<a href="index.html"><button>Retour</button></a>
+<input id="search" placeholder="Recherche dynamique..." type="text"/>
+<h2>KPI Produits (2023-2024-2026)</h2>
+<div id="kpis"></div>
+<h2>KPI Produits 2026</h2>
+<div id="kpis2026"></div>
+<h2 id="titre-mensuel">Résiliations mensuelles (par année)</h2>
+<div id="tableau-mensuel"></div>
+<button onclick="exporterTableau('tableau-mensuel', 'Resiliations_mensuelles.xlsx')">📤 Exporter ce tableau</button>
+<h2 id="titre-resi">Liste totale des résiliations 2026</h2>
+<div id="tableau"></div>
+<button onclick="exporterTableau('tableau', 'Resiliations_totales.xlsx')">📤 Exporter ce tableau</button>
+<h2 id="titre-par-client">Résiliations par client 2026</h2>
+<div id="tableau-par-client"></div>
+<button onclick="exporterTableau('tableau-par-client', 'Resiliations_clients.xlsx')">📤 Exporter ce tableau</button>
+<div class="popup" id="popup">
+<span class="close" onclick="document.getElementById('popup').style.display='none'">✖</span>
+<div id="popupContent"></div>
+</div>
+<script>
+let dataGlobal = [];
+let dataFiltre = [];
+
+function excelDateToJSDate(serial) {
+  const excelEpoch = new Date(1899, 11, 30);
+  return new Date(excelEpoch.getTime() + serial * 86400000);
+}
+
+function formatDateFR(date) {
+  if (!(date instanceof Date) || isNaN(date)) return "";
+  let d = date.getDate().toString().padStart(2,'0');
+  let m = (date.getMonth()+1).toString().padStart(2,'0');
+  let y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+function getDateFromCell(value) {
+  if (value == null) return null;
+  const num = Number(value);
+  if (!isNaN(num) && num > 20000 && num < 80000) {
+    return excelDateToJSDate(num);
+  }
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    return value;
+  }
+  const str = String(value).trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y, m, d] = str.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) {
+    const [d, m, y] = str.split("/").map(Number);
+    return new Date(y, m - 1, d);
+  }
+  if (/^\d{2}\/\d{2}\/\d{2}$/.test(str)) {
+    const [d, m, y] = str.split("/").map(Number);
+    const fullYear = y < 50 ? 2000 + y : 1900 + y; 
+    return new Date(fullYear, m - 1, d);
+  }
+  return null;
+}
+
+function formatDatesInRows(rows) {
+  if (!rows || !rows.length) return rows;
+  const dateKeys = Object.keys(rows[0]).filter(k => k.toLowerCase().includes("date"));
+  if (!dateKeys.length) return rows;
+  return rows.map(r => {
+    const copy = {...r};
+    dateKeys.forEach(k => {
+      const dt = getDateFromCell(copy[k]);
+      if (dt) copy[k] = formatDateFR(dt);
+    });
+    return copy;
+  });
+}
+
+async function chargerExcel() {
+  const response = await fetch("resi_final_.xlsx");
+  const arrayBuffer = await response.arrayBuffer();
+  const data = new Uint8Array(arrayBuffer);
+  const workbook = XLSX.read(data, { type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  dataGlobal = XLSX.utils.sheet_to_json(sheet);
+  dataFiltre = dataGlobal;
+
+  mettreAJourAffichage();
+
+  document.getElementById("search").addEventListener("keyup", function () {
+    const valeur = this.value.toLowerCase();
+    dataFiltre = dataGlobal.filter(row =>
+      Object.values(row).some(v => String(v).toLowerCase().includes(valeur))
+    );
+    mettreAJourAffichage();
+  });
+}
+
+function mettreAJourAffichage() {
+  afficherKPI(dataFiltre);
+  afficherKPI2026(dataFiltre);
+  afficherTableauMensuel(dataFiltre);
+
+  let totalTrie = [...dataFiltre].sort((a, b) => {
+    let da = getDateFromCell(a["Date résiliation "] || a["Date résiliation"]);
+    let db = getDateFromCell(b["Date résiliation "] || b["Date résiliation"]);
+    return (db?db.getTime():0) - (da?da.getTime():0);
+  });
+
+  // On ne filtre QUE pour la liste et le par client
+const uniquement2026 = totalTrie.filter(r => {
+  let d = getDateFromCell(r["Date résiliation "] || r["Date résiliation"]);
+  return d && d.getFullYear() === 2026;
+});
+
+const totalFormate = formatDatesInRows(uniquement2026);
+afficherTableau(totalFormate, "tableau");
+afficherTableauResume(totalFormate);
+
+  
+  let sommeRecurent = totalFormate.reduce((acc, row) => {
+    let montant = String(row["Récurent"] || "0")
+      .replace(/[^0-9,.-]/g,"")
+      .replace(/\./g,"")
+      .replace(",","."); 
+    return acc + (parseFloat(montant) || 0);
+  }, 0);
+  document.getElementById("titre-resi").innerText = "Liste totale des résiliations 2026 (" + totalFormate.length + ") - Total Récurent : " + sommeRecurent.toLocaleString("fr-FR") + " FCFA";
+
+}
+
+function afficherKPI(data) {
+  const produits = ["LS", "LSI", "T0", "T2"];
+  let html = "";
+  produits.forEach(p => {
+    const filtres = data.filter(d => d["Produit"] === p);
+    html += `<div class="kpi">${p} : ${filtres.length}</div>`;
+  });
+  document.getElementById("kpis").innerHTML = html;
+}
+
+
+function afficherKPI2026(data) {
+  const uniquement2026 = data.filter(r => {
+    let d = getDateFromCell(r["Date résiliation "] || r["Date résiliation"]);
+    return d && d.getFullYear() === 2026;
+  });
+
+  const produits = ["LS", "LSI", "T0", "T2"];
+  let html = "";
+  produits.forEach(p => {
+    const filtres = uniquement2026.filter(d => d["Produit"] === p);
+    html += `<div class="kpi">${p} : ${filtres.length}</div>`;
+  });
+  document.getElementById("kpis2026").innerHTML = html;
+}
+
+function afficherTableauMensuel(data) {
+  let volumes = {};
+  let details = {};
+
+  data.forEach(d => {
+    let dateRes = getDateFromCell(d["Date résiliation"] || d["Date résiliation "]);
+    if (!dateRes) return;
+    const mois = dateRes.getMonth();
+    const annee = dateRes.getFullYear();
+    const cle = annee + "-" + mois;
+    if (!volumes[cle]) { volumes[cle] = 0; details[cle] = []; }
+    volumes[cle]++;
+    details[cle].push(d);
+  });
+
+  const moisLabels = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin",
+                      "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
+
+  let annees = [...new Set(Object.keys(volumes).map(k => k.split("-")[0]))].sort();
+  let html = "<table><thead><tr><th>Année</th><th>Total</th>" + moisLabels.map(m=>"<th>"+m+"</th>").join("") + "</tr></thead><tbody>";
+
+annees.forEach(annee => {
+  let totalAnnuel = 0;
+  html += "<tr><td>"+annee+"</td>";
+
+  for (let m=0; m<12; m++) {
+    const cle = annee+"-"+m;
+    totalAnnuel += volumes[cle] || 0;
+  }
+  html += "<td style='font-weight:bold'>"+totalAnnuel+"</td>";
+
+  for (let m=0; m<12; m++) {
+    const cle = annee+"-"+m;
+    const val = volumes[cle] || 0;
+    if (val > 0) {
+      html += `<td style="cursor:pointer;color:blue;text-decoration:underline" 
+                 onclick="afficherPopupClients('${annee}', ${m})">${val}</td>`;
+    } else {
+      html += "<td>0</td>";
+    }
+  }
+  html += "</tr>";
+});
+
+html += "</tbody></table>";
+document.getElementById("tableau-mensuel").innerHTML = html;
+
+  window.detailsMensuels = details;
+}
+
+function afficherPopupClients(annee, mois) {
+  const cle = annee + "-" + mois;
+  const rows = window.detailsMensuels[cle] || [];
+  if (!rows.length) return;
+
+  let total = rows.length;
+  let moisNom = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][mois];
+  let html = `<h3>Résiliations ${moisNom} ${annee} (${total})</h3>`;
+  html += `<button onclick="exporterTableau('popupContent', 'Resiliations_${annee}_${mois+1}.xlsx')">📤 Exporter ce tableau</button>`;
+  html += "<div class='tableau-scroll'><table><thead><tr><th>Client</th><th>Produit</th><th>ND</th><th>Récurent</th><th>Date</th><th>Motif</th></tr></thead><tbody>";
+
+  rows.forEach(r => {
+    html += "<tr><td>"+(r["Clients"]||"")+"</td><td>"+(r["Produit"]||"")+"</td><td>"+(r["ND"]||"")+"</td><td>"+(r["Récurent"]||"")+"</td><td>"+formatDateFR(getDateFromCell(r["Date résiliation"]||r["Date résiliation "]))+"</td><td>"+(r["Motif de résiliation"]||"")+"</td></tr>";
+  });
+
+  html += "</tbody></table></div>";
+
+  document.getElementById("popupContent").innerHTML = html;
+  document.getElementById("popup").style.display = "block";
+}
+
+function afficherTableau(data, id) {
+  if (!data.length) { document.getElementById(id).innerHTML=""; return; }
+  const cols = Object.keys(data[0]);
+  let html = "<div class='tableau-scroll'><table><thead><tr><th>#</th>"+cols.map(c=>"<th>"+c+"</th>").join("")+"</tr></thead><tbody>";
+  data.forEach((row, i)=>{
+    html+="<tr><td>"+(i+1)+"</td>"+cols.map(c=>"<td>"+(row[c]||"")+"</td>").join("")+"</tr>";
+  });
+  html+="</tbody></table></div>";
+  document.getElementById(id).innerHTML = html;
+}
+
+function normaliserClient(nom) {
+  if (!nom) return "INCONNU";
+  let n = nom.toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^A-Z0-9 ]/g," ")
+    .replace(/\b(SA|SAS|SARL|CI|COTE DIVOIRE|COTE D IVOIRE|INTERNATIONAL|LIMITED|LTD)\b/g, "")
+    .replace(/\s+/g," ")
+    .trim();
+
+  if (n.includes("ORANGE BUSINESS")) return "ORANGE BUSINESS SERVICES";
+  if (n.includes("STANDARD CHARTERED")) return "STANDARD CHARTERED BANK";
+  if (n.includes("ECOBANK")) return "ECOBANK";
+  if (n.includes("CFAO")) return "CFAO";
+  if (n.includes("AIR COTE DIVOIRE")) return "AIR COTE DIVOIRE";
+  if (n.includes("MULTIMEDIA")) return "COTE D'IVOIRE MULTIMEDIA";
+  if (n.includes("BRASSIVOIRE")) return "BRASSIVOIRE";
+  if (n.includes("SUNU ASSURANCES")) return "SUNU ASSURANCES";
+  if (n.includes("VIPNET")) return "VIPNET";   // ✅ Nouvelle règle ajoutée
+
+  return n;
+}
+
+function levenshtein(a, b) {
+  if (!a || !b) return Math.max(a?.length||0, b?.length||0);
+  let matrix = [];
+  let i, j;
+  for (i = 0; i <= b.length; i++) {
+    matrix[i] = [i];
+  }
+  for (j = 0; j <= a.length; j++) {
+    matrix[0][j] = j;
+  }
+  for (i = 1; i <= b.length; i++) {
+    for (j = 1; j <= a.length; j++) {
+      if (b.charAt(i-1) == a.charAt(j-1)) {
+        matrix[i][j] = matrix[i-1][j-1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i-1][j-1] + 1,
+          Math.min(matrix[i][j-1] + 1, matrix[i-1][j] + 1)
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+function trouverGroupeSimilaire(groupes, nom, seuil=3) {
+  let minDist = Infinity;
+  let best = null;
+  for (let g in groupes) {
+    let d = levenshtein(nom, g);
+    if (d < minDist && d <= seuil) {
+      minDist = d;
+      best = g;
+    }
+  }
+  return best;
+}
+
+function afficherTableauResume(data) {
+  if (!data.length) return;
+  const groupes = {};
+
+  data.forEach(row => {
+    
+    let cle = normaliserClient(row["Clients"]);
+    let similaire = trouverGroupeSimilaire(groupes, cle);
+    if (similaire) cle = similaire;
+    
+    if (!groupes[cle]) groupes[cle] = { volume: 0, recurent: 0, originaux: [] };
+    groupes[cle].volume++;
+    groupes[cle].originaux.push(row["Clients"]);
+    const montant = String(row["Récurent"] || "0").replace(/\./g,"").replace(",",".");
+    groupes[cle].recurent += Number(montant);
+  });
+
+  let html = "<div class='tableau-scroll'><table><thead><tr><th>Client regroupé</th><th>Volume</th></tr></thead><tbody>";
+  Object.entries(groupes)
+    .sort((a,b) => b[1].volume - a[1].volume) // tri par volume décroissant
+    .forEach(([groupe, data]) => {
+      html += `<tr><td>${groupe}</td><td style="cursor:pointer;color:blue;text-decoration:underline" onclick="afficherPopupClientsRegroupes('${groupe}')">${data.volume}</td></tr>`;
+    });
+  html += "</tbody></table></div>";
+
+  document.getElementById("tableau-par-client").innerHTML = html;
+  window.groupesResume = groupes;
+  const titreClient = document.getElementById("titre-par-client");
+  if (titreClient) {
+    const nbClients = Object.keys(groupes).length;
+    titreClient.innerText = "Résiliations par client 2026 (" + nbClients + ")";
+  }
+}
+
+function exporterTableau(idDiv, nomFichier) {
+  const table = document.querySelector(`#${idDiv} table`);
+  if (!table) { alert("Tableau introuvable !"); return; }
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.table_to_sheet(table);
+  XLSX.utils.book_append_sheet(wb, ws, "Feuille1");
+
+  XLSX.writeFile(wb, nomFichier);
+}
+
+
+function afficherPopupClientsRegroupes(groupe) {
+  const clients = window.groupesResume[groupe]?.originaux || [];
+  if (!clients.length) return;
+  let html = `<h3>Clients regroupés sous ${groupe}</h3><ul>`;
+  clients.forEach(c => { html += "<li>" + c + "</li>"; });
+  html += "</ul>";
+  document.getElementById("popupContent").innerHTML = html;
+  document.getElementById("popup").style.display = "block";
+}
+
+chargerExcel();
+</script>
+
+<h2 id="titre-par-motif">Résiliations par motif 2026</h2>
+<div id="tableau-par-motif"></div>
+<button onclick="exporterTableau('tableau-par-motif', 'Resiliations_motif.xlsx')">📤 Exporter ce tableau</button>
+<script>
+let motifsDetails = {};
+
+function afficherTableauParMotif(data) {
+  if (!data.length) return;
+  const motifs = {};
+  motifsDetails = {};
+  data.forEach(row => {
+    let motif = row["Motif de résiliation"] || "INCONNU";
+    if (!motifs[motif]) { motifs[motif] = 0; motifsDetails[motif] = []; }
+    motifs[motif]++;
+    motifsDetails[motif].push(row);
+  });
+
+  let html = "<div class='tableau-scroll'><table><thead><tr><th>Motif</th><th>Volume</th></tr></thead><tbody>";
+  Object.entries(motifs)
+    .sort((a,b) => b[1] - a[1]) // tri par volume décroissant
+    .forEach(([motif, vol]) => {
+      html += `<tr><td>${motif}</td><td style="cursor:pointer;color:blue;text-decoration:underline" onclick="afficherPopupMotif('${motif}')">${vol}</td></tr>`;
+    });
+  html += "</tbody></table></div>";
+  document.getElementById("tableau-par-motif").innerHTML = html;
+  document.getElementById("titre-par-motif").innerText =
+    "Résiliations par motif 2026 (" + Object.keys(motifs).length + ")";
+}
+
+function afficherPopupMotif(motif) {
+  const rows = motifsDetails[motif] || [];
+  if (!rows.length) return;
+  let html = `<h3>Résiliations pour le motif : ${motif}</h3>`;
+  html += `<button onclick="exporterTableau('popupContent', 'Resiliations_${motif}.xlsx')">📤 Exporter ce tableau</button>`;
+  html += "<div class='tableau-scroll'><table><thead><tr><th>Client</th><th>Produit</th><th>ND</th><th>Récurent</th><th>Date</th><th>Motif</th></tr></thead><tbody>";
+  rows.forEach(r => {
+    html += "<tr><td>"+(r["Clients"]||"")+"</td><td>"+(r["Produit"]||"")+"</td><td>"+(r["ND"]||"")+"</td><td>"+(r["Récurent"]||"")+"</td><td>"+formatDateFR(getDateFromCell(r["Date résiliation"]||r["Date résiliation "]))+"</td><td>"+(r["Motif de résiliation"]||"")+"</td></tr>";
+  });
+  html += "</tbody></table></div>";
+  document.getElementById("popupContent").innerHTML = html;
+  document.getElementById("popup").style.display = "block";
+}
+
+// Injection dans mettreAJourAffichage
+const oldMettreAJour = mettreAJourAffichage;
+mettreAJourAffichage = function() {
+  oldMettreAJour();
+  const uniquement2026 = dataFiltre.filter(r => {
+    let d = getDateFromCell(r["Date résiliation "] || r["Date résiliation"]);
+    return d && d.getFullYear() === 2026;
+  });
+  const totalFormate = formatDatesInRows(uniquement2026);
+  afficherTableauParMotif(totalFormate);
+}
+</script>
+
+</body>
+</html>

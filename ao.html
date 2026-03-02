@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Analyse d’appel d’offre</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
+
+  <style>
+    body{font-family:Arial;margin:40px;background:#f7f7f7}
+    button{padding:10px 20px;background:#007BFF;color:#fff;border:none;cursor:pointer;margin:5px;border-radius:5px}
+    button:hover{background:#0056b3}
+    #result{margin-top:20px}
+    .progress-container{margin-top:15px;width:100%;background:#eee;border-radius:5px;overflow:hidden}
+    .progress-bar{width:0%;height:20px;background:#28a745;text-align:center;color:white;font-size:12px}
+
+    .resume-block{
+      background:white;padding:15px 20px;border-radius:8px;
+      margin-bottom:15px;border-left:6px solid #007BFF;
+      box-shadow:0 2px 6px rgba(0,0,0,0.08)
+    }
+    .resume-title{font-weight:bold;font-size:17px;margin-bottom:8px;color:#333}
+    .resume-text{white-space:pre-wrap;color:#444}
+  </style>
+</head>
+
+<body>
+
+<button onclick="window.location.href='index.html'">← Retour</button>
+<h1>Analyse automatique d’un appel d’offre</h1>
+
+<input type="file" id="fileInput" accept="application/pdf"/>
+<button id="sendBtn">Envoyer</button>
+
+<div class="progress-container"><div id="progressBar" class="progress-bar">0%</div></div>
+
+<h3>Résumé généré :</h3>
+<button onclick="downloadWord()">Exporter en Word</button>
+
+<div id="result">En attente...</div>
+
+<script>
+const progressBar=document.getElementById("progressBar");
+const resultDiv=document.getElementById("result");
+
+async function extractTextFromPDF(file){
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  let t="";
+  for(let i=1;i<=pdf.numPages;i++){
+    const p=await pdf.getPage(i);
+    const c=await p.getTextContent();
+    t+=c.items.map(it=>it.str).join(" ")+"\n";
+  }
+  return t;
+}
+
+document.getElementById("sendBtn").addEventListener("click",async()=>{
+  const f=document.getElementById("fileInput").files[0];
+  if(!f) return alert("Choisis un PDF !");
+
+  progressBar.style.width="20%";progressBar.innerText="Extraction...";
+  const extracted=await extractTextFromPDF(f);
+
+  progressBar.style.width="50%";progressBar.innerText="Envoi...";
+  const r=await fetch("/.netlify/functions/resume",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({texte:extracted})
+  });
+
+  progressBar.style.width="80%";progressBar.innerText="Analyse...";
+  const data=await r.json();
+
+  progressBar.style.width="100%";progressBar.innerText="Terminé";
+  renderBlocks(data.resultat);
+});
+
+
+/* TITRE markdown ### = 1 bloc */
+function renderBlocks(text){
+  const lines = text.split("\n");
+  let html = "";
+  let currentTitle = "";
+  let currentContent = "";
+
+  lines.forEach(line => {
+    if (!line.trim()) return;
+
+    if (line.startsWith("###")) {
+
+      if (currentTitle) {
+        html += `
+          <div class="resume-block">
+            <div class="resume-title">${currentTitle}</div>
+            <div class="resume-text">${currentContent}</div>
+          </div>`;
+      }
+
+      currentTitle = line.replace("###", "").trim();
+      currentContent = "";
+    }
+    else {
+      currentContent += line + "\n";
+    }
+  });
+
+  if (currentTitle) {
+    html += `
+      <div class="resume-block">
+        <div class="resume-title">${currentTitle}</div>
+        <div class="resume-text">${currentContent}</div>
+      </div>`;
+  }
+
+  resultDiv.innerHTML = html;
+}
+
+function downloadWord(){
+  const blob=new Blob([resultDiv.innerText],{type:"application/msword"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="resume.doc";
+  a.click();
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Qos Service</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+ body {font-family: Arial, sans-serif;margin: 20px;}
+ .back {position: absolute;top: 20px;left: 20px;padding: 8px 12px;background:#007bff;color:#fff;text-decoration:none;border-radius:5px;}
+ h2 {margin-top: 60px;}
+ h2 span {font-size: 16px;color:#444;margin-left:10px;}
+ #search {padding: 8px;margin: 10px 5px 15px 0;}
+ .table-container {width: 100%;max-height: 85vh;overflow-x: auto;overflow-y: auto;border: 1px solid #ddd;}
+ table {border-collapse: collapse;width: max-content;}
+ th, td {border: 1px solid #ccc;padding: 8px;text-align: left;white-space: nowrap;}
+ th {background: #f2f2f2;position: sticky;top: 0;z-index: 10;}
+ tr:nth-child(even) {background: #fafafa;}
+ tr:hover {background: #e6f3ff;}
+ .export-btn {padding:8px 12px;background:#28a745;color:#fff;border:none;border-radius:5px;cursor:pointer;margin-bottom:10px;}
+
+/* Bouton flottant 2025 */
+.btn-2025 {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  background: #003366;
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: bold;
+  text-decoration: none;
+  z-index: 9999;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+.btn-2025:hover {
+  opacity: 0.85;
+}
+
+</style>
+</head>
+
+<body>
+<a href="index.html" class="btn-2025">2025</a>
+
+
+<a class="back" href="index.html">⟵ Retour</a>
+
+<h2>Qos Service <span id="total"></span></h2>
+
+<input type="text" id="search" placeholder="Recherche..." onkeyup="applyFilters()">
+<button class="export-btn" onclick="exportExcel()">Exporter Excel</button>
+
+<div class="table-container">
+    <table id="table"></table>
+</div>
+
+<script>
+let originalData = [];
+
+window.onload = () => loadExcel();
+
+function formatDate(d){
+    if(!d) return '';
+    let date = new Date(d);
+    if(isNaN(date)) return d;
+    let j = ('0'+date.getDate()).slice(-2);
+    let m = ('0'+(date.getMonth()+1)).slice(-2);
+    let a = date.getFullYear();
+    return j+'/'+m+'/'+a;
+}
+
+function loadExcel(){
+    fetch('QOS Service B2B.xlsx')
+    .then(r => r.arrayBuffer())
+    .then(data => {
+        let wb = XLSX.read(data, {type:'array'});
+        let sheet = wb.Sheets[wb.SheetNames[0]];
+        let json = XLSX.utils.sheet_to_json(sheet, {header:1});
+
+        let header = json[0];
+        let rows = json.slice(1).map(r=>{
+            r[0] = formatDate(r[0]);
+            return r;
+        });
+
+        originalData = [header, ...rows];
+        applyFilters();
+    });
+}
+
+function applyFilters(){
+    let search = document.getElementById('search').value.toLowerCase();
+
+    let filtered = originalData.slice(1).filter(r=>{
+        return r.join(' ').toLowerCase().includes(search);
+    });
+
+    document.getElementById('total').textContent = "(Total : " + filtered.length + ")";
+
+    let header = originalData[0];
+    let finalData = [header, ...filtered];
+
+    buildTable(finalData);
+}
+
+function buildTable(data){
+    let table = document.getElementById('table');
+    table.innerHTML = '';
+
+    data.forEach((row,i)=>{
+        let tr = document.createElement('tr');
+        row.forEach(cell=>{
+            let tag = i===0 ? 'th':'td';
+            let td = document.createElement(tag);
+            td.textContent = cell;
+            tr.appendChild(td);
+        });
+        table.appendChild(tr);
+    });
+}
+
+function exportExcel(){
+    let table = document.getElementById('table');
+    let wb = XLSX.utils.table_to_book(table, {sheet:"QOS"});
+    XLSX.writeFile(wb, "QOS_export.xlsx");
+}
+</script>
+
+</body>
+</html>

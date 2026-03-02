@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Suivi des Dossiers</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
+button{background:#d3d3d3;border:none;padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer;margin-right:6px}
+button:hover{filter:brightness(.95)}
+h1{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:16px;font-weight:bold;margin-bottom:6px}
+.subresume{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:15px;font-weight:bold;margin-bottom:10px}
+.search-zone{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.search-zone input{padding:6px 8px;border:1px solid #aaa;border-radius:6px;width:280px}
+table{border-collapse:collapse;width:100%;margin-top:10px}
+th,td{border:1px solid #ccc;padding:6px}
+th{background:#eee}
+td.num{text-align:right}
+.popup{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:1000}
+.popup-content{background:#fff;border-radius:8px;padding:15px;width:1100px;max-height:85vh;overflow:auto}
+.popup-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.close{cursor:pointer;font-weight:bold;font-size:18px}
+</style>
+</head>
+<body>
+
+<button onclick="location.href='index.html'">Retour</button>
+<button onclick="location.href='recu prod.html'">Suivi CA</button>
+<button onclick="location.href='suivi_dossiers2.html'">PIPE</button>
+<button onclick="location.href='livraison.html'">Dossiers livrés</button>
+<button id="btnNettoyage">Dossiers à geler</button>
+
+<h1 id="resume">Dossiers : 0</h1>
+<div class="subresume" id="subresume">LS : 0 | LSI : 0 | Numérique : 0</div>
+
+<div class="search-zone">
+  <input id="searchInput" placeholder="Rechercher ID, client ou type abonnement"/>
+  <input type="file" id="fileInput" accept=".xlsx,.xls"/>
+</div>
+
+<table id="tableDossiers">
+<thead>
+<tr>
+<th>ID DOSSIER</th>
+<th>DATE CREATION DOSSIER</th>
+<th>DURÉE (j)</th>
+<th>ETAPE</th>
+<th>CLIENT</th>
+<th>TYPE ABONNEMENT</th>
+</tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<div class="popup" id="popupNettoyage">
+ <div class="popup-content">
+  <div class="popup-header">
+   <h2 id="popupNettoyageTitle">Dossiers à geler</h2>
+   <span class="close" onclick="closeNettoyage()">✕</span>
+  </div>
+  <table id="tableNettoyage">
+   <thead>
+    <tr>
+     <th>ID DOSSIER</th>
+     <th>DATE CREATION DOSSIER</th>
+     <th>DURÉE GLOBALE</th>
+     <th>DURÉE ETAPE</th>
+     <th>ETAPE</th>
+     <th>CLIENT</th>
+     <th>TYPE ABONNEMENT</th>
+    </tr>
+   </thead>
+   <tbody></tbody>
+  </table>
+ </div>
+</div>
+
+<script>
+let dossiersGlobal=[], dossiersNettoyage=[];
+
+function parseDate(v){
+ if(!v) return null;
+ if(typeof v==="number"){
+  const d=XLSX.SSF.parse_date_code(v);
+  return d?new Date(d.y,d.m-1,d.d):null;
+ }
+ const d=new Date(v);
+ return isNaN(d)?null:d;
+}
+function formatDate(v){
+ const d=parseDate(v);
+ return !d?"" : d.toLocaleDateString("fr-FR");
+}
+function daysBetween(date){
+ const today=new Date();today.setHours(0,0,0,0);
+ const d=parseDate(date);
+ if(!d) return 0;
+ return Math.floor((today-d)/(1000*60*60*24));
+}
+
+const pipeFiles = ["pipe.xlsx"];
+
+function dedupeById(rows){
+ const map = new Map();
+ rows.forEach(r=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
+  if(id && !map.has(id)){
+   map.set(id, r);
+  }
+ });
+ return Array.from(map.values());
+}
+
+async function loadPipe(){
+ for(const f of pipeFiles){
+  try{
+   const r = await fetch(f + "?v=" + Date.now());
+   if(!r.ok) continue;
+
+   const b = await r.arrayBuffer();
+   const wb = XLSX.read(b,{type:"array"});
+   const ws = wb.Sheets[wb.SheetNames[0]];
+   const raw = XLSX.utils.sheet_to_json(ws,{raw:true});
+
+   dossiersGlobal = dedupeById(raw);
+   renderMain();
+   return;
+  }catch(e){}
+ }
+}
+loadPipe();
+
+function renderMain(){
+ document.getElementById("resume").textContent="Dossiers : "+dossiersGlobal.length;
+
+ let ls=0,lsi=0,num=0;
+ dossiersGlobal.forEach(r=>{
+  const t=(r["TYPE ABONNEMENT"]||"").toUpperCase();
+  if(t==="LS") ls++;
+  else if(t==="LSI") lsi++;
+  else if(t.includes("NUM")) num++;
+ });
+ document.getElementById("subresume").textContent =
+  `LS : ${ls} | LSI : ${lsi} | Numérique : ${num}`;
+
+ const tbody=document.querySelector("#tableDossiers tbody");
+ tbody.innerHTML="";
+ dossiersGlobal.forEach(r=>{
+  tbody.innerHTML+=`
+   <tr>
+    <td>${r["ID DOSSIER"]||""}</td>
+    <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
+    <td class="num">${daysBetween(r["DATE CREATION DOSSIER"])}</td>
+    <td>${r["ETAPE"]||""}</td>
+    <td>${r["CLIENT"]||""}</td>
+    <td>${r["TYPE ABONNEMENT"]||""}</td>
+   </tr>`;
+ });
+}
+
+document.getElementById("searchInput").addEventListener("keyup",()=>{
+ const q=searchInput.value.toLowerCase();
+ const tbody=document.querySelector("#tableDossiers tbody");
+ tbody.innerHTML="";
+ let cpt=0;
+
+ dossiersGlobal.forEach(r=>{
+  const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]).toLowerCase();
+  if(txt.includes(q)){
+   cpt++;
+   tbody.innerHTML+=`
+    <tr>
+     <td>${r["ID DOSSIER"]||""}</td>
+     <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
+     <td class="num">${daysBetween(r["DATE CREATION DOSSIER"])}</td>
+     <td>${r["ETAPE"]||""}</td>
+     <td>${r["CLIENT"]||""}</td>
+     <td>${r["TYPE ABONNEMENT"]||""}</td>
+    </tr>`;
+  }
+ });
+ document.getElementById("resume").textContent="Dossiers : "+cpt;
+});
+
+document.getElementById("fileInput").addEventListener("change", e=>{
+ const file = e.target.files[0];
+ if(!file) return;
+
+ const reader = new FileReader();
+ reader.onload = evt=>{
+  const data = evt.target.result;
+  const wb = XLSX.read(data,{type:"array"});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const raw = XLSX.utils.sheet_to_json(ws,{raw:true});
+
+  dossiersGlobal = dedupeById(raw);
+  renderMain();
+ };
+ reader.readAsArrayBuffer(file);
+});
+
+document.getElementById("btnNettoyage").onclick=()=>{
+ dossiersNettoyage=[];
+ dossiersGlobal.forEach(r=>{
+  const dg=daysBetween(r["DATE CREATION DOSSIER"]);
+  const de=daysBetween(r["DATE CREATION TACHE"]);
+  if(dg>=45 && de>=14) dossiersNettoyage.push({r,dg,de});
+ });
+
+ const tbody=document.querySelector("#tableNettoyage tbody");
+ tbody.innerHTML="";
+ dossiersNettoyage.forEach(o=>{
+  const r=o.r;
+  tbody.innerHTML+=`
+   <tr>
+    <td>${r["ID DOSSIER"]||""}</td>
+    <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
+    <td class="num">${o.dg}</td>
+    <td class="num">${o.de}</td>
+    <td>${r["ETAPE"]||""}</td>
+    <td>${r["CLIENT"]||""}</td>
+    <td>${r["TYPE ABONNEMENT"]||""}</td>
+   </tr>`;
+ });
+
+ document.getElementById("popupNettoyageTitle").textContent =
+  "Dossiers à geler ("+dossiersNettoyage.length+") – ≥45 jrs + ≥14 jrs";
+ document.getElementById("popupNettoyage").style.display="flex";
+};
+
+function closeNettoyage(){
+ document.getElementById("popupNettoyage").style.display="none";
+}
+</script>
+
+</body>
+</html>

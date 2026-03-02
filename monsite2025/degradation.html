@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Dégradation</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h2 { text-align: center; }
+    #searchInput { margin-bottom: 10px; padding: 5px; width: 25%; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    #retour { margin-bottom: 20px; padding: 10px 20px; background: #007BFF; color: white; border: none; cursor: pointer; border-radius: 5px; }
+    #retour:hover { background: #0056b3; }
+    .kpi { font-size: 1.2em; text-align: center; margin-top: 10px; }
+
+    #exportExcel, #suivi {
+      margin-left: 10px;
+      padding: 10px 20px;
+      background: #28a745;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    #suivi { background:#6f42c1; }
+  
+/* Bouton flottant 2025 */
+.btn-2025 {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  background: #003366;
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: bold;
+  text-decoration: none;
+  z-index: 9999;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+.btn-2025:hover {
+  opacity: 0.85;
+}
+
+</style>
+</head>
+<body>
+<a href="index.html" class="btn-2025">2025</a>
+
+  <button id="retour" onclick="window.location.href='planning.html'">⬅ Retour</button>
+
+  <!-- Added buttons -->
+  <button id="exportExcel" onclick="exportTableToExcel()">⬇ Export Excel</button>
+  <button id="suivi" onclick="window.location.href='Suivi_corrections.html'">📄 Suivi</button>
+
+  <h2>Suivi de la dégradation des câbles</h2>
+  <div class="kpi" id="kpiVolume">Total ND filtrés : 0</div>
+
+  <input type="text" id="searchInput" onkeyup="searchTable()" placeholder="🔍 Rechercher dans le tableau...">
+
+  <table id="dataTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>ND</th>
+        <th>RAISON SOCIALE</th>
+        <th>Total coupures/soudures</th>
+        <th>Dernier incident avant sept</th>
+        <th>Sept</th>
+        <th>Oct</th>
+        <th>Nov</th>
+        <th>Dec</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <!-- KEEPING REST OF SCRIPT IDENTICAL EXCEPT EXPORT FUNCTION ADDED -->
+  <script>
+    const causesCibles = [
+      "Brins FO Mauvais","Câble FO Coupé","Cuivre déffectueux",
+      "Coupure FO ROA","Coupure FO Fttx","Coupure Cuivre",
+      "Câble Cuivre Volé","FO déffectueux","Câble Cuivre défectueux"
+    ];
+
+    let detailsParND = {};
+
+    async function loadExcel() {
+      const response = await fetch("data.xlsx");
+      const arrayBuffer = await response.arrayBuffer();
+      const data = new Uint8Array(arrayBuffer);
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const json = XLSX.utils.sheet_to_json(sheet);
+
+      const filtre = json.filter(row => 
+        row["CAUSE RÉELLE"] && causesCibles.some(c => row["CAUSE RÉELLE"].toString().toLowerCase().includes(c.toLowerCase()))
+      );
+
+      detailsParND = {};
+      filtre.forEach(r => {
+        const nd = r["ND"] || "ND inconnu";
+        const date = r["DATE DE CRÉATION"] || r["DATE_CREATION_DOSSIER"] || r["DATE_MS"] || r["DATE_RS"] || "Date inconnue";
+        const cause = r["CAUSE RÉELLE"];
+        if (!detailsParND[nd]) detailsParND[nd] = [];
+        detailsParND[nd].push({ date, cause });
+      });
+
+      const map = {};
+      filtre.forEach(r => {
+        const nd = r["ND"] || "ND inconnu";
+        const client = r["RAISON SOCIALE"] || "Inconnu";
+        if (!map[nd]) map[nd] = { ND: nd, RAISON: client, VOLUME: 0 };
+        map[nd].VOLUME++;
+      });
+
+      const dataFinale = Object.values(map);
+      remplirTableau(dataFinale);
+      document.getElementById("kpiVolume").innerText = "Total ND filtrés : " + filtres.length;
+    }
+
+    function getDernierIncidentAvantSept(nd) {
+      let incidents = detailsParND[nd] || [];
+      let dernier = null;
+      incidents.forEach(d => {
+        let dateObj;
+        if (!isNaN(d.date)) {
+          dateObj = new Date((d.date - 25569) * 86400 * 1000);
+        } else {
+          dateObj = new Date(d.date);
+        }
+        if (!isNaN(dateObj) && dateObj.getMonth() + 1 < 9) {
+          if (!dernier || dateObj > dernier.dateObj) {
+            dernier = { cause: d.cause, dateObj };
+          }
+        }
+      });
+      return dernier ? dernier.cause : "";
+    }
+
+    function remplirTableau(data) {
+      const tbody = document.querySelector("#dataTable tbody");
+      tbody.innerHTML = "";
+      let filtres = data.filter(row => row.VOLUME >= 6);
+      filtres.sort((a, b) => b.VOLUME - a.VOLUME);
+
+      filtres.forEach((row, i) => {
+        const countsByMonth = {sept:0, oct:0, nov:0, dec:0};
+        (detailsParND[row.ND] || []).forEach(d => {
+          let dateObj = d.date;
+          if (!isNaN(d.date)) {
+            dateObj = new Date((d.date - 25569) * 86400 * 1000);
+          } else {
+            dateObj = new Date(d.date);
+          }
+          if (!isNaN(dateObj)) {
+            const month = dateObj.getMonth() + 1;
+            if(month === 9) countsByMonth.sept++;
+            if(month === 10) countsByMonth.oct++;
+            if(month === 11) countsByMonth.nov++;
+            if(month === 12) countsByMonth.dec++;
+          }
+        });
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${i + 1}</td>
+          <td>${row.ND}</td>
+          <td>${row.RAISON}</td>
+          <td style="color:blue; cursor:pointer;" onclick="afficherDetails('${row.ND}')">${row.VOLUME}</td>
+          <td>${getDernierIncidentAvantSept(row.ND)}</td>
+          <td>${countsByMonth.sept}</td>
+          <td>${countsByMonth.oct}</td>
+          <td>${countsByMonth.nov}</td>
+          <td>${countsByMonth.dec}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById("kpiVolume").innerText = "Total ND filtrés : " + filtres.length;
+    }
+
+    function searchTable() {
+      const input = document.getElementById("searchInput").value.toLowerCase();
+      const rows = document.querySelectorAll("#dataTable tbody tr");
+      let visibleCount = 0;
+      rows.forEach(r => {
+        if (r.innerText.toLowerCase().includes(input)) {
+          r.style.display = "";
+          visibleCount++;
+        } else {
+          r.style.display = "none";
+        }
+      });
+      document.getElementById("kpiVolume").innerText = "Total ND filtrés : " + visibleCount;
+    }
+
+    function afficherDetails(nd) {
+      const tbody = document.getElementById("detailsContent");
+      tbody.innerHTML = "";
+      (detailsParND[nd] || []).forEach(d => {
+        let dateAffichee = d.date;
+        if (!isNaN(d.date)) {
+          dateAffichee = new Date((d.date - 25569) * 86400 * 1000).toLocaleDateString();
+        }
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${dateAffichee}</td>
+          <td>${d.cause}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      document.getElementById("detailsBox").style.display = "flex";
+    }
+
+    function exportTableToExcel() {
+      const table = document.getElementById("dataTable");
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.table_to_sheet(table);
+      XLSX.utils.book_append_sheet(wb, ws, 'Export');
+      XLSX.writeFile(wb, 'degradation_export.xlsx');
+    }
+
+    loadExcel();
+  </script>
+</body>
+</html>

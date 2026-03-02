@@ -1,0 +1,169 @@
+
+<!DOCTYPE html>
+
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<title>📅 Planning ND Répétitifs</title>
+<style>
+    body { font-family: Arial; margin: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    input, textarea { width: 100%; box-sizing: border-box; }
+    h2 { color: #2e7d32; }
+    .btn-save { background-color: #4CAF50; color: white; padding: 10px; border: none; margin-top: 20px; cursor: pointer; border-radius: 5px; }
+  
+body, table, input, textarea {
+  font-size: 13px;
+}
+
+#planning-table td:nth-child(2) { width: 120px; }     /* Client */
+#planning-table td:nth-child(6) { width: 200px; }     /* Cause */
+
+/* Bouton flottant 2025 */
+.btn-2025 {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  background: #003366;
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: bold;
+  text-decoration: none;
+  z-index: 9999;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+.btn-2025:hover {
+  opacity: 0.85;
+}
+
+</style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+@media (max-width: 768px) {
+    body { font-size: 20px; }
+    table { font-size: 18px; }
+    h1, h2, h3 { font-size: 22px; }
+    button, input, select { font-size: 18px; }
+}
+</style>
+
+</head>
+<body>
+<a href="index.html" class="btn-2025">2025</a>
+<button onclick="window.location.href='ingenierie.html'" style="background-color: #9E9E9E; color: white; padding: 10px; border: none; border-radius: 4px; cursor: pointer; margin-bottom: 10px;">⬅️ Retour à l'analyse</button>
+<input id="search" oninput="filtrerPlanning()" placeholder="🔍 Rechercher un ND, client, localisation..." style="margin-top: 10px; padding: 6px; width: 300px; font-size: 13px;" type="text"/><h2>📅 Planning - ND instables ou critiques sur l’année</h2><div id="incident-count" style="margin-top: 10px; font-weight: bold; color: #2e7d32;">Chargement du nombre d'incidents...</div>
+<div style="margin-top: 10px; margin-bottom: 10px;"><button class="btn-save" onclick="sauvegarder()">💾 Sauvegarder</button><button class="btn-save" onclick="exporterPlanningExcel()">📥 Exporter vers Excel</button></div><table id="planning-table">
+<thead>
+<tr>
+<th>ND</th>
+<th>Client</th>
+<th>Localisation</th>
+<th>Commentaire</th>
+<th>Date correction</th><th>Cause</th><th>Janvier</th><th>Février</th><th>Mars</th><th>Avril</th><th>Mai</th><th>Juin</th><th>Juillet</th><th>Août</th><th>Septembre</th><th>Octobre</th><th>Novembre</th><th>Décembre</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+<script>
+    let planning = JSON.parse(localStorage.getItem("planningNDannuel") || "[]");
+    const nouveauxND = JSON.parse(sessionStorage.getItem("ndDeuxMois") || "[]");
+
+    // Ajouter seulement les nouveaux ND qui n'existent pas déjà
+    nouveauxND.forEach(nd => {
+      if (!planning.find(p => p.nd === nd.nd)) {
+        planning.push({ ...nd, commentaire: "" });
+      }
+    });
+
+    const tbody = document.querySelector("#planning-table tbody");
+    planning.forEach((item, index) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${item.nd}</td>
+        <td>${item.client}</td>
+        <td>${item.localisation}</td>
+        <td><textarea onchange="updateComment(${index}, this.value)">${item.commentaire || ""}</textarea></td><td><input type="date" onchange="updateDate(${index}, this.value)" value="${item.dateCorrection || ""}"></td><td><input type="text" onchange="updateCause(${index}, this.value)" value="${item.cause || ""}"></td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    function updateComment(index, value) {
+      planning[index].commentaire = value;
+    }
+
+    function sauvegarder() {
+      localStorage.setItem("planningNDannuel", JSON.stringify(planning));
+      alert("✅ Planning sauvegardé localement !");
+    }
+  
+
+function updateDate(index, value) {
+  planning[index].dateCorrection = value;
+}
+function updateCause(index, value) {
+  planning[index].cause = value;
+}
+
+function filtrerPlanning() {
+  const filtre = document.getElementById("search").value.toLowerCase();
+  const lignes = document.querySelectorAll("#planning-table tbody tr");
+  lignes.forEach(tr => {
+    const texte = tr.innerText.toLowerCase();
+    tr.style.display = texte.includes(filtre) ? "" : "none";
+  });
+}
+
+function exporterPlanningExcel() {
+  if (typeof XLSX === "undefined") {
+    alert("❌ La librairie XLSX est requise pour exporter.");
+    return;
+  }
+  const rows = planning.map(item => ({
+    "ND": item.nd,
+    "Client": item.client,
+    "Localisation": item.localisation,
+    "Commentaire": item.commentaire || "",
+    "Date correction": item.dateCorrection || "",
+    "Cause": item.cause || ""
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Planning ND");
+  XLSX.writeFile(wb, "planning_nd.xlsx");
+}
+</script>
+<script>
+function afficherNombreIncidents() {
+  document.getElementById("incident-count").textContent = `✅ Total ND dans le planning : ${planning.length}`;
+}
+afficherNombreIncidents();
+
+function simulateOccurrencesAfterCorrection(dateCorrection) {
+  if (!dateCorrection) return {};
+  const baseDate = new Date(dateCorrection);
+  const result = {};
+  for (let i = 0; i < 12; i++) {
+    const futureDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, 1);
+    const key = futureDate.toLocaleString('fr-FR', { month: 'long' });
+    result[key.charAt(0).toUpperCase() + key.slice(1)] = Math.floor(Math.random() * 4); // simulate 0 to 3
+  }
+  return result;
+}
+
+document.querySelectorAll("#planning-table tbody tr").forEach((tr, index) => {
+  const dateInput = tr.querySelector('input[type="date"]');
+  const dateCorrection = dateInput?.value;
+  const data = simulateOccurrencesAfterCorrection(dateCorrection);
+
+  const orderedMonths = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+  orderedMonths.forEach(mois => {
+    const td = document.createElement("td");
+    td.textContent = data[mois] ?? "";
+    tr.appendChild(td);
+  });
+});
+</script></body>
+</html>

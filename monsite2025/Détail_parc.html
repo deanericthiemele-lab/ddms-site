@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liste du Parc Clients</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="max-w-7xl mx-auto p-6">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-700">📊 Liste du Parc Clients</h1>
+            <a href="parc.html" class="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 transition">⬅ Retour</a>
+        </div>
+
+        <div class="mb-4 flex space-x-8 text-lg font-semibold text-gray-800">
+            <span id="totalVolume">Volume total : 0</span>
+            <span id="totalRecurrent">Total Recurrent Mensuel : 0 CFA</span>
+        </div>
+
+        <div class="mb-4 flex flex-col md:flex-row md:items-center md:space-x-4 space-y-2 md:space-y-0">
+            <input type="text" id="searchInput" placeholder="🔍 Rechercher par Nom et Prénoms..." 
+                   class="w-full md:w-1/2 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                   onkeyup="applyFilters()">
+
+            <select id="etatFilter" multiple
+                class="w-full md:w-1/2 p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onchange="applyFilters()">
+                <option value="">-- Filtrer par État Ligne (choix multiple) --</option>
+            </select>
+        </div>
+
+        <div class="overflow-x-auto bg-white shadow-lg rounded-lg">
+            <table class="min-w-full text-sm text-left text-gray-700" id="dataTable">
+                <thead class="bg-blue-100 text-gray-800 uppercase text-xs">
+                    <tr>
+                        <th class="px-4 py-3">ND</th>
+                        <th class="px-4 py-3">État Ligne</th>
+                        <th class="px-4 py-3">Nom & Prénoms</th>
+                        <th class="px-4 py-3">Libellé Offre</th>
+                        <th class="px-4 py-3 cursor-pointer hover:bg-blue-200" onclick="sortByRecurrent()">Recurrent Mensuel (CFA) ⬍</th>
+                        <th class="px-4 py-3">Adresse d'installation</th>
+                        <th class="px-4 py-3">Date MS</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody" class="divide-y divide-gray-200"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+        let sortDesc = true;
+
+        async function fetchData() {
+            try {
+                const response = await fetch('PARC.xlsx');
+                const arrayBuffer = await response.arrayBuffer();
+                const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(sheet);
+
+                allData = jsonData.map(row => ({
+                    ND: row.ND || '',
+                    ETAT_LIGNE: row.ETAT_LIGNE || '',
+                    NOM_PRENOMS: row.NOM_PRENOMS || '',
+                    LIBELLE_OFFRE: row.LIBELLE_OFFRE || '',
+                    RECURRENT_MENSUEL: parseFloat(row.RECURRENT_MENSUEL) || 0,
+                    ADRESS_INSTALL: row.ADRESS_INSTALL || '',
+                    DATE_MS: row.DATE_MS || ''
+                }));
+
+                populateEtatFilter(allData);
+                allData.sort((a, b) => b.RECURRENT_MENSUEL - a.RECURRENT_MENSUEL);
+                renderTable(allData);
+            } catch (error) {
+                console.error('Erreur de chargement du fichier Excel :', error);
+                alert('⚠️ Impossible de charger PARC.xlsx. Vérifie qu’il est dans le même dossier que cette page.');
+            }
+        }
+
+        function populateEtatFilter(data) {
+            const etatFilter = document.getElementById('etatFilter');
+            const etats = [...new Set(data.map(row => row.ETAT_LIGNE).filter(e => e))];
+            etats.forEach(etat => {
+                const option = document.createElement('option');
+                option.value = etat;
+                option.textContent = etat;
+                etatFilter.appendChild(option);
+            });
+        }
+
+        function renderTable(data) {
+            const tableBody = document.getElementById('tableBody');
+            tableBody.innerHTML = '';
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class='px-4 py-2 border'>${row.ND}</td>
+                    <td class='px-4 py-2 border'>${row.ETAT_LIGNE}</td>
+                    <td class='px-4 py-2 border font-semibold text-gray-800'>${row.NOM_PRENOMS}</td>
+                    <td class='px-4 py-2 border'>${row.LIBELLE_OFFRE}</td>
+                    <td class='px-4 py-2 border'>${formatCFA(row.RECURRENT_MENSUEL)}</td>
+                    <td class='px-4 py-2 border'>${row.ADRESS_INSTALL}</td>
+                    <td class='px-4 py-2 border'>${row.DATE_MS}</td>`;
+                tableBody.appendChild(tr);
+            });
+            updateTotals(data);
+        }
+
+        function formatCFA(value) {
+            const num = parseFloat(value) || 0;
+            return num.toLocaleString('fr-FR') + ' CFA';
+        }
+
+        function updateTotals(data) {
+            const totalVolume = data.length;
+            const totalRecurrent = data.reduce((sum, row) => sum + (row.RECURRENT_MENSUEL || 0), 0);
+            document.getElementById('totalVolume').textContent = `Volume total : ${totalVolume}`;
+            document.getElementById('totalRecurrent').textContent = `Total Recurrent Mensuel : ${totalRecurrent.toLocaleString('fr-FR')} CFA`;
+        }
+
+        function sortByRecurrent() {
+            allData.sort((a, b) => sortDesc ? b.RECURRENT_MENSUEL - a.RECURRENT_MENSUEL : a.RECURRENT_MENSUEL - b.RECURRENT_MENSUEL);
+            sortDesc = !sortDesc;
+            applyFilters();
+        }
+
+        function applyFilters() {
+            const input = document.getElementById('searchInput').value.toLowerCase();
+            const etatSelected = Array.from(document.getElementById('etatFilter').selectedOptions).map(opt => opt.value);
+
+            let filteredData = allData.filter(row => (row.NOM_PRENOMS || '').toLowerCase().includes(input));
+
+            if (etatSelected.length > 0 && !etatSelected.includes('')) {
+                filteredData = filteredData.filter(row => etatSelected.includes(row.ETAT_LIGNE));
+            }
+
+            renderTable(filteredData);
+        }
+
+        fetchData();
+    </script>
+</body>
+</html>

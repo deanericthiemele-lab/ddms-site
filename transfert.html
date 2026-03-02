@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transfert - Recherche dynamique (Clair)</title>
+  <style>
+    :root { --bg:#ffffff; --card:#f7f8fa; --text:#111827; --muted:#6b7280; --accent:#0ea5e9; }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:24px; background:var(--bg); color:var(--text); font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    h1 { font-size:20px; margin:0 0 12px; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+    .btn { padding:10px 14px; border-radius:12px; border:1px solid #e5e7eb; background:#ffffff; color:var(--text); cursor:pointer; font-weight:600; }
+    .btn:hover { background:#f3f4f6; }
+    .btn.accent { background:#e6f6ff; border-color:#bae6fd; color:#0c4a6e; }
+    .input { padding:10px 12px; border-radius:12px; border:1px solid #e5e7eb; background:#ffffff; color:#111827; min-width:240px; }
+    .file { display:inline-block; }
+    .status { font-size:16px; font-weight:600; color:var(--muted); margin-left:auto; display:none; }
+    .card { background:var(--card); border:1px solid #e5e7eb; border-radius:16px; padding:12px; margin-bottom:12px; }
+    table { width:100%; border-collapse:separate; border-spacing:0; background:#ffffff; }
+    thead th { position:sticky; top:0; background:#f3f4f6; color:#111827; text-align:left; padding:10px; font-size:12px; border-bottom:1px solid #e5e7eb; z-index:1; }
+    tbody td { padding:10px; border-bottom:1px dashed #e5e7eb; font-size:13px; color:#1f2937; }
+    tbody tr:hover { background:#f9fafb; }
+    .table-wrap { max-height:72vh; overflow:auto; border-radius:12px; border:1px solid #e5e7eb; }
+    .hidden { display:none !important; }
+    .pill { font-size:12px; padding:4px 10px; border:1px solid #e5e7eb; border-radius:999px; color:#374151; background:#ffffff; }
+    .footer { margin-top:10px; font-size:12px; color:#4b5563; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .metrics { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 12px; }
+    .metrics .pill strong { margin-right:6px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+  </style>
+</head>
+<body>
+  <h1>📄 transfert.xlsx — Recherche dynamique</h1>
+  <div class="toolbar">
+    <button class="btn" id="backBtn" title="Retour vers l'index">⟵ Retour</button>
+    <button class="btn" id="refreshBtn" title="Recharger la page">⟳ Actualiser</button>
+    <button class="btn" id="crashBtn" title="Aller vers transfert_crash">⚡ Crash Parogram</button>
+    
+    <label class="file btn" for="fileInput">📂 Parcourir</label>
+    <input id="fileInput" class="sr-only" type="file" accept=".xlsx,.xls,.csv" />
+    <input id="searchInput" class="input" type="search" placeholder="Recherche globale sur tous les champs…" />
+    <span id="meta" class="status"></span>
+  </div>
+
+  <!-- Top 20 clients AVANT le tableau principal -->
+  <div class="card" id="top20Card">
+    <h2 style="font-size:16px;margin:0 0 8px;">🏆 Top 20 Clients (normalisés)</h2>
+    <div class="table-wrap" style="max-height:40vh;">
+      <table>
+        <thead>
+          <tr>
+            <th>Client normalisé</th>
+            <th>Volume</th>
+          </tr>
+        </thead>
+        <tbody id="top20Body"></tbody>
+      </table>
+    </div>
+    <div class="footer">Regroupement intelligent: SIB &amp; SIB CI → SIB, DOUANES → DOUANE, CANAL PLUS → CANAL+, BOLLORE AFRICA LOGISTICS → BOLLORE, etc.</div>
+  </div>
+
+  <div class="card">
+    <!-- Volumes au-dessus du tableau principal -->
+    <div id="volumes" class="metrics">
+      <span class="pill" id="volTransferts"><strong>Transferts:</strong> 0</span>
+      <span class="pill" id="volModifs"><strong>Modifications:</strong> 0</span>
+      <span class="pill" id="volTotal"><strong>Total lignes:</strong> 0</span>
+    </div>
+
+    <div id="tableInfo" class="footer">
+      <span class="pill" id="countPill">0 lignes</span>
+      <span class="pill" id="colsPill">0 colonnes</span>
+      <span id="sourcePill" class="pill">source: transfert.xlsx</span>
+    </div>
+
+    <div class="table-wrap" id="tableWrap">
+      <table id="dataTable">
+        <thead><tr id="theadRow"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    const state = { rows: [], headers: [], lastSource: 'transfert.xlsx' };
+    const els = {
+      backBtn: document.getElementById('backBtn'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      fileInput: document.getElementById('fileInput'),
+      searchInput: document.getElementById('searchInput'),
+      theadRow: document.getElementById('theadRow'),
+      tbody: document.getElementById('tbody'),
+      meta: document.getElementById('meta'),
+      countPill: document.getElementById('countPill'),
+      colsPill: document.getElementById('colsPill'),
+      sourcePill: document.getElementById('sourcePill'),
+      volTransferts: document.getElementById('volTransferts'),
+      volModifs: document.getElementById('volModifs'),
+      volTotal: document.getElementById('volTotal'),
+      top20Body: document.getElementById('top20Body')
+    };
+
+    els.backBtn.onclick = () => { window.location.href = 'index.html'; };
+    els.refreshBtn.onclick = () => { window.location.reload(); };
+    els.crashBtn = document.getElementById('crashBtn');
+    els.crashBtn.onclick = () => { window.location.href = 'transfert_crash.html'; };
+    els.fileInput.onchange = async (e) => {
+      const f = e.target.files?.[0]; if (!f) return;
+      state.lastSource = f.name; els.sourcePill.textContent = 'source: ' + f.name;
+      const buf = await f.arrayBuffer(); parseWorkbook(buf);
+    };
+    els.searchInput.addEventListener('input', () => applyFilter(els.searchInput.value));
+
+    function setMeta(text) { els.meta.textContent = text; }
+
+    function buildTable(headers, rows) {
+      els.theadRow.innerHTML = '';
+      headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; els.theadRow.appendChild(th); });
+      const frag = document.createDocumentFragment();
+      rows.forEach(obj => {
+        const tr = document.createElement('tr');
+        headers.forEach(h => { const td = document.createElement('td'); let v = obj?.[h]; if (v==null) v=''; td.textContent = String(v); tr.appendChild(td); });
+        frag.appendChild(tr);
+      });
+      els.tbody.innerHTML = ''; els.tbody.appendChild(frag);
+      els.countPill.textContent = rows.length + ' lignes'; els.colsPill.textContent = headers.length + ' colonnes';
+    }
+
+    function applyFilter(q) {
+      const term = q.trim().toLowerCase(); let visible = 0;
+      for (const tr of els.tbody.rows) {
+        let hit = false;
+        for (const td of tr.cells) { if (td.textContent.toLowerCase().includes(term)) { hit = true; break; } }
+        tr.style.display = hit ? '' : 'none'; if (hit) visible++;
+      }
+      els.countPill.textContent = visible + ' lignes';
+    }
+
+    function toDate(v){
+      if(v===null || v===undefined || v==='') return new Date(0);
+      if(typeof v === 'number' && XLSX?.SSF?.parse_date_code){
+        const d = XLSX.SSF.parse_date_code(v);
+        if(d) return new Date(Date.UTC(d.y, (d.m||1)-1, d.d||1, d.H||0, d.M||0, d.S||0));
+      }
+      const t = new Date(v);
+      if(!isNaN(t)) return t;
+      const m = String(v).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+      if(m){
+        const dd = parseInt(m[1],10), mm = parseInt(m[2],10)-1, yy = parseInt(m[3].length===2 ? '20'+m[3] : m[3],10);
+        return new Date(yy, mm, dd);
+      }
+      return new Date(0);
+    }
+
+    const TOP_WHITELIST = new Set([
+      'DGI','ANSUT','SIB','BACI','BIAO','BNI','SGCI','ECOBANK','DGTCP','LONACI','CANAL+',
+      'PRESIDENCE','DOUANE','BOLLORE','FER','BAD','SOLIBRA','CNPS','AMBASSADE USA','FFCI'
+    ]);
+
+    function guessClientColumn(headers){
+      const prefs = ['CLIENT','NOM CLIENT','CLIENT NAME','ENTREPRISE','SOCIETE','CUSTOMER','COMPTE','ACCOUNT'];
+      const map = headers.reduce((acc,h)=>{ acc[h.toUpperCase()] = h; return acc; },{});
+      for(const p of prefs){ if(map[p]) return map[p]; }
+      for(const h of headers){ if(h.toUpperCase().includes('CLIENT')) return h; }
+      return headers[0] || '';
+    }
+
+    function guessTypeColumn(headers){
+      const prefs = ['TYPE','CATEGORIE','MOUVEMENT','ACTION','NATURE','OPERATION'];
+      const map = headers.reduce((acc,h)=>{ acc[h.toUpperCase()] = h; return acc; },{});
+      for(const p of prefs){ if(map[p]) return map[p]; }
+      return null;
+    }
+
+    function stripAccents(str){
+      try { return str.normalize('NFD').replace(/\p{Diacritic}+/gu,''); } catch(e){ return str; }
+    }
+
+    function normalizeClient(raw){
+      if(!raw) return '';
+      let s = String(raw).toUpperCase();
+      s = stripAccents(s);
+      s = s.replace(/\./g,' ').replace(/[(),]/g,' ');
+      s = s.replace(/\bSA\b/g,' ').replace(/\bCI\b/g,' ').replace(/COTE D IVOIRE/g,' ');
+      s = s.replace(/GROUPE|GROUP|HOLDING|MINISTERE DES|MINISTERE DE|MINISTERE DU|MINISTERE DES/g,' ');
+      s = s.replace(/\s+/g,' ').trim();
+      if(/BOLLORE/.test(s)) return 'BOLLORE';
+      if(/CANAL\s*\+|CANAL PLUS/.test(s)) return 'CANAL+';
+      if(/DOUANES?/.test(s)) return 'DOUANE';
+      if(/AMBASSADE/.test(s) && /(USA|ETATS? UNIS)/.test(s)) return 'AMBASSADE USA';
+      if(/^SIB(\s|$)/.test(s)) return 'SIB';
+      if(/^BNI(\s|$)/.test(s)) return 'BNI';
+      if(/^BIAO(\s|$)/.test(s)) return 'BIAO';
+      if(/^SGCI(\s|$)/.test(s)) return 'SGCI';
+      if(/^ECOBANK(\s|$)/.test(s)) return 'ECOBANK';
+      if(/^DGTCP(\s|$)/.test(s)) return 'DGTCP';
+      if(/^LONACI(\s|$)/.test(s)) return 'LONACI';
+      if(/^BACI(\s|$)/.test(s)) return 'BACI';
+      if(/^DGI(\s|$)/.test(s)) return 'DGI';
+      if(/^ANSUT(\s|$)/.test(s)) return 'ANSUT';
+      if(/^FER(\s|$)/.test(s)) return 'FER';
+      if(/^BAD(\s|$)/.test(s)) return 'BAD';
+      if(/^SOLIBRA(\s|$)/.test(s)) return 'SOLIBRA';
+      if(/^CNPS(\s|$)/.test(s)) return 'CNPS';
+      if(/^PRESIDENCE(\s|$)/.test(s)) return 'PRESIDENCE';
+      if(/^FFCI(\s|$)/.test(s)) return 'FFCI';
+      return s;
+    }
+
+    function classifyRow(row, typeCol){
+      const inspect = (val) => String(val||'').toLowerCase();
+      if(typeCol){
+        const v = inspect(row[typeCol]);
+        if(v.includes('transf')) return 'TRANSFERT';
+        if(v.includes('modif')) return 'MODIFICATION';
+      }
+      for(const k of Object.keys(row)){
+        const v = inspect(row[k]);
+        if(v.includes('transf')) return 'TRANSFERT';
+        if(v.includes('modif')) return 'MODIFICATION';
+      }
+      return 'INCONNU';
+    }
+
+    function computeVolumes(rows, headers){
+      const typeCol = guessTypeColumn(headers);
+      let t = 0, m = 0;
+      for(const r of rows){
+        const c = classifyRow(r, typeCol);
+        if(c==='TRANSFERT') t++;
+        else if(c==='MODIFICATION') m++;
+      }
+      els.volTransferts.innerHTML = '<strong>Transferts:</strong> ' + t;
+      els.volModifs.innerHTML = '<strong>Modifications:</strong> ' + m;
+      els.volTotal.innerHTML = '<strong>Total lignes:</strong> ' + rows.length;
+    }
+
+    function buildTop20(rows, headers){
+      const clientCol = guessClientColumn(headers);
+      const counts = new Map();
+      for(const r of rows){
+        const canon = normalizeClient(r[clientCol]);
+        if(TOP_WHITELIST.has(canon)){
+          counts.set(canon, (counts.get(canon)||0)+1);
+        }
+      }
+      const arr = Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).slice(0,20);
+      const frag = document.createDocumentFragment();
+      for(const [name, vol] of arr){
+        const tr = document.createElement('tr');
+        const td1 = document.createElement('td'); td1.textContent = name; tr.appendChild(td1);
+        const td2 = document.createElement('td'); td2.textContent = vol; tr.appendChild(td2);
+        frag.appendChild(tr);
+      }
+      els.top20Body.innerHTML = ''; els.top20Body.appendChild(frag);
+    }
+
+    function parseWorkbook(arrayBuffer) {
+      try {
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const sheetName = wb.SheetNames[0]; const ws = wb.Sheets[sheetName];
+        let json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!Array.isArray(json)) json = [];
+        const DATE_COL = "DATE CREATION DOSSIER";
+        json.sort((a,b) => toDate(b[DATE_COL]) - toDate(a[DATE_COL]));
+        const headerSet = new Set(); json.forEach(r => Object.keys(r).forEach(k => headerSet.add(k)));
+        const headers = Array.from(headerSet);
+        state.headers = headers; state.rows = json;
+        buildTable(headers, json);
+        computeVolumes(json, headers);
+        buildTop20(json, headers);
+        setMeta(''); // masqué
+        els.searchInput.value = '';
+      } catch (err) {
+        console.error(err); setMeta('Erreur de lecture du fichier.'); alert('Erreur: impossible de lire ce fichier. Formats supportés: .xlsx, .xls, .csv');
+      }
+    }
+
+    async function fetchAsArrayBuffer(url) {
+      const res = await fetch(url); if (!res.ok) throw new Error('HTTP ' + res.status); return await res.arrayBuffer();
+    }
+
+    (async () => {
+      try {
+        const buf = await fetchAsArrayBuffer('transfert.xlsx'); parseWorkbook(buf);
+        els.sourcePill.textContent = 'source: transfert.xlsx';
+      } catch (e) {
+        setMeta(''); console.warn('Auto-load échoué:', e);
+      }
+    })();
+  </script>
+</body>
+</html>

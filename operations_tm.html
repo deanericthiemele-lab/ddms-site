@@ -1,0 +1,183 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Opérations TM - Tableaux Dynamiques</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    input[type="file"] { margin-bottom: 20px; }
+    .search-bar { display: flex; align-items: center; gap: 15px; margin-bottom: 10px; }
+    .total { font-weight: bold; font-size: 14px; color: #333; }
+    input[type="text"] {
+        padding: 5px;
+        width: 100%;
+        max-width: 400px;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 30px;
+    }
+    th, td {
+        border: 1px solid #ccc;
+        padding: 6px;
+        font-size: 13px;
+    }
+    th {
+        background-color: #f2f2f2;
+    }
+    .tables-flex {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 30px;
+        justify-content: space-between;
+    }
+    .table-container {
+        flex: 1;
+        min-width: 400px;
+        overflow-x: auto;
+    }
+  </style>
+
+<style>
+@media (max-width: 768px) {
+    body { font-size: 20px; }
+    table { font-size: 18px; }
+    h1, h2, h3 { font-size: 22px; }
+    button, input, select { font-size: 18px; }
+}
+</style>
+
+</head>
+<body>
+
+<h1>Visualisation des opérations TM (sans graphe)</h1>
+<input type="file" id="fileInput" accept=".xlsx" />
+
+<div class="tables-flex">
+  <div class="table-container">
+    <h2>Transfert</h2>
+    <div class="search-bar">
+      <input type="text" id="searchTransfert" onkeyup="filterTable('searchTransfert', 'tableTransfert', 'totalTransfert')" placeholder="Rechercher dans Transfert...">
+      <span id="totalTransfert" class="total"></span>
+    </div>
+    <table id="tableTransfert"><thead></thead><tbody></tbody></table>
+  </div>
+
+  <div class="table-container">
+    <h2>Modification</h2>
+    <div class="search-bar">
+      <input type="text" id="searchModification" onkeyup="filterTable('searchModification', 'tableModification', 'totalModification')" placeholder="Rechercher dans Modification...">
+      <span id="totalModification" class="total"></span>
+    </div>
+    <table id="tableModification"><thead></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<script>
+function filterTable(inputId, tableId, totalId) {
+  let input = document.getElementById(inputId).value.toLowerCase();
+  let rows = document.querySelectorAll(`#${tableId} tbody tr`);
+  let total = 0;
+  rows.forEach(row => {
+    let text = row.textContent.toLowerCase();
+    let match = text.includes(input);
+    row.style.display = match ? '' : 'none';
+    if (match) total++;
+  });
+  document.getElementById(totalId).innerText = `Total : ${total} lignes`;
+}
+
+document.getElementById('fileInput').addEventListener('change', function(e) {
+  let file = e.target.files[0];
+  if (!file) return;
+  let reader = new FileReader();
+  reader.onload = function(evt) {
+    let data = new Uint8Array(evt.target.result);
+    let workbook = XLSX.read(data, { type: 'array' });
+    let sheetName = workbook.SheetNames[0];
+    let sheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+
+    const hiddenCols = ["TYPE OPERATION TM","SUPPORT","DEBIT","ID TACHE","ETAT TACHE","DATE DEBUT","NDEM","PRODUIT","CARACTERISTIQUE"];
+    let transRows = [], modRows = [], cols = [];
+
+    
+    sheet.sort((a, b) => {
+      let d1 = new Date(a["DATE CREATION DOSSIER"].replace(/(\d{2})\/(\d{2})\/(\d{4})/, "$3-$2-$1"));
+      let d2 = new Date(b["DATE CREATION DOSSIER"].replace(/(\d{2})\/(\d{2})\/(\d{4})/, "$3-$2-$1"));
+      return d2 - d1;
+    });
+
+    sheet.forEach((row, i) => {
+
+      if (i === 0) cols = Object.keys(row);
+      let op = row["OPERATION TM"];
+      if (!["Transfert", "Modification"].includes(op)) return;
+
+      let tds = cols.map(k => hiddenCols.includes(k) ? "" : `<td>${row[k]}</td>`).join("");
+      let tr = `<tr>${tds}</tr>`;
+      if (op === "Transfert") transRows.push(tr);
+      if (op === "Modification") modRows.push(tr);
+    });
+
+    document.querySelector("#tableTransfert thead").innerHTML =
+      `<tr>${cols.map(c => hiddenCols.includes(c) ? "" : `<th>${c}</th>`).join("")}</tr>`;
+    document.querySelector("#tableModification thead").innerHTML =
+      `<tr>${cols.map(c => hiddenCols.includes(c) ? "" : `<th>${c}</th>`).join("")}</tr>`;
+    document.querySelector("#tableTransfert tbody").innerHTML = transRows.join("");
+    document.querySelector("#tableModification tbody").innerHTML = modRows.join("");
+
+    document.getElementById("totalTransfert").innerText = `Total : ${transRows.length} lignes`;
+    document.getElementById("totalModification").innerText = `Total : ${modRows.length} lignes`;
+  };
+  reader.readAsArrayBuffer(file);
+});
+</script>
+
+
+<script>
+    const fileKey = "uploadedExcel";
+
+    function saveFileToMemory(inputId) {
+        const uploadInput = document.getElementById(inputId);
+        if (!uploadInput) return;
+
+        uploadInput.addEventListener('change', function () {
+            const file = this.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    localStorage.setItem(fileKey, e.target.result);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    }
+
+    function restoreExcelToDownload() {
+        const savedFile = localStorage.getItem(fileKey);
+        if (savedFile) {
+            const link = document.createElement('a');
+            link.href = savedFile;
+            link.download = "restored_file.xlsx";
+            link.style.display = "none";
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    }
+
+    window.onload = function () {
+        restoreExcelToDownload();
+        const savedImage = localStorage.getItem('backgroundImage');
+        if (savedImage) {
+            const bgImg = document.getElementById('backgroundImage');
+            if (bgImg) bgImg.src = savedImage;
+        }
+    };
+</script>
+
+</body>
+</html>

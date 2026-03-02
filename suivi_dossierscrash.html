@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Suivi des Dossiers</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+    :root{
+      --accent:#d3d3d3;  /* gris clair */
+      --bg-dark:#444;
+      --border:#ccc;
+    }
+    body { font-family: Arial, sans-serif; margin: 10px; font-size: 14px; }
+    h1 { background: #fff; color: #000; padding: 10px; border-radius: 6px; font-size: 18px; margin: 10px 0; border:1px solid var(--border); }
+    .title-row { display: flex; align-items: center; justify-content: space-between; }
+    h2 { background: var(--accent); color: #000; padding: 8px; border-radius: 6px; font-size: 16px; margin: 16px 0 8px; flex:1; }
+    #searchInput { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #aaa; border-radius: 6px; font-size: 14px; }
+    button { background: var(--accent); color: #000; border: none; padding: 6px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; margin-left:10px;}
+    button:hover { filter: brightness(0.95); }
+    .table-container { 
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 400px;
+      -webkit-overflow-scrolling: touch;
+      border: 1px solid var(--border); 
+      border-radius: 6px; 
+      margin-bottom: 20px;
+    }
+    table { border-collapse: collapse; width: 100%; min-width: 600px; font-size: 12px; }
+    th, td { border: 1px solid var(--border); padding: 6px; text-align: left; white-space: nowrap; }
+    th { background: #f5f5f5; }
+    @media (min-width: 768px){
+      body{ margin:20px; font-size:15px; }
+      table{ font-size:13px; }
+      h1{ font-size:20px; }
+      h2{ font-size:18px; }
+    }
+  </style>
+</head>
+<body>
+<div style="position: fixed; top: 10px; right: 20px; color: red; font-weight: bold; font-size: 22px; z-index: 2000;">CRASH PROGRAM</div>
+
+<button onclick="location.href='suivi_dossiers.html'">Retour</button>
+<button onclick="location.reload()">Actualiser</button>
+<input type="file" id="fileInput" accept=".xlsx" onchange="handleFile(event)" />
+
+<h1 id="globalCounters">Nombre total de dossiers : 0 | Nombre total de clients : 0</h1>
+
+<div class="title-row">
+  <h2 id="abonCounters" style="background:#fff; color:#000; padding:5px; border-radius:6px; font-size:15px; margin:5px 0; border:1px solid #ccc;">
+    Pipe LS = 0 | Pipe LSI = 0 | Pipe numérique = 0
+  </h2>
+  <button onclick="exportPipeGlobal()">Pipe Global</button>
+</div>
+
+
+<div class="title-row">
+  <h2 id="abonCountersNoSusp" 
+      style="background:#fff; color:#000; padding:5px; border-radius:6px; 
+             font-size:15px; margin:5px 0; border:1px solid #ccc;">
+    Pipe LS = 0 | Pipe LSI = 0 | Pipe numérique = 0 (hors suspendus)
+  </h2>
+  <button onclick="exportPipeRaccordable()">Pipe Raccordable</button>
+</div>
+
+
+
+
+
+
+<div style="margin:10px 0; display:flex; gap:10px;">
+  <button onclick="openSupportIP()">Support IP</button>
+  <button onclick="openHomologation()">Homologation</button>
+  <button onclick="openFacturation()">Facturation</button>
+  <button onclick="openTravaux()">Travaux</button>
+  <button onclick="openAttente()">Attente mise en service</button>
+  <button onclick="openTestRecette()">Test et recette</button>
+  <button onclick="openSuspendus()">Suspendus</button>
+  <button onclick="openDDMS()">DDMS</button>
+  <button onclick="openWholesale()">Wholesale</button>
+  <button onclick="openVT()">VT</button>
+  <button onclick="openBBF()">BBF</button>
+</div>
+
+
+
+
+
+
+
+
+<div id="popupSupportIP" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="supportIPTitle">Support IP (0 ‒ 0%)</h2>
+    <button onclick="closeSupportIP()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableSupportIP','SupportIP')">Exporter</button>
+  <div class="table-container">
+    <table id="tableSupportIP">
+      <thead><tr id="theadSupportIP"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+
+function normalizeEtape(txt) {
+  if (!txt) return "";
+  return txt
+    .toUpperCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // retire accents
+    .replace(/[:]/g, " : ") // uniformise deux-points
+    .replace(/\s+/g, " ")  // réduit espaces multiples
+    .trim();
+}
+
+function openSupportIP(){
+  document.getElementById("popupSupportIP").style.display="block";
+}
+function closeSupportIP(){
+  document.getElementById("popupSupportIP").style.display="none";
+}
+
+function loadSupportIP(data){
+  const rows = [];
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(etape.includes("SUPPORT IP : CONFIG EQ ACCES") ||
+       etape.includes("SUPPORT IP : CORRECTION") ){
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      rows.push(row);
+    }
+  });
+  document.getElementById("theadSupportIP").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableSupportIP tbody").innerHTML = rows.join("");
+
+  // mise à jour du titre avec valeur et pourcentage
+  document.getElementById("supportIPTitle").innerText = `Support IP (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+</script>
+
+
+<input id="searchInput" onkeyup="filterTables()" placeholder="Rechercher sur tous les champs..." type="text"/>
+<!-- Graphe volumes par bouton ajouté -->
+<div class="title-row">
+  <h2>Volumes par corbeille</h2>
+  <button onclick="refreshVolumes()">Actualiser le graphe</button>
+</div>
+<div class="chart-wrap" style="border:1px solid #ccc; border-radius:8px; padding:10px; height:280px;">
+  <canvas id="volumeParBouton"></canvas>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<div class="title-row">
+<h2 id="clientTop20Title">Top 20 Clients (0)</h2>
+<button onclick="exportTableToExcel('clientTop20','Top20Clients')">Exporter vers Excel</button>
+</div>
+<div class="table-container">
+<table id="clientTop20">
+<thead>
+<tr><th>CLIENT</th><th>TOTAL</th><th>DANS LES DÉLAIS</th><th>HORS DÉLAIS</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+<div class="title-row">
+<h2 id="clientOthersTitle">Autres Clients (0)</h2>
+<button onclick="exportTableToExcel('clientOthers','AutresClients')">Exporter vers Excel</button>
+</div>
+<div class="table-container">
+<table id="clientOthers">
+<thead>
+<tr><th>CLIENT</th><th>TOTAL</th><th>DANS LES DÉLAIS</th><th>HORS DÉLAIS</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+</div>
+
+
+
+
+
+<div id="ageTables"></div>
+<script>
+  let allData = [];
+  const today = new Date();
+  let totalDossiers = 0;
+  const limiteDate = new Date("2025-08-25T23:59:59");
+
+  function filtreDate(data) {
+    return data.filter(item => {
+      const val = item["DATE CREATION DOSSIER"];
+      const formatted = formatDate(val);
+      if (!formatted) return false;
+      const d = new Date(formatted.split("/").reverse().join("-"));
+      return d <= limiteDate;
+    });
+  }
+
+
+  const headers = [
+    "ID DOSSIER","DATE CREATION DOSSIER","ID TACHE","DATE CREATION TACHE",
+    "ETAPE","CLIENT","CONTACT","ADR. GEO","NoDEMANDE","PRODUIT",
+    "SUPPORT","TYPE ABONNEMENT","CARACTERISTIQUE","STATUT",
+    "REFERENCE","RECURENT","MONTANT MS"
+  ];
+
+  const corrections = {
+    "MINISETRE": "MINISTERE",
+    "MINISTER": "MINISTERE",
+    "MINISTRES": "MINISTERE",
+    "BOLLORE CI": "BOLLORE",
+    "BOLLORE AFRICA LOGISTICS": "BOLLORE"
+  };
+
+  const top20List = ["DGI", "ANSUT", "SIB", "BACI", "BIAO", "BNI", "SGCI", "ECOBANK", "DGTCP", "LONACI", "CANAL+", "PRESIDENCE", "DOUANE", "BOLLORE", "FER", "BAD", "SOLIBRA", "CNPS", "AMBASSADE USA", "FFCI", "TRESOR", "NSIA"];
+
+  const ageGroupsDef = [
+    { key:"≤10 jours", test: d => d <= 10 },
+    { key:"11-20 jours", test: d => d > 10 && d <= 20 },
+    { key:"21-30 jours", test: d => d > 20 && d <= 30 },
+    { key:"31-60 jours", test: d => d > 30 && d <= 60 },
+    { key:"61-90 jours", test: d => d > 60 && d <= 90 },
+    { key:">90 jours", test: d => d > 90 }
+  ];
+
+  function formatDate(dateVal) {
+    if (!dateVal) return "";
+    if (typeof dateVal === "number") {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const d = new Date(excelEpoch.getTime() + dateVal * 86400000);
+      return d.toLocaleDateString("fr-FR");
+    }
+    const d = new Date(dateVal);
+    if (!isNaN(d)) return d.toLocaleDateString("fr-FR");
+    return dateVal;
+  }
+
+  function normalizeClient(name) {
+    if (!name) return "";
+    let n = name.toUpperCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") 
+      .replace(/[^A-Z0-9+]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    // corrections exactes
+    if (corrections[n]) return corrections[n];
+
+    // regroupements par "contient le mot"
+    if (n.includes("TRESOR") || n.includes("DGTCP") || n.includes("DIRECTION GENERALE DU TRESOR")) return "TRESOR";
+    if (n.includes("BOLLORE") || n.includes("AGL") || n.includes("AFRICA GLOBAL LOGISTICS") || n.includes("STE AFRICA GLOBAL LOGISTICS")) return "BOLLORE";
+    if (n.includes("DOUANE")) return "DOUANE";
+    if (n.includes("NSIA") || n.includes("NOUVELLE SOCIETE IVOIRIENNE ASSURANCE")) return "NSIA";
+
+    // fallback: garder le nom normalisé complet (pas seulement le 1er mot)
+    return n;
+  }
+
+  function pct(count) {
+    return totalDossiers ? ((count/totalDossiers)*100).toFixed(1) : 0;
+  }
+
+  function removeDuplicates(data) {
+    const seen = new Set();
+    return data.filter(item => {
+      const id = item["ID DOSSIER"];
+      if (!id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }
+
+  function loadClients(data) {
+  totalDossiers = data.length;
+  const clientStats = {};
+  let pipeLS = 0, pipeLSI = 0, pipeNum = 0;
+
+  data.forEach(item => {
+    const client = normalizeClient(item["CLIENT"]);
+    if (!client) return;
+
+    // Compteurs abonnements
+    const abo = (item["TYPE ABONNEMENT"] || "").toUpperCase();
+    if (abo.includes("LSI")) pipeLSI++;
+    else if (abo.includes("NUM")) pipeNum++;
+    else if (abo.includes("LS")) pipeLS++;
+
+    const creationVal = item["DATE CREATION DOSSIER"];
+    const formattedDate = formatDate(creationVal);
+    if (!formattedDate) return;
+    const creationDate = new Date(formattedDate.split("/").reverse().join("-"));
+    const diffDays = Math.floor((today - creationDate) / (1000 * 60 * 60 * 24));
+
+    if (!clientStats[client]) clientStats[client] = { total:0, delai:0, hors:0 };
+    clientStats[client].total++;
+    if (diffDays <= 10) clientStats[client].delai++;
+    else clientStats[client].hors++;
+  });
+
+  const sorted = Object.entries(clientStats).sort((a,b) => b[1].total - a[1].total);
+  const top20 = sorted.filter(([client]) => top20List.includes(client));
+  const others = sorted.filter(([client]) => !top20List.includes(client));
+  document.querySelector("#clientTop20 tbody").innerHTML =
+    top20.map(([c,s]) => `<tr><td>${c}</td><td>${s.total}</td><td>${s.delai}</td><td>${s.hors}</td></tr>`).join("");
+  document.querySelector("#clientOthers tbody").innerHTML =
+    others.map(([c,s]) => `<tr><td>${c}</td><td>${s.total}</td><td>${s.delai}</td><td>${s.hors}</td></tr>`).join("");
+  document.getElementById("clientTop20Title").innerText = `Top 20 Clients (${top20.length} ‒ ${pct(top20.reduce((sum, [c,s])=>sum+s.total,0))}%)`;
+  document.getElementById("clientOthersTitle").innerText = `Autres Clients (${others.length} ‒ ${pct(others.reduce((sum, [c,s])=>sum+s.total,0))}%)`;
+  const totalClients = sorted.length;
+
+  document.getElementById("globalCounters").innerText =
+    `Nombre total de dossiers : ${data.length} | Nombre total de clients : ${totalClients}`;
+  document.getElementById("abonCounters").innerText =
+    `Pipe LS = ${pipeLS} | Pipe LSI = ${pipeLSI} | Pipe numérique = ${pipeNum}`;
+  
+      `Nombre total de dossiers : ${data.length} | Nombre total de clients : ${totalClients}`;
+
+  // Compteurs hors suspendus
+  let pipeLS_ns = 0, pipeLSI_ns = 0, pipeNum_ns = 0;
+  data.forEach(item => {
+    const etape = (item["ETAPE"] || "").toUpperCase();
+    if(etape.includes("SUSPENDU")) return; // ignorer suspendus
+
+    const abo = (item["TYPE ABONNEMENT"] || "").toUpperCase();
+    if (abo.includes("LSI")) pipeLSI_ns++;
+    else if (abo.includes("NUM")) pipeNum_ns++;
+    else if (abo.includes("LS")) pipeLS_ns++;
+  });
+
+  document.getElementById("abonCountersNoSusp").innerText =
+    `Pipe LS = ${pipeLS_ns} | Pipe LSI = ${pipeLSI_ns} | Pipe numérique = ${pipeNum_ns} (hors suspendus)`;
+
+  }
+
+  function loadEtapeTables(data) {
+    const testRows = [], suspRows = [];
+    data.forEach(item => {
+      const etape = (item["ETAPE"] || "").toUpperCase();
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      if (etape.includes("TEST ET RECETTE")) testRows.push(row);
+      if (etape.includes("SUSPENDU")) suspRows.push(row);
+    });
+    document.getElementById("theadTestRecette").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+    document.querySelector("#tableTestRecette tbody").innerHTML = testRows.join("");
+    document.getElementById("testRecetteTitle").innerText = `Étape = Test et Recette (${testRows.length} ‒ ${pct(testRows.length)}%)`;
+    document.getElementById("theadSuspendus").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+    document.querySelector("#tableSuspendus tbody").innerHTML = suspRows.join("");
+    document.getElementById("suspendusTitle").innerText = `Étape = Suspendus (${suspRows.length} ‒ ${pct(suspRows.length)}%)`;
+  }
+
+  function createAgeTables() {
+    const container = document.getElementById("ageTables");
+    container.innerHTML = "";
+    ageGroupsDef.forEach(g => {
+      container.innerHTML += `
+        <div class="title-row">
+          <h2 id="title-${g.key.replace(/[^A-Z0-9]/gi,'')}">${g.key} (0)</h2>
+          <button onclick="exportTableToExcel('table-${g.key.replace(/[^A-Z0-9]/gi,'')}', '${g.key.replace(/\s+/g,'_')}')">Exporter vers Excel</button>
+        </div>
+        <div class="table-container">
+          <table id="table-${g.key.replace(/[^A-Z0-9]/gi,'')}">
+            <thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>`;
+    });
+  }
+
+  function loadAgeTables(data) {
+    const groups = {};
+    ageGroupsDef.forEach(g => groups[g.key] = []);
+    data.forEach(item => {
+      const creationVal = item["DATE CREATION DOSSIER"];
+      const formattedDate = formatDate(creationVal);
+      if (!formattedDate) return;
+      const creationDate = new Date(formattedDate.split("/").reverse().join("-"));
+      const diffDays = Math.floor((today - creationDate) / (1000 * 60 * 60 * 24));
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      const group = ageGroupsDef.find(g => g.test(diffDays));
+      if (group) groups[group.key].push({ html: row, date: creationDate });
+    });
+    ageGroupsDef.forEach(g => {
+      const tbody = document.querySelector(`#table-${g.key.replace(/[^A-Z0-9]/gi,'')} tbody`);
+      const rows = groups[g.key].sort((a,b) => b.date - a.date);
+      tbody.innerHTML = rows.map(r => r.html).join("");
+      document.getElementById(`title-${g.key.replace(/[^A-Z0-9]/gi,'')}`).innerText =
+        `${g.key} (${rows.length} ‒ ${pct(rows.length)}%)`;
+    });
+  }
+
+  function filterTables() {
+    const filter = document.getElementById("searchInput").value.toLowerCase();
+    document.querySelectorAll("table tbody tr").forEach(row => {
+      row.style.display = row.innerText.toLowerCase().includes(filter) ? "" : "none";
+    });
+  }
+
+  function exportTableToExcel(tableId, filename) {
+    const table = document.getElementById(tableId);
+    const wb = XLSX.utils.table_to_book(table, {sheet:"Sheet1"});
+    XLSX.writeFile(wb, filename + ".xlsx");
+  }
+
+  createAgeTables();
+
+  fetch("PiPE.xlsx")
+    .then(res => res.arrayBuffer())
+    .then(data => {
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      let jsonData = XLSX.utils.sheet_to_json(sheet);
+      allData = removeDuplicates(jsonData);
+      // <-- application du filtre sur la date
+      allData = filtreDate(allData);
+
+      loadClients(allData);
+      
+      loadAgeTables(allData);
+      loadSupportIP(allData);
+      loadHomologation(allData);
+      loadFacturation(allData);
+      loadTravaux(allData);
+      loadAttente(allData);
+      loadTestRecette(allData);
+      loadSuspendusPopup(allData);
+      loadDDMS(allData);
+      loadWholesale(allData);
+      loadVT(allData);
+      loadBBF(allData);
+      loadSupportIP(allData);
+      loadHomologation(allData);
+      loadFacturation(allData);
+      loadTravaux(allData);
+      loadAttente(allData);
+      loadTestRecette(allData);
+      loadSuspendusPopup(allData);
+      loadDDMS(allData);
+      loadWholesale(allData);
+      loadVT(allData);
+      loadBBF(allData);
+    })
+    .catch(err => {
+      document.body.innerHTML += "<p style='color:red;font-weight:bold;'>Erreur : Impossible de charger PiPE.xlsx</p>";
+      console.error("Erreur de chargement du fichier Excel :", err);
+    });
+</script>
+
+<!-- POPUP SUPPORT IP -->
+<div id="popupSupportIP" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="supportIPTitle">Support IP (0 ‒ 0%)</h2>
+    <button onclick="closeSupportIP()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableSupportIP','SupportIP')">Exporter</button>
+  <div class="table-container">
+    <table id="tableSupportIP">
+      <thead><tr id="theadSupportIP"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- POPUP HOMOLOGATION -->
+<div id="popupHomologation" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="homologationTitle">Homologation (0 ‒ 0%)</h2>
+    <button onclick="closeHomologation()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableHomologation','Homologation')">Exporter</button>
+  <div class="table-container">
+    <table id="tableHomologation">
+      <thead><tr id="theadHomologation"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- POPUP FACTURATION -->
+<div id="popupFacturation" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="facturationTitle">Facturation (0 ‒ 0%)</h2>
+    <button onclick="closeFacturation()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableFacturation','Facturation')">Exporter</button>
+  <div class="table-container">
+    <table id="tableFacturation">
+      <thead><tr id="theadFacturation"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// OPEN/CLOSE FUNCTIONS
+function openSupportIP(){document.getElementById("popupSupportIP").style.display="block";}
+function closeSupportIP(){document.getElementById("popupSupportIP").style.display="none";}
+
+function openHomologation(){document.getElementById("popupHomologation").style.display="block";}
+function closeHomologation(){document.getElementById("popupHomologation").style.display="none";}
+
+function openFacturation(){document.getElementById("popupFacturation").style.display="block";}
+function closeFacturation(){document.getElementById("popupFacturation").style.display="none";}
+
+// LOAD FUNCTIONS
+function loadSupportIP(data){
+  const rows = [];
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(etape.includes("SUPPORT IP : CONFIG EQ ACCES") ||
+       etape.includes("SUPPORT IP : CORRECTION") ){
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      rows.push(row);
+    }
+  });
+  document.getElementById("theadSupportIP").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableSupportIP tbody").innerHTML = rows.join("");
+  document.getElementById("supportIPTitle").innerText = `Support IP (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+
+function loadHomologation(data){
+  const rows = [];
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(etape.includes("BO HOMOLOGATION : SAISIE GAIA") ||
+       etape.includes("BO HOMOLOGATION : MISE EN SERVICE GAIA") ||
+       etape.includes("BO HOMOLOGATION : MISE EN SERVICE BSCS") ||
+       etape.includes("BO HOMOLOGATION : SAISIE BSCS") ||
+       etape.includes("BO HOMOLOGATION : SAISIE GAIA LSI")){
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      rows.push(row);
+    }
+  });
+  document.getElementById("theadHomologation").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableHomologation tbody").innerHTML = rows.join("");
+  document.getElementById("homologationTitle").innerText = `Homologation (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+
+function loadFacturation(data){
+  const rows = [];
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(etape.includes("PARAMETRAGE FACTURATION")){
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      rows.push(row);
+    }
+  });
+  document.getElementById("theadFacturation").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableFacturation tbody").innerHTML = rows.join("");
+  document.getElementById("facturationTitle").innerText = `Facturation (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+</script>
+
+
+<!-- POPUP TRAVAUX -->
+<div id="popupTravaux" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="travauxTitle">Travaux (0 ‒ 0%)</h2>
+    <button onclick="closeTravaux()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableTravaux','Travaux')">Exporter</button>
+  <div class="table-container">
+    <table id="tableTravaux">
+      <thead><tr id="theadTravaux"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function openTravaux(){document.getElementById("popupTravaux").style.display="block";}
+function closeTravaux(){document.getElementById("popupTravaux").style.display="none";}
+
+function loadTravaux(data){
+  const rows = [];
+  const filters = [
+    "PRESTATAIRE : TRAVAUX",
+    "PRESTATAIRE : CORRECTION CONFORMITE TRAVAUX",
+    "CORDONNATEUR PRESTATATAIRE: AFFECTATION TECHNICIEN",
+    "PRESTATAIRE : ETUDE"
+  ].map(normalizeEtape);
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(filters.some(f => etape.includes(f))){
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      rows.push(row);
+    }
+  });
+  document.getElementById("theadTravaux").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableTravaux tbody").innerHTML = rows.join("");
+  document.getElementById("travauxTitle").innerText = `Travaux (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+</script>
+
+
+
+<!-- POPUP ATTENTE MISE EN SERVICE -->
+<div id="popupAttente" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="attenteTitle">Attente mise en service (0 ‒ 0%)</h2>
+    <button onclick="closeAttente()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableAttente','AttenteMiseEnService')">Exporter</button>
+  <div class="table-container">
+    <table id="tableAttente">
+      <thead><tr id="theadAttente"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function openAttente(){document.getElementById("popupAttente").style.display="block";}
+function closeAttente(){document.getElementById("popupAttente").style.display="none";}
+
+function loadAttente(data){
+  const rows = [];
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(etape.includes("SIE : MISE EN SERVICE GAIA")){
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      rows.push(row);
+    }
+  });
+  document.getElementById("theadAttente").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableAttente tbody").innerHTML = rows.join("");
+  document.getElementById("attenteTitle").innerText = `Attente mise en service (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+</script>
+
+
+
+<!-- POPUP TEST ET RECETTE -->
+<div id="popupTestRecette" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="testRecetteTitlePopup">Test et recette (0 ‒ 0%)</h2>
+    <button onclick="closeTestRecette()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableTestRecettePopup','TestEtRecette')">Exporter</button>
+  <div class="table-container">
+    <table id="tableTestRecettePopup">
+      <thead><tr id="theadTestRecettePopup"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function openTestRecette(){document.getElementById("popupTestRecette").style.display="block";}
+function closeTestRecette(){document.getElementById("popupTestRecette").style.display="none";}
+
+function loadTestRecette(data){
+  const rows = [];
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(etape.includes("TEST ET RECETTE")){
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      rows.push(row);
+    }
+  });
+  document.getElementById("theadTestRecettePopup").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableTestRecettePopup tbody").innerHTML = rows.join("");
+  document.getElementById("testRecetteTitlePopup").innerText = `Test et recette (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+</script>
+
+
+<!-- POPUP SUSPENDUS -->
+<div id="popupSuspendus" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="suspendusTitlePopup">Suspendus (0 ‒ 0%)</h2>
+    <button onclick="closeSuspendus()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableSuspendusPopup','Suspendus')">Exporter</button>
+  <div class="table-container">
+    <table id="tableSuspendusPopup">
+      <thead><tr id="theadSuspendusPopup"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function openSuspendus(){document.getElementById("popupSuspendus").style.display="block";}
+function closeSuspendus(){document.getElementById("popupSuspendus").style.display="none";}
+
+function loadSuspendusPopup(data){
+  const rows = [];
+  const filters = [
+    "ETUDE SUSPENDU",
+    "TRAVAUX SUSPENDU",
+    "RACCORDEMENT SUSPENDU",
+    "INGENIEUR PROJET: SUSPENSION TRAVAUX DOB",
+    "SUSPENSION SURVEY"
+  ].map(normalizeEtape);
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(filters.some(f => etape.includes(f))){
+      let row = "<tr>";
+      headers.forEach(h => {
+        let val = item[h] || "";
+        if (h.includes("DATE")) val = formatDate(val);
+        row += `<td>${val}</td>`;
+      });
+      row += "</tr>";
+      rows.push(row);
+    }
+  });
+  document.getElementById("theadSuspendusPopup").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableSuspendusPopup tbody").innerHTML = rows.join("");
+  document.getElementById("suspendusTitlePopup").innerText = `Suspendus (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+</script>
+
+
+
+<!-- POPUP DDMS -->
+<div id="popupDDMS" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="ddmsTitle">DDMS (0 ‒ 0%)</h2>
+    <button onclick="closeDDMS()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableDDMS','DDMS')">Exporter</button>
+  <div class="table-container">
+    <table id="tableDDMS">
+      <thead><tr id="theadDDMS"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- POPUP WHOLESALE -->
+<div id="popupWholesale" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="wholesaleTitle">Wholesale (0 ‒ 0%)</h2>
+    <button onclick="closeWholesale()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableWholesale','Wholesale')">Exporter</button>
+  <div class="table-container">
+    <table id="tableWholesale">
+      <thead><tr id="theadWholesale"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- POPUP VT -->
+<div id="popupVT" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="vtTitle">VT (0 ‒ 0%)</h2>
+    <button onclick="closeVT()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableVT','VT')">Exporter</button>
+  <div class="table-container">
+    <table id="tableVT">
+      <thead><tr id="theadVT"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- POPUP BBF -->
+<div id="popupBBF" style="display:none; position:fixed; top:10%; left:5%; width:90%; height:80%; background:#fff; border:2px solid #444; border-radius:8px; padding:10px; overflow:auto; z-index:1000;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="bbfTitle">BBF (0 ‒ 0%)</h2>
+    <button onclick="closeBBF()">X</button>
+  </div>
+  <button onclick="exportTableToExcel('tableBBF','BBF')">Exporter</button>
+  <div class="table-container">
+    <table id="tableBBF">
+      <thead><tr id="theadBBF"></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+
+<script>
+function openDDMS(){document.getElementById("popupDDMS").style.display="block";}
+function closeDDMS(){document.getElementById("popupDDMS").style.display="none";}
+function loadDDMS(data){
+  const rows = [];
+  const filters = [
+    "TECHNICIEN ZONE: SURVEY",
+    "RESPONSABLE ZONE: AFFECTATION TECHNICIEN SURVEY",
+    "RESPONSABLE ZONE: VALIDATION SURVEY",
+    "SIE: PILOTE",
+    "RESPONSABLE ZONE: VALIDATION INTERVENTION",
+    "RESPONSABLE ZONE: VALIDATION POUR INTERVENTION",
+    "TECHNICIEN ZONE: INTERVENTION",
+    "RESPONSABLE ZONE: COORDINATION ETUDE ET TRAVAUX",
+    "EXPLOITATION VSAT : TEST DEBIT ET SIMULATION",
+    "RESPONSABLE IP : AFFECTATION INGENIEUR DELIVERY"
+  ].map(normalizeEtape);
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(filters.some(f => etape.includes(f))){
+      let row = "<tr>";
+      headers.forEach(h => { let val = item[h]||""; if(h.includes("DATE")) val = formatDate(val); row += `<td>${val}</td>`;});
+      row += "</tr>"; rows.push(row);
+    }
+  });
+  document.getElementById("theadDDMS").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableDDMS tbody").innerHTML = rows.join("");
+  document.getElementById("ddmsTitle").innerText = `DDMS (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+
+function openWholesale(){document.getElementById("popupWholesale").style.display="block";}
+function closeWholesale(){document.getElementById("popupWholesale").style.display="none";}
+function loadWholesale(data){
+  const rows = [];
+  const filters = [
+    "WHOLESALE : MISE EN SERVICE GAIA",
+    "SAISIE WHOLESALE",
+    "WHOLESALE : SAISIE GAIA",
+    "RESPONSABLE TRAFIC ET PROJET : VALIDATION INFORMATIONS",
+    "MANAGER TRAFIC ET PROJETS : AFFECTATION RESPONSABLE PROJET"
+  ].map(normalizeEtape);
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(filters.some(f => etape.includes(f))){
+      let row = "<tr>";
+      headers.forEach(h => { let val = item[h]||""; if(h.includes("DATE")) val = formatDate(val); row += `<td>${val}</td>`;});
+      row += "</tr>"; rows.push(row);
+    }
+  });
+  document.getElementById("theadWholesale").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableWholesale tbody").innerHTML = rows.join("");
+  document.getElementById("wholesaleTitle").innerText = `Wholesale (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+
+function openVT(){document.getElementById("popupVT").style.display="block";}
+function closeVT(){document.getElementById("popupVT").style.display="none";}
+function loadVT(data){
+  const rows = [];
+  const filters = [
+    "TRANSMISSION PLANS EQUIPE NUMERISATION",
+    "REALISATION CTRL CONFORMITE",
+    "PLANIFICATION CTRL CONFORMITE",
+    "VALIDATION CTRL CONFORMITE"
+  ].map(normalizeEtape);
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(filters.some(f => etape.includes(f))){
+      let row = "<tr>";
+      headers.forEach(h => { let val = item[h]||""; if(h.includes("DATE")) val = formatDate(val); row += `<td>${val}</td>`;});
+      row += "</tr>"; rows.push(row);
+    }
+  });
+  document.getElementById("theadVT").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableVT tbody").innerHTML = rows.join("");
+  document.getElementById("vtTitle").innerText = `VT (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+
+function openBBF(){document.getElementById("popupBBF").style.display="block";}
+function closeBBF(){document.getElementById("popupBBF").style.display="none";}
+function loadBBF(data){
+  const rows = [];
+  const filters = ["BBF : VALIDATION ETUDE"].map(normalizeEtape);
+  data.forEach(item => {
+    const etape = normalizeEtape(item["ETAPE"]);
+    if(filters.some(f => etape.includes(f))){
+      let row = "<tr>";
+      headers.forEach(h => { let val = item[h]||""; if(h.includes("DATE")) val = formatDate(val); row += `<td>${val}</td>`;});
+      row += "</tr>"; rows.push(row);
+    }
+  });
+  document.getElementById("theadBBF").innerHTML = headers.map(h=>`<th>${h}</th>`).join("");
+  document.querySelector("#tableBBF tbody").innerHTML = rows.join("");
+  document.getElementById("bbfTitle").innerText = `BBF (${rows.length} ‒ ${pct(rows.length)}%)`;
+}
+</script>
+
+
+<script>
+function handleFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const data = new Uint8Array(e.target.result);
+    const workbook = XLSX.read(data, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    let jsonData = XLSX.utils.sheet_to_json(sheet);
+    allData = removeDuplicates(jsonData);
+      // <-- application du filtre sur la date
+      allData = filtreDate(allData);
+
+    loadClients(allData);
+    loadAgeTables(allData);
+    loadSupportIP(allData);
+    loadHomologation(allData);
+    loadFacturation(allData);
+    loadTravaux(allData);
+    loadAttente(allData);
+    loadTestRecette(allData);
+    loadSuspendusPopup(allData);
+    loadDDMS(allData);
+    loadWholesale(allData);
+    loadVT(allData);
+    loadBBF(allData);
+  };
+  reader.readAsArrayBuffer(file);
+}
+</script>
+
+
+<script>
+const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(allData, { header: headers });
+  XLSX.utils.book_append_sheet(wb, ws, "Pipe Global");
+  XLSX.writeFile(wb, "Pipe_Global.xlsx");
+}
+
+const raccordable = allData.filter(r => !String(r["ETAPE"]||"").toUpperCase().includes("SUSPENDU"));
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(raccordable, { header: headers });
+  XLSX.utils.book_append_sheet(wb, ws, "Pipe Raccordable");
+  XLSX.writeFile(wb, "Pipe_Raccordable.xlsx");
+}
+</script>
+<script>
+
+const suspendusExact = [
+    "ETUDE SUSPENDU",
+    "TRAVAUX SUSPENDU",
+    "RACCORDEMENT SUSPENDU",
+    "INGENIEUR PROJET: SUSPENSION TRAVAUX DOB",
+    "SUSPENSION SURVEY"
+  ];
+
+  const normalize = txt => String(txt||"")
+      .toUpperCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+
+  const raccordable = allData.filter(r => {
+    const etapeNorm = normalize(r["ETAPE"]);
+    return !suspendusExact.some(s => etapeNorm === s);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(raccordable, { header: headers });
+  XLSX.utils.book_append_sheet(wb, ws, "Pipe Raccordable");
+  XLSX.writeFile(wb, "Pipe_Raccordable.xlsx");
+}
+
+</script>
+
+<script>
+function exportPipeGlobal(){
+  if(!allData || !allData.length){
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    XLSX.utils.book_append_sheet(wb, ws, "Pipe Global");
+    XLSX.writeFile(wb, "Pipe_Global.xlsx");
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(allData, { header: headers });
+  XLSX.utils.book_append_sheet(wb, ws, "Pipe Global");
+  XLSX.writeFile(wb, "Pipe_Global.xlsx");
+}
+
+function exportPipeRaccordable(){
+  if(!allData || !allData.length){
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    XLSX.utils.book_append_sheet(wb, ws, "Pipe Raccordable");
+    XLSX.writeFile(wb, "Pipe_Raccordable.xlsx");
+    return;
+  }
+
+  const suspendusExact = [
+    "ETUDE SUSPENDU",
+    "TRAVAUX SUSPENDU",
+    "RACCORDEMENT SUSPENDU",
+    "INGENIEUR PROJET: SUSPENSION TRAVAUX DOB",
+    "SUSPENSION SURVEY"
+  ];
+
+  const normalize = txt => String(txt||"")
+      .toUpperCase()
+      .normalize("NFD").replace(/[̀-\u036f]/g,"").trim();
+
+  const raccordable = allData.filter(r => {
+    const etapeNorm = normalize(r["ETAPE"]);
+    return !suspendusExact.some(s => etapeNorm === s);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(raccordable, { header: headers });
+  XLSX.utils.book_append_sheet(wb, ws, "Pipe Raccordable");
+  XLSX.writeFile(wb, "Pipe_Raccordable.xlsx");
+}
+</script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+<script>
+const labelsBoutons=["Support IP","Homologation","Facturation","Travaux","Attente mise en service","Test et recette","Suspendus","DDMS","Wholesale","VT","BBF"];
+function normalizeEtape(txt){if(!txt)return"";return txt.toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[:]/g," : ").replace(/\s+/g," ").trim();}
+function computeVolumesFromDOM(){
+  const safeLen = (sel)=>{
+    const el = document.querySelector(sel);
+    if(!el) return 0;
+    const tb = el.querySelector('tbody');
+    if(tb) return tb.querySelectorAll('tr').length;
+    // fallback if rows are directly under table
+    return el.querySelectorAll('tr').length - 1; // minus header
+  };
+  return [
+    safeLen('#tableSupportIP'),
+    safeLen('#tableHomologation'),
+    safeLen('#tableFacturation'),
+    safeLen('#tableTravaux'),
+    safeLen('#tableAttente'),
+    safeLen('#tableTestRecettePopup'),
+    safeLen('#tableSuspendusPopup'),
+    safeLen('#tableDDMS'),
+    safeLen('#tableWholesale'),
+    safeLen('#tableVT'),
+    safeLen('#tableBBF')
+  ];
+}
+let volumeChart=null;
+function renderVolumes(data){
+  const ctx=document.getElementById("volumeParBouton");
+  const counts=computeVolumesFromDOM();
+  if(volumeChart){volumeChart.destroy();}
+  volumeChart=new Chart(ctx,{type:'bar',data:{labels:labelsBoutons,datasets:[{label:'Volume',data:counts}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},datalabels:{anchor:'end',align:'top',formatter:(v)=>v}},scales:{y:{beginAtZero:true,ticks:{precision:0}}},onClick:(evt,elements)=>{if(!elements.length)return;const i=elements[0].index;const openers=[openSupportIP,openHomologation,openFacturation,openTravaux,openAttente,openTestRecette,openSuspendus,openDDMS,openWholesale,openVT,openBBF];openers[i]&&openers[i]();}},plugins:[ChartDataLabels]});}
+function refreshVolumes(){renderVolumes(allData);}
+
+// Hook into existing load logic
+if(typeof window!=="undefined"){
+  const oldHandleFile=window.handleFile;
+  window.handleFile=function(event){
+    if(oldHandleFile) oldHandleFile(event);
+    setTimeout(()=>{if(allData&&allData.length)renderVolumes(allData);},500);
+  };
+  const oldOnLoad=window.onload;
+  window.onload=function(){
+    if(oldOnLoad) oldOnLoad();
+    setTimeout(()=>{if(allData&&allData.length)renderVolumes(allData);},1000);
+    setTimeout(()=>{renderVolumes(allData);},1200);
+
+  };
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Synthèse Client — Multi-sélection</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    .card { border-radius: 1rem; padding: 1.5rem; background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.1); display:flex; flex-direction:column; justify-content:space-between; }
+    .metric { font-size: 2rem; font-weight: bold; }
+    .label { font-size: .9rem; text-transform: uppercase; color: #666; }
+    .btn { margin-top:.5rem; background:black; color:white; padding:.3rem .6rem; border-radius:.5rem; font-size:.8rem; }
+    .retour { background:#444; color:white; padding:.4rem .8rem; border-radius:.5rem; font-size:.9rem; text-decoration:none; }
+    .selectbox { min-height: 220px; }
+    .chip { padding:.15rem .4rem; border:1px solid #ddd; border-radius:.5rem; font-size:.75rem; cursor:pointer; user-select:none; }
+    .chip:hover { background:#f6f6f6; }
+  </style>
+</head>
+<body class="bg-gradient-to-b from-gray-50 to-gray-100 min-h-screen">
+  <div class="max-w-6xl mx-auto p-6 space-y-6">
+    <div class="flex justify-between items-center">
+      <h1 class="text-3xl font-bold">Synthèse</h1>
+      <div class="flex gap-2">
+        <a href="index.html" class="retour">⟵ Retour</a>
+        <button onclick="location.reload()" class="retour">⟳ Actualiser</button>
+      </div>
+    </div>
+
+    <!-- Filtres -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
+      <div class="lg:col-span-2">
+        <label class="label block mb-1">Clients (multi-sélection)</label>
+        <input id="clientSearch" placeholder="Tape pour filtrer… ex: DOUANE" class="w-full border p-2 rounded mb-2" />
+        <div class="flex gap-2 mb-2">
+          <button id="btnSelectAll" class="chip">Tout sélectionner</button>
+          <button id="btnClearAll" class="chip">Tout effacer</button>
+          <button id="btnQuickDouane" class="chip">+ DOUANE</button>
+          <button id="btnQuickTresor" class="chip">+ TRESOR</button>
+          <button id="btnQuickBollore" class="chip">+ BOLLORE</button>
+        </div>
+        <select id="clientMulti" multiple class="w-full border p-2 rounded selectbox"></select>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <label class="label">Début</label>
+        <input id="dateStart" type="date" class="border p-2 rounded"/>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label class="label">Fin</label>
+        <input id="dateEnd" type="date" class="border p-2 rounded"/>
+      </div>
+    </div>
+
+    <div class="flex gap-3">
+      <button id="filterBtn" class="bg-black text-white px-4 py-2 rounded">Filtrer</button>
+      <button id="resetBtn" class="bg-white border px-4 py-2 rounded">Réinitialiser</button>
+    </div>
+
+    <!-- KPIs -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6" id="kpiGrid"></div>
+  </div>
+
+<script>
+const state={pipe:[],data:[],parc:[],transfert:[],clients:new Set()};
+
+function canonicalClient(name) {
+  let s = (name || "").toString()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toUpperCase();
+  s = s.replace(/[^A-Z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+function parseDate(v){
+  if(!v) return null;
+  if(v instanceof Date) return v;
+  if(typeof v === "number"){
+    const epoch=new Date(1900,0,1);
+    return new Date(epoch.getTime() + (v-2)*24*3600*1000);
+  }
+  if(typeof v === "string"){
+    const s=v.trim();
+    if(/^[0-3]?\d\/[01]?\d\/[0-9]{4}$/.test(s)){
+      const [dd,mm,yyyy]=s.split("/").map(t=>parseInt(t,10));
+      const d=new Date(yyyy,mm-1,dd);
+      return isNaN(d)?null:d;
+    }
+    const d2=new Date(s);
+    if(!isNaN(d2)) return d2;
+  }
+  const d3=new Date(v);
+  return isNaN(d3)?null:d3;
+}
+function dayNum(d){ if(!d) return null; return new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
+
+const CLIENT_KEYS = ["CLIENT","Client","Nom CLIENT","Nom client","NOM_CLIENT","RAISON SOCIALE","RAISON_SOCIALE","NOM_PRENOMS","CLIENTS","SOCIETE","ENTREPRISE","SITE","NOM SITE"];
+function getClientVal(row){
+  for(const k of CLIENT_KEYS){ if(row[k]!=null && String(row[k]).trim()!="") return String(row[k]); }
+  return null;
+}
+
+function normalizeWorkbookRows(wb,source){
+  const sheet=wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet,{defval:null}).map(row=>({row,source}));
+}
+
+async function loadDefaults(){
+  const mapping={ pipe:"pipe.xlsx", data:"data.xlsx", parc:"resi_final_.xlsx", transfert:"transfert.xlsx" };
+  state.pipe=[]; state.data=[]; state.parc=[]; state.transfert=[]; state.clients.clear();
+  for(const key in mapping){
+    try{
+      const res=await fetch(mapping[key]);
+      if(!res.ok) continue;
+      const buf=await res.arrayBuffer();
+      const wb=XLSX.read(buf,{type:"array"});
+      state[key]=normalizeWorkbookRows(wb,mapping[key]);
+      state[key].forEach(r=>{ const c=getClientVal(r.row); if(c) state.clients.add(c); });
+    }catch(e){console.log("Erreur",mapping[key],e);}
+  }
+  populateClients();
+  applyFilter();
+}
+
+function populateClients(){
+  const select=document.getElementById("clientMulti");
+  select.innerHTML="";
+  const normalized = new Set();
+  state.clients.forEach(c => normalized.add(canonicalClient(c)));
+  Array.from(normalized).sort().forEach(c=>{
+    const opt=document.createElement("option");
+    opt.value=c;
+    opt.textContent=c;
+    select.appendChild(opt);
+  });
+  filterClientOptions();
+}
+
+function filterClientOptions(){
+  const term = canonicalClient(document.getElementById("clientSearch").value);
+  const select=document.getElementById("clientMulti");
+  for(const opt of Array.from(select.options)){
+    if(!term) { opt.style.display = ""; opt.selected=false; continue; }
+    if(opt.value.includes(term)) {
+      opt.style.display = "";
+      opt.selected = true;
+    } else {
+      opt.style.display = "none";
+      opt.selected = false;
+    }
+  }
+}
+
+function getSelectedClients(){
+  const select=document.getElementById("clientMulti");
+  const chosen = Array.from(select.selectedOptions).map(o=>o.value);
+  return chosen;
+}
+
+function inFilter(rec, clientList, ds, de){
+  const c=getClientVal(rec.row);
+  if(clientList.length>0){
+    const cc = c ? canonicalClient(c) : "";
+    if(!clientList.includes(cc)) return false;
+  }
+  const rowDate=parseDate(rec.row["DATE CREATION DOSSIER"]||rec.row["DATE DE CRÉATION"]||rec.row["DATE_RS"]||rec.row["DATE CREATION TACHE"]);
+  if(ds&&rowDate&&dayNum(rowDate)<dayNum(ds)) return false;
+  if(de&&rowDate&&dayNum(rowDate)>dayNum(de)) return false;
+  return true;
+}
+
+function applyFilter(){
+  const clientList=getSelectedClients();
+  const dsRaw=document.getElementById("dateStart").value;
+  const deRaw=document.getElementById("dateEnd").value;
+  const ds=dsRaw?new Date(dsRaw+"T00:00:00"):null;
+  const de=deRaw?new Date(deRaw+"T00:00:00"):null;
+  render(clientList,ds,de);
+}
+
+function exportRows(rows,label){
+  const ws=XLSX.utils.json_to_sheet(rows.map(r=>r.row));
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Data");
+  XLSX.writeFile(wb,"Export_"+label+".xlsx");
+}
+
+function render(clientList,ds,de){
+  const defs=[
+    {id:"prodOn",label:"Production (dans les délais)",source:"pipe"},
+    {id:"prodLate",label:"Production (hors délais)",source:"pipe"},
+    {id:"modif",label:"Modifications",source:"transfert"},
+    {id:"transf",label:"Transferts",source:"transfert"},
+    {id:"incidents",label:"Incidents",source:"data"},
+    {id:"repetitifs",label:"Incidents répétitifs",source:"data"},
+    {id:"critiques",label:"incidents sites critiques",source:"data"},
+    {id:"resil",label:"Résiliations",source:"parc"}
+  ];
+  const grid=document.getElementById("kpiGrid"); grid.innerHTML="";
+  defs.forEach(d=>{
+    const src=state[d.source]||[];
+    const rows=src.filter(r=>inFilter(r,clientList,ds,de));
+    let arr=[];
+    let metricVal=null;
+
+    if(d.id==="prodOn"||d.id==="prodLate"){
+      let rows = state["pipe"] || [];
+      if(clientList.length>0){
+        rows = rows.filter(r=>{
+          const c=getClientVal(r.row);
+          const cc=c?canonicalClient(c):"";
+          return clientList.includes(cc);
+        });
+      }
+      rows = rows.filter(r=>{
+        const start=parseDate(r.row["DATE CREATION DOSSIER"]);
+        const end=new Date();
+        if(!start) return false;
+        const diff=(end-start)/(1000*3600*24);
+        return d.id==="prodOn"?diff<=10:diff>10;
+      });
+      const seen={};
+      arr = rows.filter(r=>{
+        const id = String(r.row["ID DOSSIER"] || r.row["ND"] || "").trim();
+        if(!id || seen[id]) return false;
+        seen[id]=true;
+        return true;
+      });
+    } else if(d.id==="incidents"){
+      arr=rows;
+    } else if(d.id==="repetitifs"){
+      const counts={};
+      rows.forEach(r=>{
+        const key=(r.row["ND"]||r.row["RAISON SOCIALE"]||"").toString().trim(); if(key) counts[key]=(counts[key]||0)+1;
+      });
+      const distinctKeys=Object.keys(counts).filter(k=>counts[k]>=2);
+      const seen={};
+      arr=rows.filter(r=>{
+        const key=(r.row["ND"]||r.row["RAISON SOCIALE"]||"").toString().trim();
+        if(!key || !distinctKeys.includes(key) || seen[key]) return false;
+        seen[key]=true;
+        return true;
+      });
+      metricVal = arr.length;
+    } else if(d.id==="critiques"){
+      const sitesCritiques = ["SYTHD170255","BUVPN180062","VPNLL130252","BUVPN140276","BUVPN140147","BUVPN140148","BUVPN140167","VPNLL140059","BUVPN150375","BUVPN160199","BUVPN190195","BUVPN190201","BUVPN130003","BUVPN140168","BUVPN180214","VPNLL110050","VPNLL140068","BUVPN140430","BUVPN210171","VPNLL090060","BUVPN200212","BUVPN210226","BUVPN190039","BUVPN190196","VPNLL090176","BUVPN140231","BUVPN140279","BUVPN200239","BUVPN220165","BUVPN190040","VPNLL110001","BUVPN220150","BUVPN220180","SYTHD200276","SYTHD200228","BUVPN200213","SYTHD170243","SYTHD170242","SYTHD170114","SYTHD120029","VPNLL120160","BUVPN190115","BUVPN200029","SYTHD170256","BUVPN150175","BUVPN180063","SYTHD220087","BUVPN210255","BUVPN190113","BUVPN200316","BUVPN210005","BUVPN150080","SYTHD160144","BUVPN160189","BUVPN210084","SYTHD220076","SYTHD190129","SYTHD150075","SYTHD160104","SYTHD200132","SYTHD200131","SYTHD200105","SYTHD200104","SYTHD200130","SYTHD200109","SYTHD200110","SYTHD200111","SYTHD200123","SYTHD200108","SYTHD200106","SYTHD200126","SYTHD200128","SYTHD200129","BUVPN220268","BUVPN150302","VPNLL080150","BUVPN170143","BUVPN150343","BUVPN150680","BUVPN140444","BUVPN150189","SYTHD160199","SYTHD220172","BUSAT211104","BUVPN170124","VPNLL120106","BUVPN170098","BUVPN150105","BUVPN140278","SYTHD040179","SYTHD200264","BUVPN150267","VPNLL220014","BUVPN170207","VPNLL220020","VPNLL050214","VPNLL050188","BUVPN160215","BUVPN200251","VPNLL060014","BUVPN210082","BUVPN220013","VPNLL050112","VPNLL220031","BUVPN170137","VPNLL220024","VPNLL150141","VPNLL050113","BUVPN220024","VPNLL050190","VPNLL050179","VPNLL050180","VPNLL050181","VPNLL220011","VPNLL050189","BUVPN220259","BUVPN200284","VPNLL050192","VPNLL130076","VPNLL060001","VPNLL120150","VPNLL070010","VPNLL060005","VPNLL060006","BUVPN220189","VPNLL060009","VPNLL060011","BUVPN210183","BUVPN200111","VPNLL130143","VPNLL060054","VPNLL220022","VPNLL060017","VPNLL160065","VPNLL220038","BUVPN180061","VPNLL060088","2721574825","VPNLL220040","VPNLL060036","VPNLL060224","VPNLL050191","VPNLL080013","VPNLL080014","VPNLL220019","VPNLL080029","VPNLL080093","VPNLL080094","VPNLL080095","VPNLL080096","VPNLL080098","VPNLL060003","VPNLL090027","VPNLL100096","VPNLL100142","VPNLL060137","VPNLL110055","VPNLL110058","VPNLL110066","VPNLL120010","VPNLL120101","VPNLL220026","VPNLL120119","VPNLL060004","VPNLL120320","VPNLL050177","VPNLL150089","BUVPN180161","VPNLL100052","VPNLL160072","VPNLL170017","SYTHD190245","VPNLL220012","VPNLL220016","VPNLL220018","VPNLL220019","VPNLL220021","VPNLL120111","VPNLL220025","VPNLL220037","VPNLL220028","VPNLL220032","VPNLL220033","VPNLL220036","VPNLL160066","VPNLL060023","VPNLL220039","VPNLL050178","VPNLL220041","VPNLL060012","SYTHD170144","BUVPN210087","BUVPN210088","VPNLL090001","VPNLL100158","SYTHD030098","SYTHD190278","VPNLL060050","VPNLL080097","VPNLL060016","VPNLL100218","VPNLL130015","VPNLL060008","VPNLL080025","VPNLL140134","VPNLL060102","VPNLL220015","VPNLL060200","BUVPN190084","VPNLL220029","VPNLL220043","VPNLL220035","VPNLL060015","VPNLL230014","BUVPN170229","BUVPN170244","BUVPN170224","BUVPN170282","BUVPN190054","BUVPN190055","BUVPN180056","BUVPN180057","BUVPN170240","BUVPN170243","34704805","STYHD210130","STYHD210201","STYHD240131","BUVPN200217","BUVPN200232","BUVPN200221","BUVPN200220","BUVPN200259","BUVPN200219","SYTHD200115","20236930","20236940","VPNLL060013","BUVPN180033","BUVPN180182","BUVPN180183","BUVPN190176","BUVPN200289","BUVPN200311","BUVPN210091","VPNLL220023","VPNLL070185","VPNLL120244","SYTHD150031","SYTHD150032","SYTHD200095","SYTHD200093","BUVPN130002","BUVPN140211","BUVPN200230","BUVPN210149","BUVPN220116","SYTHD140303","SYTHD190006","SYTHD210182","VPNLL090098","VPNLL110014","VPNLL120079","VPNLL100114","VPNLL130306","VPNLL100108","VPNLL120261","VPNLL120339","VPNLL080163","VPNLL100132","VPNLL100081","VPNLL120082","VPNLL070609","SYTHD120096","VPNLL090096","VPNLL110024","VPNLL100102","VPNLL220049","VPNLL130060","BUVPN220026","VPNLL060103","BUVPN200137","2720319200","BUVPN140336","BUVPN180136","SYTHD200101","SYTMD040423","VPNLL100089","VPNLL130041","VPNLL130100","VPNLL150043","21372802","BUVPN140447","BUVPN150037","BUVPN150212","BUVPN150217","BUVPN150229","BUVPN150235","BUVPN150246","BUVPN150386","BUVPN150392","BUVPN220152","BUVPN190074","BUVPN220267","SYTHD200088","SYTMD090050","VPNLL070205","VPNLL120243","2720201010","BUVPN140057","BUVPN140058","BUVPN140194","BUVPN140313","BUVPN140314","BUVPN150504","BUVPN160137","BUVPN170068","BUVPN180121","BUVPN180205","BUVPN190048","BUVPN200032","BUVPN200083","BUVPN220015","BUVPN220251","BUVPN220252","SYTHD170118","SYTHD170119","SYTHD170121","SYTHD170123","VPNLL120068","BUVPN200037","BUVPN200147","VPNLL100155","BUVPN200031","BUVPN220074","SYTHD210159","SYTHD120007","SYTHD200313","SYTHD200034","SYTHD140043","SYTHD190019","BUVPN220257","BUVPN200089","BUVPN200039","BUVPN220075","2723530070","2730688900","BUVPN200052","BUVPN200105","BUVPN180219","BUVPN180222","BUVPN160217","BUVPN170096","BUVPN170100","BUVPN180221","BUVPN200108","BUVPN210138","BUVPN210141","BUVPN210144","BUVPN210180","BUVPN220265","SYTHD180112","BUVPN180071","SYTHD210184","BUVPN180218","SYTHD170109","SYTHD120081","BUVPN180070","2720225500","2720252050","2720330033","2730640140","BUVPN150069","BUVPN150546","BUVPN150561","BUVPN150566","BUVPN150581","BUVPN150596","BUVPN150597","BUVPN150601","BUVPN150605","BUVPN150615","BUVPN150617","BUVPN150637","BUVPN150672","BUVPN150689","BUVPN150690","BUVPN150691","BUVPN160136","BUVPN190244","BUVPN190247","BUVPN190249","BUVPN190266","BUVPN220105","BUVPN220296","BUVPN230016","SYTHD170099","SYTHD170100","SYTHD170101","SYTHD170102","BUVPN150445","VPNLL150104","2720257700","SYTHD230132","BUVPN220088","BUVPN220102","SYTHD210093","SYTHD210094","SYTHD210002","SYTHD21003"];
+  const critiques = rows.filter(r=> sitesCritiques.includes(String(r.row["ND"]||"").trim()));
+      const seen={};
+      arr = critiques.filter(r=>{
+        const nd=String(r.row["ND"]||"").trim();
+        if(!nd || seen[nd]) return false;
+        seen[nd]=true;
+        return true;
+      });
+      metricVal = arr.length;
+    } else if(d.id==="resil"){
+      arr = rows.filter(r=>{
+        const etat = r.row["ETAT_LIGNE"] && String(r.row["ETAT_LIGNE"]).toLowerCase().includes("resili");
+        const d = parseDate(r.row["DATE_RS"]);
+        if(d){
+          r.row["DATE_RS"] = ("0"+d.getDate()).slice(-2)+"/"+("0"+(d.getMonth()+1)).slice(-2)+"/"+d.getFullYear();
+        }
+        const inPeriod = (!ds && !de) || (d && (!ds || dayNum(d)>=dayNum(ds)) && (!de || dayNum(d)<=dayNum(de)));
+        return etat && d && d.getFullYear()===2025 && d<=new Date() && inPeriod;
+      });
+    } else if(d.id==="modif"){
+      let rows = state["transfert"] || [];
+      if(clientList.length>0){
+        rows = rows.filter(r=>{
+          const c=getClientVal(r.row);
+          const cc=c?canonicalClient(c):"";
+          return clientList.includes(cc);
+        });
+      }
+      arr = rows.filter(r=>r.row["OPERATION TM"] && String(r.row["OPERATION TM"]).toLowerCase().includes("modif"));
+    } else if(d.id==="transf"){
+      let rows = state["transfert"] || [];
+      if(clientList.length>0){
+        rows = rows.filter(r=>{
+          const c=getClientVal(r.row);
+          const cc=c?canonicalClient(c):"";
+          return clientList.includes(cc);
+        });
+      }
+      arr = rows.filter(r=>r.row["OPERATION TM"] && String(r.row["OPERATION TM"]).toLowerCase().includes("transf"));
+    } else {
+      arr=rows;
+    }
+
+    const displayCount = (metricVal!==null)? metricVal : arr.length;
+    const card=document.createElement("div"); card.className="card text-center";
+    if ((d.id==="prodLate" && displayCount>=1) || (d.id==="repetitifs" && displayCount>=1) || (d.id==="critiques" && displayCount>=1) || (d.id==="resil" && displayCount>=1)) {
+      card.innerHTML=`<div class="label">${d.label}</div><div class="metric" style="background-color:#ffc0cb; font-weight:bold;">${displayCount}</div>`;
+    } else {
+      card.innerHTML=`<div class="label">${d.label}</div><div class="metric">${displayCount}</div>`;
+    }
+    const btn=document.createElement("button"); btn.className="btn"; btn.textContent="Exporter";
+    btn.onclick=()=>exportRows(arr,d.id);
+    card.appendChild(btn); grid.appendChild(card);
+  });
+}
+
+document.getElementById("filterBtn").addEventListener("click", applyFilter);
+document.getElementById("resetBtn").addEventListener("click", ()=>{
+  document.getElementById("clientSearch").value="";
+  document.getElementById("dateStart").value="";
+  document.getElementById("dateEnd").value="";
+  const sel=document.getElementById("clientMulti");
+  for(const opt of Array.from(sel.options)) opt.selected=false;
+  filterClientOptions();
+  applyFilter();
+});
+
+document.getElementById("clientSearch").addEventListener("input", filterClientOptions);
+document.getElementById("btnSelectAll").addEventListener("click", ()=>{
+  const sel=document.getElementById("clientMulti");
+  for(const opt of Array.from(sel.options)) if(opt.style.display!=="none") opt.selected=true;
+  applyFilter();
+});
+document.getElementById("btnClearAll").addEventListener("click", ()=>{
+  const sel=document.getElementById("clientMulti");
+  for(const opt of Array.from(sel.options)) opt.selected=false;
+  applyFilter();
+});
+document.getElementById("btnQuickDouane").addEventListener("click", ()=>{
+  const sel=document.getElementById("clientMulti");
+  for(const opt of Array.from(sel.options)) if(opt.value.includes("DOUANE")) opt.selected=true;
+  applyFilter();
+});
+document.getElementById("btnQuickTresor").addEventListener("click", ()=>{
+  const sel=document.getElementById("clientMulti");
+  const variants=["BOLLORE","AGL","AFRICA GLOBAL LOGISTICS","STE AFRICA GLOBAL LOGISTICS"];
+  for(const opt of Array.from(sel.options)){
+    if(variants.some(v=>opt.value.includes(v))) opt.selected=true;
+  }
+  applyFilter();
+});
+document.getElementById("btnQuickBollore").addEventListener("click", ()=>{
+  const sel=document.getElementById("clientMulti");
+  const variants=["BOLLORE","AGL","AFRICA GLOBAL LOGISTICS","STE AFRICA GLOBAL LOGISTICS"];
+  for(const opt of Array.from(sel.options)){
+    if(variants.some(v=>opt.value.includes(v))) opt.selected=true;
+  }
+  applyFilter();
+});
+
+window.addEventListener("DOMContentLoaded",loadDefaults);
+</script>
+</body>
+</html>

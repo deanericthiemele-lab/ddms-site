@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Livraison – Dossiers livrés</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+body{
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 20px;
+  font-size: 14px;
+}
+button{
+  background:#d3d3d3;
+  border:none;
+  padding:6px 10px;
+  border-radius:6px;
+  font-size:13px;
+  cursor:pointer;
+}
+h1{
+  border:1px solid #ccc;
+  border-radius:6px;
+  padding:8px;
+  font-size:16px;
+  margin:10px 0;
+}
+.search{
+  margin:10px 0;
+}
+.search input{
+  width:300px;
+  padding:6px 8px;
+  border:1px solid #aaa;
+  border-radius:6px;
+}
+.kpi{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin:10px 0;
+}
+.kpi div{
+  border:1px solid #ccc;
+  border-radius:6px;
+  padding:6px 10px;
+  background:#f5f5f5;
+  font-weight:bold;
+}
+table{
+  border-collapse:collapse;
+  width:100%;
+  margin-top:10px;
+}
+th,td{
+  border:1px solid #ccc;
+  padding:6px 8px;
+}
+th{
+  background:#f2f2f2;
+}
+td.num{
+  text-align:right;
+}
+</style>
+</head>
+
+<body>
+
+<button onclick="location.href='suivi_dossiers.html'">Retour</button>
+
+<h1 id="titre">Dossiers livrés : 0</h1>
+
+<div class="kpi" id="kpiZone"></div>
+
+<div class="search">
+  <input id="searchInput" placeholder="Rechercher sur tous les champs">
+</div>
+
+<table id="tableLivraison">
+<thead>
+<tr>
+  <th>Client</th>
+  <th>ID DOSSIER</th>
+  <th>Libéllé Produit</th>
+  <th>Localisation</th>
+  <th>TYPE</th>
+  <th>DATE DE CRÉATION</th>
+  <th>Date de MAD</th>
+  <th>Débit</th>
+  <th>Frais de Mise en Service</th>
+  <th>Reccurent Mensuel</th>
+  <th>Total</th>
+  <th>Date MES & MEF</th>
+  <th>DMR MES</th>
+  <th>Semaine</th>
+  <th>Mois</th>
+</tr>
+</thead>
+<tbody>
+<tr><td colspan="15">Chargement…</td></tr>
+</tbody>
+</table>
+
+<script>
+let allRows = [];
+
+function parseDate(v){
+ if(!v) return null;
+ if(typeof v === "number"){
+  const p = XLSX.SSF.parse_date_code(v);
+  return p ? new Date(p.y, p.m-1, p.d) : null;
+ }
+ const d = new Date(v);
+ return isNaN(d) ? null : d;
+}
+
+function formatDate(v){
+ const d = parseDate(v);
+ return d ? d.toLocaleDateString("fr-FR") : "";
+}
+
+function renderTable(rows){
+ const tbody = document.querySelector("#tableLivraison tbody");
+ tbody.innerHTML = "";
+ rows.forEach(r=>{
+  const dmes = parseDate(r["Date MES & MEF"]);
+  const semaine = dmes ? "S" + Math.ceil((((dmes - new Date(dmes.getFullYear(),0,1)) / 86400000) + new Date(dmes.getFullYear(),0,1).getDay()+1)/7) : "";
+  const mois = dmes ? dmes.toLocaleString("fr-FR",{month:"long"}) : "";
+
+  tbody.innerHTML += `
+   <tr>
+    <td>${r["Client"]||""}</td>
+    <td>${r["ID DOSSIER"]||""}</td>
+    <td>${r["Libéllé Produit"]||""}</td>
+    <td>${r["Localisation"]||""}</td>
+    <td>${r["TYPE"]||""}</td>
+    <td>${formatDate(r["DATE DE CRÉATION"])}</td>
+    <td>${formatDate(r["Date de MAD"])}</td>
+    <td class="num">${r["Débit"]||""}</td>
+    <td class="num">${r["Frais de Mise en Service"]||""}</td>
+    <td class="num">${r["Reccurent Mensuel"]||""}</td>
+    <td class="num">${r["Total"]||""}</td>
+    <td>${formatDate(r["Date MES & MEF"])}</td>
+    <td>${r["DMR MES"]||""}</td>
+    <td>${semaine}</td>
+    <td>${mois}</td>
+   </tr>`;
+ });
+ document.getElementById("titre").textContent = "Dossiers livrés : " + rows.length;
+}
+
+function renderKPI(rows){
+ const kpi = {};
+ rows.forEach(r=>{
+  const p = r["Libéllé Produit"] || "Non défini";
+  kpi[p] = (kpi[p] || 0) + 1;
+ });
+ const zone = document.getElementById("kpiZone");
+ zone.innerHTML = "";
+ Object.keys(kpi).forEach(k=>{
+  zone.innerHTML += `<div>${k} : ${kpi[k]}</div>`;
+ });
+}
+
+document.getElementById("searchInput").addEventListener("keyup",()=>{
+ const q = searchInput.value.toLowerCase();
+ const filtered = allRows.filter(r=>JSON.stringify(r).toLowerCase().includes(q));
+ renderTable(filtered);
+ renderKPI(filtered);
+});
+
+fetch("bilan.xls?v="+Date.now())
+ .then(r=>r.arrayBuffer())
+ .then(b=>{
+  const wb = XLSX.read(b,{type:"array"});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  allRows = XLSX.utils.sheet_to_json(ws,{raw:true});
+  renderTable(allRows);
+  renderKPI(allRows);
+ });
+</script>
+
+</body>
+</html>

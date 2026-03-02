@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Analyse des Incidents par zone</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+body {font-family: Arial, sans-serif; margin: 20px; background-color: #fff;}
+h1 {text-align: center;}
+table {width: 100%; border-collapse: collapse; margin-top: 20px;}
+th, td {border: 1px solid #ddd; padding: 8px; text-align: left;}
+th {background-color: #f2f2f2;}
+#controls {display: flex; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap;}
+label {margin-right: 10px;}
+button {margin-left: 10px; cursor: pointer;}
+#btnRetour {position: absolute;top: 10px;left: 10px;font-size: 12px;padding: 5px 10px;background-color: #ddd;border: none;border-radius: 4px;cursor: pointer;}
+#btnRetour:hover {background-color: #ccc;}
+.popup {display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);justify-content:center;align-items:center;z-index:9999;}
+.popup-content {background:#f8f8f8;padding:20px;border-radius:8px;max-width:850px;width:90%;max-height:80%;overflow:auto;position:relative;}
+.close-btn {position:absolute;top:20px;left:20px;background:#d9534f;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;}
+.export-container {position:absolute;top:20px;right:20px;display:flex;gap:10px;}
+.export-btn {background:#4a90e2;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;}
+.export-btn:hover {background:#357ab8;}
+.export-table-btn {background:#5cb85c;color:#fff;border:none;padding:6px 10px;border-radius:4px;cursor:pointer;}
+.export-table-btn:hover {background:#449d44;}
+.export-mini {background:none;color:#4a90e2;border:none;padding:0 4px;font-size:11px;cursor:pointer;text-decoration:underline;}
+.export-mini:hover {color:#357ab8;}
+.popup table {width:100%;border-collapse:collapse;margin-top:20px;}
+.popup th, .popup td {border:1px solid #ccc;padding:6px;text-align:left;}
+.popup th {background:#e6e6e6;}
+.popup tr:nth-child(even){background:#f2f2f2;}
+.toggle-btn {
+  background:none;
+  border:none;
+  font-weight:bold;
+  cursor:pointer;
+  margin-right:8px;
+  font-size:14px;
+}
+.toggle-btn:hover { color:#4a90e2; }
+</style>
+</head>
+<body>
+<button id="btnRetour" onclick="window.location.href='ingenierie.html'">← Retour</button>
+<h1>Analyse des Incidents par zone (<span id="totalGlobal">0</span>)</h1>
+<div id="controls">
+<div>
+<label for="localisationSelect" style="display:none;">Localisation :</label>
+<select id="localisationSelect" onchange="filtrerDonnees()" style="display:none;"></select>
+<label for="searchInput">Rechercher :</label>
+<input id="searchInput" onkeyup="filtrerDonnees()" placeholder="Saisir un nom de localisation..." type="text"/>
+<label for="startDate">Du :</label>
+<input id="startDate" onchange="filtrerDonnees();majBoutons();" type="date"/>
+<label for="endDate">Au :</label>
+<input id="endDate" onchange="filtrerDonnees();majBoutons();" type="date"/>
+<button onclick="reinitialiserFiltres()">Réinitialiser</button>
+</div>
+<div>
+<button id="btnCumulZone" onclick="ouvrirCumulZone()">Incidents par zone (0)</button>
+<button id="btnCauses" onclick="ouvrirCauses()">Incidents par cause (0)</button>
+</div>
+</div>
+<table id="dataTable">
+<thead>
+<tr><th>LOCALISATION CLIENT</th><th>ND</th><th>RAISON SOCIALE</th><th>DATE DE CRÉATION</th><th>CAUSE RÉELLE</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+<!-- Popup Incidents par zone -->
+<div class="popup" id="popupCumul">
+<div class="popup-content">
+<button class="close-btn" onclick="fermerPopup('popupCumul')">Fermer</button>
+<div class="export-container">
+<button class="export-btn" onclick="exporterCumulZones()">Exporter Excel</button>
+<button class="export-btn" onclick="ouvrirClients()">Client</button></div>
+<h2 id="titreCumul">Incidents par zone (0)</h2>
+<table id="tableCumul"><thead><tr><th>Zone</th><th>Nombre d'enregistrements</th></tr></thead><tbody></tbody></table>
+</div>
+</div>
+<!-- Popup Incidents par cause -->
+<div class="popup" id="popupCauses">
+<div class="popup-content">
+<button class="close-btn" onclick="fermerPopup('popupCauses')">Fermer</button>
+<div class="export-container">
+<button class="export-btn" onclick="exporterCauses()">Exporter Excel</button>
+<button class="export-table-btn" onclick="exporterTableCauses()">Exporter le tableau</button>
+<button class="export-btn" onclick="ouvrirClients()">Client</button>
+</div>
+<h2 id="titreCauses">Incidents par cause (0)</h2>
+<table id="tableCauses"><thead><tr><th>Cause réelle</th><th>Nombre d'enregistrements</th></tr></thead><tbody></tbody></table>
+</div>
+</div>
+<!-- Popup Par client -->
+<div class="popup" id="popupClients">
+<div class="popup-content">
+<button class="close-btn" onclick="fermerPopup('popupClients')">Fermer</button>
+<div class="export-container">
+<button class="export-btn" onclick="exporterClients()">Exporter Excel</button>
+</div>
+<h2 id="titreClients">Regroupement par client (0)</h2>
+<table id="tableClients"><thead><tr><th>Client</th><th>Nombre d'enregistrements</th></tr></thead><tbody></tbody></table>
+</div>
+</div>
+<script>
+let donnees = [], donneesFiltrees = [];
+
+async function chargerDonnees(){
+ try {
+   const response = await fetch('data.xlsx');
+   const data = await response.arrayBuffer();
+   const wb = XLSX.read(data,{type:'array'});
+   const sheet = wb.Sheets[wb.SheetNames[0]];
+   donnees = XLSX.utils.sheet_to_json(sheet);
+   donneesFiltrees = [...donnees];
+   afficherDonnees(donneesFiltrees);
+   remplirLocalisations(donnees);
+   majBoutons();
+ } catch (e) {
+   console.error('Erreur de chargement du fichier Excel :', e);
+ }
+}
+
+function formaterDate(excelDate){if(!excelDate)return '';const date=new Date((excelDate-25569)*86400*1000);return date.toLocaleDateString('fr-FR');}
+function remplirLocalisations(data){const s=document.getElementById('localisationSelect');const locs=[...new Set(data.map(d=>d['LOCALISATION CLIENT']))].sort();s.innerHTML='<option value="">Toutes</option>'+locs.map(l=>`<option value="${l}">${l}</option>`).join('');}
+
+function filtrerDonnees(){
+ const loc=document.getElementById('localisationSelect').value;
+ const recherche=document.getElementById('searchInput').value.toLowerCase();
+ const start=document.getElementById('startDate').value;
+ const end=document.getElementById('endDate').value;
+ donneesFiltrees=donnees.filter(d=>{
+   let ok=true;
+   if(loc && d['LOCALISATION CLIENT']!==loc) ok=false;
+   if(recherche && d['LOCALISATION CLIENT'] && !d['LOCALISATION CLIENT'].toLowerCase().includes(recherche)) ok=false;
+   if(start && end){
+     const date=new Date((d['DATE DE CRÉATION']-25569)*86400*1000);
+     if(date<new Date(start)||date>new Date(end)) ok=false;
+   }
+   return ok;
+ });
+ afficherDonnees(donneesFiltrees);
+ majBoutons();
+}
+
+function reinitialiserFiltres(){
+ document.getElementById('localisationSelect').value='';
+ document.getElementById('searchInput').value='';
+ document.getElementById('startDate').value='';
+ document.getElementById('endDate').value='';
+ donneesFiltrees=[...donnees];
+ afficherDonnees(donneesFiltrees);
+ majBoutons();
+}
+
+function afficherDonnees(data){
+ const tbody=document.querySelector('#dataTable tbody');
+ tbody.innerHTML='';
+ const groupes={};
+ data.forEach(i=>{
+   const loc=i['LOCALISATION CLIENT']||'Inconnue';
+   if(!groupes[loc]) groupes[loc]=[];
+   groupes[loc].push(i);
+ });
+ const sorted=Object.entries(groupes).sort((a,b)=>b[1].length-a[1].length);
+ let total=0;
+ sorted.forEach(([loc,items])=>{
+   total+=items.length;
+   const zoneId='zone_'+btoa(loc).replace(/=/g,'');
+   const trTitre=document.createElement('tr');
+   trTitre.innerHTML=`<td colspan='5'><button class='toggle-btn' onclick=\"toggleZone('${zoneId}', this)\">+</button> <strong>${loc} — ${items.length} enregistrements |</strong> <button class='export-mini' onclick=\"exporterZone('${loc}')\">Exporter</button></td>`;
+   tbody.appendChild(trTitre);
+   const zoneContainer=document.createElement('tbody');
+   zoneContainer.id=zoneId;
+   zoneContainer.style.display='none';
+   items.forEach(i=>{
+     const tr=document.createElement('tr');
+     tr.innerHTML=`<td>${i['LOCALISATION CLIENT']||''}</td><td>${i['ND']||''}</td><td>${i['RAISON SOCIALE']||''}</td><td>${formaterDate(i['DATE DE CRÉATION'])}</td><td>${i['CAUSE RÉELLE']||''}</td>`;
+     zoneContainer.appendChild(tr);
+   });
+   tbody.appendChild(zoneContainer);
+ });
+ document.getElementById('totalGlobal').textContent=total;
+}
+
+function toggleZone(id, btn){
+ const section=document.getElementById(id);
+ if(section.style.display==='none'){
+   section.style.display='table-row-group';
+   btn.textContent='–';
+ } else {
+   section.style.display='none';
+   btn.textContent='+';
+ }
+ const tbody=document.querySelector('#dataTable tbody');
+ tbody.innerHTML='';
+ const groupes={};
+ data.forEach(i=>{
+   const loc=i['LOCALISATION CLIENT']||'Inconnue';
+   if(!groupes[loc]) groupes[loc]=[];
+   groupes[loc].push(i);
+ });
+ const sorted=Object.entries(groupes).sort((a,b)=>b[1].length-a[1].length);
+ let total=0;
+ sorted.forEach(([loc,items])=>{
+   total+=items.length;
+   const trTitre=document.createElement('tr');
+   trTitre.innerHTML=`<td colspan='5'><strong>${loc} — ${items.length} enregistrements |</strong> <button class='export-mini' onclick="exporterZone('${loc}')">Exporter</button></td>`;
+   tbody.appendChild(trTitre);
+   items.forEach(i=>{
+     const tr=document.createElement('tr');
+     tr.innerHTML=`<td>${i['LOCALISATION CLIENT']||''}</td><td>${i['ND']||''}</td><td>${i['RAISON SOCIALE']||''}</td><td>${formaterDate(i['DATE DE CRÉATION'])}</td><td>${i['CAUSE RÉELLE']||''}</td>`;
+     tbody.appendChild(tr);
+   });
+ });
+ document.getElementById('totalGlobal').textContent=total;
+}
+
+function exporterZone(zone){
+ const start=document.getElementById('startDate').value;
+ const end=document.getElementById('endDate').value;
+ let dataZone=donnees.filter(d=>(d['LOCALISATION CLIENT']||'')===zone);
+ if(start&&end){
+   const s=new Date(start),e=new Date(end);
+   dataZone=dataZone.filter(d=>{
+     const date=new Date((d['DATE DE CRÉATION']-25569)*86400*1000);
+     return date>=s&&date<=e;
+   });
+ }
+ if(dataZone.length===0){alert('Aucune donnée pour '+zone);return;}
+ const wsData=[["ND","RAISON SOCIALE","DATE DE CRÉATION","CAUSE RÉELLE","LOCALISATION CLIENT"]];
+ dataZone.forEach(i=>wsData.push([i['ND']||'',i['RAISON SOCIALE']||'',formaterDate(i['DATE DE CRÉATION']),i['CAUSE RÉELLE']||'',i['LOCALISATION CLIENT']||'']));
+ const ws=XLSX.utils.aoa_to_sheet(wsData);
+ const wb=XLSX.utils.book_new();
+ XLSX.utils.book_append_sheet(wb,ws,zone.substring(0,30));
+ XLSX.writeFile(wb,`Export_${zone}.xlsx`);
+}
+
+function majBoutons(){
+ const total=donneesFiltrees.length;
+ document.getElementById('btnCumulZone').textContent=`Incidents par zone (${total})`;
+ document.getElementById('btnCauses').textContent=`Incidents par cause (${total})`;
+}
+
+function ouvrirCumulZone(){
+ document.getElementById('popupCumul').style.display='flex';
+ const tbody=document.querySelector('#tableCumul tbody');
+ tbody.innerHTML='';
+ const grp={};
+ donneesFiltrees.forEach(d=>{
+   const z=d['LOCALISATION CLIENT']||'Inconnue';
+   if(!grp[z]) grp[z]=[];
+   grp[z].push(d);
+ });
+ const entries=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
+ let total=0;
+ entries.forEach(([z,it])=>{
+   total+=it.length;
+   tbody.innerHTML+=`<tr><td>${z}</td><td>${it.length}</td></tr>`;
+ });
+ document.getElementById('titreCumul').textContent=`Incidents par zone (${total})`;
+}
+
+function exporterCumulZones(){
+ const grp={};
+ donneesFiltrees.forEach(d=>{
+   const z=d['LOCALISATION CLIENT']||'Inconnue';
+   if(!grp[z]) grp[z]=[];
+   grp[z].push(d);
+ });
+ const wb=XLSX.utils.book_new();
+ Object.entries(grp).forEach(([z,it])=>{
+   const wsData=[["ND","RAISON SOCIALE","DATE DE CRÉATION","CAUSE RÉELLE","LOCALISATION CLIENT"]];
+   it.forEach(i=>wsData.push([i['ND']||'',i['RAISON SOCIALE']||'',formaterDate(i['DATE DE CRÉATION']),i['CAUSE RÉELLE']||'',i['LOCALISATION CLIENT']||'']));
+   const ws=XLSX.utils.aoa_to_sheet(wsData);
+   XLSX.utils.book_append_sheet(wb,ws,z.substring(0,30));
+ });
+ XLSX.writeFile(wb,'Cumul_par_zone.xlsx');
+}
+
+function ouvrirCauses(){
+ document.getElementById('popupCauses').style.display='flex';
+ const tbody=document.querySelector('#tableCauses tbody');
+ tbody.innerHTML='';
+ const grp={};
+ donneesFiltrees.forEach(d=>{
+   const c=d['CAUSE RÉELLE']||'Inconnue';
+   if(!grp[c]) grp[c]=[];
+   grp[c].push(d);
+ });
+ const entries=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
+ let total=0;
+ entries.forEach(([c,it])=>{
+   total+=it.length;
+   tbody.innerHTML+=`<tr><td>${c}</td><td>${it.length}</td></tr>`;
+ });
+ document.getElementById('titreCauses').textContent=`Incidents par cause (${total})`;
+}
+
+function ouvrirClients(){
+ document.getElementById('popupClients').style.display='flex';
+ const tbody=document.querySelector('#tableClients tbody');
+ tbody.innerHTML='';
+ const grp={};
+ donneesFiltrees.forEach(d=>{
+   let c=(d['RAISON SOCIALE']||'Inconnue').toUpperCase().trim();
+   let found=false;
+   for(let key in grp){
+     if(c.includes(key)||key.includes(c)){
+       grp[key].push(d);
+       found=true;
+       break;
+     }
+   }
+   if(!found){grp[c]=[d];}
+ });
+ const entries=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
+ let total=0;
+ entries.forEach(([c,it])=>{
+   total+=it.length;
+   tbody.innerHTML+=`<tr><td>${c}</td><td>${it.length}</td></tr>`;
+ });
+ document.getElementById('titreClients').textContent=`Regroupement par client (${total})`;
+}
+
+function exporterClients(){
+ const grp={};
+ donneesFiltrees.forEach(d=>{
+   let c=(d['RAISON SOCIALE']||'Inconnue').toUpperCase().trim();
+   let found=false;
+   for(let key in grp){
+     if(c.includes(key)||key.includes(c)){
+       grp[key].push(d);
+       found=true;
+       break;
+     }
+   }
+   if(!found){grp[c]=[d];}
+ });
+ const wb=XLSX.utils.book_new();
+ Object.entries(grp).forEach(([c,it])=>{
+   const wsData=[["ND","RAISON SOCIALE","DATE DE CRÉATION","CAUSE RÉELLE","LOCALISATION CLIENT"]];
+   it.forEach(i=>wsData.push([i['ND']||'',i['RAISON SOCIALE']||'',formaterDate(i['DATE DE CRÉATION']),i['CAUSE RÉELLE']||'',i['LOCALISATION CLIENT']||'']));
+   const ws=XLSX.utils.aoa_to_sheet(wsData);
+   XLSX.utils.book_append_sheet(wb,ws,c.substring(0,30));
+ });
+ XLSX.writeFile(wb,'Regroupement_par_client.xlsx');
+}
+
+function exporterCauses(){
+ const wsData=[["LOCALISATION CLIENT","ND","RAISON SOCIALE","DATE DE CRÉATION","CAUSE RÉELLE"]];
+ donneesFiltrees.forEach(i=>wsData.push([i['LOCALISATION CLIENT']||'',i['ND']||'',i['RAISON SOCIALE']||'',formaterDate(i['DATE DE CRÉATION']),i['CAUSE RÉELLE']||'']));
+ const ws=XLSX.utils.aoa_to_sheet(wsData);
+ const wb=XLSX.utils.book_new();
+ XLSX.utils.book_append_sheet(wb,ws,'Causes');
+ XLSX.writeFile(wb,'Par_cause_reelle.xlsx');
+}
+
+function exporterTableCauses(){
+ const table=document.querySelector('#tableCauses');
+ const wb=XLSX.utils.book_new();
+ const ws=XLSX.utils.table_to_sheet(table);
+ XLSX.utils.book_append_sheet(wb,ws,'Résumé causes');
+ XLSX.writeFile(wb,'Tableau_Par_Cause_Reelle.xlsx');
+}
+
+function fermerPopup(id){
+ document.getElementById(id).style.display='none';
+}
+
+window.onload=chargerDonnees;
+</script>
+</body>
+</html>
+<!-- Ajout de la version intelligente de la fonction ouvrirClients -->
+<script>
+function ouvrirClients(){
+  document.getElementById('popupClients').style.display='flex';
+  const tbody=document.querySelector('#tableClients tbody');
+  tbody.innerHTML='';
+
+  function nettoyerTexte(t){
+    return (t||'').normalize('NFD')
+      .replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-zA-Z0-9]/g,'')
+      .toLowerCase();
+  }
+  function similarite(a,b){
+    if(!a||!b)return 0;
+    let m=0;for(let i=0;i<Math.min(a.length,b.length);i++)if(a[i]===b[i])m++;
+    return m/Math.max(a.length,b.length);
+  }
+
+  const grp={}, cles=[];
+  donneesFiltrees.forEach(d=>{
+    const original=(d['RAISON SOCIALE']||'Inconnue').trim();
+    const clean=nettoyerTexte(original);
+    let fusion=false;
+    for(const key of cles){
+      const ckey=nettoyerTexte(key);
+      const sim=similarite(clean,ckey);
+      if(sim>=0.7||clean.includes(ckey)||ckey.includes(clean)){
+        const meilleur=(original.length<key.length)?original:key;
+        const dataFusion=[...(grp[key]||[]),d];
+        delete grp[key];
+        grp[meilleur]=dataFusion;
+        cles[cles.indexOf(key)]=meilleur;
+        fusion=true;
+        break;
+      }
+    }
+    if(!fusion){grp[original]=[d];cles.push(original);}
+  });
+
+  const entries=Object.entries(grp).sort((a,b)=>b[1].length-a[1].length);
+  const distinct=entries.length;
+  entries.forEach(([nom,arr])=>{
+    tbody.innerHTML+=`<tr><td>${nom}</td><td>${arr.length}</td></tr>`;
+  });
+  document.getElementById('titreClients').textContent=`Regroupement par client (${distinct})`;
+}
+</script>
+<script>
+function exporterClients() {
+  if (!donneesFiltrees || donneesFiltrees.length === 0) {
+    alert("Aucune donnée à exporter !");
+    return;
+  }
+
+  // Trier les données par ND décroissant
+  const donneesTriees = [...donneesFiltrees].sort((a, b) => {
+    const ndA = a["ND"] ? a["ND"].toString() : "";
+    const ndB = b["ND"] ? b["ND"].toString() : "";
+    return ndB.localeCompare(ndA, "fr", { numeric: true });
+  });
+
+  // Colonnes à exporter
+  const exportData = donneesTriees.map(d => ({
+    ND: d["ND"] || "",
+    "RAISON SOCIALE": d["RAISON SOCIALE"] || "",
+    "DATE DE CRÉATION": d["DATE DE CRÉATION"] || "",
+    "CAUSE RÉELLE": d["CAUSE RÉELLE"] || "",
+    "LOCALISATION CLIENT": d["LOCALISATION CLIENT"] || ""
+  }));
+
+  // Créer une seule feuille Excel
+  const ws = XLSX.utils.json_to_sheet(exportData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Regroupement_Par_ND");
+
+  // Exporter le fichier
+  XLSX.writeFile(wb, "Regroupement_Clients_Par_ND.xlsx");
+}
+
+</script>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Objectif Production 2025</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+body{
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 20px;
+}
+button.retour{
+  background:#d3d3d3;
+  border:none;
+  padding:6px 10px;
+  border-radius:6px;
+  font-size:13px;
+  cursor:pointer;
+  margin-bottom:10px;
+}
+h1{
+  font-size:16px;
+  font-weight:normal;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 8px;
+  color:#000;
+}
+span.ok{color:green;font-weight:bold}
+span.ko{color:red;font-weight:bold}
+
+table{
+  border-collapse: collapse;
+  margin-top: 20px;
+  min-width: 620px;
+}
+th, td{
+  border: 1px solid #ccc;
+  padding: 10px 14px;
+}
+th{
+  background: #f2f2f2;
+}
+td.num{
+  text-align: right;
+}
+.objectif-ok{color:green;font-weight:bold}
+.objectif-ko{color:red;font-weight:bold}
+.ecart-pos{color:red;font-weight:bold}
+.ecart-neg{color:green;font-weight:bold}
+tr.total-row td{
+  font-weight:bold;
+  background:#eaeaea;
+}
+</style>
+</head>
+
+<body>
+
+<button class="retour" onclick="location.href='suivi_dossiers.html'">Retour</button>
+
+<h1 id="titre">Chargement…</h1>
+
+<table id="tableMAD">
+  <thead>
+    <tr>
+      <th>Mois</th>
+      <th>Volume</th>
+      <th>CA</th>
+      <th>Objectif</th>
+      <th>Écart</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td colspan="5">Chargement…</td></tr>
+  </tbody>
+</table>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  const OBJECTIF_MENSUEL = 115000000;
+  const OBJECTIF_ANNUEL = OBJECTIF_MENSUEL * 12;
+
+  fetch("bilan.xls?v=" + Date.now())
+    .then(r => {
+      if (!r.ok) throw new Error("bilan.xls non trouvé");
+      return r.arrayBuffer();
+    })
+    .then(data => {
+      const wb = XLSX.read(data, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { raw: true });
+
+      const tbody = document.querySelector("#tableMAD tbody");
+      const titre = document.getElementById("titre");
+      tbody.innerHTML = "";
+
+      let totalCA = 0;
+      let totalVol = 0;
+      const stats = {};
+
+      rows.forEach(r => {
+        if (!r["Date MES & MEF"]) return;
+
+        let d;
+
+        if (typeof r["Date MES & MEF"] === "number") {
+          const p = XLSX.SSF.parse_date_code(r["Date MES & MEF"]);
+          if (!p) return;
+          d = new Date(p.y, p.m - 1, p.d);
+
+        } else if (typeof r["Date MES & MEF"] === "string") {
+          const clean = r["Date MES & MEF"].trim();
+          const m = clean.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+          if (!m) return;
+
+          const jj = parseInt(m[1], 10);
+          const mm = parseInt(m[2], 10) - 1;
+          let aa = parseInt(m[3], 10);
+          if (aa < 100) aa += 2000;
+
+          d = new Date(aa, mm, jj);
+          if (isNaN(d)) return;
+        } else {
+          return;
+        }
+
+        const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+        if (!stats[key]) stats[key] = { vol: 0, ca: 0 };
+
+        stats[key].vol++;
+        totalVol++;
+
+        const val = Number(String(r["Total"] ?? "").replace(/\s/g,"").replace(",", "."));
+        if (!isNaN(val)) {
+          stats[key].ca += val;
+          totalCA += val;
+        }
+      });
+
+      const annuelAtteint = totalCA >= OBJECTIF_ANNUEL;
+
+      titre.innerHTML =
+        "Objectif Production 2025 : 115 000 000 / Mois – 1 380 000 000 / An – Volume annuel : " +
+        (annuelAtteint
+          ? "<span class='ok'>ATTEINT</span>"
+          : "<span class='ko'>NON ATTEINT</span>"
+        );
+
+      const moisFR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+
+      Object.keys(stats).sort().forEach(k => {
+        const [y, m] = k.split("-");
+        const ca = stats[k].ca;
+        const ecart = OBJECTIF_MENSUEL - ca;
+        const atteint = ca >= OBJECTIF_MENSUEL;
+
+        tbody.innerHTML += `
+          <tr>
+            <td>${moisFR[m-1]} ${y}</td>
+            <td class="num">${stats[k].vol}</td>
+            <td class="num">${ca.toLocaleString("fr-FR")}</td>
+            <td class="${atteint ? "objectif-ok":"objectif-ko"}">${atteint ? "Atteint":"Non atteint"}</td>
+            <td class="num ${ecart > 0 ? "ecart-pos":"ecart-neg"}">${ecart.toLocaleString("fr-FR")}</td>
+          </tr>`;
+      });
+
+      const ecartTotal = OBJECTIF_ANNUEL - totalCA;
+
+      tbody.innerHTML += `
+        <tr class="total-row">
+          <td>TOTAL</td>
+          <td class="num">${totalVol}</td>
+          <td class="num">${totalCA.toLocaleString("fr-FR")}</td>
+          <td class="${annuelAtteint ? "objectif-ok":"objectif-ko"}">${annuelAtteint ? "Atteint":"Non atteint"}</td>
+          <td class="num ${ecartTotal > 0 ? "ecart-pos":"ecart-neg"}">${ecartTotal.toLocaleString("fr-FR")}</td>
+        </tr>`;
+    })
+    .catch(()=>{
+      document.getElementById("titre").textContent = "Erreur de chargement du fichier bilan";
+    });
+
+});
+</script>
+
+</body>
+</html>

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Planning de suivi</title>
+  <style>
+    :root {
+      --bg:#ffffff;
+      --panel:#f9f9f9;
+      --muted:#374151;
+      --text:#000000;
+      --accent:#22d3ee;
+      --bad:#ef4444;
+      --line:#11182722;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial}
+    h1{font-size:22px;margin:16px 0}
+    .wrap{max-width:1200px;margin:0 auto;padding:16px}
+    .panel{background:var(--panel);border:1px solid #000;border-radius:12px;padding:16px}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+    label{font-weight:600;color:#1f2937;font-size:12px;display:block;margin-bottom:6px}
+    input,select,textarea{width:100%;background:#ffffff;border:1px solid #000000;color:#000000;padding:10px;border-radius:10px}
+    textarea{min-height:64px;resize:vertical}
+    .row{grid-column:span 6}
+    .row-12{grid-column:span 12}
+    .actions{display:flex;gap:8px;flex-wrap:nowrap;justify-content:flex-end;align-items:center;margin-top:8px}
+    button{border:1px solid #000;background:#ffffff;color:#000;padding:10px 14px;border-radius:10px;cursor:pointer}
+    button.primary{background:var(--accent);color:#001018;border-color:#001018;font-weight:700}
+    button.danger{background:#ef4444;color:#fff;border-color:#ef4444}
+    button.ghost{background:#fff}
+    table{width:100%;border-collapse:collapse;border:1px solid #000}
+    th,td{border-bottom:1px solid #000;padding:10px;text-align:left;vertical-align:top}
+    th{background:#0b1220;color:#fff;position:sticky;top:0;z-index:1}
+    tr:hover td{background:#f1f5f9}
+    .kpis{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+    .kpi{flex:1;min-width:180px;background:#ffffff;border:1px solid #000;border-radius:12px;padding:12px}
+    .kpi .l{color:#1f2937}
+    .kpi .v{font-size:20px;font-weight:800}
+    .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    @media (max-width:900px){.row{grid-column:span 12}.actions{flex-wrap:wrap;justify-content:space-between}}
+  
+/* Bouton flottant 2025 */
+.btn-2025 {
+  position: fixed;
+  top: 12px;
+  right: 14px;
+  background: #003366;
+  color: #ffffff;
+  padding: 6px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: bold;
+  text-decoration: none;
+  z-index: 99999;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+.btn-2025:hover { opacity:0.85; }
+
+</style>
+
+<style>
+@media (max-width: 768px) {
+    body { font-size: 20px; }
+    table { font-size: 18px; }
+    h1, h2, h3 { font-size: 22px; }
+    button, input, select { font-size: 18px; }
+}
+</style>
+
+</head>
+<body>
+<a href="index.html" class="btn-2025">2025</a>
+
+  <div class="wrap">
+    <h1>Planning de suivi</h1> <button style="margin-left:10px; background-color: blue; color: white;" onclick="location.href='index.html'">Accueil</button>
+
+    <div class="kpis">
+      <div class="kpi"><div class="l">Actions</div><div class="v" id="kpiTotal">0</div></div>
+      <div class="kpi"><div class="l">En retard</div><div class="v" id="kpiLate">0</div></div>
+      <div class="kpi"><div class="l">Avancement moyen</div><div class="v" id="kpiAvg">0%</div></div>
+    </div>
+
+    <div class="panel" aria-labelledby="form-title">
+      <h2 id="form-title" class="sr-only">Créer / Mettre à jour une action</h2>
+      <form id="actionForm" class="grid" autocomplete="off">
+        <div class="row"><label for="responsable">Responsable</label><input id="responsable"/></div>
+        <div class="row"><label for="dateDemande">Date de demande</label><input id="dateDemande" type="date"/></div>
+        <div class="row-12"><label for="description">Description de l’action</label><textarea id="description"></textarea></div>
+        <div class="row"><label for="debutPrevu">Date de début prévue</label><input id="debutPrevu" type="date"/></div>
+        <div class="row"><label for="finPrevue">Date de fin prévue</label><input id="finPrevue" type="date"/></div>
+        <div class="row-12"><label for="commentaires">Commentaires de suivi</label><textarea id="commentaires"></textarea></div>
+        <div class="actions">
+          <button class="primary" id="btnSave" type="submit">Enregistrer</button>
+          <button class="ghost" id="btnExport" type="button" title="Export XLS">Exporter XLS</button>
+        </div>
+        <input type="hidden" id="editIndex" value="" />
+      </form>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>Tableau des actions</strong>
+        <input id="search" placeholder="Recherche… (resp., description, commentaires)" style="max-width:260px" />
+      </div>
+      <div style="overflow:auto;max-height:50vh;border:1px solid #000;border-radius:12px">
+        <table id="table">
+          <thead>
+            <tr>
+              <th>Responsable</th>
+              <th>Date de demande</th>
+              <th>Description de l’action</th>
+              <th>Date de début prévue</th>
+              <th>Date de fin prévue</th>
+              <th>Commentaires de suivi</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id)=>document.getElementById(id);
+    const state = { rows: [] };
+    const STORAGE_KEY = 'planning-suivi-v2-simplifie';
+
+    function load(){
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){ try{ state.rows = JSON.parse(raw) || []; } catch{ state.rows=[]; } }
+      render();
+    }
+    function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state.rows)); }
+
+    function diffDays(a,b){
+      if(!a || !b) return '';
+      const da = new Date(a), db = new Date(b);
+      if(isNaN(+da) || isNaN(+db)) return '';
+      const ms = db - da;
+      return Math.round(ms/86400000);
+    }
+
+    function formatDateFR(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      if (isNaN(d)) return '';
+      const jour = String(d.getDate()).padStart(2, '0');
+      const mois = String(d.getMonth() + 1).padStart(2, '0');
+      const annee = d.getFullYear();
+      return `${jour}/${mois}/${annee}`;
+    }
+
+    function clearForm(){
+      ['responsable','dateDemande','description','debutPrevu','finPrevue','commentaires','editIndex']
+        .forEach(id=>{ const el=$(id); el.value=''; });
+      $('btnSave').textContent='Enregistrer';
+    }
+
+    function toRow(){
+      return {
+        responsable: $('responsable').value.trim(),
+        dateDemande: $('dateDemande').value,
+        description: $('description').value.trim(),
+        debutPrevu: $('debutPrevu').value,
+        finPrevue: $('finPrevue').value,
+        commentaires: $('commentaires').value.trim(),
+      };
+    }
+
+    function render(){
+      const q = ($('search').value||'').toLowerCase();
+      const tbody = document.querySelector('#table tbody');
+      tbody.innerHTML = '';
+      let late = 0;
+      const rows = state.rows.filter(r=>
+        !q || [r.responsable, r.description, r.commentaires].some(x=> (x||'').toLowerCase().includes(q))
+      );
+      rows.forEach((r,i)=>{
+        const ecart = diffDays(r.finPrevue, r.dateDemande);
+        if(typeof ecart === 'number' && ecart>0) late++;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${r.responsable||''}</td>
+          <td>${formatDateFR(r.dateDemande)}</td>
+          <td>${r.description||''}</td>
+          <td>${formatDateFR(r.debutPrevu)}</td>
+          <td>${formatDateFR(r.finPrevue)}</td>
+          <td>${r.commentaires||''}</td>
+          <td>
+            <button type="button" onclick="editRow(${i})">Éditer</button>
+            <button type="button" class="danger" onclick="delRow(${i})">Supprimer</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      $('kpiTotal').textContent = state.rows.length;
+      $('kpiLate').textContent = late;
+      $('kpiAvg').textContent = 'N/A';
+    }
+
+    function addRow(e){
+      e.preventDefault();
+      const row = toRow();
+      const allEmpty = Object.values(row).every(v => !String(v||'').trim());
+      if(allEmpty){ return; } // ignore if all fields empty
+      const idx = $('editIndex').value;
+      if(idx === ''){ state.rows.push(row); }
+      else { state.rows[Number(idx)] = row; }
+      save();
+      clearForm();
+      render();
+    }
+
+    function editRow(i){
+      const r = state.rows[i];
+      if(!r) return;
+      $('responsable').value = r.responsable||'';
+      $('dateDemande').value = r.dateDemande||'';
+      $('description').value = r.description||'';
+      $('debutPrevu').value = r.debutPrevu||'';
+      $('finPrevue').value = r.finPrevue||'';
+      $('commentaires').value = r.commentaires||'';
+      $('editIndex').value = i;
+      $('btnSave').textContent = 'Mettre à jour';
+      window.scrollTo({top:0,behavior:'smooth'});
+    }
+
+    function delRow(i){
+      if(!confirm('Supprimer cette ligne ?')) return;
+      state.rows.splice(i,1);
+      save();
+      render();
+    }
+
+    function exportXLS(){
+      const headers = [
+        'Responsable','Date de demande','Description de l’action','Date de début prévue','Date de fin prévue','Commentaires de suivi'
+      ];
+      const tableRows = state.rows.map(r=>[
+        r.responsable||'', formatDateFR(r.dateDemande), r.description||'', formatDateFR(r.debutPrevu), formatDateFR(r.finPrevue), r.commentaires||''
+      ]);
+
+      let html = '<html><head><meta charset="UTF-8">
+<style>
+@media (max-width: 768px) {
+    body { font-size: 20px; }
+    table { font-size: 18px; }
+    h1, h2, h3 { font-size: 22px; }
+    button, input, select { font-size: 18px; }
+}
+</style>
+
+</head><body><table border="1"><thead><tr>';
+      html += headers.map(h=>'<th>'+h.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</th>').join('');
+      html += '</tr></thead><tbody>';
+      tableRows.forEach(row=>{
+        html += '<tr>'+row.map(v=>'<td>'+String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</td>').join('')+'</tr>';
+      });
+      html += '</tbody></table></body></html>';
+
+      const blob = new Blob([html], {type: 'application/vnd.ms-excel;charset=utf-8;'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'planning-suivi-simplifie.xls';
+      a.click(); URL.revokeObjectURL(url);
+    }
+
+    $('actionForm').addEventListener('submit', addRow);
+    $('btnReset').addEventListener('click', clearForm);
+    $('btnExport').addEventListener('click', exportXLS);
+    $('btnClear').addEventListener('click', ()=>{
+      if(confirm('Effacer toutes les données du planning ?')){
+        state.rows = []; save(); render(); clearForm();
+      }
+    });
+    $('search').addEventListener('input', render);
+
+    load();
+  </script>
+</body>
+</html>

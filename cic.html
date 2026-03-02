@@ -1,0 +1,363 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>CIC - Filtre par Causes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<style>
+body {font-family: Arial, sans-serif; margin:0; background:#f4f6f9;}
+header {background:#111; color:white; padding:12px 20px; display:flex; justify-content:space-between; align-items:center;}
+button {padding:6px 12px; border:none; border-radius:4px; cursor:pointer; font-weight:bold;}
+.btn-back {background:#444; color:white;}
+.container {padding:20px;}
+.category-bar {display:flex; gap:8px; flex-wrap:wrap; margin-bottom:15px;}
+.category-btn {background:#e0e0e0;}
+.category-btn:hover {background:#c9c9c9;}
+.active {background:#222; color:white;}
+table {border-collapse:collapse; width:100%; background:white;}
+th, td {border:1px solid #ddd; padding:6px; font-size:12px;}
+th {background:#222; color:white;}
+.search-box {padding:5px 8px; font-size:12px; border-radius:4px; border:1px solid #ccc;}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <div><b>CIC - Filtre par Causes (<span id="rowCount">0</span>)</b></div>
+    <input type="text" id="globalSearch" class="search-box" placeholder="Rechercher..." onkeyup="applyGlobalSearch()">
+    <button class="category-btn" onclick="exportCurrentView()">Exporter</button>
+    <button class="category-btn" onclick="refreshData()">Refresh</button>
+  </div>
+  <button class="btn-back" onclick="window.location.href='carte.html'">⬅ Retour Carte</button>
+</header>
+
+<div class="container">
+
+<div class="category-bar">
+  <button class="category-btn" onclick="filterByCategory('SRO', this)">SRO</button>
+  <button class="category-btn" onclick="filterByCategory('MANCHON', this)">MANCHON</button>
+  <button class="category-btn" onclick="filterByCategory('PB', this)">PB</button>
+  <button class="category-btn" onclick="filterByCategory('CLIENT', this)">CLIENT</button>
+  <button class="category-btn" onclick="filterByCategory('CABLE COUPE', this)">CABLE COUPE</button>
+  <button class="category-btn" onclick="filterByCategory('DERCO', this)">DERCO</button>
+  <button class="category-btn" onclick="filterByCategory('AUTRE', this)">AUTRE</button>
+  <button class="category-btn" onclick="renderTable(DATA)">TOUT</button>
+  <span style="align-self:center;font-weight:bold;">|</span>
+  <button class="category-btn" onclick="openSROPopup()">SRO</button>
+</div>
+
+<div style="overflow:auto; max-height:70vh;">
+  <table id="dataTable">
+    <thead></thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+</div>
+
+<script>
+
+let DATA = [];
+let CURRENT_VIEW = [];
+let CURRENT_HEADERS = [];
+
+function mapCategory(cause){
+    cause = (cause || "").toUpperCase();
+
+    if(["PDZ","PDI","PDR","PEC"].some(x => cause.includes(x))) return "SRO";
+
+    if(/\bPA\b/.test(cause) || /\bPEP\b/.test(cause) || /\bPAC\b/.test(cause))
+        return "MANCHON";
+
+    if(/\bPB\b/.test(cause))
+        return "PB";
+
+    if(cause.includes("CLIENT") || cause.includes("PTO")) return "CLIENT";
+
+    if(cause.includes("CABLE COUPE") || cause.includes("CÂBLE COUPÉ"))
+        return "CABLE COUPE";
+
+    if(cause.includes("DERCO")) return "DERCO";
+
+    return "AUTRE";
+}
+
+async function loadData(){
+    const response = await fetch("cic.xlsx");
+    const arrayBuffer = await response.arrayBuffer();
+    const wb = XLSX.read(arrayBuffer, {type:"array"});
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    DATA = XLSX.utils.sheet_to_json(sheet);
+    renderTable(DATA);
+}
+
+function renderTable(data){
+    const thead = document.querySelector("#dataTable thead");
+    const tbody = document.querySelector("#dataTable tbody");
+    thead.innerHTML = "";
+    tbody.innerHTML = "";
+
+    
+    // 🔥 TRI décroissant par SRO puis par REGROUPEMENT
+    data = data.sort((a, b) => {
+        const sroA = (a["SRO"] || "").toString().toUpperCase();
+        const sroB = (b["SRO"] || "").toString().toUpperCase();
+        
+        if (sroA < sroB) return 1;
+        if (sroA > sroB) return -1;
+
+        const regA = mapCategory(a["CAUSE RÉELLE"] || a["CAUSE"] || "");
+        const regB = mapCategory(b["CAUSE RÉELLE"] || b["CAUSE"] || "");
+        
+        if (regA < regB) return 1;
+        if (regA > regB) return -1;
+
+        return 0;
+    });
+
+    if(data.length === 0){
+        document.getElementById("rowCount").innerText = 0;
+        return;
+    }
+
+    const headers = Object.keys(data[0]);
+    headers.push("REGROUPEMENT");
+    CURRENT_VIEW = data;
+    CURRENT_HEADERS = headers;
+
+    let headerRow = "<tr>";
+    headers.forEach(h => headerRow += "<th>"+h+"</th>");
+    headerRow += "</tr>";
+    thead.innerHTML = headerRow;
+
+    data.forEach(row=>{
+        let tr = "<tr>";
+        headers.forEach(h=>{
+            if(h === "REGROUPEMENT"){
+                const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || "";
+                tr += "<td>"+mapCategory(cause)+"</td>";
+            } else {
+                tr += "<td>"+(row[h] || "")+"</td>";
+            }
+        });
+        tr += "</tr>";
+        tbody.innerHTML += tr;
+    });
+
+    document.getElementById("rowCount").innerText = data.length;
+}
+
+function filterByCategory(category, btn){
+    document.querySelectorAll(".category-btn").forEach(b=>b.classList.remove("active"));
+    if(btn) btn.classList.add("active");
+
+    const filtered = DATA.filter(row=>{
+        const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || "";
+        return mapCategory(cause) === category;
+    });
+
+    renderTable(filtered);
+}
+
+function applyGlobalSearch(){
+    const term = document.getElementById("globalSearch").value.toUpperCase();
+    const filtered = DATA.filter(row =>
+        Object.values(row).some(val =>
+            String(val).toUpperCase().includes(term)
+        )
+    );
+    renderTable(filtered);
+}
+
+function exportCurrentView(){
+    const wb = XLSX.utils.book_new();
+    const rows = CURRENT_VIEW || [];
+    const headers = CURRENT_HEADERS || [];
+    const aoa = [headers];
+
+    rows.forEach(r => {
+        aoa.push(headers.map(h => (r[h] == null ? "" : r[h])));
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    XLSX.utils.book_append_sheet(wb, ws, "Export");
+    XLSX.writeFile(wb, "export_cic.xlsx");
+}
+
+function refreshData(){
+    document.getElementById("globalSearch").value = "";
+    loadData();
+}
+
+
+function openSROPopup(){
+
+    if(DATA.length === 0){
+        alert("Aucune donnée trouvée.");
+        return;
+    }
+
+    const modal = document.getElementById("sroModal");
+    const tbody = document.getElementById("sroModalBody");
+    const title = document.getElementById("sroModalTitle");
+
+    // Calcul du volume total global
+    const totalGlobalVolume = DATA.length;
+
+    // Titre avec volume dynamique
+    title.innerText = "Répartition % par SRO - Volume total : " + totalGlobalVolume;
+    tbody.innerHTML = "";
+
+    const pivot = {};
+
+    DATA.forEach(row => {
+
+        let sro = (row["SRO"] || "INCONNU")
+                    .toString()
+                    .trim()
+                    .toUpperCase();
+
+        const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || "";
+        const cat = mapCategory(cause);
+
+        if(!pivot[sro]){
+            pivot[sro] = {
+                total:0,
+                SRO:0,
+                MANCHON:0,
+                PB:0,
+                CLIENT:0,
+                "CABLE COUPE":0,
+                DERCO:0,
+                AUTRE:0
+            };
+        }
+
+        pivot[sro].total++;
+        if(pivot[sro][cat] !== undefined){
+            pivot[sro][cat]++;
+        }
+    });
+
+    // 🔥 TRI PAR VOLUME DÉCROISSANT
+    const sortedSRO = Object.keys(pivot).sort((a,b)=> pivot[b].total - pivot[a].total);
+
+    let globalTotal = 0;
+    let global = {SRO:0, MANCHON:0, PB:0, CLIENT:0, "CABLE COUPE":0, DERCO:0, AUTRE:0};
+
+    sortedSRO.forEach(sro => {
+
+        const total = pivot[sro].total;
+        globalTotal += total;
+
+        Object.keys(global).forEach(k=> global[k]+= pivot[sro][k]);
+
+        const pct = v => total ? ((v/total)*100).toFixed(1)+"%" : "0%";
+        const cablePctValue = total ? (pivot[sro]["CABLE COUPE"]/total)*100 : 0;
+
+        const cableStyle = cablePctValue > 40 ? "style='color:red;font-weight:bold'" : "";
+
+        tbody.innerHTML += `
+        <tr>
+            <td>${sro}</td>
+            <td><b>${total}</b></td>
+            <td>${pct(pivot[sro]["SRO"])}</td>
+            <td>${pct(pivot[sro]["MANCHON"])}</td>
+            <td>${pct(pivot[sro]["PB"])}</td>
+            <td>${pct(pivot[sro]["CLIENT"])}</td>
+            <td ${cableStyle}>${pct(pivot[sro]["CABLE COUPE"])}</td>
+            <td>${pct(pivot[sro]["DERCO"])}</td>
+            <td>${pct(pivot[sro]["AUTRE"])}</td>
+        </tr>`;
+    });
+
+    // 🔥 LIGNE TOTAL GÉNÉRAL
+    const pctGlobal = v => globalTotal ? ((v/globalTotal)*100).toFixed(1)+"%" : "0%";
+
+    tbody.innerHTML += `
+    <tr style="background:#111;color:white;font-weight:bold;">
+        <td>TOTAL</td>
+        <td>${globalTotal}</td>
+        <td>${pctGlobal(global["SRO"])}</td>
+        <td>${pctGlobal(global["MANCHON"])}</td>
+        <td>${pctGlobal(global["PB"])}</td>
+        <td>${pctGlobal(global["CLIENT"])}</td>
+        <td>${pctGlobal(global["CABLE COUPE"])}</td>
+        <td>${pctGlobal(global["DERCO"])}</td>
+        <td>${pctGlobal(global["AUTRE"])}</td>
+    </tr>`;
+
+    modal.style.display = "block";
+}
+
+
+
+
+function filterPopupSRO(){
+
+    const term = document.getElementById("popupSROSearch").value.toUpperCase();
+    const rows = document.querySelectorAll("#sroModalBody tr");
+    const title = document.getElementById("sroModalTitle");
+
+    let visibleTotal = 0;
+
+    rows.forEach(row => {
+
+        if(row.cells[0].innerText === "TOTAL") return;
+
+        const sro = row.cells[0].innerText.toUpperCase();
+        const volume = parseInt(row.cells[1].innerText) || 0;
+
+        if(sro.includes(term)){
+            row.style.display = "";
+            visibleTotal += volume;
+        } else {
+            row.style.display = "none";
+        }
+    });
+
+    title.innerText = "Répartition % par SRO - Volume total : " + visibleTotal;
+}
+
+
+window.onload = loadData;
+
+</script>
+
+<div id="sroModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999;">
+    <div style="background:white; width:900px; margin:60px auto; padding:20px; border-radius:6px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <b id="sroModalTitle"></b>
+            <button onclick="document.getElementById('sroModal').style.display='none'">X</button>
+        </div>
+        
+        <input type="text" id="popupSROSearch" placeholder="Rechercher SRO..." 
+        style="margin-bottom:10px;padding:5px 8px;border:1px solid #ccc;border-radius:4px;width:200px;"
+        onkeyup="filterPopupSRO()">
+
+        <table style="width:100%; border-collapse:collapse;">
+            <thead>
+                <tr style="background:#222; color:white;">
+                    <th>Nom SRO</th>
+                    <th>Volume</th>
+                    <th>SRO</th>
+                    <th>MANCHON</th>
+                    <th>PB</th>
+                    <th>CLIENT</th>
+                    <th>CABLE COUPE</th>
+                    <th>DERCO</th>
+                    <th>AUTRE</th>
+                </tr>
+            </thead>
+            <tbody id="sroModalBody"></tbody>
+        </table>
+    </div>
+</div>
+
+</body>
+</html>

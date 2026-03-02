@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Suivi de la QoS des installations</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+ body { font-family: Arial, sans-serif; margin: 20px; }
+ table { border-collapse: collapse; font-size: 13px; min-width: 1400px; }
+ th, td { border: 1px solid #ccc; padding: 4px; text-align: center; }
+ th { background: #f0f0f0; }
+ .scroll { max-height: 350px; overflow: auto; border: 1px solid #ccc; margin-bottom:20px; }
+</style>
+</head>
+<body>
+
+<h2>Suivi de la QoS des installations</h2>
+<h3>Total Référence: <span id='totalRef'></span></h3>
+
+<div class="scroll">
+<table id="tableStables">
+ <thead>
+   <tr>
+     <th>N°</th><th>Client</th><th>Référence</th><th>Date cré.</th><th>Date MAD</th><th>Date MES & MEF</th>
+     <th>Jan</th><th>Fév</th><th>Mar</th><th>Avr</th><th>Mai</th><th>Juin</th>
+     <th>Juil</th><th>Août</th><th>Sept</th><th>Oct</th><th>Nov</th><th>Déc</th>
+   </tr>
+ </thead>
+ <tbody></tbody>
+</table>
+</div>
+
+<div class="scroll">
+<table id="tableInstables">
+ <thead>
+   <tr>
+     <th>N°</th><th>Client</th><th>Référence</th><th>Date cré.</th><th>Date MAD</th><th>Date MES & MEF</th>
+     <th>Jan</th><th>Fév</th><th>Mar</th><th>Avr</th><th>Mai</th><th>Juin</th>
+     <th>Juil</th><th>Août</th><th>Sept</th><th>Oct</th><th>Nov</th><th>Déc</th>
+   </tr>
+ </thead>
+ <tbody></tbody>
+</table>
+</div>
+
+<script>
+function excelDate(v){
+ if(!v) return "";
+ let d=new Date((v-25569)*86400*1000);
+ if(isNaN(d)) return v;
+ return d.toLocaleDateString("fr-FR");
+}
+
+async function charger(){
+ const resp1=await fetch("Planification.xlsx");
+ const wb1=XLSX.read(await resp1.arrayBuffer(),{type:"array"});
+ const planif=XLSX.utils.sheet_to_json(wb1.Sheets[wb1.SheetNames[0]]);
+
+ const resp2=await fetch("data.xlsx");
+ const wb2=XLSX.read(await resp2.arrayBuffer(),{type:"array"});
+ const data=XLSX.utils.sheet_to_json(wb2.Sheets[wb2.SheetNames[0]]);
+
+ document.getElementById("totalRef").innerText=planif.length;
+
+ let tbodyS=document.querySelector("#tableStables tbody");
+ let tbodyI=document.querySelector("#tableInstables tbody");
+ tbodyS.innerHTML=""; tbodyI.innerHTML="";
+ let s=1, i=1;
+
+ planif.forEach(r=>{
+   const incidents=data.filter(x=>x["ID"]==r["ID"]);
+   let mois=Array(12).fill(0);
+
+   incidents.forEach(x=>{
+     let d=new Date(x["Date de création"]);
+     if(!isNaN(d) && d.getFullYear()==2025) mois[d.getMonth()]++;
+   });
+
+   let instable=incidents.length>0;
+   let tab = instable ? tbodyI : tbodyS;
+   let index = instable ? i++ : s++;
+
+   let tr=document.createElement("tr");
+   tr.innerHTML=
+     "<td>"+index+"</td>"+
+     "<td>"+(r["Client"]||"")+"</td>"+
+     "<td>"+(r["Référence"]||"")+"</td>"+
+     "<td>"+excelDate(r["Date de création"])+"</td>"+
+     "<td>"+excelDate(r["Date de MAD"])+"</td>"+
+     "<td>"+excelDate(r["Date MES & MEF"])+"</td>"+
+     mois.map((m,idx)=>`<td onclick="showCause(${JSON.stringify(r)},${idx},${JSON.stringify(data)})">${m}</td>`).join('');
+   tab.appendChild(tr);
+ });
+}
+
+function showCause(row,month,data){
+ let incidents=data.filter(x=>x["ID"]===row["ID"]);
+ let list=incidents.filter(x=>{
+   let d=new Date(x["Date de création"]);
+   return !isNaN(d)&&d.getMonth()===month&&d.getFullYear()===2025;
+ });
+ let msg=list.map(x=>x["CAUSE RÉELLE"]||"Cause inconnue").join("\n");
+ if(!msg) msg="Aucune cause trouvée";
+ alert(msg);
+}
+
+charger();
+</script>
+</body>
+</html>

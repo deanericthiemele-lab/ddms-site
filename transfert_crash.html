@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transfert - Recherche dynamique - CRASH PROGRAM</title>
+  <style>
+    :root { --bg:#ffffff; --card:#f7f8fa; --text:#111827; --muted:#6b7280; --accent:#0ea5e9; }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:24px; background:var(--bg); color:var(--text); font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    h1 { font-size:20px; margin:0 0 12px; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+    .btn { padding:10px 14px; border-radius:12px; border:1px solid #e5e7eb; background:#ffffff; color:var(--text); cursor:pointer; font-weight:600; }
+    .btn:hover { background:#f3f4f6; }
+    .btn.accent { background:#e6f6ff; border-color:#bae6fd; color:#0c4a6e; }
+    .input { padding:10px 12px; border-radius:12px; border:1px solid #e5e7eb; background:#ffffff; color:#111827; min-width:240px; }
+    .file { display:inline-block; }
+    .status { font-size:16px; font-weight:600; color:var(--muted); margin-left:auto; display:none; }
+    .card { background:var(--card); border:1px solid #e5e7eb; border-radius:16px; padding:12px; margin-bottom:12px; }
+    table { width:100%; border-collapse:separate; border-spacing:0; background:#ffffff; }
+    thead th { position:sticky; top:0; background:#f3f4f6; color:#111827; text-align:left; padding:10px; font-size:12px; border-bottom:1px solid #e5e7eb; z-index:1; }
+    tbody td { padding:10px; border-bottom:1px dashed #e5e7eb; font-size:13px; color:#1f2937; }
+    tbody tr:hover { background:#f9fafb; }
+    .table-wrap { max-height:72vh; overflow:auto; border-radius:12px; border:1px solid #e5e7eb; }
+    .hidden { display:none !important; }
+    .pill { font-size:12px; padding:4px 10px; border:1px solid #e5e7eb; border-radius:999px; color:#374151; background:#ffffff; }
+    .footer { margin-top:10px; font-size:12px; color:#4b5563; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .metrics { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 12px; }
+    .metrics .pill strong { margin-right:6px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+  </style>
+</head>
+<body>
+  <h1>📄 transfert.xlsx — Recherche dynamique - CRASH PROGRAM</h1>
+  <div class="toolbar">
+    <button class="btn" id="backBtn" title="Retour vers l'index">⟵ Retour</button>
+    <button class="btn" id="refreshBtn" title="Recharger la page">⟳ Actualiser</button>
+    <label class="file btn" for="fileInput">📂 Parcourir</label>
+    <input id="fileInput" class="sr-only" type="file" accept=".xlsx,.xls,.csv" />
+    <input id="searchInput" class="input" type="search" placeholder="Recherche globale sur tous les champs…" />
+    <span id="meta" class="status"></span>
+  </div>
+
+  <div class="card" id="top20Card">
+    <h2 style="font-size:16px;margin:0 0 8px;">🏆 Top 20 Clients (normalisés)</h2>
+    <div class="table-wrap" style="max-height:40vh;">
+      <table>
+        <thead>
+          <tr>
+            <th>Client normalisé</th>
+            <th>Volume</th>
+          </tr>
+        </thead>
+        <tbody id="top20Body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="volumes" class="metrics">
+      <span class="pill" id="volTransferts"><strong>Transferts:</strong> 0</span>
+      <span class="pill" id="volModifs"><strong>Modifications:</strong> 0</span>
+      <span class="pill" id="volTotal"><strong>Total lignes:</strong> 0</span>
+    </div>
+
+    <div id="tableInfo" class="footer">
+      <span class="pill" id="countPill">0 lignes</span>
+      <span class="pill" id="colsPill">0 colonnes</span>
+      <span id="sourcePill" class="pill">source: transfert.xlsx</span>
+    </div>
+
+    <div class="table-wrap" id="tableWrap">
+      <table id="dataTable">
+        <thead><tr id="theadRow"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    const state = { rows: [], headers: [], lastSource: 'transfert.xlsx' };
+    const els = {
+      backBtn: document.getElementById('backBtn'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      fileInput: document.getElementById('fileInput'),
+      searchInput: document.getElementById('searchInput'),
+      theadRow: document.getElementById('theadRow'),
+      tbody: document.getElementById('tbody'),
+      meta: document.getElementById('meta'),
+      countPill: document.getElementById('countPill'),
+      colsPill: document.getElementById('colsPill'),
+      sourcePill: document.getElementById('sourcePill'),
+      volTransferts: document.getElementById('volTransferts'),
+      volModifs: document.getElementById('volModifs'),
+      volTotal: document.getElementById('volTotal'),
+      top20Body: document.getElementById('top20Body')
+    };
+
+    els.backBtn.onclick = () => { window.location.href = 'transfert.html'; };
+    els.refreshBtn.onclick = () => { window.location.reload(); };
+    els.fileInput.onchange = async (e) => {
+      const f = e.target.files?.[0]; if (!f) return;
+      state.lastSource = f.name; els.sourcePill.textContent = 'source: ' + f.name;
+      const buf = await f.arrayBuffer(); parseWorkbook(buf);
+    };
+    els.searchInput.addEventListener('input', () => applyFilter(els.searchInput.value));
+
+    function setMeta(text) { els.meta.textContent = text; }
+
+    function buildTable(headers, rows) {
+      els.theadRow.innerHTML = '';
+      headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; els.theadRow.appendChild(th); });
+      const frag = document.createDocumentFragment();
+      rows.forEach(obj => {
+        const tr = document.createElement('tr');
+        headers.forEach(h => { const td = document.createElement('td'); let v = obj?.[h]; if (v==null) v=''; td.textContent = String(v); tr.appendChild(td); });
+        frag.appendChild(tr);
+      });
+      els.tbody.innerHTML = ''; els.tbody.appendChild(frag);
+      els.countPill.textContent = rows.length + ' lignes'; els.colsPill.textContent = headers.length + ' colonnes';
+    }
+
+    function applyFilter(q) {
+      const term = q.trim().toLowerCase(); let visible = 0;
+      for (const tr of els.tbody.rows) {
+        let hit = false;
+        for (const td of tr.cells) { if (td.textContent.toLowerCase().includes(term)) { hit = true; break; } }
+        tr.style.display = hit ? '' : 'none'; if (hit) visible++;
+      }
+      els.countPill.textContent = visible + ' lignes';
+    }
+
+    function toDate(v){
+      if(v===null || v===undefined || v==='') return new Date(0);
+      if(typeof v === 'number' && XLSX?.SSF?.parse_date_code){
+        const d = XLSX.SSF.parse_date_code(v);
+        if(d) return new Date(Date.UTC(d.y, (d.m||1)-1, d.d||1));
+      }
+      const t = new Date(v);
+      if(!isNaN(t)) return t;
+      const m = String(v).match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+      if(m){
+        const dd = parseInt(m[1],10), mm = parseInt(m[2],10)-1, yy = parseInt(m[3].length===2 ? '20'+m[3] : m[3],10);
+        return new Date(yy, mm, dd);
+      }
+      return new Date(0);
+    }
+
+    function computeVolumes(rows, headers){
+      let t = 0, m = 0;
+      for(const r of rows){
+        const vals = Object.values(r).join(' ').toLowerCase();
+        if(vals.includes('transf')) t++;
+        else if(vals.includes('modif')) m++;
+      }
+      els.volTransferts.innerHTML = '<strong>Transferts:</strong> ' + t;
+      els.volModifs.innerHTML = '<strong>Modifications:</strong> ' + m;
+      els.volTotal.innerHTML = '<strong>Total lignes:</strong> ' + rows.length;
+    }
+
+    function buildTop20(rows, headers){
+      const counts = new Map();
+      for(const r of rows){
+        const client = r['CLIENT'] || r['NOM CLIENT'] || '';
+        const canon = String(client).toUpperCase().trim();
+        if(canon) counts.set(canon, (counts.get(canon)||0)+1);
+      }
+      const arr = Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).slice(0,20);
+      const frag = document.createDocumentFragment();
+      for(const [name, vol] of arr){
+        const tr = document.createElement('tr');
+        const td1 = document.createElement('td'); td1.textContent = name; tr.appendChild(td1);
+        const td2 = document.createElement('td'); td2.textContent = vol; tr.appendChild(td2);
+        frag.appendChild(tr);
+      }
+      els.top20Body.innerHTML = ''; els.top20Body.appendChild(frag);
+    }
+
+    function parseWorkbook(arrayBuffer) {
+      try {
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const sheetName = wb.SheetNames[0]; const ws = wb.Sheets[sheetName];
+        let json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!Array.isArray(json)) json = [];
+
+        const DATE_COL = "DATE CREATION DOSSIER";
+        const cutoff = new Date(2025, 7, 25);
+
+        json = json.filter(r => {
+          const d = toDate(r[DATE_COL]);
+          return d.getTime() !== 0 && d <= cutoff;
+        });
+
+        json.sort((a,b) => toDate(b[DATE_COL]) - toDate(a[DATE_COL]));
+
+        const headerSet = new Set(); json.forEach(r => Object.keys(r).forEach(k => headerSet.add(k)));
+        const headers = Array.from(headerSet);
+        state.headers = headers; state.rows = json;
+
+        buildTable(headers, json);
+        computeVolumes(json, headers);
+        buildTop20(json, headers);
+        setMeta('');
+        els.searchInput.value = '';
+      } catch (err) {
+        console.error(err); setMeta('Erreur de lecture du fichier.'); alert('Erreur: impossible de lire ce fichier.');
+      }
+    }
+
+    async function fetchAsArrayBuffer(url) {
+      const res = await fetch(url); if (!res.ok) throw new Error('HTTP ' + res.status); return await res.arrayBuffer();
+    }
+
+    (async () => {
+      try {
+        const buf = await fetchAsArrayBuffer('transfert.xlsx'); parseWorkbook(buf);
+        els.sourcePill.textContent = 'source: transfert.xlsx';
+      } catch (e) { console.warn('Auto-load échoué:', e); }
+    })();
+  </script>
+</body>
+</html>

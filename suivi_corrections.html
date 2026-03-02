@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Suivi des corrections</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+.top-bar { display: flex; gap: 10px; margin-bottom: 15px; }
+button { padding: 10px 16px; border: none; cursor: pointer; color: white; border-radius: 5px; font-size: 14px; }
+#retour { background: #007bff; }
+#export { background: #28a745; }
+#searchInput { padding: 8px; width: 40%; border: 1px solid #aaa; border-radius: 5px; }
+table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
+th { background: #f2f2f2; padding: 10px; border: 1px solid #ddd; }
+td { padding: 8px; border: 1px solid #ddd; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+<button id="retour" onclick="window.location.href='degradation.html'">⬅ Retour</button>
+<button id="export" onclick="exportExcel()">⬇ Exporter en Excel</button>
+<input type="file" id="fileInput" accept=".xlsx,.xls" onchange="loadExcelFromFile(this)">
+<input type="text" id="searchInput" placeholder="🔍 Rechercher..." onkeyup="searchTable()">
+</div>
+
+<h2 id="titrePage">Suivi des corrections</h2>
+
+<table id="dataTable">
+<thead id="tableHead"></thead>
+<tbody id="tableBody"></tbody>
+</table>
+
+<script>
+async function loadExcel() {
+    const response = await fetch("degradation2.xlsx");
+    const arrayBuffer = await response.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer);
+
+    const workbook = XLSX.read(data, { type: "array" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+    const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+    renderTable(json);
+}
+
+function updateTitleCount(count) {
+    document.getElementById("titrePage").textContent =
+        "Suivi des corrections — " + count + " occurrences";
+}
+
+function excelDateToJSDate(value) {
+    if (!value) return null;
+    if (typeof value === "number") {
+        return new Date((value - 25569) * 86400 * 1000);
+    }
+    const d = new Date(value);
+    return isNaN(d) ? null : d;
+}
+
+function formatDate(value) {
+    if (!value) return "";
+    const d = excelDateToJSDate(value);
+    return d ? d.toLocaleDateString("fr-FR") : value;
+}
+
+function renderTable(data) {
+    const head = document.getElementById("tableHead");
+    const body = document.getElementById("tableBody");
+
+    head.innerHTML = "";
+    body.innerHTML = "";
+
+    const headers = data[0];
+    const rows = data.slice(1);
+
+    const dateIndex = headers.findIndex(
+        h => h.toLowerCase().includes("date correction")
+    );
+
+    if (dateIndex !== -1) {
+        rows.sort((a, b) => {
+            const da = excelDateToJSDate(a[dateIndex]);
+            const db = excelDateToJSDate(b[dateIndex]);
+            if (!da && !db) return 0;
+            if (!da) return 1;
+            if (!db) return -1;
+            return db - da;
+        });
+    }
+
+    let headerHTML = "<tr>";
+    headers.forEach(h => headerHTML += `<th>${h}</th>`);
+    headerHTML += "</tr>";
+    head.innerHTML = headerHTML;
+
+    let count = 0;
+    rows.forEach(r => {
+        let row = "<tr>";
+        r.forEach((val, c) => {
+            if (c === dateIndex) val = formatDate(val);
+            row += `<td>${val}</td>`;
+        });
+        row += "</tr>";
+        body.innerHTML += row;
+        count++;
+    });
+
+    updateTitleCount(count);
+}
+
+function searchTable() {
+    const filter = document.getElementById("searchInput").value.toLowerCase();
+    const rows = document.querySelectorAll("#dataTable tbody tr");
+
+    let visible = 0;
+    rows.forEach(row => {
+        if (row.innerText.toLowerCase().includes(filter)) {
+            row.style.display = "";
+            visible++;
+        } else {
+            row.style.display = "none";
+        }
+    });
+
+    updateTitleCount(visible);
+}
+
+function exportExcel() {
+    const table = document.getElementById("dataTable");
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.table_to_sheet(table);
+    XLSX.utils.book_append_sheet(wb, ws, "Suivi Corrections");
+    XLSX.writeFile(wb, "Suivi_des_corrections.xlsx");
+}
+
+function loadExcelFromFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" });
+        renderTable(json);
+    };
+    reader.readAsArrayBuffer(file);
+}
+
+loadExcel();
+</script>
+
+</body>
+</html>

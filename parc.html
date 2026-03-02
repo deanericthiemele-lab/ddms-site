@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Parc</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 40px; background: #fafafa; }
+    h2 { text-align: center; padding: 10px; border-radius: 8px; margin-top: 40px; margin-bottom: 20px; }
+    .parc-title { background-color: #cce5ff; color: #003366; }
+    .kpi-container { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; margin-top: 20px; }
+    .kpi-box {
+      flex: 1 1 220px;
+      padding: 15px 20px;
+      border-radius: 10px;
+      background: #f5f5f5;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      font-size: 15px;
+      font-weight: bold;
+      color: #333;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      line-height: 1.4;
+      cursor:pointer;
+    }
+    .btn-retour { position: fixed; top: 15px; left: 15px; padding: 10px 20px; font-size: 14px;
+                  border: none; border-radius: 8px; background-color: #0078d7; color: white;
+                  cursor: pointer; z-index: 1000; }
+    .btn-retour:hover { background-color: #005fa3; }
+    .top20-container {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 15px;
+    }
+    .top20-container .kpi-box {
+      flex: none;
+      width: 150px;
+      padding: 12px 15px;
+      font-size: 14px;
+    }
+    .popup { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+             background: rgba(0,0,0,0.6); justify-content: center; align-items: center; }
+    .popup-content { background: white; padding: 20px; border-radius: 12px; width: 90%; max-height: 80%; overflow-y: auto; }
+    .popup-content h3 { margin-top: 0; }
+    .close-btn { float: right; cursor: pointer; color: red; font-weight: bold; }
+    .export-btn { margin-top: 10px; padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    .export-btn:hover { background: #1e7e34; }
+    table { border-collapse: collapse; width: 100%; margin-top: 15px; font-size: 14px; }
+    table, th, td { border: 1px solid #ccc; padding: 6px; }
+    th { background: #f0f0f0; }
+    #search-top20, #search-client { width:30%;padding:6px;margin:10px 0;border:1px solid #ccc;border-radius:6px; }
+  </style>
+</head>
+<body>
+  <button class="btn-retour" onclick="window.location.href='index.html'">Retour</button>
+  <h2 class="parc-title">Parc</h2>
+  <div class="kpi-container">
+    <div id="kpi-global" class="kpi-box" onclick="window.location.href='Détail_parc.html'">Chargement...</div>
+    <div id="kpi-tel" class="kpi-box">Chargement...</div>
+    <div id="kpi-lsi" class="kpi-box" onclick="window.location.href='DEBIT LSI.html'">Chargement...</div>
+    <div id="kpi-ls" class="kpi-box">Chargement...</div>
+  </div>
+  <div class="top20-container">
+    <div id="btn-top20" class="kpi-box">Top 20</div>
+    <div id="btn-top20-lsi" class="kpi-box">Top 20 LSI</div>
+    <div id="btn-top20-ls" class="kpi-box">Top 20 LS</div>
+  </div>
+  <div style="margin-top:20px; text-align:center;">
+    <input type="text" id="client-input" placeholder="🔍 Entrez un ou plusieurs clients (séparés par virgules)..." style="width:20%;padding:6px;border:1px solid #ccc;border-radius:6px;">
+    <button onclick="rechercherClient()" style="padding:8px 16px;background:#0078d7;color:white;border:none;border-radius:6px;cursor:pointer;">Rechercher Client</button>
+  </div>
+  <div id="popup-top20" class="popup">
+    <div class="popup-content">
+      <span class="close-btn" onclick="document.getElementById('popup-top20').style.display='none'">X</span>
+      <h3>Données Top 20 <span id="count-top20"></span></h3>
+      <input type="text" id="search-top20" placeholder="🔍 Rechercher (séparez par des virgules)..." onkeyup="filtrerTop20()">
+      <button id="export-btn-top20" class="export-btn">Exporter vers Excel</button>
+      <div id="popup-table-top20"></div>
+    </div>
+  </div>
+  <div id="popup-client" class="popup">
+    <div class="popup-content">
+      <span class="close-btn" onclick="document.getElementById('popup-client').style.display='none'">X</span>
+      <h3>Données Client(s) <span id="count-client"></span></h3>
+      <input type="text" id="search-client" placeholder="🔍 Rechercher (séparez par des virgules)..." onkeyup="filtrerClientPopup()">
+      <button id="export-btn-client" class="export-btn">Exporter vers Excel</button>
+      <div id="popup-table-client"></div>
+    </div>
+  </div>
+<script>
+function normalize(text){return(text||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9 ]/g,"");}
+const clientMappings={"DGI":["DGI","DIRECTION GENERALE IMPOTS","DIRECTION GENERALE DES IMPOTS","DIRECTION GENERALE IMPÔTS","IMPOT","IMPOTS"],"ANSUT":["ANSUT"],"SIB":["SIB","SOCIETE IVOIRIENNE DE BANQUE","SOCIÉTÉ IVOIRIENNE DE BANQUE"],"BACI":["BACI","BANQUE ATLANTIQUE","BANQUE ATLANTIQUE DE COTE DIVOIRE","BANQUE ATLANTIQUE COTE D'IVOIRE"],"NSIA":["NSIA","BIAO","NOUVELLE SOCIETE IVOIRIENNE ASSURANCE","NOUVELLE SOCIÉTÉ IVOIRIENNE ASSURANCE"],"BNI":["BNI","BANQUE NATIONALE INVESTISSEMENT","BANQUE NATIONALE D'INVESTISSEMENT"],"SGCI":["SGCI","SGBCI","SOCIETE GENERALE","SOCIÉTÉ GENERALE","SOCIETE GENERALE COTE DIVOIRE","SOCIÉTÉ GÉNÉRALE COTE D'IVOIRE"],"ECOBANK":["ECOBANK"],"DGTCP":["DGTCP","TRESOR","DIRECTION GENERALE DU TRESOR","DIRECTION GÉNÉRALE DU TRÉSOR"],"LONACI":["LONACI","LOTERIE NATIONALE","LOTERIE NATIONALE COTE DIVOIRE","LOTERIE NATIONALE DE COTE D'IVOIRE"],"CANAL+":["CANAL+","CANAL PLUS"],"PRESIDENCE":["PRESIDENCE"],"DOUANE":["DOUANE","DOUANES","DIRECTION GENERALE DOUANES","DIRECTION GÉNÉRALE DES DOUANES"],"BOLLORE":["BOLLORE","AGL","AFRICA GLOBAL LOGISTIQUE","AFRICA GLOBAL LOGISTIC","AFRICA GLOBAL LOGISTICS"],"FER":["FER","FOND ENTRETIEN ROUTIER","FONDS D'ENTRETIEN ROUTIER"],"BAD":["BAD","BANQUE AFRICAINE DEVELOPPEMENT","BANQUE AFRICAINE DE DÉVELOPPEMENT"],"SOLIBRA":["SOLIBRA"],"CNPS":["CNPS","CAISSE NATIONALE PREVOYANCE SOCIALE","CAISSE NATIONALE DE PRÉVOYANCE SOCIALE"],"AMBASSADE USA":["AMBASSADE USA","AMBASSADE DES ETATS UNIS","AMBASSADE DES ÉTATS-UNIS"],"FFCI":["FFCI","FORCE FRANCAISE COTE DIVOIRE","FORCES FRANÇAISES DE COTE D'IVOIRE"]};
+
+function isClientMatch(name, clients) {
+  let n = normalize(name);
+  return clients.some(client => {
+    let variants = [];
+
+    // 1. Si c'est une clé connue
+    if (clientMappings[client]) {
+      variants = clientMappings[client];
+    } else {
+      // 2. Si c'est un alias, retrouver sa vraie clé
+      for (let key in clientMappings) {
+        if (clientMappings[key].some(v => normalize(v) === normalize(client))) {
+          variants = clientMappings[key];
+          break;
+        }
+      }
+      // fallback
+      if (variants.length === 0) variants = [client];
+    }
+
+    // 3. Vérifie si le nom correspond à une des variantes
+    return variants.some(v => n.includes(normalize(v)));
+  });
+}
+const colonnes=["ND","NOM_PRENOMS","PRODUIT","LIBELLE_OFFRE","LIBELLE_OPTION_OFFRE","RECURRENT_MENSUEL","COMMUNE","DATE_MS","CONTACT_MOBILE","ETAT_LIGNE","COMMENTAIRE"];
+let baseData=[];let lastFilteredTop20=[];let lastFilteredClient=[];
+async function chargerExcelParc(){try{const response=await fetch("PARC.xlsx");const data=await response.arrayBuffer();const workbook=XLSX.read(data,{type:"array"});const sheet=workbook.Sheets[workbook.SheetNames[0]];baseData=XLSX.utils.sheet_to_json(sheet);let base=baseData.filter(r=>r["ETAT_LIGNE"]!=="RESILIE");document.getElementById("kpi-global").textContent="Parc Global : "+base.length;document.getElementById("kpi-tel").textContent="T0/T2 : "+base.filter(r=>r["PRODUIT"]==="TELEPHONE").length;document.getElementById("kpi-lsi").textContent="LSI (SYT) : "+base.filter(r=>String(r["ND"]||"").startsWith("SYT")).length;document.getElementById("kpi-ls").textContent="LS : "+(base.length-base.filter(r=>r["PRODUIT"]==="TELEPHONE").length-base.filter(r=>String(r["ND"]||"").startsWith("SYT")).length);document.getElementById("btn-top20").onclick=()=>{let allClients=Object.keys(clientMappings);let filtered=base.filter(r=>isClientMatch(r["NOM_PRENOMS"],allClients));afficherPopupTop20(filtered);};document.getElementById("btn-top20-lsi").onclick=()=>{let allClients=Object.keys(clientMappings);let filtered=base.filter(r=>isClientMatch(r["NOM_PRENOMS"],allClients)&&String(r["ND"]||"").startsWith("SYT"));afficherPopupTop20(filtered);};document.getElementById("btn-top20-ls").onclick=()=>{let allClients=Object.keys(clientMappings);let filtered=base.filter(r=>isClientMatch(r["NOM_PRENOMS"],allClients)&&!String(r["ND"]||"").startsWith("SYT"));afficherPopupTop20(filtered);};document.getElementById("export-btn-top20").onclick=()=>exporterExcel("table-top20","Top20_Filtré.xlsx");document.getElementById("export-btn-client").onclick=()=>exporterExcel("table-client","Clients_Filtré.xlsx");}catch(e){console.error(e);}}
+function afficherPopupTop20(filtered){filtered.sort((a,b)=>String(a["NOM_PRENOMS"]||"").localeCompare(String(b["NOM_PRENOMS"]||"")));lastFilteredTop20=filtered.map(r=>{let obj={};colonnes.forEach(c=>obj[c]=r[c]??"");return obj;});document.getElementById("count-top20").textContent=" ("+lastFilteredTop20.length+")";let html="<table id='table-top20'><tr>";colonnes.forEach(c=>html+=`<th>${c}</th>`);html+="</tr>";lastFilteredTop20.forEach(r=>{html+="<tr>";colonnes.forEach(c=>html+=`<td>${r[c]}</td>`);html+="</tr>";});html+="</table>";document.getElementById("popup-table-top20").innerHTML=html;document.getElementById("popup-top20").style.display="flex";}
+function rechercherClient(){const input=document.getElementById("client-input").value.toUpperCase().trim();if(!input)return;const clients=input.split(/\s*,\s*/);let filtered=baseData.filter(r=>r["ETAT_LIGNE"]!=="RESILIE"&&(isClientMatch(r["NOM_PRENOMS"],clients)||clients.some(client=>String(r["ND"]||"").toUpperCase().includes(client.toUpperCase()))));filtered.sort((a,b)=>String(a["NOM_PRENOMS"]||"").localeCompare(String(b["NOM_PRENOMS"]||"")));lastFilteredClient=filtered.map(r=>{let obj={};colonnes.forEach(c=>obj[c]=r[c]??"");return obj;});document.getElementById("count-client").textContent=" ("+lastFilteredClient.length+")";let html="<table id='table-client'><tr>";colonnes.forEach(c=>html+=`<th>${c}</th>`);html+="</tr>";lastFilteredClient.forEach(r=>{html+="<tr>";colonnes.forEach(c=>html+=`<td>${r[c]}</td>`);html+="</tr>";});html+="</table>";document.getElementById("popup-table-client").innerHTML=html;document.getElementById("popup-client").style.display="flex";}
+function filtrerTop20(){const input=document.getElementById("search-top20").value.toUpperCase().trim();const mots=input.split(/\s*,\s*/);const table=document.getElementById("table-top20");const tr=table.getElementsByTagName("tr");let visibleCount=0;for(let i=1;i<tr.length;i++){let nd=tr[i].getElementsByTagName("td")[0].textContent.toUpperCase();
+let match=mots.some(m=>nd.includes(m.toUpperCase()));tr[i].style.display=match?"":"none";if(match)visibleCount++;}document.getElementById("count-top20").textContent=" ("+visibleCount+")";}
+function filtrerClientPopup(){const input=document.getElementById("search-client").value.toUpperCase().trim();const mots=input.split(/\s*,\s*/);const table=document.getElementById("table-client");const tr=table.getElementsByTagName("tr");let visibleCount=0;for(let i=1;i<tr.length;i++){let nd=tr[i].getElementsByTagName("td")[0].textContent.toUpperCase();
+let match=mots.some(m=>nd.includes(m.toUpperCase()));tr[i].style.display=match?"":"none";if(match)visibleCount++;}document.getElementById("count-client").textContent=" ("+visibleCount+")";}
+function exporterExcel(tableId,filename){const table=document.getElementById(tableId);if(!table){alert("Aucune donnée trouvée !");return;}const rows=[];const headers=Array.from(table.getElementsByTagName("tr")[0].getElementsByTagName("th")).map(th=>th.textContent);const tr=table.getElementsByTagName("tr");for(let i=1;i<tr.length;i++){if(tr[i].style.display==="none")continue;const tds=tr[i].getElementsByTagName("td");let obj={};headers.forEach((h,j)=>obj[h]=tds[j].textContent);rows.push(obj);}if(rows.length===0){alert("Aucune donnée visible à exporter !");return;}const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Données");XLSX.writeFile(wb,filename);}
+
+// ===== INTELLIGENT FUZZY MATCHING =====
+function levenshtein(a, b) {
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) { matrix[i] = [i]; }
+  for (let j = 0; j <= a.length; j++) { matrix[0][j] = j; }
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j] + 1
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+function fuzzyMatch(name, clients) {
+  let n = normalize(name);
+  return clients.some(client => {
+    let variants = clientMappings[client] || [client];
+    return variants.some(v => {
+      let nv = normalize(v);
+      let distance = levenshtein(n, nv);
+      let similarity = 1 - distance / Math.max(n.length, nv.length);
+      return similarity > 0.75;
+    });
+  });
+}
+
+// Override intelligent matching
+const baseMatchFunction = isClientMatch;
+isClientMatch = function(name, clients){
+  return baseMatchFunction(name, clients) || fuzzyMatch(name, clients);
+};
+
+chargerExcelParc();
+</script>
+</body>
+</html>

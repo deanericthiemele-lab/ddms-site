@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Analyse prédictive</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; position: relative; }
+    h3 { margin-top: 25px; }
+    .scroll-table { max-height: 250px; overflow-y: auto; display: block; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 12px; }
+    th, td { border: 1px solid #ccc; padding: 3px; text-align: center; }
+    th { background: #f2f2f2; }
+    td, th { max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .score-low { color: green; font-weight: bold; }
+    .score-mid { color: orange; font-weight: bold; }
+    .score-high { color: red; font-weight: bold; }
+    .legend { 
+      font-size: 11px; 
+      position: absolute; 
+      top: 20px; 
+      right: 20px; 
+      background:#fafafa; 
+      padding:8px; 
+      border:1px solid #ccc; 
+      border-radius:5px; 
+      width: 380px;
+    }
+    .toolbar { margin-top:15px; }
+    .toolbar button, .toolbar input { margin-right:10px; }
+    .no-alert { color: #666; font-style: italic; padding: 5px; }
+  </style>
+</head>
+<body>
+  <h2>📊 Analyse prédictive</h2>
+
+  <!-- Légende en haut à droite -->
+  <div class="legend">
+      <strong>Chaque ND reçoit des points de risque :</strong><br>
+      ✅ Même mois : ≥2 incidents dans le mois actuel → +0.2<br>
+      ⚠ Deux mois consécutifs : ≥2 incidents ce mois-ci et ≥2 le mois précédent → +0.4<br>
+      📅 Année entière : ≥7 incidents cumulés depuis janvier → +0.3<br>
+      🔁 Tous les mois : ≥1 incident chaque mois depuis janvier → +0.3<br>
+      👉 Score final = somme des points, plafonnée à 1
+  </div>
+
+  <div class="toolbar">
+    <button onclick="window.location.href='PLANNING.html'" 
+      style="background-color:#607D8B;color:white;padding:6px 10px;border:none;border-radius:4px;cursor:pointer;">
+      ⬅ Retour
+    </button>
+
+    <button onclick="lancerAnalysePrevision()" 
+      style="background-color:#E65100;color:white;padding:6px 10px;border:none;border-radius:4px;cursor:pointer;">
+      📈 Lancer l'analyse prédictive
+    </button>
+
+    <input type="text" id="searchInput" onkeyup="rechercherGlobal()" 
+      placeholder="🔍 Rechercher dans tous les tableaux..." 
+      style="padding:5px;width:300px;">
+  </div>
+
+  <div id="prevision-risques-container" style="display:none;margin-top:20px;">
+    
+    <!-- 1. Tableau ND -->
+    <h3 id="title-nd">ND avec score 0–1</h3>
+    <div class="scroll-table">
+      <table>
+        <thead><tr><th>ND</th><th>Client</th><th>Zone</th><th>Score</th><th>Commentaire</th></tr></thead>
+        <tbody id="table-nd"></tbody>
+      </table>
+    </div>
+
+    <!-- 2. Heatmap zones -->
+    <h3 id="title-zones">Zones à risque (score moyen)</h3>
+    <div class="scroll-table">
+      <table>
+        <thead><tr><th>Zone</th><th>Score</th></tr></thead>
+        <tbody id="table-zones"></tbody>
+      </table>
+    </div>
+
+    <!-- 3. Top 20 clients -->
+    <h3 id="title-clients">Top 20 Clients à risque</h3>
+    <div class="scroll-table">
+      <table>
+        <thead><tr><th>Client</th><th>Score</th></tr></thead>
+        <tbody id="table-clients"></tbody>
+      </table>
+    </div>
+
+    <!-- 4. Alertes -->
+    <h3 id="title-alertes">Alertes automatiques</h3>
+    <div class="scroll-table">
+      <table>
+        <thead><tr><th>ND</th><th>Client</th><th>Zone</th><th>Risque (%)</th></tr></thead>
+        <tbody id="table-alertes"></tbody>
+      </table>
+      <div id="no-alert-msg" class="no-alert" style="display:none;">Aucune alerte détectée</div>
+    </div>
+  </div>
+
+<script>
+let tableauActuel = [];
+
+// === Chargement auto de data.xlsx ===
+document.addEventListener("DOMContentLoaded", () => {
+  fetch("data.xlsx")
+    .then(res => res.arrayBuffer())
+    .then(ab => {
+      const wb = XLSX.read(ab, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+      const map = {};
+      data.forEach(row => {
+        const nd = row["ND"];
+        const client = row["RAISON SOCIALE"];
+        const zone = row["LOCALISATION CLIENT"];
+        const dateStr = row["DATE DE CRÉATION"];
+        if (!nd || !dateStr) return;
+
+        const date = new Date(dateStr);
+        if (isNaN(date)) return;
+        const mois = date.getMonth() + 1;
+
+        const key = nd + "|" + client + "|" + zone;
+        if (!map[key]) {
+          map[key] = { nd, raison: client, localisation: zone, mois: {} };
+        }
+        map[key].mois[mois] = (map[key].mois[mois] || 0) + 1;
+      });
+
+      tableauActuel = Object.values(map);
+      console.log("✅ Données agrégées :", tableauActuel.length, "ND");
+    })
+    .catch(err => console.error("Erreur chargement data.xlsx :", err));
+});
+
+// === Calcul score ===
+function evaluerRisqueND(item) {
+  const moisActuel = new Date().getMonth() + 1;
+  const moisPrecedent = moisActuel === 1 ? 12 : moisActuel - 1;
+  let score = 0;
+  let commentaire = [];
+
+  if ((item.mois[moisActuel] || 0) >= 2) {
+    score += 0.2;
+    commentaire.push("≥2 incidents ce mois");
+  }
+  if ((item.mois[moisActuel] || 0) >= 2 && (item.mois[moisPrecedent] || 0) >= 2) {
+    score += 0.4;
+    commentaire.push("2 mois consécutifs");
+  }
+  let totalAnnuel = 0;
+  for (let i=1; i<=moisActuel; i++) totalAnnuel += item.mois[i] || 0;
+  if (totalAnnuel >= 7) {
+    score += 0.3;
+    commentaire.push(`Déjà ${totalAnnuel} incidents YTD`);
+  }
+  let tousLesMois = true;
+  for (let i=1; i<=moisActuel; i++) {
+    if (!item.mois[i]) { tousLesMois = false; break; }
+  }
+  if (tousLesMois) {
+    score += 0.3;
+    commentaire.push("Présent tous les mois");
+  }
+
+  return {score:score.toFixed(2), commentaire: commentaire.join(" + ")};
+}
+
+// === 1. Tableau ND ===
+function remplirTableND() {
+  const tbody = document.getElementById("table-nd");
+  tbody.innerHTML = "";
+  let count = 0;
+  tableauActuel.forEach(item => {
+    const res = evaluerRisqueND(item);
+    if (res.score > 0) {
+      count++;
+      let scoreClass = res.score >= 0.7 ? "score-high" : (res.score >= 0.4 ? "score-mid" : "score-low");
+      tbody.innerHTML += `<tr>
+        <td>${item.nd}</td>
+        <td>${item.raison}</td>
+        <td>${item.localisation || "Inconnue"}</td>
+        <td class="${scoreClass}">${res.score}</td>
+        <td>${res.commentaire}</td>
+      </tr>`;
+    }
+  });
+  document.getElementById("title-nd").innerText = `ND avec score 0–1 (${count})`;
+}
+
+// === 2. Zones ===
+function remplirTableZones() {
+  const zones = {};
+  tableauActuel.forEach(item => {
+    const res = evaluerRisqueND(item);
+    if (res.score > 0) {
+      const zone = item.localisation || "Inconnue";
+      zones[zone] = (zones[zone] || 0) + parseFloat(res.score);
+    }
+  });
+  const tbody = document.getElementById("table-zones");
+  tbody.innerHTML = "";
+  let count = 0;
+  Object.entries(zones).forEach(([zone,score])=>{
+    count++;
+    tbody.innerHTML += `<tr><td>${zone}</td><td>${(score/3).toFixed(2)}</td></tr>`;
+  });
+  document.getElementById("title-zones").innerText = `Zones à risque (score moyen) (${count})`;
+}
+
+// === 3. Clients ===
+function remplirTableClients() {
+  const clients = {};
+  tableauActuel.forEach(item => {
+    const res = evaluerRisqueND(item);
+    if (res.score > 0) {
+      const c = item.raison || "Inconnu";
+      clients[c] = (clients[c] || 0) + parseFloat(res.score);
+    }
+  });
+  const sorted = Object.entries(clients).sort((a,b)=>b[1]-a[1]).slice(0,20);
+  const tbody = document.getElementById("table-clients");
+  tbody.innerHTML = "";
+  let count = 0;
+  sorted.forEach(([c,score])=>{
+    count++;
+    tbody.innerHTML += `<tr><td>${c}</td><td>${(score/3).toFixed(2)}</td></tr>`;
+  });
+  document.getElementById("title-clients").innerText = `Top 20 Clients à risque (${count})`;
+}
+
+// === 4. Alertes ===
+function remplirTableAlertes() {
+  const tbody = document.getElementById("table-alertes");
+  tbody.innerHTML = "";
+  let count = 0;
+  tableauActuel.forEach(item => {
+    const res = evaluerRisqueND(item);
+    if (parseFloat(res.score) >= 0.7) {
+      count++;
+      tbody.innerHTML += `<tr>
+        <td>${item.nd}</td>
+        <td>${item.raison}</td>
+        <td>${item.localisation}</td>
+        <td>${Math.round(res.score*100)}%</td>
+      </tr>`;
+    }
+  });
+  document.getElementById("title-alertes").innerText = `Alertes automatiques (${count})`;
+  document.getElementById("no-alert-msg").style.display = count === 0 ? "block" : "none";
+}
+
+// === Recherche globale ===
+function rechercherGlobal() {
+  const input = document.getElementById("searchInput").value.toLowerCase();
+  document.querySelectorAll("table tbody tr").forEach(row => {
+    row.style.display = row.innerText.toLowerCase().includes(input) ? "" : "none";
+  });
+}
+
+// === Lancement global ===
+function lancerAnalysePrevision() {
+  const cont = document.getElementById("prevision-risques-container");
+  cont.style.display = cont.style.display === "none" ? "block" : "none";
+  remplirTableND();
+  remplirTableZones();
+  remplirTableClients();
+  remplirTableAlertes();
+}
+</script>
+</body>
+</html>
