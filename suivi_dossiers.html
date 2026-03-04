@@ -97,6 +97,40 @@ z-index:2000;
 <script>
 let dossiersGlobal=[], dossiersNettoyage=[];
 
+
+async function updateLastUpdateUI(fromFileName){
+  const box = document.getElementById("updateBox");
+  if(!box) return;
+
+  // 1) Try version.json (recommended for Netlify stability)
+  try{
+    const vr = await fetch("version.json?v=" + Date.now(), { cache: "no-store" });
+    if(vr.ok){
+      const vj = await vr.json();
+      if(vj && vj.maj){
+        box.textContent = "Dernière mise à jour : " + vj.maj;
+        return;
+      }
+    }
+  }catch(e){}
+
+  // 2) Fallback: try server Last-Modified header (works if Netlify provides it)
+  try{
+    const hr = await fetch(fromFileName + "?head=" + Date.now(), { method: "HEAD", cache: "no-store" });
+    const lm = hr.headers.get("last-modified");
+    if(lm){
+      const d = new Date(lm);
+      box.textContent = "Dernière mise à jour : " + d.toLocaleString("fr-FR");
+      return;
+    }
+  }catch(e){}
+
+  // 3) Final fallback
+  box.textContent = "Dernière mise à jour : inconnue";
+}
+
+
+
 function parseDate(v){
  if(!v) return null;
  if(typeof v==="number"){
@@ -136,17 +170,11 @@ async function loadPipe(){
    const r = await fetch(f + "?v=" + Date.now());
    if(!r.ok) continue;
 
-   const blob = await r.blob();
-   const date = new Date(blob.lastModified || Date.now());
-   const el = document.getElementById("updateBox");
-   if(el){
-     el.textContent = "Dernière mise à jour : " + date.toLocaleString("fr-FR");
-   }
+   // Update UI (stable via version.json, fallback via server header)
+   updateLastUpdateUI(f);
 
-   const b = await blob.arrayBuffer();
-   if(!r.ok) continue;
 
-   
+   const b = await r.arrayBuffer();
    const wb = XLSX.read(b,{type:"array"});
    const ws = wb.Sheets[wb.SheetNames[0]];
    const raw = XLSX.utils.sheet_to_json(ws,{raw:true});
