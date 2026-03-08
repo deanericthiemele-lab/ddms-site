@@ -1221,36 +1221,92 @@ function matchAny(filters, etapeNorm){
   return filters.some(f => etapeNorm.includes(f));
 }
 
-function computeVolumesFromData(data){
+function parseFrOrExcelDate(value){
+  const formatted = formatDate(value);
+  if(!formatted) return null;
+  const parts = String(formatted).split("/");
+  if(parts.length !== 3) return null;
+  const d = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+  return isNaN(d) ? null : d;
+}
+
+function daysBetween(now, date){
+  if(!date) return null;
+  return Math.floor((now - date) / (1000 * 60 * 60 * 24));
+}
+
+function buildSectionPredicates(){
+  return [
+    e => matchAny(FILTERS_HOMOLOGATION,e),
+    e => matchAny(FILTERS_FACTURATION,e),
+    e => matchAny(FILTERS_DDMS,e),
+    e => matchAny(FILTERS_TRAVAUX,e),
+    e => matchAny(FILTERS_SUPPORT_IP,e),
+    e => matchAny(FILTERS_BBF,e),
+    e => matchAny(FILTERS_VT,e),
+    e => e.includes("TEST ET RECETTE"),
+    e => matchAny(FILTERS_ATTENTE,e),
+    e => matchAny(FILTERS_SUSPENDUS,e),
+    e => matchAny(FILTERS_WHOLESALE,e)
+  ];
+}
+
+function computeBarMetrics(data){
   const d = Array.isArray(data) ? data : [];
-  let cHom=0,cFac=0,cDD=0,cTra=0,cSup=0,cBBF=0,cVT=0,cTest=0,cAtt=0,cSus=0,cWh=0;
+  const now = new Date();
+  const predicates = buildSectionPredicates();
+
+  const metrics = predicates.map(() => ({
+    count: 0,
+    corbeilleSum: 0,
+    corbeilleCount: 0,
+    dossierSum: 0,
+    dossierCount: 0
+  }));
 
   for(const item of d){
     const e = _etapeNorm(item);
 
-    // IMPORTANT: on compte selon la même logique que les fonctions loadXXX()
-    if(matchAny(FILTERS_HOMOLOGATION,e)) cHom++;
-    if(matchAny(FILTERS_FACTURATION,e)) cFac++;
-    if(matchAny(FILTERS_DDMS,e)) cDD++;
-    if(matchAny(FILTERS_TRAVAUX,e)) cTra++;
-    if(matchAny(FILTERS_SUPPORT_IP,e)) cSup++;
-    if(matchAny(FILTERS_BBF,e)) cBBF++;
-    if(matchAny(FILTERS_VT,e)) cVT++;
-    if(e.includes("TEST ET RECETTE")) cTest++;
-    if(matchAny(FILTERS_ATTENTE,e)) cAtt++;
-    if(matchAny(FILTERS_SUSPENDUS,e)) cSus++;
-    if(matchAny(FILTERS_WHOLESALE,e)) cWh++;
+    predicates.forEach((predicate, index) => {
+      if(!predicate(e)) return;
+
+      metrics[index].count++;
+
+      const tacheDate = parseFrOrExcelDate(item["DATE CREATION TACHE"]);
+      const dossierDate = parseFrOrExcelDate(item["DATE CREATION DOSSIER"]);
+
+      const dureeCorbeille = daysBetween(now, tacheDate);
+      const ageDossier = daysBetween(now, dossierDate);
+
+      if(dureeCorbeille !== null && !Number.isNaN(dureeCorbeille)){
+        metrics[index].corbeilleSum += dureeCorbeille;
+        metrics[index].corbeilleCount++;
+      }
+
+      if(ageDossier !== null && !Number.isNaN(ageDossier)){
+        metrics[index].dossierSum += ageDossier;
+        metrics[index].dossierCount++;
+      }
+    });
   }
 
-  // ordre MUST = labelsBoutons
-  return [cHom,cFac,cDD,cTra,cSup,cBBF,cVT,cTest,cAtt,cSus,cWh];
+  return metrics.map(m => ({
+    count: m.count,
+    avgDurée moy corbeille: m.corbeilleCount ? Math.round(m.corbeilleSum / m.corbeilleCount) : 0,
+    avgDossier: m.dossierCount ? Math.round(m.dossierSum / m.dossierCount) : 0
+  }));
+}
+
+function computeVolumesFromData(data){
+  return computeBarMetrics(data).map(m => m.count);
 }
 
 function renderVolumes(data){
   const ctx = document.getElementById("volumeParBouton");
   if(!ctx) return;
 
-  const counts = computeVolumesFromData(data);
+  const barMetrics = computeBarMetrics(data);
+  const counts = barMetrics.map(m => m.count);
 
   if(volumeChart) volumeChart.destroy();
 
@@ -1262,7 +1318,20 @@ function renderVolumes(data){
       maintainAspectRatio:false,
       plugins:{
         legend:{display:false},
-        datalabels:{anchor:'end',align:'top',formatter:v=>v}
+        datalabels:{
+          anchor:'end',
+          align:'top',
+          textAlign:'center',
+          font:{size:10},
+          formatter:(value, context)=>{
+            const m = barMetrics[context.dataIndex] || {avgDurée moy corbeille:0, avgDossier:0};
+            return [
+              value,
+              `Durée moy corbeille: ${m.avgCorbeille} j`,
+              `Âge moy.: ${m.avgDossier} j`
+            ];
+          }
+        }
       },
       scales:{y:{beginAtZero:true,ticks:{precision:0}}},
       onClick:(evt,elements)=>{
