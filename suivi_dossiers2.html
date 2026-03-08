@@ -1328,7 +1328,7 @@ function renderVolumes(data){
             return [
               value,
               `Corbeille: ${m.avgCorbeille} j`,
-              `Durée moy corbeille: ${m.avgDossier} j`
+              `Âge moy.: ${m.avgDossier} j`
             ];
           }
         }
@@ -1603,14 +1603,13 @@ window.addEventListener("load",()=>{
 
 <script>
 // === ÂGE MOYEN PAR CORBEILLE (depuis DATE CREATION DOSSIER) ===
-
 function computeAverageAgeFromDossierDate(data, filterFn) {
   const now = new Date();
   const filtered = (data || []).filter(filterFn);
   if (!filtered.length) return 0;
 
   const totalDays = filtered.reduce((sum, item) => {
-    const dateStr = formatDate(item["DATE CREATION TACHE"]);
+    const dateStr = formatDate(item["DATE CREATION DOSSIER"]);
     if (!dateStr) return sum;
     const d = new Date(dateStr.split("/").reverse().join("-"));
     if (isNaN(d)) return sum;
@@ -1624,7 +1623,7 @@ function setButtonAvgDossierAge(btnSelector, label, avg) {
   const btn = document.querySelector(btnSelector);
   if (!btn) return;
   // On remplace uniquement le texte affiché, sans toucher au style.
-  btn.innerHTML = `${label}<br><span style="font-size:11px;">Durée moy corbeille ${avg} j</span>`;
+  btn.innerHTML = `${label}<br><span style="font-size:11px;">Âge moy. ${avg} j</span>`;
 }
 
 function applyAvgAgeDossierToButtons(data) {
@@ -2134,6 +2133,176 @@ function exportTableToExcel(tableId, filename){
   XLSX.utils.book_append_sheet(wb, ws, filename);
   XLSX.writeFile(wb, filename + ".xlsx");
 }
+</script>
+
+
+<script>
+/* === CORRECTION UNIFIEE : BOUTONS + GRAPHE MEMES FILTRES / MEMES FORMULES === */
+(function(){
+
+  function parseDateForMetric(value){
+    const formatted = formatDate(value);
+    if(!formatted) return null;
+    const parts = String(formatted).split("/");
+    if(parts.length !== 3) return null;
+    const d = new Date(parts[2] + "-" + parts[1] + "-" + parts[0]);
+    return isNaN(d) ? null : d;
+  }
+
+  function diffDaysFromNow(date){
+    if(!date) return null;
+    return Math.floor((new Date() - date) / 86400000);
+  }
+
+  function getUnifiedPredicates(){
+    return [
+      { key:"HOMOLOGATION", label:"Homologation", selector:"button[onclick='openHomologation()']", match:e=>matchAny(FILTERS_HOMOLOGATION,e) },
+      { key:"FACTURATION", label:"Facturation", selector:"button[onclick='openFacturation()']", match:e=>matchAny(FILTERS_FACTURATION,e) },
+      { key:"DDMS", label:"DDMS", selector:"button[onclick='openDDMS()']", match:e=>matchAny(FILTERS_DDMS,e) },
+      { key:"TRAVAUX", label:"Travaux", selector:"button[onclick='openTravaux()']", match:e=>matchAny(FILTERS_TRAVAUX,e) },
+      { key:"SUPPORT_IP", label:"Support IP", selector:"button[onclick='openSupportIP()']", match:e=>matchAny(FILTERS_SUPPORT_IP,e) },
+      { key:"BBF", label:"BBF", selector:"button[onclick='openBBF()']", match:e=>matchAny(FILTERS_BBF,e) },
+      { key:"VT", label:"VT", selector:"button[onclick='openVT()']", match:e=>matchAny(FILTERS_VT,e) },
+      { key:"TEST_RECETTE", label:"Test et recette", selector:"button[onclick='openTestRecette()']", match:e=>e.includes("TEST ET RECETTE") },
+      { key:"ATTENTE", label:"Attente mise en service", selector:"button[onclick='openAttente()']", match:e=>matchAny(FILTERS_ATTENTE,e) },
+      { key:"SUSPENDU", label:"Suspendu", selector:"button[onclick='openSuspendus()']", match:e=>matchAny(FILTERS_SUSPENDUS,e) },
+      { key:"WHOLESALE", label:"Wholesale", selector:"button[onclick='openWholesale()']", match:e=>matchAny(FILTERS_WHOLESALE,e) }
+    ];
+  }
+
+  function computeUnifiedMetrics(data){
+    const defs = getUnifiedPredicates();
+    const out = defs.map(d => ({
+      key:d.key,
+      label:d.label,
+      selector:d.selector,
+      count:0,
+      corbeilleSum:0,
+      corbeilleCount:0,
+      dossierSum:0,
+      dossierCount:0
+    }));
+
+    (Array.isArray(data) ? data : []).forEach(item => {
+      const e = _etapeNorm(item);
+      out.forEach((m, idx) => {
+        if(!defs[idx].match(e)) return;
+        m.count++;
+        const tacheAge = diffDaysFromNow(parseDateForMetric(item["DATE CREATION TACHE"]));
+        const dossierAge = diffDaysFromNow(parseDateForMetric(item["DATE CREATION DOSSIER"]));
+        if(tacheAge !== null && !Number.isNaN(tacheAge)){
+          m.corbeilleSum += tacheAge;
+          m.corbeilleCount++;
+        }
+        if(dossierAge !== null && !Number.isNaN(dossierAge)){
+          m.dossierSum += dossierAge;
+          m.dossierCount++;
+        }
+      });
+    });
+
+    return out.map(m => ({
+      key: m.key,
+      label: m.label,
+      selector: m.selector,
+      count: m.count,
+      avgCorbeille: m.corbeilleCount ? Math.round(m.corbeilleSum / m.corbeilleCount) : 0,
+      avgDossier: m.dossierCount ? Math.round(m.dossierSum / m.dossierCount) : 0
+    }));
+  }
+
+  window.computeBarMetrics = computeUnifiedMetrics;
+
+  window.applyUnifiedMetricsToButtons = function(data){
+    const metrics = computeUnifiedMetrics(data);
+    metrics.forEach(m => {
+      const btn = document.querySelector(m.selector);
+      if(!btn) return;
+      btn.innerHTML = m.label + "<br><span style=\"font-size:11px;\">Durée. " + m.avgCorbeille + " j</span>";
+    });
+  };
+
+  window.renderVolumes = function(data){
+    const ctx = document.getElementById("volumeParBouton");
+    if(!ctx) return;
+
+    const barMetrics = computeUnifiedMetrics(data);
+    const counts = barMetrics.map(m => m.count);
+
+    if(window.volumeChart) window.volumeChart.destroy();
+
+    window.volumeChart = new Chart(ctx,{
+      type:'bar',
+      data:{ labels:labelsBoutons, datasets:[{label:'Volume',data:counts}]},
+      options:{
+        responsive:true,
+        maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          datalabels:{
+            anchor:'end',
+            align:'top',
+            textAlign:'center',
+            font:{size:10},
+            formatter:(value, context)=>{
+              const m = barMetrics[context.dataIndex] || {avgCorbeille:0, avgDossier:0};
+              return [
+                value,
+                "Corbeille: " + m.avgCorbeille + " j",
+                "Âge moy.: " + m.avgDossier + " j"
+              ];
+            }
+          }
+        },
+        scales:{y:{beginAtZero:true,ticks:{precision:0}}},
+        onClick:(evt,elements)=>{
+          if(!elements || !elements.length) return;
+          const i = elements[0].index;
+          const openers = [
+            openHomologation,
+            openFacturation,
+            openDDMS,
+            openTravaux,
+            openSupportIP,
+            openBBF,
+            openVT,
+            openTestRecette,
+            openAttente,
+            openSuspendus,
+            openWholesale
+          ];
+          if(openers[i]) openers[i]();
+        }
+      },
+      plugins:[ChartDataLabels]
+    });
+  };
+
+  function runUnifiedRefresh(){
+    if(window.allData && window.allData.length){
+      window.applyUnifiedMetricsToButtons(window.allData);
+      window.renderVolumes(window.allData);
+    }
+  }
+
+  window.addEventListener("load", () => {
+    const interval = setInterval(() => {
+      if(window.allData && window.allData.length){
+        runUnifiedRefresh();
+        clearInterval(interval);
+      }
+    }, 400);
+  });
+
+  if(typeof window.handleFile === "function"){
+    const previousHandleFile = window.handleFile;
+    window.handleFile = function(event){
+      previousHandleFile(event);
+      setTimeout(runUnifiedRefresh, 900);
+    };
+  }
+
+})();
 </script>
 
 </body>
