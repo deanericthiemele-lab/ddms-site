@@ -39,13 +39,13 @@ th {background:#222; color:white;}
 <div class="container">
 
 <div class="category-bar">
-  <button class="category-btn" onclick="filterByCategory('SRO', this)">SRO</button>
-  <button class="category-btn" onclick="filterByCategory('MANCHON', this)">MANCHON</button>
-  <button class="category-btn" onclick="filterByCategory('PB', this)">PB</button>
-  <button class="category-btn" onclick="filterByCategory('CLIENT', this)">CLIENT</button>
-  <button class="category-btn" onclick="filterByCategory('CABLE COUPE', this)">CABLE COUPE</button>
-  <button class="category-btn" onclick="filterByCategory('DERCO', this)">DERCO</button>
-  <button class="category-btn" onclick="filterByCategory('AUTRE', this)">AUTRE</button>
+  <button class="category-btn" data-cat="SRO" onclick="filterByCategory('SRO', this)">SRO (<span class="count">0</span>)</button>
+  <button class="category-btn" data-cat="MANCHON" onclick="filterByCategory('MANCHON', this)">MANCHON (<span class="count">0</span>)</button>
+  <button class="category-btn" data-cat="PB" onclick="filterByCategory('PB', this)">PB (<span class="count">0</span>)</button>
+  <button class="category-btn" data-cat="CLIENT" onclick="filterByCategory('CLIENT', this)">CLIENT (<span class="count">0</span>)</button>
+  <button class="category-btn" data-cat="CABLE COUPE" onclick="filterByCategory('CABLE COUPE', this)">CABLE COUPE (<span class="count">0</span>)</button>
+  <button class="category-btn" data-cat="DERCO" onclick="filterByCategory('DERCO', this)">DERCO (<span class="count">0</span>)</button>
+  <button class="category-btn" data-cat="AUTRE" onclick="filterByCategory('AUTRE', this)">AUTRE (<span class="count">0</span>)</button>
   <button class="category-btn" onclick="renderTable(DATA)">TOUT</button>
   <span style="align-self:center;font-weight:bold;">|</span>
   <button class="category-btn" onclick="openSROPopup()">SRO</button>
@@ -66,39 +66,26 @@ let DATA = [];
 let CURRENT_VIEW = [];
 let CURRENT_HEADERS = [];
 
-
 function mapCategory(cause){
     cause = (cause || "").toUpperCase();
 
-    // SRO
-    if(["PDZ","PDI","PDR","PEC","SRO","ODF"].some(x => cause.includes(x)))
-        return "SRO";
+    if(["PDZ","PDI","PDR","PEC"].some(x => cause.includes(x))) return "SRO";
 
-    // MANCHON
-    if(cause.includes("PA") || cause.includes("PAC") || cause.includes("PEP") ||
-       cause.includes("MANCHON") || cause.includes("EPISSURE") || cause.includes("SOUDURE"))
+    if(/\bPA\b/.test(cause) || /\bPEP\b/.test(cause) || /\bPAC\b/.test(cause))
         return "MANCHON";
 
-    // PB
-    if(cause.includes("PB") || cause.includes("PBO") || cause.includes("BRANCHEMENT"))
+    if(/\bPB\b/.test(cause))
         return "PB";
 
-    // CLIENT
-    if(cause.includes("CLIENT") || cause.includes("PTO") || cause.includes("ONT") || cause.includes("BOX"))
-        return "CLIENT";
+    if(cause.includes("CLIENT") || cause.includes("PTO")) return "CLIENT";
 
-    // CABLE COUPE
-    if(cause.includes("CABLE") || cause.includes("CÂBLE") ||
-       cause.includes("COUPE") || cause.includes("COUPÉ") || cause.includes("ARRACHE"))
+    if(cause.includes("CABLE COUPE") || cause.includes("CÂBLE COUPÉ"))
         return "CABLE COUPE";
 
-    // DERCO
-    if(cause.includes("DERCO"))
-        return "DERCO";
+    if(cause.includes("DERCO")) return "DERCO";
 
     return "AUTRE";
 }
-
 
 async function loadData(){
     const response = await fetch("cic.xlsx");
@@ -152,7 +139,7 @@ function renderTable(data){
         let tr = "<tr>";
         headers.forEach(h=>{
             if(h === "REGROUPEMENT"){
-                const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || row["COMMENTAIRE"] || "";
+                const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || "";
                 tr += "<td>"+mapCategory(cause)+"</td>";
             } else {
                 tr += "<td>"+(row[h] || "")+"</td>";
@@ -170,7 +157,7 @@ function filterByCategory(category, btn){
     if(btn) btn.classList.add("active");
 
     const filtered = DATA.filter(row=>{
-        const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || row["COMMENTAIRE"] || "";
+        const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || "";
         return mapCategory(cause) === category;
     });
 
@@ -235,7 +222,7 @@ function openSROPopup(){
                     .trim()
                     .toUpperCase();
 
-        const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || row["COMMENTAIRE"] || "";
+        const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || "";
         const cat = mapCategory(cause);
 
         if(!pivot[sro]){
@@ -338,7 +325,24 @@ function filterPopupSRO(){
 }
 
 
-window.onload = loadData;
+
+function updateButtonCounts(){
+    const counts = {SRO:0, MANCHON:0, PB:0, CLIENT:0, "CABLE COUPE":0, DERCO:0, AUTRE:0};
+
+    DATA.forEach(row=>{
+        const cause = row["CAUSE RÉELLE"] || row["CAUSE"] || row["COMMENTAIRE"] || "";
+        const cat = mapCategory(cause);
+        if(counts[cat] !== undefined) counts[cat]++;
+    });
+
+    document.querySelectorAll(".category-btn[data-cat]").forEach(btn=>{
+        const cat = btn.getAttribute("data-cat");
+        const span = btn.querySelector(".count");
+        if(span) span.innerText = counts[cat] ?? 0;
+    });
+}
+
+window.onload = async function(){ await loadData(); updateButtonCounts(); };
 
 </script>
 
