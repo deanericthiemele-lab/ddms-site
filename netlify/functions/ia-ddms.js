@@ -2,14 +2,21 @@
 import fs from "fs";
 import XLSX from "xlsx";
 
-export async function handler(event){
+export async function handler(event) {
 
-try{
+try {
 
-const API_KEY = process.env.CLAUDE_API_KEY;
+const apiKey = process.env.CLAUDE_API_KEY;
 
-const body = JSON.parse(event.body);
-const question = body.question;
+if(!apiKey){
+return {
+statusCode:500,
+body:JSON.stringify({result:"Clé Claude manquante"})
+};
+}
+
+const body = JSON.parse(event.body || "{}");
+const question = body.question || "";
 
 let context = "";
 
@@ -42,7 +49,7 @@ const response = await fetch("https://api.anthropic.com/v1/messages",{
 method:"POST",
 
 headers:{
-"x-api-key":API_KEY,
+"x-api-key": apiKey,
 "anthropic-version":"2023-06-01",
 "content-type":"application/json"
 },
@@ -55,16 +62,18 @@ max_tokens:700,
 
 messages:[{
 role:"user",
-content:`Tu es l'assistant IA du système DDMS Orange.
+content:`
+Tu es l'assistant IA du système DDMS Orange.
 
-Voici des données provenant des fichiers Excel du système :
+Données extraites du système :
 
 ${context}
 
 Question utilisateur :
 ${question}
 
-Réponds clairement en français et analyse les KPI si nécessaire.`
+Analyse les KPI réseau et réponds clairement.
+`
 }]
 
 })
@@ -75,14 +84,18 @@ const data = await response.json();
 
 return {
 statusCode:200,
-body:JSON.stringify({ result: data.content[0].text })
+body:JSON.stringify({
+result:data?.content?.[0]?.text || "Aucune réponse IA"
+})
 };
 
 }catch(error){
 
 return {
 statusCode:500,
-body:JSON.stringify({ result:"Erreur IA : "+error.message })
+body:JSON.stringify({
+result:"Erreur IA : "+error.message
+})
 };
 
 }
