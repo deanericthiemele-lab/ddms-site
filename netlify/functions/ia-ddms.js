@@ -1,3 +1,4 @@
+
 export async function handler(event) {
 
   if (event.httpMethod !== "POST") {
@@ -8,11 +9,9 @@ export async function handler(event) {
   }
 
   try {
-
     const body = JSON.parse(event.body || "{}");
     const question = body.question || "Réponds OK";
 
-    // clé récupérée depuis Netlify
     const apiKey = process.env.CLAUDE_API_KEY;
 
     if (!apiKey) {
@@ -33,31 +32,37 @@ export async function handler(event) {
         model: "claude-3-haiku-20240307",
         max_tokens: 200,
         messages: [
-          {
-            role: "user",
-            content: question
-          }
+          { role: "user", content: question }
         ]
       })
     });
 
     const data = await response.json();
 
-    const text = data?.content?.[0]?.text || "Pas de réponse";
+    if (!response.ok) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: data.error?.message || "Erreur API Claude" })
+      };
+    }
+
+    const answer =
+      data.content &&
+      data.content.length > 0 &&
+      data.content[0].text
+        ? data.content[0].text
+        : "Réponse vide";
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answer: text })
+      body: JSON.stringify({ answer })
     };
 
-  } catch (error) {
-
+  } catch (err) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({ error: err.message })
     };
-
   }
-
 }
