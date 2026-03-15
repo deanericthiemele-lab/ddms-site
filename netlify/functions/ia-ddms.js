@@ -1,7 +1,10 @@
+
 import fs from "fs";
 import XLSX from "xlsx";
 
 export async function handler(event){
+
+try{
 
 const API_KEY = process.env.CLAUDE_API_KEY;
 
@@ -11,21 +14,22 @@ const question = body.question;
 let context = "";
 
 const files = fs.readdirSync("./");
+
 const excelFiles = files.filter(f => f.endsWith(".xlsx"));
 
 for(const file of excelFiles){
 
 try{
 
-const wb = XLSX.readFile(file);
+const workbook = XLSX.readFile(file);
 
-for(const sheetName of wb.SheetNames){
+for(const sheetName of workbook.SheetNames){
 
-const sheet = wb.Sheets[sheetName];
+const sheet = workbook.Sheets[sheetName];
 
 const rows = XLSX.utils.sheet_to_json(sheet);
 
-context += JSON.stringify(rows).slice(0,2000);
+context += JSON.stringify(rows).slice(0,1500);
 
 }
 
@@ -47,31 +51,40 @@ body:JSON.stringify({
 
 model:"claude-3-5-sonnet-20241022",
 
-max_tokens:800,
+max_tokens:700,
 
 messages:[{
 role:"user",
-content:`Tu es l'assistant IA du système DDMS.
+content:`Tu es l'assistant IA du système DDMS Orange.
 
-Voici des données issues des fichiers Excel du système :
+Voici des données provenant des fichiers Excel du système :
 
 ${context}
 
-Question :
+Question utilisateur :
 ${question}
 
-Réponds clairement et propose une analyse si nécessaire.`
+Réponds clairement en français et analyse les KPI si nécessaire.`
 }]
 
 })
 
 });
 
-const result = await response.json();
+const data = await response.json();
 
 return {
 statusCode:200,
-body:JSON.stringify({answer: result.content[0].text})
+body:JSON.stringify({ result: data.content[0].text })
 };
+
+}catch(error){
+
+return {
+statusCode:500,
+body:JSON.stringify({ result:"Erreur IA : "+error.message })
+};
+
+}
 
 }
