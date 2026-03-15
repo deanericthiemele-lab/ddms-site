@@ -9,17 +9,11 @@ export async function handler(event) {
   }
 
   try {
+
     const body = JSON.parse(event.body || "{}");
     const question = body.question || "Réponds OK";
 
     const apiKey = process.env.CLAUDE_API_KEY;
-
-    if (!apiKey) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "CLAUDE_API_KEY non configurée dans Netlify" })
-      };
-    }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -32,26 +26,22 @@ export async function handler(event) {
         model: "claude-3-haiku-20240307",
         max_tokens: 200,
         messages: [
-          { role: "user", content: question }
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: question
+              }
+            ]
+          }
         ]
       })
     });
 
     const data = await response.json();
 
-    if (!response.ok) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: data.error?.message || "Erreur API Claude" })
-      };
-    }
-
-    const answer =
-      data.content &&
-      data.content.length > 0 &&
-      data.content[0].text
-        ? data.content[0].text
-        : "Réponse vide";
+    const answer = data?.content?.[0]?.text || "Pas de réponse";
 
     return {
       statusCode: 200,
@@ -60,9 +50,12 @@ export async function handler(event) {
     };
 
   } catch (err) {
+
     return {
       statusCode: 500,
       body: JSON.stringify({ error: err.message })
     };
+
   }
+
 }
