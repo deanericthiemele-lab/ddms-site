@@ -1,4 +1,3 @@
-
 import XLSX from "xlsx";
 
 export async function handler(event) {
@@ -30,15 +29,7 @@ export async function handler(event) {
 
     const data = await response.json();
 
-    let result = "Pas de réponse";
-
-    if (data && data.content && data.content.length > 0) {
-      result = data.content[0].text;
-    } else if (data && data.error) {
-      result = "Erreur Claude : " + data.error.message;
-    } else {
-      result = JSON.stringify(data);
-    }
+    const result = data.content?.[0]?.text || "Pas de réponse";
 
     return {
       statusCode: 200,
