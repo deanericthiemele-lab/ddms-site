@@ -1,6 +1,7 @@
 
 import fs from "fs";
 import XLSX from "xlsx";
+import fetch from "node-fetch";
 
 export async function handler(event) {
 
@@ -24,6 +25,7 @@ export async function handler(event) {
     const excelFiles = files.filter(f => f.endsWith(".xlsx"));
 
     for (const file of excelFiles) {
+
       try {
 
         const workbook = XLSX.readFile(file);
@@ -38,6 +40,7 @@ export async function handler(event) {
         }
 
       } catch(e) {}
+
     }
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -52,13 +55,13 @@ export async function handler(event) {
 
       body: JSON.stringify({
         model: "claude-3-5-sonnet-20241022",
-        max_tokens: 700,
+        max_tokens: 800,
+        temperature: 0.3,
+        system: "Tu es un assistant qui analyse les données réseau DDMS.",
         messages: [
           {
             role: "user",
-            content: `Assistant IA DDMS.
-
-Données système :
+            content: `Données système :
 ${context}
 
 Question :
@@ -74,7 +77,7 @@ ${question}`
     return {
       statusCode: 200,
       body: JSON.stringify({
-        result: data?.content?.[0]?.text || "Aucune réponse"
+        result: data?.content?.[0]?.text || "Aucune réponse de Claude"
       })
     };
 
