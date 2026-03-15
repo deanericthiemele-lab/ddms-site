@@ -6,12 +6,13 @@ export async function handler(event) {
 
 try {
 
-const apiKey = process.env.CLAUDE_API_KEY;
+// récupération sécurisée de la clé
+const apiKey = process.env["CLAUDE_API_KEY"];
 
-if(!apiKey){
+if (!apiKey) {
 return {
 statusCode:500,
-body:JSON.stringify({result:"Clé Claude manquante"})
+body:JSON.stringify({ result:"CLAUDE_API_KEY manquante dans Netlify" })
 };
 }
 
@@ -20,31 +21,31 @@ const question = body.question || "";
 
 let context = "";
 
+// lecture des fichiers excel présents
 const files = fs.readdirSync("./");
-
 const excelFiles = files.filter(f => f.endsWith(".xlsx"));
 
-for(const file of excelFiles){
+for (const file of excelFiles) {
 
-try{
+try {
 
 const workbook = XLSX.readFile(file);
 
-for(const sheetName of workbook.SheetNames){
+for (const sheetName of workbook.SheetNames) {
 
 const sheet = workbook.Sheets[sheetName];
-
 const rows = XLSX.utils.sheet_to_json(sheet);
 
 context += JSON.stringify(rows).slice(0,1500);
 
 }
 
-}catch(e){}
+} catch(e){}
 
 }
 
-const response = await fetch("https://api.anthropic.com/v1/messages",{
+// appel API Claude
+const response = await fetch("https://api.anthropic.com/v1/messages", {
 
 method:"POST",
 
@@ -57,23 +58,20 @@ headers:{
 body:JSON.stringify({
 
 model:"claude-3-5-sonnet-20241022",
-
 max_tokens:700,
 
 messages:[{
 role:"user",
-content:`
-Tu es l'assistant IA du système DDMS Orange.
+content:`Tu es l'assistant IA DDMS Orange.
 
-Données extraites du système :
+Données système:
 
 ${context}
 
-Question utilisateur :
+Question:
 ${question}
 
-Analyse les KPI réseau et réponds clairement.
-`
+Analyse les KPI réseau et réponds clairement.`
 }]
 
 })
@@ -85,16 +83,16 @@ const data = await response.json();
 return {
 statusCode:200,
 body:JSON.stringify({
-result:data?.content?.[0]?.text || "Aucune réponse IA"
+result:data?.content?.[0]?.text || "Aucune réponse"
 })
 };
 
-}catch(error){
+} catch(error) {
 
 return {
 statusCode:500,
 body:JSON.stringify({
-result:"Erreur IA : "+error.message
+result:"Erreur IA: " + error.message
 })
 };
 
