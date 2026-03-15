@@ -1,4 +1,3 @@
-import XLSX from "xlsx";
 
 export async function handler(event) {
   try {
@@ -8,10 +7,17 @@ export async function handler(event) {
 
     const apiKey = process.env.CLAUDE_API_KEY;
 
+    if (!apiKey) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "CLAUDE_API_KEY manquante dans Netlify" })
+      };
+    }
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "content-type": "application/json",
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01"
       },
@@ -29,13 +35,12 @@ export async function handler(event) {
 
     const data = await response.json();
 
-    const result = data.content?.[0]?.text || "Pas de réponse";
+    const text = data?.content?.[0]?.text || "Pas de réponse";
 
     return {
       statusCode: 200,
-      body: JSON.stringify({
-        result: result
-      })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer: text })
     };
 
   } catch (error) {
