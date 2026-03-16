@@ -292,16 +292,7 @@ document.addEventListener("DOMContentLoaded", function() {
     btnExport.addEventListener("click", exporterZoneExcel);
   }
 });
-  
-function getISOWeek(date){
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
-  return Math.ceil((((d - yearStart) / 86400000) + 1)/7);
-}
-
-</script>
+  </script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js">
    function mettreAJourTitreIncidentsRepetitifs() {
   const aujourdHui = new Date();
@@ -9624,7 +9615,9 @@ function afficherGraphiqueHebdo(){
 
 document.getElementById("popup-semaine").style.display="block";
 
+
 const parSemaine = {};
+const ndParSemaine = {};
 
 if(typeof tableauActuel === "undefined") return;
 
@@ -9636,32 +9629,57 @@ tableauActuel.forEach(item => {
 
    const d = new Date(date);
 
-   const semaine = getISOWeek(d);
+   // ISO week
+   const dayNum = d.getDay() || 7;
+   d.setDate(d.getDate() + 4 - dayNum);
+   const yearStart = new Date(d.getFullYear(),0,1);
+   const semaine = Math.ceil((((d - yearStart) / 86400000) + 1)/7);
 
    const key = "S"+semaine;
 
    parSemaine[key] = (parSemaine[key] || 0) + 1;
 
+   if(!ndParSemaine[key]) ndParSemaine[key] = {};
+   const nd = item.nd || "ND";
+   ndParSemaine[key][nd] = (ndParSemaine[key][nd] || 0) + 1;
+
  });
 
 });
 
-const labels = Object.keys(parSemaine);
-const valeurs = Object.values(parSemaine);
+// ND >=2
+const ndSup2 = {};
+Object.keys(ndParSemaine).forEach(s=>{
+ let total=0;
+ Object.values(ndParSemaine[s]).forEach(v=>{ if(v>=2) total++; });
+ ndSup2[s]=total;
+});
 
-const ctx = document.getElementById("graphique-semaine").getContext("2d");
+// sort weeks
+const labels = Object.keys(parSemaine)
+ .map(s=>parseInt(s.replace("S","")))
+ .sort((a,b)=>a-b)
+ .map(s=>"S"+s);
 
-if(window.chartSemaine) window.chartSemaine.destroy();
+const valeurs = labels.map(s=>parSemaine[s] || 0);
+const valeursND2 = labels.map(s=>ndSup2[s] || 0);
 
-window.chartSemaine = new Chart(ctx,{
+const ctx = document.getElementById("graphique-semaine").getContextndow.chartSemaine = new Chart(ctx,{
  type:"bar",
  data:{
   labels:labels,
-  datasets:[{
+  datasets:[
+  {
    label:"Incidents",
    data:valeurs,
    backgroundColor:"#42a5f5"
-  }]
+  },
+  {
+   label:"ND ≥2",
+   data:valeursND2,
+   backgroundColor:"#ef4444"
+  }
+]
  },
  options:{
   plugins:{
