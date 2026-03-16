@@ -9599,13 +9599,7 @@ box-shadow:0 5px 20px rgba(0,0,0,0.3);
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
 <b>📊 Incidents par semaine</b>
-<button onclick="fermerPopupSemaine()" style="
-border:none;
-background:#e53935;
-color:white;
-padding:4px 8px;
-border-radius:4px;
-cursor:pointer">X</button>
+<button onclick="fermerPopupSemaine()" style="border:none;background:#e53935;color:white;padding:4px 8px;border-radius:4px;cursor:pointer">X</button>
 </div>
 
 <canvas id="graphique-semaine" height="150"></canvas>
@@ -9617,7 +9611,8 @@ function afficherGraphiqueHebdo(){
 
 document.getElementById("popup-semaine").style.display="block";
 
-const parSemaine = {};
+const incidentsSemaine = {};
+const incidentsND2 = {};
 
 if(typeof tableauActuel === "undefined") return;
 
@@ -9625,20 +9620,66 @@ tableauActuel.forEach(item => {
 
  if(!item.datesCreation) return;
 
+ const nd2 = Object.values(item.mois || {}).some(v => v >= 2);
+
  item.datesCreation.forEach(date => {
 
    const d = new Date(date);
 
-   const semaine = Math.ceil(
-    ((d - new Date(d.getFullYear(),0,1)) / 86400000 + 1) / 7
-   );
+   const semaine = Math.ceil(((d - new Date(d.getFullYear(),0,1)) / 86400000 + 1) / 7);
 
-   const key = "S"+semaine;
+   incidentsSemaine[semaine] = (incidentsSemaine[semaine] || 0) + 1;
 
-   parSemaine[key] = (parSemaine[key] || 0) + 1;
+   if(nd2){
+     incidentsND2[semaine] = (incidentsND2[semaine] || 0) + 1;
+   }
 
  });
 
+});
+
+const semainesTriees = Object.keys(incidentsSemaine)
+  .map(Number)
+  .sort((a,b)=>a-b);
+
+const labels = semainesTriees.map(s => "S"+s);
+const dataIncidents = semainesTriees.map(s => incidentsSemaine[s] || 0);
+const dataND2 = semainesTriees.map(s => incidentsND2[s] || 0);
+
+const ctx = document.getElementById("graphique-semaine").getContext("2d");
+
+if(window.chartSemaine) window.chartSemaine.destroy();
+
+window.chartSemaine = new Chart(ctx,{
+ type:"bar",
+ data:{
+  labels:labels,
+  datasets:[
+   {
+    label:"Incidents",
+    data:dataIncidents,
+    backgroundColor:"#42a5f5"
+   },
+   {
+    label:"Incidents ND ≥2",
+    data:dataND2,
+    backgroundColor:"#ef5350"
+   }
+  ]
+ },
+ options:{
+  plugins:{
+   datalabels:{
+    anchor:'end',
+    align:'top',
+    font:{weight:'bold'},
+    formatter:(v)=>v
+   }
+  },
+  scales:{y:{beginAtZero:true}}
+ },
+ plugins:[ChartDataLabels]
+});
 });
 
 const labels = Object.keys(parSemaine);
