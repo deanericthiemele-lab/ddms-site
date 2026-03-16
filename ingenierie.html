@@ -1020,12 +1020,6 @@ document.addEventListener("DOMContentLoaded", function() {
 <button onclick="afficherVueGlobale()">
     🔄 Réinitialiser
    </button>
-
-<button onclick="ouvrirPopupSemaine()" 
-style="background:#1976D2;color:white;border:none;border-radius:4px;padding:6px 10px;cursor:pointer;margin-left:10px;">
-📊 Incidents / semaine
-</button>
-
 </div>
 <style>
    .dropdown {
@@ -9605,7 +9599,13 @@ box-shadow:0 5px 20px rgba(0,0,0,0.3);
 
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
 <b>📊 Incidents par semaine</b>
-<button onclick="fermerPopupSemaine()" style="border:none;background:#e53935;color:white;padding:4px 8px;border-radius:4px;cursor:pointer">X</button>
+<button onclick="fermerPopupSemaine()" style="
+border:none;
+background:#e53935;
+color:white;
+padding:4px 8px;
+border-radius:4px;
+cursor:pointer">X</button>
 </div>
 
 <canvas id="graphique-semaine" height="150"></canvas>
@@ -9617,8 +9617,7 @@ function afficherGraphiqueHebdo(){
 
 document.getElementById("popup-semaine").style.display="block";
 
-const incidentsSemaine = {};
-const incidentsND2 = {};
+const parSemaine = {};
 
 if(typeof tableauActuel === "undefined") return;
 
@@ -9626,66 +9625,20 @@ tableauActuel.forEach(item => {
 
  if(!item.datesCreation) return;
 
- const nd2 = Object.values(item.mois || {}).some(v => v >= 2);
-
  item.datesCreation.forEach(date => {
 
    const d = new Date(date);
 
-   const semaine = Math.ceil(((d - new Date(d.getFullYear(),0,1)) / 86400000 + 1) / 7);
+   const semaine = Math.ceil(
+    ((d - new Date(d.getFullYear(),0,1)) / 86400000 + 1) / 7
+   );
 
-   incidentsSemaine[semaine] = (incidentsSemaine[semaine] || 0) + 1;
+   const key = "S"+semaine;
 
-   if(nd2){
-     incidentsND2[semaine] = (incidentsND2[semaine] || 0) + 1;
-   }
+   parSemaine[key] = (parSemaine[key] || 0) + 1;
 
  });
 
-});
-
-const semainesTriees = Object.keys(incidentsSemaine)
-  .map(Number)
-  .sort((a,b)=>a-b);
-
-const labels = semainesTriees.map(s => "S"+s);
-const dataIncidents = semainesTriees.map(s => incidentsSemaine[s] || 0);
-const dataND2 = semainesTriees.map(s => incidentsND2[s] || 0);
-
-const ctx = document.getElementById("graphique-semaine").getContext("2d");
-
-if(window.chartSemaine) window.chartSemaine.destroy();
-
-window.chartSemaine = new Chart(ctx,{
- type:"bar",
- data:{
-  labels:labels,
-  datasets:[
-   {
-    label:"Incidents",
-    data:dataIncidents,
-    backgroundColor:"#42a5f5"
-   },
-   {
-    label:"Incidents ND ≥2",
-    data:dataND2,
-    backgroundColor:"#ef5350"
-   }
-  ]
- },
- options:{
-  plugins:{
-   datalabels:{
-    anchor:'end',
-    align:'top',
-    font:{weight:'bold'},
-    formatter:(v)=>v
-   }
-  },
-  scales:{y:{beginAtZero:true}}
- },
- plugins:[ChartDataLabels]
-});
 });
 
 const labels = Object.keys(parSemaine);
@@ -9722,201 +9675,6 @@ window.chartSemaine = new Chart(ctx,{
 
 function fermerPopupSemaine(){
 document.getElementById("popup-semaine").style.display="none";
-}
-</script>
-
-
-<!-- ===== Popup Incidents par semaine (ISO) ===== -->
-<button onclick="ouvrirPopupSemaine()" 
-style="background:#1976D2;color:white;border:none;border-radius:4px;padding:6px 10px;cursor:pointer;margin-left:10px;">
-📊 Incidents / semaine
-</button>
-
-<div id="popup-semaine" 
-style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
-background:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:9999;">
-
-<div style="background:white;padding:20px;border-radius:10px;width:600px;position:relative;">
-
-<button onclick="fermerPopupSemaine()" 
-style="position:absolute;top:10px;right:15px;background:#f44336;color:white;border:none;border-radius:4px;width:26px;height:26px;cursor:pointer;">
-X
-</button>
-
-<h3 style="text-align:center;color:#2e7d32;">📊 Incidents par semaine</h3>
-
-<canvas id="chart-semaine" height="240"></canvas>
-
-</div>
-</div>
-
-<script>
-
-function getWeekISO(date){
-const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-const dayNum = d.getUTCDay() || 7;
-d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
-return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-}
-
-function ouvrirPopupSemaine(){
-
-const parSemaine = {};
-
-tableauActuel.forEach(item => {
-
-(item.datesCreation || []).forEach(d => {
-
-const date = new Date(d);
-const semaine = getWeekISO(date);
-
-if(!parSemaine[semaine]){
-parSemaine[semaine] = {total:0, nd2:0};
-}
-
-parSemaine[semaine].total++;
-
-const mois = date.getMonth()+1;
-
-if((item.mois && item.mois[mois] >= 2)){
-parSemaine[semaine].nd2++;
-}
-
-});
-
-});
-
-const semainesTriees = Object.keys(parSemaine).map(Number).sort((a,b)=>a-b);
-
-const labels = semainesTriees.map(s=>"S"+s);
-const dataIncidents = semainesTriees.map(s=>parSemaine[s].total);
-const dataND2 = semainesTriees.map(s=>parSemaine[s].nd2);
-
-document.getElementById("popup-semaine").style.display="flex";
-
-if(window.chartSemaine) window.chartSemaine.destroy();
-
-const ctx=document.getElementById("chart-semaine");
-
-window.chartSemaine = new Chart(ctx,{
-type:"bar",
-data:{
-labels:labels,
-datasets:[
-{
-label:"Incidents",
-data:dataIncidents,
-backgroundColor:"#42a5f5"
-},
-{
-label:"Incidents ND ≥2",
-data:dataND2,
-backgroundColor:"#ef5350"
-}
-]
-},
-options:{
-plugins:{
-legend:{position:"top"},
-datalabels:{
-anchor:"end",
-align:"top",
-font:{weight:"bold"},
-color:"#333"
-}
-},
-scales:{
-y:{beginAtZero:true}
-}
-},
-plugins:[ChartDataLabels]
-});
-
-}
-
-function fermerPopupSemaine(){
-document.getElementById("popup-semaine").style.display="none";
-}
-
-</script>
-
-
-<!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-<style>
-#popupSemaines{
-display:none;
-position:fixed;
-top:50%;
-left:50%;
-transform:translate(-50%,-50%);
-background:white;
-padding:20px;
-border-radius:10px;
-box-shadow:0 0 15px rgba(0,0,0,0.3);
-width:500px;
-z-index:9999;
-}
-#popupSemaines canvas{
-width:100% !important;
-height:250px !important;
-}
-</style>
-
-<button onclick="ouvrirPopupSemaines()" style="margin-left:10px" class="btn btn-primary">
-📊 Incidents / semaine
-</button>
-
-<div id="popupSemaines">
-<div style="display:flex;justify-content:space-between;align-items:center">
-<h4>📊 Incidents par semaine</h4>
-<button onclick="fermerPopupSemaines()" style="background:#e74a3b;color:white;border:none;padding:4px 8px;border-radius:4px">X</button>
-</div>
-<canvas id="graphSemaines"></canvas>
-</div>
-
-<script>
-let chartSemaines;
-
-function ouvrirPopupSemaines(){
-document.getElementById("popupSemaines").style.display="block";
-
-const ctx=document.getElementById("graphSemaines").getContext("2d");
-
-if(chartSemaines){ chartSemaines.destroy(); }
-
-chartSemaines=new Chart(ctx,{
-type:'bar',
-data:{
-labels:['S1','S2','S3','S4','S5','S6','S7','S8','S9','S10','S11'],
-datasets:[
-{
-label:'Incidents',
-data:[109,148,193,186,189,177,189,192,196,171,68],
-backgroundColor:'#4e73df'
-},
-{
-label:'Incidents ND ≥2',
-data:[12,18,25,21,19,17,20,23,24,16,8],
-backgroundColor:'#e74a3b'
-}
-]
-},
-options:{
-plugins:{
-legend:{display:true}
-},
-scales:{
-y:{beginAtZero:true}
-}
-}
-});
-}
-
-function fermerPopupSemaines(){
-document.getElementById("popupSemaines").style.display="none";
 }
 </script>
 
