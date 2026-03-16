@@ -861,8 +861,6 @@ document.addEventListener("DOMContentLoaded", function() {
     button, input, select { font-size: 18px; }
 }
   </style>
-
-<style>#btn-export, button[id*='export'], button[onclick*='export']{display:none!important}</style>
 </head>
 <body>
 <div style="margin-bottom:10px;">
@@ -1022,6 +1020,7 @@ document.addEventListener("DOMContentLoaded", function() {
 <button onclick="afficherVueGlobale()">
     🔄 Réinitialiser
    </button>
+<button onclick="afficherGraphiqueHebdo()" style="background:#1976D2;color:white;border:none;border-radius:4px;padding:6px 10px;cursor:pointer;margin-left:6px;">📊 Incidents / semaine</button>
 </div>
 <style>
    .dropdown {
@@ -1537,7 +1536,12 @@ function fermerPopupPourcentage() {
 <!-- ✅ Bouton Planning fusion (ajouté) -->
 <input accept=".xlsx,.xls" id="planning-files" multiple="" style="display:none" type="file"/>
 <br/>
-<input id="recherche" oninput="filtrerTableau()" placeholder="🔍 Rechercher un client... (ex : DOUANE, SIB)" style="margin-top: 20px; padding: 5px; width: 300px;" type="text"/>
+<input 
+<div style="margin-top:30px; background-color:#f0fff0; border:2px solid #4CAF50; padding:12px; border-radius:8px;">
+<h4 style="margin:0;color:#2e7d32;">📊 Incidents par semaine (ND ≥ 2)</h4>
+<canvas id="graphique-semaine" height="250"></canvas>
+</div>
+id="recherche" oninput="filtrerTableau()" placeholder="🔍 Rechercher un client... (ex : DOUANE, SIB)" style="margin-top: 20px; padding: 5px; width: 300px;" type="text"/>
 <div id="info-resultats">
 </div>
 <!-- Filtres de dates -->
@@ -9584,44 +9588,73 @@ function afficherNDCompletsMensuels() {
 }
   </script>
 
-<div style="width:600px;margin:40px auto;">
-<h3 style="text-align:center">Incidents par semaine</h3>
-<canvas id="graph-semaine" width="600" height="300"></canvas>
-</div>
-
 <script>
-function graphSemaines(){
- if(typeof tableauActuel==="undefined") return;
- const vol={},ir={};
- tableauActuel.forEach(item=>{
-  if(!item.datesCreation) return;
-  item.datesCreation.forEach(d=>{
-   const date=new Date(d);
-   const debut=new Date(date.getFullYear(),0,1);
-   const j=Math.floor((date-debut)/86400000);
-   const s=Math.ceil((j+debut.getDay()+1)/7);
-   const k="S"+s;
-   vol[k]=(vol[k]||0)+1;
-   const total=Object.values(item.mois||{}).reduce((a,b)=>a+b,0);
-   if(total>=2) ir[k]=(ir[k]||0)+1;
+function afficherGraphiqueHebdo() {
+
+  const parSemaine = {};
+  const parSemaineND2 = {};
+
+  tableauActuel.forEach(item => {
+    if (!item.datesCreation) return;
+
+    item.datesCreation.forEach(date => {
+
+      const d = new Date(date);
+      const annee = d.getFullYear();
+
+      const semaine = Math.ceil(
+        ((d - new Date(annee,0,1)) / 86400000 + new Date(annee,0,1).getDay()+1) / 7
+      );
+
+      const key = annee + "-S" + semaine;
+
+      parSemaine[key] = (parSemaine[key] || 0) + 1;
+
+      if ((item.totalIncidents || 0) >= 2) {
+        parSemaineND2[key] = (parSemaineND2[key] || 0) + 1;
+      }
+
+    });
   });
- });
- const labels=Object.keys(vol).sort((a,b)=>parseInt(a.slice(1))-parseInt(b.slice(1)));
- const d1=labels.map(l=>vol[l]||0);
- const d2=labels.map(l=>ir[l]||0);
- const ctx=document.getElementById("graph-semaine");
- if(!ctx) return;
- new Chart(ctx,{
-  type:"bar",
-  data:{labels:labels,datasets:[
-   {label:"Incidents",data:d1,backgroundColor:"#ff9800"},
-   {label:"ND > 2",data:d2,backgroundColor:"#e53935"}
-  ]},
-  options:{responsive:false}
- });
+
+  const labels = Object.keys(parSemaine).sort();
+  const incidents = labels.map(l => parSemaine[l] || 0);
+  const nd2 = labels.map(l => parSemaineND2[l] || 0);
+
+  if (window.chartHebdo) window.chartHebdo.destroy();
+
+  const ctx = document.getElementById("graphique-semaine").getContext("2d");
+
+  window.chartHebdo = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: labels,
+      datasets: [
+        { label: "Incidents", data: incidents, backgroundColor: "#64b5f6" },
+        { label: "ND ≥ 2", data: nd2, backgroundColor: "#e53935" }
+      ]
+    },
+    options: {
+      devicePixelRatio: 2,
+      responsive: true,
+      plugins: {
+        legend: { position: 'top' },
+        datalabels: {
+          color: "#333",
+          font: { weight: "bold", size: 12 },
+          anchor: 'end',
+          align: 'top',
+          formatter: function(value){ return value; }
+        }
+      },
+      scales: { y: { beginAtZero: true } }
+    },
+    plugins: [ChartDataLabels]
+  });
+
 }
-setTimeout(graphSemaines,1000);
 </script>
+
 </body>
 <script>
   function ouvrirPopupZone() {
