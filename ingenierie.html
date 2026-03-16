@@ -10076,3 +10076,77 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 });
 </script>
+
+
+
+function afficherGraphiqueHebdo() {
+
+  const parSemaine = {};
+
+  function getISOWeek(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  }
+
+  tableauActuel.forEach(item => {
+
+    if (!item.datesCreation) return;
+
+    item.datesCreation.forEach(dt => {
+
+      const semaine = getISOWeek(new Date(dt));
+
+      if (!parSemaine[semaine]) {
+        parSemaine[semaine] = {
+          incidents: 0,
+          nd2: 0
+        };
+      }
+
+      parSemaine[semaine].incidents++;
+
+      if (item.totalIncidents && item.totalIncidents >= 2) {
+        parSemaine[semaine].nd2++;
+      }
+
+    });
+
+  });
+
+  const semaines = Object.keys(parSemaine)
+    .map(s => parseInt(s))
+    .sort((a,b) => a-b);
+
+  const labels = semaines.map(s => "S" + s);
+  const dataIncidents = semaines.map(s => parSemaine[s].incidents);
+  const dataND2 = semaines.map(s => parSemaine[s].nd2);
+
+  if (window.chartHebdo) window.chartHebdo.destroy();
+
+  const ctx = document.getElementById("chart-hebdo").getContext("2d");
+
+  window.chartHebdo = new Chart(ctx,{
+    type:"bar",
+    data:{
+      labels:labels,
+      datasets:[
+        { label:"Incidents", data:dataIncidents, backgroundColor:"#2196F3" },
+        { label:"Incidents ND ≥2", data:dataND2, backgroundColor:"#e53935" }
+      ]
+    },
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{position:"top"},
+        datalabels:{ anchor:"end", align:"top", font:{weight:"bold"} }
+      },
+      scales:{ y:{beginAtZero:true} }
+    },
+    plugins:[ChartDataLabels]
+  });
+
+  document.getElementById("popup-hebdo").style.display="flex";
+}
