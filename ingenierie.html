@@ -1,18 +1,35 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="utf-8"/>
-<title>Analyse des incidents - FIX FINAL</title>
+<meta charset="utf-8">
+<title>Analyse des incidents</title>
 
+<!-- LIBS -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 
 <style>
-body{font-family:Arial;margin:20px}
-button{padding:8px 12px;margin:6px;cursor:pointer}
-#popup{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center}
-.card{background:#fff;padding:15px;border-radius:10px;width:90%;max-width:900px;position:relative}
-.close{position:absolute;right:10px;top:10px}
+body { font-family: Arial; margin:20px; }
+button { padding:8px; cursor:pointer; }
+
+#popup {
+  position:fixed;
+  top:0;left:0;width:100%;height:100%;
+  background:rgba(0,0,0,0.6);
+  display:none;
+  justify-content:center;
+  align-items:center;
+}
+
+.card {
+  background:#fff;
+  padding:20px;
+  border-radius:10px;
+  width:90%;
+  max-width:900px;
+  position:relative;
+}
 </style>
 </head>
 
@@ -22,13 +39,30 @@ button{padding:8px 12px;margin:6px;cursor:pointer}
 <button onclick="afficherGraphiqueHebdo()">📊 Incidents / semaine</button>
 
 <div id="popup">
-<div class="card">
-<button class="close" onclick="document.getElementById('popup').style.display='none'">X</button>
-<canvas id="chart"></canvas>
-</div>
+  <div class="card">
+    <button onclick="document.getElementById('popup').style.display='none'">X</button>
+    <canvas id="chart"></canvas>
+  </div>
 </div>
 
 <script>
+
+// ===== PARSE DATE =====
+function parseDate(val){
+  if (!val) return null;
+
+  if (typeof val === "number") {
+    return new Date((val - 25569) * 86400 * 1000);
+  }
+
+  if (typeof val === "string" && val.includes("/")) {
+    const [d,m,y] = val.split("/");
+    return new Date(y, m-1, d);
+  }
+
+  const d = new Date(val);
+  return isNaN(d) ? null : d;
+}
 
 // ===== ISO WEEK =====
 function getISOWeek(date){
@@ -39,26 +73,7 @@ function getISOWeek(date){
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 }
 
-// ===== DATE PARSER ROBUST =====
-function parseDate(date){
-  if (!date) return null;
-
-  if (typeof date === "number") {
-    return new Date((date - 25569) * 86400 * 1000);
-  }
-
-  if (typeof date === "string") {
-    if (date.includes("/")) {
-      const [d,m,y] = date.split("/");
-      return new Date(y, m-1, d);
-    }
-  }
-
-  const d = new Date(date);
-  return isNaN(d) ? null : d;
-}
-
-// ===== AUTO LOAD =====
+// ===== DATA =====
 let tableauActuel = [];
 
 fetch("pipe.xlsx")
@@ -69,8 +84,8 @@ fetch("pipe.xlsx")
   const json = XLSX.utils.sheet_to_json(ws,{defval:""});
 
   tableauActuel = json.map(r=>({
-    nd: r["ND"] || "",
-    datesCreation: [r["DATE DE CREATION DOSSIER"]]
+    nd: r["ND"],
+    date: r["DATE DE CREATION DOSSIER"]
   }));
 
   console.log("DATA OK", tableauActuel.length);
@@ -79,33 +94,32 @@ fetch("pipe.xlsx")
 // ===== GRAPH =====
 function afficherGraphiqueHebdo(){
 
-  const dataIncidents = {};
-  const dataND = {};
+  const incidents = {};
+  const ndMap = {};
 
   tableauActuel.forEach(item=>{
-    item.datesCreation.forEach(date=>{
-      const d = parseDate(date);
-      if (!d) return;
+    const d = parseDate(item.date);
+    if (!d) return;
 
-      const s = "S"+getISOWeek(d);
+    const s = "S"+getISOWeek(d);
 
-      dataIncidents[s] = (dataIncidents[s]||0)+1;
+    incidents[s] = (incidents[s]||0)+1;
 
-      if(!dataND[s]) dataND[s]={};
-      dataND[s][item.nd]=(dataND[s][item.nd]||0)+1;
-    });
+    if(!ndMap[s]) ndMap[s]={};
+    ndMap[s][item.nd]=(ndMap[s][item.nd]||0)+1;
   });
 
-  window.dataND = dataND;
+  window.ndMap = ndMap;
 
   const currentWeek = getISOWeek(new Date());
   const weeks = [];
-  for(let i=1;i<=currentWeek;i++){weeks.push("S"+i)}
 
-  const incidents = weeks.map(w=>dataIncidents[w]||0);
-  const nd = weeks.map(w=>{
-    if(!dataND[w]) return 0;
-    return Object.values(dataND[w]).filter(v=>v>=2).length;
+  for(let i=1;i<=currentWeek;i++) weeks.push("S"+i);
+
+  const dataInc = weeks.map(w=>incidents[w]||0);
+  const dataND = weeks.map(w=>{
+    if(!ndMap[w]) return 0;
+    return Object.values(ndMap[w]).filter(v=>v>=2).length;
   });
 
   document.getElementById("popup").style.display="flex";
@@ -118,8 +132,8 @@ function afficherGraphiqueHebdo(){
     data:{
       labels:weeks,
       datasets:[
-        {label:"Incidents",data:incidents},
-        {label:"ND ≥2",data:nd}
+        {label:"Incidents",data:dataInc},
+        {label:"ND ≥2",data:dataND}
       ]
     },
     options:{
@@ -128,14 +142,14 @@ function afficherGraphiqueHebdo(){
           callbacks:{
             label:function(ctx){
               if(ctx.dataset.label!=="ND ≥2"){
-                return ctx.dataset.label+" : "+ctx.raw;
+                return ctx.raw;
               }
               const s=ctx.label;
-              const list=Object.entries(window.dataND[s]||{})
+              const list=Object.entries(window.ndMap[s]||{})
               .filter(([nd,c])=>c>=2)
-              .sort((a,b)=>b[1]-a[1])
               .map(([nd,c])=>nd+" ("+c+")");
-              return list.join("\n")||"Aucun ND ≥2";
+
+              return list.join("\n")||"Aucun";
             }
           }
         }
@@ -145,5 +159,6 @@ function afficherGraphiqueHebdo(){
 }
 
 </script>
+
 </body>
 </html>
