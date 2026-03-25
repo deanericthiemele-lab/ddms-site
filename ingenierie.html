@@ -872,6 +872,7 @@ function getISOWeek(date) {
 }
 
 // ===== FIX GRAPHIQUE HEBDO =====
+
 function afficherGraphiqueHebdo() {
   const dataIncidents = {};
   const dataND = {};
@@ -889,8 +890,8 @@ function afficherGraphiqueHebdo() {
 
       dataIncidents[semaine] = (dataIncidents[semaine] || 0) + 1;
 
-      if (!dataND[semaine]) dataND[semaine] = new Set();
-      dataND[semaine].add(item.nd);
+      if (!dataND[semaine]) dataND[semaine] = {};
+      dataND[semaine][item.nd] = (dataND[semaine][item.nd] || 0) + 1;
     });
   });
 
@@ -900,7 +901,10 @@ function afficherGraphiqueHebdo() {
 
   const labels = semainesTriees;
   const incidents = semainesTriees.map(s => dataIncidents[s] || 0);
-  const nd = semainesTriees.map(s => (dataND[s] ? dataND[s].size : 0));
+  const nd = semainesTriees.map(s => {
+    if (!dataND[s]) return 0;
+    return Object.values(dataND[s]).filter(v => v >= 2).length;
+  });
 
   let popup = document.getElementById("popup-semaine");
 
@@ -917,6 +921,58 @@ function afficherGraphiqueHebdo() {
     `;
     document.body.appendChild(popup);
   }
+
+  const semaineActuelle = getISOWeek(new Date());
+  document.getElementById("titre-semaine").innerHTML =
+    `📊 Incidents par semaine (S${semaineActuelle})`;
+
+  const ctx = document.getElementById("chart-semaine").getContext("2d");
+
+  if (window.chartHebdo) window.chartHebdo.destroy();
+
+  window.chartHebdo = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Incidents', data: incidents },
+        { label: 'ND ≥2', data: nd }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const semaine = context.label;
+              const semaineData = dataND[semaine];
+              if (!semaineData) return "Aucun ND";
+
+              const ndFiltres = Object.entries(semaineData)
+                .filter(([nd, count]) => count >= 2)
+                .sort((a,b) => b[1] - a[1]);
+
+              if (!ndFiltres.length) return "Aucun ND ≥2";
+
+              let lignes = ndFiltres.map(([nd, count]) => `${nd} (${count})`);
+              if (lignes.length > 10) {
+                lignes = lignes.slice(0,10);
+                lignes.push("...");
+              }
+              return lignes.join("
+");
+            }
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+}
 
   const semaineActuelle = getISOWeek(new Date());
   document.getElementById("titre-semaine").innerHTML =
@@ -9694,37 +9750,107 @@ box-shadow:0 5px 20px rgba(0,0,0,0.3);
    </canvas>
   </div>
   <script>
-   function afficherGraphiqueHebdo(){
+   
+function afficherGraphiqueHebdo() {
+  const dataIncidents = {};
+  const dataND = {};
 
-document.getElementById("popup-semaine").style.display="block";
+  if (!window.tableauActuel || !tableauActuel.length) return;
 
-const parSemaine = {};
-const parSemaineND2 = {};
+  tableauActuel.forEach(item => {
+    if (!item.datesCreation) return;
 
-if(typeof tableauActuel === "undefined") return;
+    item.datesCreation.forEach(date => {
+      const d = new Date(date);
+      if (isNaN(d)) return;
 
-tableauActuel.forEach(item => {
+      const semaine = "S" + getISOWeek(d);
 
- if(!item.datesCreation) return;
+      dataIncidents[semaine] = (dataIncidents[semaine] || 0) + 1;
 
- const compteurParSemaine = {};
+      if (!dataND[semaine]) dataND[semaine] = {};
+      dataND[semaine][item.nd] = (dataND[semaine][item.nd] || 0) + 1;
+    });
+  });
 
- item.datesCreation.forEach(date => {
+  const semainesTriees = Object.keys(dataIncidents).sort((a, b) =>
+    parseInt(a.replace('S','')) - parseInt(b.replace('S',''))
+  );
 
-   const d = new Date(date);
-   const semaine = Math.ceil(((d - new Date(d.getFullYear(),0,1)) / 86400000 + 1) / 7);
-   const key = "S"+semaine;
+  const labels = semainesTriees;
+  const incidents = semainesTriees.map(s => dataIncidents[s] || 0);
+  const nd = semainesTriees.map(s => {
+    if (!dataND[s]) return 0;
+    return Object.values(dataND[s]).filter(v => v >= 2).length;
+  });
 
-   parSemaine[key] = (parSemaine[key] || 0) + 1;
+  let popup = document.getElementById("popup-semaine");
 
-   compteurParSemaine[key] = (compteurParSemaine[key] || 0) + 1;
+  if (!popup) {
+    popup = document.createElement("div");
+    popup.id = "popup-semaine";
+    popup.style = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;justify-content:center;align-items:center;z-index:9999;";
+    popup.innerHTML = `
+      <div style="background:white;padding:20px;border-radius:10px;width:80%;max-width:800px;position:relative;">
+        <button onclick="document.getElementById('popup-semaine').remove()" style="position:absolute;top:10px;right:10px;">X</button>
+        <h3 id="titre-semaine" style="text-align:center;"></h3>
+        <canvas id="chart-semaine" height="250"></canvas>
+      </div>
+    `;
+    document.body.appendChild(popup);
+  }
 
- });
+  const semaineActuelle = getISOWeek(new Date());
+  document.getElementById("titre-semaine").innerHTML =
+    `📊 Incidents par semaine (S${semaineActuelle})`;
 
- Object.entries(compteurParSemaine).forEach(([sem,nb])=>{
-   if(nb >= 2){
-     parSemaineND2[sem] = (parSemaineND2[sem] || 0) + nb;
-   }
+  const ctx = document.getElementById("chart-semaine").getContext("2d");
+
+  if (window.chartHebdo) window.chartHebdo.destroy();
+
+  window.chartHebdo = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Incidents', data: incidents },
+        { label: 'ND ≥2', data: nd }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const semaine = context.label;
+              const semaineData = dataND[semaine];
+              if (!semaineData) return "Aucun ND";
+
+              const ndFiltres = Object.entries(semaineData)
+                .filter(([nd, count]) => count >= 2)
+                .sort((a,b) => b[1] - a[1]);
+
+              if (!ndFiltres.length) return "Aucun ND ≥2";
+
+              let lignes = ndFiltres.map(([nd, count]) => `${nd} (${count})`);
+              if (lignes.length > 10) {
+                lignes = lignes.slice(0,10);
+                lignes.push("...");
+              }
+              return lignes.join("
+");
+            }
+          }
+        }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+}
  });
 
 });
@@ -9776,18 +9902,7 @@ function fermerPopupSemaine(){
 document.getElementById("popup-semaine").style.display="none";
 }
   </script>
- 
-<script>
-// PATCH TOOLTIP ND >=2
-(function(){
-  const oldChart = window.Chart;
-  if (!oldChart) return;
-
-  const original = Chart.prototype.constructor;
-})();
-</script>
-
-</body>
+ </body>
  <script>
   function ouvrirPopupZone() {
   // Réinitialise le popup
