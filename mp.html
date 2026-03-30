@@ -2,59 +2,28 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>Menu Data</title>
+<title>MP - Clone Planning</title>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <style>
 body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    background: linear-gradient(135deg, #e6ecf3, #f9f9f9);
+    font-family: Arial;
+    margin: 20px;
 }
 
-.container {
-    background: white;
-    padding: 30px;
-    border-radius: 15px;
-    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-    text-align: center;
-    width: 500px;
-}
-
-h2 {
-    margin-bottom: 20px;
-    color: #003366;
-}
-
-.buttons {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-button {
-    padding: 12px;
-    font-weight: bold;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    background: #003366;
-    color: white;
-}
-
-button:hover {
-    transform: scale(1.05);
-    background: #0055aa;
-}
-
-#status {
-    margin-top: 20px;
-    font-weight: bold;
+/* Popup style identique */
+.popup {
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.6);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    z-index:9999;
 }
 </style>
 
@@ -62,89 +31,147 @@ button:hover {
 
 <body>
 
-<div class="container">
+<h2>MP - Clone Planning</h2>
 
-<h2>Menu Data</h2>
+<button id="btnSRO">SRO GLOBAL</button>
+<button id="btnSROcorrige">SRO corrigé</button>
 
-<div class="buttons">
-    <button id="btnSRO">SRO GLOBAL</button>
-    <button id="btnSROcorrige">SRO corrigé</button>
-    <button onclick="window.location.href='degradation.html'">Dégradation câble</button>
-    <button onclick="window.location.href='prediction.html'">Prévision de coupures</button>
-    <button onclick="window.location.href='planification.html'">Suivi des productions</button>
-</div>
+<hr>
 
-<div id="status">Chargement des données...</div>
-
-</div>
+<table id="tableTraites"><thead></thead><tbody></tbody></table>
+<table id="tablePlanifies"><thead></thead><tbody></tbody></table>
+<table id="tableNonTraites"><thead></thead><tbody></tbody></table>
 
 <script>
-let DATA_ROWS = [];
-let PLANNING_ROWS = [];
 
-async function loadExcelFile(url) {
-    const response = await fetch(url);
-    const arrayBuffer = await response.arrayBuffer();
-    const data = new Uint8Array(arrayBuffer);
-    return XLSX.read(data, { type: 'array' });
+// =======================
+// EXACT PLANNING ENGINE
+// =======================
+
+let DATA_ROWS = [];
+
+function parseDate(value){
+    const d = new Date(value);
+    return isNaN(d) ? null : d;
 }
 
-async function init() {
-    try {
-        const dataWb = await loadExcelFile('data.xlsx');
-        const planningWb = await loadExcelFile('Planning.xlsx');
+function getLastTwoMonths(){
+    const months=["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+    const now=new Date();
+    return [
+        months[(now.getMonth()-2+12)%12],
+        months[(now.getMonth()-1+12)%12]
+    ];
+}
 
-        const dataSheet = dataWb.Sheets[dataWb.SheetNames[0]];
-        DATA_ROWS = XLSX.utils.sheet_to_json(dataSheet);
+function getOccurrencesFromRow(row){
+    const [m1,m2]=getLastTwoMonths();
+    return (parseInt(row[m1]||0)+parseInt(row[m2]||0))||0;
+}
 
-        const planningSheet = planningWb.Sheets["Fusion unique"];
-        PLANNING_ROWS = XLSX.utils.sheet_to_json(planningSheet);
+// =======================
+// LOAD DATA
+// =======================
 
-        document.getElementById("status").innerText =
-            "✅ Données chargées : " + DATA_ROWS.length + " DATA / " + PLANNING_ROWS.length + " PLANNING";
+async function loadExcelFile(url){
+    const r = await fetch(url);
+    const b = await r.arrayBuffer();
+    return XLSX.read(new Uint8Array(b),{type:'array'});
+}
 
-    } catch (e) {
-        console.error(e);
-        document.getElementById("status").innerText = "❌ Erreur chargement données";
-    }
+async function init(){
+
+    const planning = await loadExcelFile("Planning.xlsx");
+    const data = await loadExcelFile("data.xlsx");
+
+    const sheet = planning.Sheets["Fusion unique"];
+    const planningData = XLSX.utils.sheet_to_json(sheet);
+
+    const dataSheet = data.Sheets[data.SheetNames[0]];
+    DATA_ROWS = XLSX.utils.sheet_to_json(dataSheet);
+
+    // Remplir tables (simple)
+    fillTable(planningData, "tableTraites");
+    fillTable(planningData, "tablePlanifies");
+    fillTable(planningData, "tableNonTraites");
+
+}
+
+function fillTable(data, id){
+    const table=document.getElementById(id);
+    const thead=table.querySelector("thead");
+    const tbody=table.querySelector("tbody");
+
+    if(!data.length) return;
+
+    const cols=Object.keys(data[0]);
+
+    thead.innerHTML="<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>";
+
+    tbody.innerHTML=data.map(row=>{
+        return "<tr>"+cols.map(c=>`<td>${row[c]||""}</td>`).join("")+"</tr>";
+    }).join("");
 }
 
 init();
 
+// =======================
+// SRO GLOBAL (IDENTIQUE)
+// =======================
 
-// ==========================
-// MEME LOGIQUE QUE PLANNING
-// ==========================
+document.getElementById("btnSRO").addEventListener("click",()=>{
 
-document.addEventListener("DOMContentLoaded", () => {
+    let allData=[];
 
-    document.getElementById("btnSRO").addEventListener("click", () => {
-        const popup = document.createElement("div");
-        popup.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;justify-content:center;align-items:center;z-index:9999;";
-        popup.innerHTML = `
-            <div style="background:white;padding:20px;border-radius:10px;width:400px;text-align:center;">
-                <h3>📊 SRO GLOBAL</h3>
-                <p>Données chargées : ${DATA_ROWS.length}</p>
-                <button onclick="this.closest('div').parentElement.remove()">Fermer</button>
-            </div>
-        `;
-        document.body.appendChild(popup);
+    document.querySelectorAll("table").forEach(t=>{
+        const headers=[...t.querySelectorAll("th")].map(th=>th.innerText);
+        t.querySelectorAll("tbody tr").forEach(tr=>{
+            const obj={};
+            tr.querySelectorAll("td").forEach((td,i)=>{
+                obj[headers[i]]=td.innerText;
+            });
+            allData.push(obj);
+        });
     });
 
-    document.getElementById("btnSROcorrige").addEventListener("click", () => {
-        const popup = document.createElement("div");
-        popup.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;justify-content:center;align-items:center;z-index:9999;";
-        popup.innerHTML = `
-            <div style="background:white;padding:20px;border-radius:10px;width:400px;text-align:center;">
-                <h3>📊 SRO corrigé</h3>
-                <p>Planning chargé : ${PLANNING_ROWS.length}</p>
-                <button onclick="this.closest('div').parentElement.remove()">Fermer</button>
-            </div>
-        `;
-        document.body.appendChild(popup);
+    const sroMap={};
+
+    allData.forEach(r=>{
+        const sro=r["Sro"]||"Non défini";
+        if(sro==="Non défini") return;
+
+        const occ=getOccurrencesFromRow(r);
+
+        if(!sroMap[sro]) sroMap[sro]={totalND:0,total2Mois:0};
+
+        sroMap[sro].totalND++;
+        sroMap[sro].total2Mois+=occ;
     });
 
+    const sorted=Object.entries(sroMap).sort((a,b)=>b[1].totalND-a[1].totalND);
+
+    const popup=document.createElement("div");
+    popup.className="popup";
+
+    popup.innerHTML=`
+    <div style="background:white;padding:20px;width:500px;border-radius:10px;">
+        <h3>SRO GLOBAL</h3>
+        <table style="width:100%;">
+            <tr><th>SRO</th><th>ND</th><th>Incidents</th></tr>
+            ${sorted.map(([s,v])=>`
+                <tr>
+                    <td>${s}</td>
+                    <td>${v.totalND}</td>
+                    <td>${v.total2Mois}</td>
+                </tr>`).join("")}
+        </table>
+        <br>
+        <button onclick="this.closest('.popup').remove()">Fermer</button>
+    </div>`;
+
+    document.body.appendChild(popup);
 });
+
 </script>
 
 </body>
