@@ -2,28 +2,18 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<title>MP - Clone Planning</title>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<title>MP</title>
 
 <style>
 body {
-    font-family: Arial;
-    margin: 20px;
+    margin: 0;
+    padding: 0;
 }
 
-/* Popup style identique */
-.popup {
-    position:fixed;
-    top:0;
-    left:0;
-    width:100%;
-    height:100%;
-    background:rgba(0,0,0,0.6);
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    z-index:9999;
+iframe {
+    width: 100%;
+    height: 100vh;
+    border: none;
 }
 </style>
 
@@ -31,148 +21,7 @@ body {
 
 <body>
 
-<h2>MP - Clone Planning</h2>
-
-<button id="btnSRO">SRO GLOBAL</button>
-<button id="btnSROcorrige">SRO corrigé</button>
-
-<hr>
-
-<table id="tableTraites"><thead></thead><tbody></tbody></table>
-<table id="tablePlanifies"><thead></thead><tbody></tbody></table>
-<table id="tableNonTraites"><thead></thead><tbody></tbody></table>
-
-<script>
-
-// =======================
-// EXACT PLANNING ENGINE
-// =======================
-
-let DATA_ROWS = [];
-
-function parseDate(value){
-    const d = new Date(value);
-    return isNaN(d) ? null : d;
-}
-
-function getLastTwoMonths(){
-    const months=["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
-    const now=new Date();
-    return [
-        months[(now.getMonth()-2+12)%12],
-        months[(now.getMonth()-1+12)%12]
-    ];
-}
-
-function getOccurrencesFromRow(row){
-    const [m1,m2]=getLastTwoMonths();
-    return (parseInt(row[m1]||0)+parseInt(row[m2]||0))||0;
-}
-
-// =======================
-// LOAD DATA
-// =======================
-
-async function loadExcelFile(url){
-    const r = await fetch(url);
-    const b = await r.arrayBuffer();
-    return XLSX.read(new Uint8Array(b),{type:'array'});
-}
-
-async function init(){
-
-    const planning = await loadExcelFile("Planning.xlsx");
-    const data = await loadExcelFile("data.xlsx");
-
-    const sheet = planning.Sheets["Fusion unique"];
-    const planningData = XLSX.utils.sheet_to_json(sheet);
-
-    const dataSheet = data.Sheets[data.SheetNames[0]];
-    DATA_ROWS = XLSX.utils.sheet_to_json(dataSheet);
-
-    // Remplir tables (simple)
-    fillTable(planningData, "tableTraites");
-    fillTable(planningData, "tablePlanifies");
-    fillTable(planningData, "tableNonTraites");
-
-}
-
-function fillTable(data, id){
-    const table=document.getElementById(id);
-    const thead=table.querySelector("thead");
-    const tbody=table.querySelector("tbody");
-
-    if(!data.length) return;
-
-    const cols=Object.keys(data[0]);
-
-    thead.innerHTML="<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>";
-
-    tbody.innerHTML=data.map(row=>{
-        return "<tr>"+cols.map(c=>`<td>${row[c]||""}</td>`).join("")+"</tr>";
-    }).join("");
-}
-
-init();
-
-// =======================
-// SRO GLOBAL (IDENTIQUE)
-// =======================
-
-document.getElementById("btnSRO").addEventListener("click",()=>{
-
-    let allData=[];
-
-    document.querySelectorAll("table").forEach(t=>{
-        const headers=[...t.querySelectorAll("th")].map(th=>th.innerText);
-        t.querySelectorAll("tbody tr").forEach(tr=>{
-            const obj={};
-            tr.querySelectorAll("td").forEach((td,i)=>{
-                obj[headers[i]]=td.innerText;
-            });
-            allData.push(obj);
-        });
-    });
-
-    const sroMap={};
-
-    allData.forEach(r=>{
-        const sro=r["Sro"]||"Non défini";
-        if(sro==="Non défini") return;
-
-        const occ=getOccurrencesFromRow(r);
-
-        if(!sroMap[sro]) sroMap[sro]={totalND:0,total2Mois:0};
-
-        sroMap[sro].totalND++;
-        sroMap[sro].total2Mois+=occ;
-    });
-
-    const sorted=Object.entries(sroMap).sort((a,b)=>b[1].totalND-a[1].totalND);
-
-    const popup=document.createElement("div");
-    popup.className="popup";
-
-    popup.innerHTML=`
-    <div style="background:white;padding:20px;width:500px;border-radius:10px;">
-        <h3>SRO GLOBAL</h3>
-        <table style="width:100%;">
-            <tr><th>SRO</th><th>ND</th><th>Incidents</th></tr>
-            ${sorted.map(([s,v])=>`
-                <tr>
-                    <td>${s}</td>
-                    <td>${v.totalND}</td>
-                    <td>${v.total2Mois}</td>
-                </tr>`).join("")}
-        </table>
-        <br>
-        <button onclick="this.closest('.popup').remove()">Fermer</button>
-    </div>`;
-
-    document.body.appendChild(popup);
-});
-
-</script>
+<iframe src="Planning.html"></iframe>
 
 </body>
 </html>
