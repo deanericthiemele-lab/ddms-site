@@ -1,6 +1,89 @@
+<!DOCTYPE html>
+
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<title>Planning Fusion Unique</title>
+<script><script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ccc; padding: 5px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        #btnRetour { margin-bottom: 10px; }
+        .title-row { display:inline-flex; align-items:center; gap:8px; }
+        .export-btn { font-size:12px; padding:4px 8px; cursor:pointer; }
+        .kpi { background:#eee; padding:10px; border-radius:5px; }
+
+        table { 
+          max-height: 400px; 
+          display: block; 
+          overflow-y: auto; 
+        }
+
+#searchBar button {
+    padding: 10px 18px;
+    border-radius: 6px;
+    border: none;
+    background: #007bff;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+#searchBar button:hover {
+    background: #0056b3;
+}
+
+#btnRetour {
+    background: #444 !important;
+}
+
+#btnRetour:hover {
+    background: #222 !important;
+}
+
+.btnSROTable {
+    display: none !important;
+}
+
+</style>
+<style>
+    @media (max-width: 768px) {
+        body { font-size: 20px; }
+        table { font-size: 18px; }
+        h1, h2, h3 { font-size: 22px; }
+        button, input, select { font-size: 18px; }
+    }
+
+    table { 
+      max-height: 400px; 
+      display: block; 
+      overflow-y: auto; 
+    }
+</style>
+</head>
+<body>
+<div id="kpi-container" style="display:flex;gap:10px;margin:10px 0;flex-wrap:wrap;">
+<div class="kpi">📌 Total ND: <span id="kpi-totalND">0</span></div>
+<div class="kpi">✅ Traité: <span id="kpi-totalTraiteInline">0</span></div>
+<div class="kpi stables2mois">✅ stable : <span id="kpi-ndstables">0</span> (<span id="kpi-stable-percent">0%</span>)</div>
+<div class="kpi" style="display:none;">✅ % Traité: <span id="kpi-traite">0%</span></div>
+<div class="kpi" style="display:none;">❌ % Non Traité: <span id="kpi-nontraite">0%</span></div>
+<div class="kpi" style="display:none;">📅 Planifié: <span id="kpi-planifie">0</span></div>
+<div class="kpi">🔁 Rechutes IR: <span id="kpi-rechutes">0</span> (<span id="kpi-rechutes-percent">0%</span>)</div>
+<div class="kpi">🔁 Rechutes IR même cause: <span id="kpi-rechutes-memecause">0</span> (<span id="kpi-rechutes-memecause-percent">0%</span>)</div>
+<div class="kpi" style="display:none;">🔁 Rechutes ND (mois encours): <span id="kpi-rechutes-mois">0</span></div>
+</div>
+<button class="export-btn" onclick="exportTotalND()">Exporter liste globale</button>
+<h2>Planning de correction des IR</h2>
+<div style="margin-top:5px; font-size:14px; color:gray;">
+    Volume traité : <span id="volumeTraite">0</span> | Volume non traité : <span id="volumeNonTraite">0</span>
+</div>
+
 <div id="searchBar" style="display:flex;justify-content:center;align-items:center;gap:15px;margin:20px 0;flex-wrap:wrap;">
 
-<button id="btnRetour" onclick="window.location.href='ingenierie.html'" style="background:#444;">⬅ Retour</button>
+<button id="btnRetour" onclick="window.location.href='ingenierie.html'">⬅ Retour</button>
 
 <button id="btnSRO">SRO GLOBAL</button> 
 <button id="btnSROcorrige">SRO corrigé</button>
@@ -9,3 +92,1416 @@
 <button onclick="window.location.href='planification.html'">Suivi des productions</button>
 
 </div>
+
+<!-- Tableau Traités -->
+<h3 class="title-row">✅ Traités (<span id="countTraites">0</span>) <button class="export-btn" onclick="exportTableToXLSX('tableTraites','Traites.xlsx')">Exporter</button> <button class="btnSROTable" style="margin-left:10px;">SRO</button></h3>
+<table id="tableTraites"><thead></thead><tbody></tbody></table>
+<!-- Nouveau tableau Traités (rechutes ≤ 2 mois) -->
+<h3 class="title-row">✅ Traités (rechutes ≤ 2 mois) (<span id="countTraitesRechutes2Mois">0</span>) <button class="export-btn" onclick="exportTableToXLSX('tableTraitesRechutes2Mois','Traites_Rechutes_2Mois.xlsx')">Exporter</button> <button class="btnSROTable" style="margin-left:10px;">SRO</button></h3>
+<table id="tableTraitesRechutes2Mois"><thead></thead><tbody></tbody></table>
+<!-- Ajout du tableau cloné : ✅ Traités (rechutes ≤ 2 mois – même cause), placé juste après l'original -->
+<h3 class="title-row rechutes2mois-memecause" style="display:none;">✅ Traités (rechutes ≤ 2 mois – même cause) (<span id="countTraitesRechutes2MoisMemeCause">0</span>)
+  <button class="export-btn" onclick="exportTableToXLSX('tableTraitesRechutes2MoisMemeCause','Traites_Rechutes_2Mois_MemeCause.xlsx')">Exporter</button> <button class="btnSROTable" style="margin-left:10px;">SRO</button>
+</h3>
+<table id="tableTraitesRechutes2MoisMemeCause" style="display:none;"><thead></thead><tbody></tbody></table>
+<!-- Nouveau tableau : ✅ stable (>2 mois et/ou non réapparu) -->
+<h3 class="title-row stables2mois">✅ stable (<span id="countNDStables">0</span>)
+  <button class="export-btn" onclick="exportTableToXLSX('tableNDStables','ND_Stables.xlsx')">Exporter</button> <button class="btnSROTable" style="margin-left:10px;">SRO</button>
+</h3>
+<table id="tableNDStables"><thead></thead><tbody></tbody></table>
+<!-- Autres tableaux -->
+<h3 class="title-row" style="display:none;">🔁 Rechutes ND (mois encours) (<span id="countRechutesMois">0</span>) 
+  <button class="export-btn" onclick="exportTableToXLSX('tableRechutesMois','Rechutes_Mois.xlsx')">Exporter</button> <button class="btnSROTable" style="margin-left:10px;">SRO</button>
+</h3>
+<table id="tableRechutesMois" style="display:none;"><thead></thead><tbody></tbody></table>
+<h3 class="title-row">📅 Planifiés (<span id="countPlanifies">0</span>) <button class="export-btn" onclick="exportTableToXLSX('tablePlanifies','Planifies.xlsx')">Exporter</button> <button class="btnSROTable" style="margin-left:10px;">SRO</button></h3>
+<table id="tablePlanifies"><thead></thead><tbody></tbody></table>
+<h3 class="title-row">❌ Non traités (<span id="countNonTraites">0</span>) <button class="export-btn" onclick="exportTableToXLSX('tableNonTraites','Non_Traites.xlsx')">Exporter</button> <button class="btnSROTable" style="margin-left:10px;">SRO</button></h3>
+<table id="tableNonTraites"><thead></thead><tbody></tbody></table>
+<script>
+const MONTHS_FR = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+let DATA_ROWS = [];
+
+function exportTableToXLSX(tableId, filename) {
+    try {
+        const table = document.getElementById(tableId);
+        if (!table) { alert('Tableau introuvable: ' + tableId); return; }
+        const sheet = XLSX.utils.table_to_sheet(table);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, sheet, 'Export');
+        XLSX.writeFile(wb, filename || (tableId + '.xlsx'));
+    } catch (e) {
+        console.error(e);
+        alert('Export impossible. Vérifiez que le tableau est chargé.');
+    }
+}
+
+function excelDateToFR(value) {
+    if (value === undefined || value === null || value === '') return '';
+    if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)) {
+        return value.toLocaleDateString('fr-FR');
+    }
+    if (typeof value === 'string') {
+        const tryDate = new Date(value);
+        if (!isNaN(tryDate)) return tryDate.toLocaleDateString('fr-FR');
+        return value;
+    }
+    const serial = Number(value);
+    if (!isNaN(serial)) {
+        const utcDays = Math.floor(serial - 25569);
+        const utcValue = utcDays * 86400;
+        const date = new Date(utcValue * 1000);
+        const fractionalDay = serial - Math.floor(serial);
+        if (fractionalDay > 0) {
+            const secondsInDay = Math.round(fractionalDay * 86400);
+            date.setSeconds(date.getSeconds() + secondsInDay);
+        }
+        return !isNaN(date) ? date.toLocaleDateString('fr-FR') : '';
+    }
+    return '';
+}
+
+function parseDate(value) {
+    if (value === undefined || value === null || value === '') return null;
+    if (!isNaN(value) && Number(value) > 30000) {
+        const serial = Number(value);
+        const utcDays = Math.floor(serial - 25569);
+        const utcValue = utcDays * 86400;
+        const date = new Date(utcValue * 1000);
+        const fractionalDay = serial - Math.floor(serial);
+        if (fractionalDay > 0) {
+            const secondsInDay = Math.round(fractionalDay * 86400);
+            date.setSeconds(date.getSeconds() + secondsInDay);
+        }
+function getCauseReelleParMois(nd, monthIndex, dateCorrectionSRO) {
+    const dc = parseDate(dateCorrectionSRO);
+    const ndClean = String(nd || "").trim().toUpperCase();
+    const res = (Array.isArray(DATA_ROWS)?DATA_ROWS:[]).filter(r=>{
+        const ndRow = String(r.ND||"").trim().toUpperCase();
+        if(ndRow!==ndClean) return false;
+        const d=parseDate(r["DATE DE CRÉATION"]);
+        if(!d) return false;
+        if(dc && d<=dc) return false;
+        return d.getMonth()===monthIndex;
+    });
+    if(!res.length) return null;
+    return res.map(r=>({
+        date: excelDateToFR(r["DATE DE CRÉATION"]),
+        cause: r["CAUSE RÉELLE"]||"(Non renseignée)"
+    }));
+}
+
+        return date;
+    }
+    if (typeof value === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(value)) {
+        const [day, month, year] = value.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    }
+    if (typeof value === 'string' && /^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+        const [day, month, year] = value.split('/').map(Number);
+        return new Date(year, month - 1, day);
+    }
+    const d = new Date(value);
+    return isNaN(d) ? null : d;
+}
+
+
+function buildTable(data, tableId) {
+    const table = document.getElementById(tableId);
+    const thead = table.querySelector("thead");
+    const tbody = table.querySelector("tbody");
+    thead.innerHTML = "";
+    tbody.innerHTML = "";
+
+    // Tri du plus récent au plus ancien
+    data.sort((a, b) => {
+        const da = parseDate(a["DATE DE CRÉATION"]);
+        const db = parseDate(b["DATE DE CRÉATION"]);
+        return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+    });
+
+    if (data.length === 0) return;
+
+    // ✅ Ordre fixe à partir de la colonne H
+    const orderedCols = [
+        "DATE DE CRÉATION",
+        "ND", "Client", "Localisation", "Source",
+        "Date prévisionnelle", "Date correction",
+        "Date correction SRO", "Sro","Date normalisation",
+        "Jan", "Fév", "Mar", "Avr", "Mai", "Juin",
+        "Juil", "Août", "Sep", "Oct", "Nov", "Déc"
+    ];
+
+    const cols = orderedCols.filter(c => Object.keys(data[0]).includes(c));
+
+    const headerRow = document.createElement("tr");
+    cols.forEach(col => {
+        const th = document.createElement("th");
+        th.textContent = col;
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+
+    data.forEach(row => {
+        const tr = document.createElement("tr");
+        cols.forEach(col => {
+            const td = document.createElement("td");
+            td.textContent = row[col] ?? "";
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+}
+
+
+// Fonction pour filtrer les traités avec rechute dans les 2 mois
+function getTraitesRechutes2Mois(enrichedData) {
+    const results = [];
+    enrichedData.forEach(r => {
+        if (r["Date correction"]) {
+            const dc = parseDate(r["Date correction"]);
+            if (dc) {
+                const deuxMoisApres = new Date(dc);
+                deuxMoisApres.setMonth(deuxMoisApres.getMonth() + 2);
+                const hasRechute = DATA_ROWS.some(dr => {
+                    if (String(dr.ND || '').trim().toUpperCase() === String(r.ND || '').trim().toUpperCase()) {
+                        const d = parseDate(dr["DATE DE CRÉATION"]);
+                        return d && d > dc && d <= deuxMoisApres;
+                    }
+                    return false;
+                });
+                if (hasRechute) {
+                    results.push(r);
+                }
+            }
+        }
+    });
+    return results;
+}
+
+// Fonction pour filtrer les traités avec rechute <= 2 mois ET même cause
+function getTraitesRechutes2MoisMemeCause(enrichedData) {
+    const results = [];
+    enrichedData.forEach(r => {
+        if (r["Date correction"] && r["Cause réelle"]) {
+            const dc = parseDate(r["Date correction"]);
+            if (dc) {
+                const deuxMoisApres = new Date(dc);
+                deuxMoisApres.setMonth(deuxMoisApres.getMonth() + 2);
+                const hasRechuteMemeCause = DATA_ROWS.some(dr => {
+                    if (String(dr.ND || '').trim().toUpperCase() === String(r.ND || '').trim().toUpperCase() && dr["CAUSE RÉELLE"]) {
+                        const d = parseDate(dr["DATE DE CRÉATION"]);
+                        return d && d > dc && d <= deuxMoisApres && dr["CAUSE RÉELLE"] === r["Cause réelle"];
+                    }
+                    return false;
+                });
+                if (hasRechuteMemeCause) results.push(r);
+            }
+        }
+    });
+    return results;
+}
+
+// Fonction pour ND stables (>2 mois ou non réapparus)
+function getNDStables(enrichedData) {
+    const results = [];
+    enrichedData.forEach(r => {
+        if (r["Date correction"]) {
+            const dc = parseDate(r["Date correction"]);
+            if (dc) {
+                const deuxMoisApres = new Date(dc);
+                deuxMoisApres.setMonth(deuxMoisApres.getMonth() + 2);
+                const rechutes = DATA_ROWS.filter(dr => String(dr.ND || '').trim().toUpperCase() === String(r.ND || '').trim().toUpperCase())
+                    .map(dr => parseDate(dr["DATE DE CRÉATION"]))
+                    .filter(d => d && d > dc);
+                if (rechutes.length === 0) {
+                    results.push(r); // jamais réapparu
+                } else {
+                    const minRechute = new Date(Math.min(...rechutes));
+                    if (minRechute > deuxMoisApres) {
+                        results.push(r); // réapparu mais après 2 mois
+                    }
+                }
+            }
+        }
+    });
+    return results;
+}
+
+// >>> Fonction manquante ajoutée: Rechutes ND (mois encours)
+function getRechutesMoisEnCours(enrichedData) {
+    const results = [];
+    const now = new Date();
+    const moisActuel = now.getMonth();
+    const anneeActuelle = now.getFullYear();
+
+    enrichedData.forEach(r => {
+        if (r["Date correction"]) {
+            const dc = parseDate(r["Date correction"]);
+            if (dc) {
+                const hasRechuteMois = DATA_ROWS.some(dr => {
+                    if (String(dr.ND || '').trim().toUpperCase() === String(r.ND || '').trim().toUpperCase()) {
+                        const d = parseDate(dr["DATE DE CRÉATION"]);
+                        return d && d.getMonth() === moisActuel && d.getFullYear() === anneeActuelle && d > dc;
+                    }
+                    return false;
+                });
+                if (hasRechuteMois) results.push(r);
+            }
+        }
+    });
+    return results;
+}
+
+function splitTables(enrichedData) {
+    const traites = enrichedData.filter(r => r["Date correction"]);
+ traites.forEach(e => { if (!('Sro' in e)) e.Sro = ''; });
+    const planifies = enrichedData.filter(r => !r["Date correction"] && r["Date prévisionnelle"]);
+ planifies.forEach(e => { if (!('Sro' in e)) e.Sro = ''; });
+    const nonTraites = enrichedData.filter(r => !r["Date correction"] && !r["Date prévisionnelle"]);
+ nonTraites.forEach(e => { if (!('Sro' in e)) e.Sro = ''; });
+
+    buildTable(traites, "tableTraites");
+    buildTable(planifies, "tablePlanifies");
+    buildTable(nonTraites, "tableNonTraites");
+
+    let totalND = enrichedData.length;
+    let totalTraite = traites.length;
+    let totalPlanifie = planifies.length;
+    let totalNonTraite = nonTraites.length;
+
+    document.getElementById("kpi-totalND").innerText = totalND;
+    document.getElementById("kpi-traite").innerText = totalND > 0 ? ((totalTraite/totalND)*100).toFixed(1) + "%" : "0%";
+    document.getElementById("kpi-nontraite").innerText = totalND > 0 ? ((totalNonTraite/totalND)*100).toFixed(1) + "%" : "0%";
+    document.getElementById("kpi-planifie").innerText = totalPlanifie;
+    document.getElementById("volumeTraite").textContent = totalTraite;
+    document.getElementById("volumeNonTraite").textContent = totalNonTraite;
+
+    document.getElementById("countTraites").innerText = totalTraite;
+    const inlineTraite = document.getElementById("kpi-totalTraiteInline");
+    if (inlineTraite) inlineTraite.innerText = totalTraite;
+    
+    document.getElementById("countPlanifies").innerText = totalPlanifie;
+    document.getElementById("countNonTraites").innerText = totalNonTraite;
+
+    // Remplir le tableau Rechutes <= 2 mois
+    const traitesRechutes2Mois = getTraitesRechutes2Mois(enrichedData);
+    buildTable(traitesRechutes2Mois, "tableTraitesRechutes2Mois");
+    document.getElementById("countTraitesRechutes2Mois").innerText = traitesRechutes2Mois.length;
+    const kpiRechutes = document.getElementById("kpi-rechutes");
+    if (kpiRechutes) kpiRechutes.innerText = traitesRechutes2Mois.length;
+    const rechutePercent = document.getElementById("kpi-rechutes-percent");
+    if (rechutePercent) {
+        rechutePercent.innerText = totalTraite > 0
+            ? ((traitesRechutes2Mois.length / totalTraite) * 100).toFixed(1) + "%"
+            : "0%";
+    }
+
+    // Rechutes ND (mois encours) + KPI
+    const rechutesMois = getRechutesMoisEnCours(enrichedData);
+    buildTable(rechutesMois, "tableRechutesMois");
+    document.getElementById("countRechutesMois").innerText = rechutesMois.length;
+    document.getElementById("kpi-rechutes-mois").innerText = rechutesMois.length;
+}
+
+// Extension unique de splitTables pour remplir les tableaux "même cause" et "stables"
+(function() {
+    const baseSplitTables = splitTables;
+    splitTables = function(enrichedData) {
+        baseSplitTables(enrichedData);
+
+        const dataMemeCause = getTraitesRechutes2Mois(enrichedData);
+        buildTable(dataMemeCause, "tableTraitesRechutes2MoisMemeCause");
+        const spanMC = document.getElementById("countTraitesRechutes2MoisMemeCause");
+        if (spanMC) spanMC.textContent = dataMemeCause.length;
+
+        const dataStables = getNDStables(enrichedData);
+        buildTable(dataStables, "tableNDStables");
+        const spanSt = document.getElementById("countNDStables");
+        if (spanSt) spanSt.textContent = dataStables.length;
+        const kpiStable = document.getElementById("kpi-ndstables");
+        const totalTraiteCalc = enrichedData.filter(r => r["Date correction"]).length;
+
+        if (kpiStable) kpiStable.textContent = dataStables.length;
+
+        const stablePercent = document.getElementById("kpi-stable-percent");
+        if (stablePercent) {
+            stablePercent.textContent = totalTraiteCalc > 0
+                ? ((dataStables.length / totalTraiteCalc) * 100).toFixed(1) + "%"
+                : "0%";
+        }
+    };
+})();
+
+async function init() {
+    const planningWb = await loadExcelFile('Planning.xlsx');
+    const dataWb = await loadExcelFile('data.xlsx');
+
+    const planningSheet = planningWb.Sheets["Fusion unique"];
+    if (!planningSheet) {
+        alert("L'onglet 'Fusion unique' est introuvable dans Planning.xlsx");
+        return;
+    }
+    const planningData = XLSX.utils.sheet_to_json(planningSheet);
+    const dataSheet = dataWb.Sheets[dataWb.SheetNames[0]];
+    DATA_ROWS = XLSX.utils.sheet_to_json(dataSheet);
+
+    const enrichedData = planningData.map(row => {
+        function normalizeND(value) {
+    return String(value || "").trim().toUpperCase();
+}
+
+        function monthVal(m) {
+            const dc = parseDate(row["Date correction"]);
+            const val = DATA_ROWS.filter(r => {
+                const d = parseDate(r["DATE DE CRÉATION"]);
+                return normalizeND(r.ND) === normalizeND(row.ND) && d && d.getMonth() === m && (!dc || d > dc);
+            }).length;
+            return val === 0 ? "" : val;
+        }
+        return {
+            "Date normalisation": excelDateToFR(row["Date normalisation"]),
+            ...row,
+
+            "DATE DE CRÉATION": (() => {
+                const d = DATA_ROWS.find(r =>
+                    String(r.ND || "").trim().toUpperCase() === String(row.ND || "").trim().toUpperCase()
+                );
+                return d ? excelDateToFR(d["DATE DE CRÉATION"]) : "";
+        })(),
+// CAUSE RÉELLE (dernière avant correction)
+        "CAUSE RÉELLE": (() => {
+            const dc = parseDate(row["Date correction"]);
+            const ndClean = String(row.ND || "").trim().toUpperCase();
+
+            const historique = DATA_ROWS
+                .filter(r => {
+                    const d = parseDate(r["DATE DE CRÉATION"]);
+                    return String(r.ND || "").trim().toUpperCase() === ndClean
+                        && d && (!dc || d <= dc);
+                })
+                .sort((a,b)=> parseDate(b["DATE DE CRÉATION"]) - parseDate(a["DATE DE CRÉATION"]));
+
+            return historique.length ? historique[0]["CAUSE RÉELLE"] : "";
+        })(),
+            "Date prévisionnelle": excelDateToFR(row["Date prévisionnelle"]),
+            "Date correction": excelDateToFR(row["Date correction"]),
+            "Date correction SRO": excelDateToFR(row["Date correction SRO"]),
+            "Jan": monthVal(0),
+            "Fév": monthVal(1),
+            "Mar": monthVal(2),
+            "Avr": monthVal(3),
+            "Mai": monthVal(4),
+            "Juin": monthVal(5),
+            "Juil": monthVal(6),
+            "Août": monthVal(7),
+            "Sep": monthVal(8),
+            "Oct": monthVal(9),
+            "Nov": monthVal(10),
+            "Déc": monthVal(11)
+        };
+    });
+
+    splitTables(enrichedData);
+}
+
+init();
+
+async function loadExcelFile(url) {
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    const data = new Uint8Array(arrayBuffer);
+    return XLSX.read(data, { type: 'array' });
+}
+
+function applyFilter() {
+    const q = document.getElementById("searchAll").value.toLowerCase().trim();
+
+    const tables = [
+        { id: "tableTraites", countId: "countTraites" },
+        { id: "tableTraitesRechutes2Mois", countId: "countTraitesRechutes2Mois" },
+        { id: "tableTraitesRechutes2MoisMemeCause", countId: "countTraitesRechutes2MoisMemeCause" },
+        { id: "tableNDStables", countId: "countNDStables" },
+        { id: "tablePlanifies", countId: "countPlanifies" },
+        { id: "tableRechutesMois", countId: "countRechutesMois" },
+        { id: "tableNonTraites", countId: "countNonTraites" },
+    ];
+
+    let totalTraiteVisible = 0;
+    let totalPlanifieVisible = 0;
+    let totalNonTraiteVisible = 0;
+
+    tables.forEach(t => {
+        const rows = Array.from(document.querySelectorAll(`#${t.id} tbody tr`));
+        let visibleCount = 0;
+        rows.forEach(tr => {
+            const text = tr.innerText.toLowerCase();
+            const show = q === "" ? true : text.includes(q);
+            tr.style.display = show ? "" : "none";
+            if (show) visibleCount++;
+        });
+        if (t.countId) {
+            const span = document.getElementById(t.countId);
+            if (span) span.textContent = visibleCount;
+        }
+        if (t.id === "tableTraites") totalTraiteVisible = visibleCount;
+        if (t.id === "tablePlanifies") totalPlanifieVisible = visibleCount;
+        if (t.id === "tableNonTraites") totalNonTraiteVisible = visibleCount;
+    });
+
+    const totalND = totalTraiteVisible + totalPlanifieVisible + totalNonTraiteVisible;
+    if (document.getElementById("kpi-totalND")) document.getElementById("kpi-totalND").textContent = totalND;
+    if (document.getElementById("kpi-planifie")) document.getElementById("kpi-planifie").textContent = totalPlanifieVisible;
+    if (document.getElementById("kpi-traite")) document.getElementById("kpi-traite").textContent = totalND > 0 ? ((totalTraiteVisible/totalND)*100).toFixed(1) + "%" : "0%";
+    if (document.getElementById("kpi-nontraite")) document.getElementById("kpi-nontraite").textContent = totalND > 0 ? ((totalNonTraiteVisible/totalND)*100).toFixed(1) + "%" : "0%";
+    if (document.getElementById("volumeTraite")) document.getElementById("volumeTraite").textContent = totalTraiteVisible;
+    if (document.getElementById("volumeNonTraite")) document.getElementById("volumeNonTraite").textContent = totalNonTraiteVisible;
+}
+</script>
+<script>
+// Popup générique
+function showCausesHistory(nd, dateCorrection) {
+    const dc = parseDate(dateCorrection);
+    const causes = DATA_ROWS.filter(r => {
+        const d = parseDate(r["DATE DE CRÉATION"]);
+        return r.ND === nd && d && (!dc || d > dc);
+    }).map(r => `${excelDateToFR(r["DATE DE CRÉATION"])} : ${r["CAUSE RÉELLE"]}`);
+
+    if (causes.length === 0) {
+        alert("Aucun historique de causes réelles trouvé");
+    } else {
+        alert("Historique des causes réelles pour " + nd + " :\n\n" + causes.join("\n"));
+    }
+}
+
+// Surcharge de buildTable pour rendre Jan-Déc cliquables
+const baseBuildTable = buildTable;
+buildTable = function(data, tableId) {
+    baseBuildTable(data, tableId);
+
+    
+
+    const rows = document.querySelectorAll(`#${tableId} tbody tr`);
+    rows.forEach((tr, idx) => {
+        const rowData = data[idx];
+        if (!rowData) return;
+
+        Array.from(tr.cells).forEach(td => {
+            const header = td.closest("table").querySelectorAll("th")[td.cellIndex]?.innerText;
+            if (["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"].includes(header)) {
+                if (td.textContent.trim() !== "") {
+                    td.style.color = "blue";
+                    td.style.cursor = "pointer";
+                    td.onclick = () => showCausesHistory(
+    rowData["ND"],
+    rowData["Date correction SRO"] || rowData["Date correction"] || null
+);
+                }
+            }
+        });
+    });
+};
+</script>
+<script>
+function exportTotalND() {
+    try {
+        // Récupère toutes les données ND depuis les tableaux Traités, Planifiés et Non Traités
+        const allND = document.querySelectorAll("#tableTraites tbody tr, #tablePlanifies tbody tr, #tableNonTraites tbody tr");
+        if (allND.length === 0) {
+            alert("Aucun ND trouvé à exporter !");
+            return;
+        }
+
+        const headers = Array.from(document.querySelectorAll("#tableTraites thead th"))
+            .map(th => th.innerText);
+
+        const rows = [];
+        allND.forEach(tr => {
+            const cells = Array.from(tr.querySelectorAll("td")).map(td => td.innerText);
+            if (cells.length > 0) rows.push(cells);
+        });
+
+        const ws_data = [headers, ...rows];
+        const ws = XLSX.utils.aoa_to_sheet(ws_data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Total_ND");
+        XLSX.writeFile(wb, "Total_ND.xlsx");
+    } catch (e) {
+        console.error(e);
+        alert("Erreur lors de l'export des ND");
+    }
+}
+</script>
+<!-- ✅ Modale SRO -->
+<div id="sroModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+    background-color:rgba(0,0,0,0.5); justify-content:center; align-items:center; z-index:1000;">
+<div style="background:#fff; padding:20px; border-radius:8px; width:420px; max-height:80vh; overflow-y:auto;">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+<h3 style="margin:0;">📊 Regroupement des SRO</h3>
+<span id="sroTotal" style="font-weight:bold; color:#333;">Total : 0</span>
+</div>
+<table id="sroTable" style="width:100%; border-collapse:collapse;">
+<thead>
+<tr><th style="border-bottom:1px solid #ccc; text-align:left;">SRO</th>
+<th style="border-bottom:1px solid #ccc; text-align:left;">Valeur</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+<div style="text-align:center; margin-top:10px;">
+<button onclick="exportSROToExcel()">Exporter SRO</button>
+<button onclick="closeSROModal()">Fermer</button>
+</div>
+</div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- ✅ Ajout popup SRO par tableau basé sur Planning.xlsx -->
+<!-- ✅ Popup SRO limité à chaque tableau -->
+<!-- ✅ Popup SRO limité à chaque tableau (sans 'Non défini' + total affiché) -->
+<!-- ✅ Popup SRO limité à chaque tableau (trié du plus grand au plus petit, sans 'Non défini', total affiché) -->
+<!-- ✅ Popup SRO limité à chaque tableau (trié + sans conflit + boutons corrigés) -->
+<!-- ✅ Tri + total pour SRO GLOBAL (sans rien changer d'autre) -->
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  function getLastTwoMonths() {
+    const months = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+    const now = new Date();
+    const current = now.getMonth();
+    const prev1 = (current - 1 + 12) % 12;
+    const prev2 = (current - 2 + 12) % 12;
+    return [months[prev2], months[prev1]];
+  }
+
+  function getOccurrencesFromRow(rowData) {
+    const [m1, m2] = getLastTwoMonths();
+    const val1 = parseInt(rowData[m1] || 0, 10);
+    const val2 = parseInt(rowData[m2] || 0, 10);
+    return (isNaN(val1) ? 0 : val1) + (isNaN(val2) ? 0 : val2);
+  }
+
+  // ✅ Popup SRO Global (restauré identique à avant)
+  const globalBtn = document.getElementById("btnSRO");
+  if (globalBtn) {
+    const clone = globalBtn.cloneNode(true);
+    globalBtn.parentNode.replaceChild(clone, globalBtn);
+
+    clone.addEventListener("click", async () => {
+      const mode = prompt("1 = Filtrer par période (DATE DE CRÉATION)\n2 = GLOBAL");
+      if (!mode) return;
+      let d1=null,d2=null;
+      if(mode.trim()==="1"){
+         const deb=prompt("Date début JJ/MM/AAAA");
+         const fin=prompt("Date fin JJ/MM/AAAA");
+         const pf=s=>{const p=s.split("/").map(Number);return new Date(p[2],p[1]-1,p[0]);};
+         d1=pf(deb); d2=pf(fin);
+      }
+
+      const tables = document.querySelectorAll("#tableTraites, #tablePlanifies, #tableNonTraites");
+      let allData = [];
+
+      tables.forEach(t => {
+        const headers = Array.from(t.querySelectorAll("thead th")).map(th => th.textContent.trim());
+        const rows = Array.from(t.querySelectorAll("tbody tr")).map(tr => {
+          const obj = {};
+          tr.querySelectorAll("td").forEach((td, i) => (obj[headers[i]] = td.textContent.trim()));
+          return obj;
+        });
+        allData = allData.concat(rows);
+    });
+
+    if(mode && mode.trim()==="1"){
+        allData = allData.filter(r=>{
+            if(!r["DATE DE CRÉATION"]) return false;
+            const dt=parseDate(r["DATE DE CRÉATION"]);
+            return dt>=d1 && dt<=d2;
+        });
+    }
+
+const sroMap = {};
+      allData.forEach(row => {
+        const sro = row["Sro"] || "Non défini";
+        if (sro.toLowerCase() === "non défini") return;
+        const occ = getOccurrencesFromRow(row);
+        if (!sroMap[sro]) sroMap[sro] = { rows: [], totalND: 0, total2Mois: 0 };
+        sroMap[sro].rows.push(row);
+        sroMap[sro].totalND++;
+        sroMap[sro].total2Mois += occ;
+      });
+
+      const sroCorrigesCount = Object.keys(sroMap)
+        .filter(sro => targets.includes(String(sro).trim().toUpperCase()))
+        .length;
+
+const sorted = Object.entries(sroMap).sort((a, b) => {
+        const isAOrange = targets.includes(a[0]);
+        const isBOrange = targets.includes(b[0]);
+        if (isAOrange && !isBOrange) return -1;
+        if (!isAOrange && isBOrange) return 1;
+        return b[1].totalND - a[1].totalND;
+      });
+      const total = sorted.reduce((s, [, v]) => s + v.rows.length, 0);
+
+      const popup = document.createElement("div");
+      popup.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;justify-content:center;align-items:center;z-index:9999;";
+      popup.innerHTML = `
+        <div style='background:#fff;padding:20px;border-radius:8px;width:540px;max-height:80vh;overflow-y:auto;'>
+          
+<h3>${(() => {
+  const totalSRO = Object.keys(sroMap).length;
+  const sroCorriges = Object.keys(sroMap)
+    .filter(sro => targets.includes(String(sro).trim().toUpperCase()))
+    .length;
+
+  const percentSRO = totalSRO > 0
+    ? ((sroCorriges / totalSRO) * 100).toFixed(1)
+    : "0.0";
+
+  const totalClients = total; // Total ND
+  const clientsCorriges = Object.keys(sroMap)
+    .filter(sro => targets.includes(String(sro).trim().toUpperCase()))
+    .reduce((sum, sro) => sum + sroMap[sro].rows.length, 0);
+
+  return `📊 SRO corrigés : ${sroCorriges}/${totalSRO} (${percentSRO}%) — Total clients : ${clientsCorriges}/${totalClients} (${totalClients > 0 ? ((clientsCorriges / totalClients) * 100).toFixed(1) : '0.0'}%)`;
+})()}</h3>
+
+          <input id='sroGlobalSearch' placeholder='Rechercher SRO...' style='margin:8px 0;width:200px;'><table style='width:100%;border-collapse:collapse;'>
+            <thead><tr><th>SRO</th><th>Total ND</th><th>Total incidents 2 mois</th></tr></thead>
+            <tbody>${sorted.map(([sro, obj]) => {
+            const isOrange = targets.map(t=>t.toUpperCase()).includes(String(sro).trim().toUpperCase());
+            const style = isOrange ? "style='color:orange;font-weight:bold'" : "";
+            return `<tr><td ${style}>${sro}</td><td>${obj.totalND}</td><td>${obj.total2Mois}</td></tr>`;
+        }).join("")}</tbody>
+          </table>
+          <div style='margin-top:10px;text-align:center;'>
+            <button id='exportSROGlobal'>Exporter Excel</button>
+            <button id='closeSROGlobal'>Fermer</button>
+          </div>
+        </div>`;
+      document.body.appendChild(popup);
+
+// === Group SRO corrected: create blocks ===
+(function(){
+    const container=document.getElementById('sroBody');
+    if(!container) return;
+    const grouped={};
+    rowsAll.forEach(r=>{
+        const s=r["Sro"]||"Non défini";
+        if(!grouped[s]) grouped[s]=[];
+        grouped[s].push(r);
+    });
+    let html="";
+    const headers=Object.keys(rowsAll[0]||{});
+    Object.entries(grouped).forEach(([sro,rows])=>{
+        html+=`
+        <div class="sro-block">
+          <h4>${sro} (${rows.length} ND)</h4>
+          <div class="sro-table-container" style="max-height:300px;overflow-y:auto;border:1px solid #ccc;padding:4px;">
+            <table border="1" style="border-collapse:collapse;width:100%;">
+              <thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+              <tbody>
+                ${rows.map(r=>`<tr>${headers.map(h=>`<td>${r[h]||""}</td>`).join("")}</tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div><br>`;
+    });
+    container.innerHTML=html;
+})();
+
+// rendre mois cliquables avec cause réelle
+(function(){
+    const monthLabels=["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+    const headers=[...document.querySelectorAll(".popupSROcorrige table thead th")].map(h=>h.innerText.trim());
+    const rows=[...document.querySelectorAll("#sroBody tr")];
+    rows.forEach((tr,i)=>{
+        const rowObj=rowsAll[i];
+        if(!rowObj) return;
+        [...tr.cells].forEach((td,ci)=>{
+            const h=headers[ci];
+            const m=monthLabels.indexOf(h);
+            if(m!==-1 && td.textContent.trim()!==""){
+                td.style.color="blue";
+                td.style.cursor="pointer";
+                td.onclick=()=>{
+                    const list=getCauseReelleParMois(rowObj["ND"],m,rowObj["Date correction SRO"]);
+                    if(!list){
+                        alert("Aucune cause trouvée pour ce mois.");
+                        return;
+                    }
+                    const txt=list.map(c=>c.date+" : "+c.cause).join("\n");
+                    alert("Cause(s) réelle(s) pour "+rowObj["ND"]+" — "+h+"\n\n"+txt);
+                };
+            }
+        });
+    });
+})();
+
+
+      document.getElementById("closeSROGlobal").onclick = () => popup.remove();
+      document.getElementById("exportSROGlobal").onclick = () => {
+        const wb = XLSX.utils.book_new();
+        sorted.forEach(([sro, obj]) => {
+          const rows = obj.rows.map(r => ({
+            ND: r["ND"],
+            Client: r["Client"],
+            Localisation: r["Localisation"],
+            "Total incidents 2 mois": getOccurrencesFromRow(r)
+          })).sort((a, b) => b["Total incidents 2 mois"] - a["Total incidents 2 mois"]);
+          const ws = XLSX.utils.json_to_sheet(rows);
+          XLSX.utils.book_append_sheet(wb, ws, sro.substring(0, 31));
+        });
+        XLSX.writeFile(wb, "SRO_GLOBAL.xlsx");
+      };
+    });
+  }
+
+  // ✅ Popup SRO individuel (par tableau)
+  document.querySelectorAll(".btnSROTable").forEach(btn => {
+    const cloneBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(cloneBtn, btn);
+
+    cloneBtn.addEventListener("click", async () => {
+      const mode = prompt("1 = Filtrer par période (DATE DE CRÉATION)\n2 = GLOBAL");
+      if (!mode) return;
+      let d1=null,d2=null;
+      if(mode.trim()==="1"){
+         const deb=prompt("Date début JJ/MM/AAAA");
+         const fin=prompt("Date fin JJ/MM/AAAA");
+         const pf=s=>{const p=s.split("/").map(Number);return new Date(p[2],p[1]-1,p[0]);};
+         d1=pf(deb); d2=pf(fin);
+      }
+
+      const table = cloneBtn.closest("h3").nextElementSibling;
+      if (!table) return;
+
+      const rows = Array.from(table.querySelectorAll("tbody tr"));
+      if (rows.length === 0) {
+        alert("Aucun ND trouvé dans ce tableau.");
+        return;
+      }
+
+      const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
+      let data = rows.map(tr => {
+        const obj = {};
+        tr.querySelectorAll("td").forEach((td, i) => (obj[headers[i]] = td.textContent.trim()));
+        return obj;
+      });
+
+      
+      if(mode && mode.trim()==="1"){
+         data = data.filter(r=>{
+            if(!r["DATE DE CRÉATION"]) return false;
+            const dt=parseDate(r["DATE DE CRÉATION"]);
+            return dt>=d1 && dt<=d2;
+         });
+      }
+const sroMap = {};
+      data.forEach(row => {
+        const sro = row["Sro"] || "Non défini";
+        if (sro.toLowerCase() === "non défini") return;
+        const occ = getOccurrencesFromRow(row);
+        if (!sroMap[sro]) sroMap[sro] = { totalND: 0, total2Mois: 0, rows: [] };
+        sroMap[sro].totalND++;
+        sroMap[sro].total2Mois += occ;
+        sroMap[sro].rows.push(row);
+      });
+
+      const sorted = Object.entries(sroMap).sort((a, b) => b[1].totalND - a[1].totalND);
+      const total = sorted.reduce((s, [, v]) => s + v.totalND, 0);
+
+      const popup = document.createElement("div");
+      popup.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);display:flex;justify-content:center;align-items:center;z-index:9999;";
+      popup.innerHTML = `
+        <div style='background:#fff;padding:20px;border-radius:8px;width:500px;max-height:80vh;overflow-y:auto;'>
+          <h3>📊 Regroupement SRO (${table.id}) — Total ND : ${total}</h3>
+          <table style='width:100%;border-collapse:collapse;'>
+            <thead><tr><th>SRO</th><th>Total ND</th><th>Total incidents 2 mois</th></tr></thead>
+            <tbody>${sorted.map(([sro, obj]) => {
+            const isOrange = targets.map(t=>t.toUpperCase()).includes(String(sro).trim().toUpperCase());
+            const style = isOrange ? "style='color:orange;font-weight:bold'" : "";
+            return `<tr><td ${style}>${sro}</td><td>${obj.totalND}</td><td>${obj.total2Mois}</td></tr>`;
+        }).join("")}</tbody>
+          </table>
+          <div style='margin-top:10px;text-align:center;'>
+            <button id='exportSRO'>Exporter Excel</button>
+            <button id='closeSRO'>Fermer</button>
+          </div>
+        </div>`;
+      document.body.appendChild(popup);
+
+// === Group SRO corrected: create blocks ===
+(function(){
+    const container=document.getElementById('sroBody');
+    if(!container) return;
+    const grouped={};
+    rowsAll.forEach(r=>{
+        const s=r["Sro"]||"Non défini";
+        if(!grouped[s]) grouped[s]=[];
+        grouped[s].push(r);
+    });
+    let html="";
+    const headers=Object.keys(rowsAll[0]||{});
+    Object.entries(grouped).forEach(([sro,rows])=>{
+        html+=`
+        <div class="sro-block">
+          <h4>${sro} (${rows.length} ND)</h4>
+          <div class="sro-table-container" style="max-height:300px;overflow-y:auto;border:1px solid #ccc;padding:4px;">
+            <table border="1" style="border-collapse:collapse;width:100%;">
+              <thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+              <tbody>
+                ${rows.map(r=>`<tr>${headers.map(h=>`<td>${r[h]||""}</td>`).join("")}</tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div><br>`;
+    });
+    container.innerHTML=html;
+})();
+
+// rendre mois cliquables avec cause réelle
+(function(){
+    const monthLabels=["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+    const headers=[...document.querySelectorAll(".popupSROcorrige table thead th")].map(h=>h.innerText.trim());
+    const rows=[...document.querySelectorAll("#sroBody tr")];
+    rows.forEach((tr,i)=>{
+        const rowObj=rowsAll[i];
+        if(!rowObj) return;
+        [...tr.cells].forEach((td,ci)=>{
+            const h=headers[ci];
+            const m=monthLabels.indexOf(h);
+            if(m!==-1 && td.textContent.trim()!==""){
+                td.style.color="blue";
+                td.style.cursor="pointer";
+                td.onclick=()=>{
+                    const list=getCauseReelleParMois(rowObj["ND"],m,rowObj["Date correction SRO"]);
+                    if(!list){
+                        alert("Aucune cause trouvée pour ce mois.");
+                        return;
+                    }
+                    const txt=list.map(c=>c.date+" : "+c.cause).join("\n");
+                    alert("Cause(s) réelle(s) pour "+rowObj["ND"]+" — "+h+"\n\n"+txt);
+                };
+            }
+        });
+    });
+})();
+
+
+      document.getElementById("closeSRO").onclick = () => popup.remove();
+      document.getElementById("exportSRO").onclick = () => {
+        const wb = XLSX.utils.book_new();
+        sorted.forEach(([sro, obj]) => {
+          const rows = obj.rows.map(r => ({
+            ND: r["ND"],
+            Client: r["Client"],
+            Localisation: r["Localisation"],
+            "Total incidents 2 mois": getOccurrencesFromRow(r)
+          })).sort((a, b) => b["Total incidents 2 mois"] - a["Total incidents 2 mois"]);
+          const ws = XLSX.utils.json_to_sheet(rows);
+          XLSX.utils.book_append_sheet(wb, ws, sro.substring(0, 31));
+        });
+        XLSX.writeFile(wb, `SRO_${table.id}.xlsx`);
+      };
+    });
+  });
+});
+</script>
+<script>
+const targets=[
+"ZIN101","MAR111","TRV109","MAR112","TRV104","MAR103",
+"TRV112","VRI200","MAR107","TRV110","MAR106",
+"REP104","TRV103","REP101","COC110","AKD291",
+"RIV100","ZIN100","PAL304","MAR101","REP102","TRV100",
+"BIT106","AKD103","TRV113","BGV236","DJO200",
+"AGR107","REP103","TRV108","AKD112","BIT105","BIT104",
+"COC123","AKD104","2PL108","MAR109","AKD102",
+"COC106"
+];
+function applySROOrange(){
+  document.querySelectorAll("table").forEach(tbl=>{
+    const headers=[...tbl.querySelectorAll("th")].map(th=>th.textContent.trim().toUpperCase());
+    const idxSRO=headers.findIndex(h=>h.includes("SRO"));
+    const idxNorm=headers.findIndex(h=>h.includes("DATE NORMALISATION"));
+    if(idxSRO>=0){
+      tbl.querySelectorAll("tbody tr").forEach(tr=>{
+        const tdSRO=tr.cells[idxSRO];
+        if(tdSRO){
+          const v=tdSRO.textContent.trim().toUpperCase();
+          let normOk=false;
+          if(idxNorm>=0){
+            const tdNorm=tr.cells[idxNorm];
+            if(tdNorm){
+              const normVal=tdNorm.textContent.trim();
+              normOk = normVal!=="" && normVal!=="0";
+            }
+          }
+          if(targets.includes(v) || normOk){
+            tdSRO.style.color="orange";
+            tdSRO.style.fontWeight="bold";
+          }
+        }
+      });
+    }
+  });
+}
+
+const observer=new MutationObserver(()=>applySROOrange());
+observer.observe(document.body,{childList:true,subtree:true});
+setTimeout(applySROOrange,1500);
+</script>
+
+
+
+
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const btn = document.getElementById("btnSROcorrige");
+    if (!btn) return;
+    const targets=[
+"ZIN101","MAR111","TRV109","MAR112","TRV104","MAR103",
+"TRV112","VRI200","MAR107","TRV110","MAR106",
+"REP104","TRV103","REP101","COC110","AKD291",
+"RIV100","ZIN100","PAL304","MAR101","REP102","TRV100",
+"BIT106","AKD103","TRV113","BGV236","DJO200",
+"AGR107","REP103","TRV108","AKD112","BIT105","BIT104",
+"COC123","AKD104","2PL108","MAR109","AKD102",
+"COC106"
+];
+
+    
+
+function computeRechuteJarretiereDetail(rowsAll) {
+    let total = rowsAll.length;
+    if (total === 0) return { count: 0, percent: "0.0" };
+
+    let seen = new Set();
+
+    rowsAll.forEach(r => {
+        const nd = String(r["ND"] || "").trim().toUpperCase();
+        const dc = parseDate(r["Date correction SRO"]);
+        if (!dc) return;
+
+        const hasReturn = DATA_ROWS.some(dr => {
+            const nd2 = String(dr["ND"] || "").trim().toUpperCase();
+            if (nd2 !== nd) return false;
+
+            const d = parseDate(dr["DATE DE CRÉATION"]);
+            const cause = String(dr["CAUSE RÉELLE"] || "").trim().toUpperCase();
+
+            return d && d > dc && cause === "JARRETIERES CENTRAL";
+        });
+
+        if (hasReturn) seen.add(nd);
+    });
+
+    return {
+        count: seen.size,
+        percent: ((seen.size / total) * 100).toFixed(1)
+    };
+}
+
+
+function computePercentRevenus(rowsAll) {
+    let total = rowsAll.length;
+    if (total === 0) return 0;
+
+    let seen = new Set();
+
+    rowsAll.forEach(r => {
+        const nd = String(r["ND"] || "").trim().toUpperCase();
+        const dc = parseDate(r["Date correction SRO"]);
+        if (!dc) return;
+
+        const hasReturn = DATA_ROWS.some(dr => {
+            const nd2 = String(dr["ND"] || "").trim().toUpperCase();
+            if (nd2 !== nd) return false;
+            const d = parseDate(dr["DATE DE CRÉATION"]);
+            return d && d > dc;
+        });
+
+        if (hasReturn) seen.add(nd);
+    });
+
+    return ((seen.size / total) * 100).toFixed(1);
+}
+
+
+function countUniqueSRO(rowsAll) {
+    const set = new Set();
+    rowsAll.forEach(r => {
+        const sro = String(r["Sro"] || "").trim();
+        if (sro !== "") set.add(sro);
+    });
+    return set.size;
+}
+
+btn.addEventListener("click", function () {
+        const tables = ["tableTraites","tablePlanifies","tableNonTraites"];
+        let rowsAll = [];
+
+        tables.forEach(id => {
+            const table = document.getElementById(id);
+            if (!table) return;
+            const headers = [...table.querySelectorAll("thead th")].map(th => th.innerText.trim());
+            table.querySelectorAll("tbody tr").forEach(tr => {
+                const cells = [...tr.querySelectorAll("td")].map(td => td.innerText.trim());
+                const row = Object.fromEntries(headers.map((h,i)=>[h,cells[i]||""]));
+                if (
+    targets.includes(row["Sro"])
+    || (row["Date normalisation"] && row["Date normalisation"].trim() !== "0")
+    || (row["Date correction SRO"] && row["Date correction SRO"].trim() !== "")
+) rowsAll.push(row);
+            });
+        });
+
+        
+        const monthLabels = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+
+        function countIncidentsAfterSRO(nd, dateCorrectionSRO, monthIndex) {
+            const dc = parseDate(dateCorrectionSRO);
+            if (!dc) return "";
+            let count = 0;
+            if (!Array.isArray(DATA_ROWS)) return "";
+            DATA_ROWS.forEach(r => {
+                const ndRow = String(r.ND || "").trim().toUpperCase();
+                if (ndRow === String(nd || "").trim().toUpperCase()) {
+                    const d = parseDate(r["DATE DE CRÉATION"]);
+                    if (d && d > dc && d.getMonth() === monthIndex) {
+                        count++;
+                    }
+                }
+            });
+            return count === 0 ? "" : String(count);
+        }
+
+        rowsAll = rowsAll.map(row => {
+            const nd = row["ND"];
+            const dcSRO = row["Date correction SRO"];
+            monthLabels.forEach((label, idx) => {
+                row[label] = countIncidentsAfterSRO(nd, dcSRO, idx);
+            });
+            return row;
+        });
+
+const headers = rowsAll.length ? Object.keys(rowsAll[0]) : [];
+        const total = rowsAll.length;
+
+        const popup = document.createElement("div");
+        popup.className = "popupSROcorrige";
+        popup.style.cssText =
+            "position:fixed;top:0;left:0;width:100%;height:100%;" +
+            "background:rgba(0,0,0,0.6);display:flex;justify-content:center;" +
+            "align-items:center;z-index:99999;";
+
+        popup.innerHTML = `
+            <div style='background:#fff;padding:20px;border-radius:8px;width:95%;max-height:85vh;overflow:auto;position:relative;'>
+                <button onclick='document.querySelector(".popupSROcorrige").remove()'
+                        style='position:absolute;top:10px;right:10px;'>X</button>
+
+                <h3>
+${(() => {
+    const totalSRO = rowsAll.length;
+    const recidive = computePercentRevenus(rowsAll);
+    const jar = computeRechuteJarretiereDetail(rowsAll);
+    return `SRO corrigé : ${countUniqueSRO(rowsAll)} — Récidive : ${recidive}% — KPI Récidive SRO : ${jar.count} / ${totalSRO} (${jar.percent}%)`;
+})()}
+</h3>
+
+<button id="exportSROcorrige" 
+        style="margin-bottom:10px; padding:6px 12px; font-size:14px; cursor:pointer;">
+    Exporter vers Excel (lignes visibles)
+</button>
+
+
+                <input id='sroCorrigeSROSearch' placeholder='Rechercher SRO...' style='margin-left:8px;width:200px;'> 
+                       
+
+                <table border='1' style='border-collapse:collapse;width:100%;'>
+                    <thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+                    <tbody id='sroBody'></tbody>
+                </table>
+            </div>`;
+
+        document.body.appendChild(popup);
+
+// === Group SRO corrected: create blocks ===
+(function(){
+    const container=document.getElementById('sroBody');
+    if(!container) return;
+    const grouped={};
+    rowsAll.forEach(r=>{
+        const s=r["Sro"]||"Non défini";
+        if(!grouped[s]) grouped[s]=[];
+        grouped[s].push(r);
+    });
+    let html="";
+    const headers=Object.keys(rowsAll[0]||{});
+    Object.entries(grouped).forEach(([sro,rows])=>{
+        html+=`
+        <div class="sro-block">
+          <h4>${sro} (${rows.length} ND)</h4>
+          <div class="sro-table-container" style="max-height:300px;overflow-y:auto;border:1px solid #ccc;padding:4px;">
+            <table border="1" style="border-collapse:collapse;width:100%;">
+              <thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead>
+              <tbody>
+                ${rows.map(r=>`<tr>${headers.map(h=>`<td>${r[h]||""}</td>`).join("")}</tr>`).join("")}
+              </tbody>
+            </table>
+          </div>
+        </div><br>`;
+    });
+    container.innerHTML=html;
+})();
+
+// rendre mois cliquables avec cause réelle
+(function(){
+    const monthLabels=["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
+    const headers=[...document.querySelectorAll(".popupSROcorrige table thead th")].map(h=>h.innerText.trim());
+    const rows=[...document.querySelectorAll("#sroBody tr")];
+    rows.forEach((tr,i)=>{
+        const rowObj=rowsAll[i];
+        if(!rowObj) return;
+        [...tr.cells].forEach((td,ci)=>{
+            const h=headers[ci];
+            const m=monthLabels.indexOf(h);
+            if(m!==-1 && td.textContent.trim()!==""){
+                td.style.color="blue";
+                td.style.cursor="pointer";
+                td.onclick=()=>{
+                    const list=getCauseReelleParMois(rowObj["ND"],m,rowObj["Date correction SRO"]);
+                    if(!list){
+                        alert("Aucune cause trouvée pour ce mois.");
+                        return;
+                    }
+                    const txt=list.map(c=>c.date+" : "+c.cause).join("\n");
+                    alert("Cause(s) réelle(s) pour "+rowObj["ND"]+" — "+h+"\n\n"+txt);
+                };
+            }
+        });
+    });
+})();
+
+
+        
+document.getElementById("sroSearch").addEventListener("input",function(){
+    const q=this.value.toLowerCase();
+    const rows=[...document.querySelectorAll("#sroBody tr")];
+    let count=0;
+    rows.forEach(tr=>{
+        const show = tr.innerText.toLowerCase().includes(q);
+        tr.style.display = show ? "" : "none";
+        if(show) count++;
+    });
+    const title=document.querySelector(".popupSROcorrige h3");
+    if(title){
+        title.innerText = title.innerText.replace(/Total ND: \d+/, "Total ND: "+count);
+    }
+});
+
+ document.getElementById("sroSearch").addEventListener("input",function(){
+            const q=this.value.toLowerCase();
+            document.querySelectorAll("#sroBody tr").forEach(tr=>{
+                tr.style.display = tr.innerText.toLowerCase().includes(q)?"":"none";
+            });
+        });
+    });
+});
+</script>
+
+<script>
+document.addEventListener("click", function (e) {
+    if (e.target && e.target.id === "exportSROcorrige") {
+        const rows = [...document.querySelectorAll("#sroBody tr")]
+            .filter(tr => tr.style.display !== "none");
+
+        if (rows.length === 0) {
+            alert("Aucune ligne visible à exporter !");
+            return;
+        }
+
+        const headers = [...document.querySelectorAll(".popupSROcorrige table thead th")]
+            .map(th => th.innerText.trim());
+
+        const data = rows.map(tr => {
+            return [...tr.querySelectorAll("td")].map(td => td.innerText.trim());
+        });
+
+        const wsData = [headers, ...data];
+        const ws = XLSX.utils.aoa_to_sheet(wsData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "SRO_corrige");
+        XLSX.writeFile(wb, "SRO_corrige_visible.xlsx");
+    }
+});
+</script>
+
+
+<script>
+function hideDateNormColumn() {
+    document.querySelectorAll("table").forEach(tbl => {
+        if (tbl.id === "tablePlanifies" || tbl.id === "tableNonTraites") return;
+        const headers = [...tbl.querySelectorAll("th")].map(h => h.innerText.trim());
+        const idx = headers.findIndex(h => h.toLowerCase().includes("date normalisation"));
+        if (idx >= 0) {
+            tbl.querySelectorAll("th")[idx].style.display = "none";
+            tbl.querySelectorAll("tbody tr").forEach(tr => {
+                if (tr.cells[idx]) tr.cells[idx].style.display = "none";
+            });
+        }
+    });
+}
+const observer = new MutationObserver(hideDateNormColumn);
+observer.observe(document.body, { childList: true, subtree: true });
+hideDateNormColumn();
+</script>
+
+
+<script>
+document.addEventListener("input", function(e){
+  if(e.target && e.target.id==="sroGlobalSearch"){
+    const q=e.target.value.toUpperCase();
+    const rows=e.target.parentElement.querySelectorAll("tbody tr");
+    rows.forEach(tr=>{
+      const sro=tr.cells[0]?.innerText.toUpperCase()||"";
+      tr.style.display = sro.includes(q) ? "" : "none";
+    });
+  }
+});
+</script>
+
+<script>
+document.addEventListener("input", function(e){
+  if(e.target && e.target.id==="sroCorrigeSROSearch"){
+    const q=e.target.value.toUpperCase();
+    const headers=[...document.querySelectorAll(".popupSROcorrige table thead th")]
+      .map(h=>h.innerText.trim().toUpperCase());
+    const idx=headers.indexOf("SRO");
+    document.querySelectorAll("#sroBody tr").forEach(tr=>{
+      const cell=idx>=0 ? tr.cells[idx] : null;
+      const val=cell?cell.innerText.toUpperCase():"";
+      tr.style.display = val.includes(q) ? "" : "none";
+    });
+  }
+});
+</script>
+
+
+
+
+
+<script>
+function colorDateCorrection() {
+    document.querySelectorAll("table").forEach(tbl => {
+        if (tbl.id === "tablePlanifies" || tbl.id === "tableNonTraites") return;
+        const headers = [...tbl.querySelectorAll("th")];
+        const idx = headers.findIndex(th => 
+            th.innerText.trim().toLowerCase().includes("date correction")
+        );
+        if (idx >= 0) {
+            headers[idx].style.color = "orange";
+            headers[idx].style.fontWeight = "bold";
+            tbl.querySelectorAll("tbody tr").forEach(tr => {
+                if (tr.cells[idx]) {
+                    tr.cells[idx].style.color = "orange";
+                    tr.cells[idx].style.fontWeight = "bold";
+                }
+            });
+        }
+    });
+}
+
+const observerDateCorrection = new MutationObserver(colorDateCorrection);
+observerDateCorrection.observe(document.body, { childList: true, subtree: true });
+colorDateCorrection();
+</script>
+
+
+<script>
+
+// ================================
+// VERSION ROBUSTE RECHUTE MEME CAUSE
+// ================================
+
+function getTraitesRechutes2MoisMemeCause(enrichedData) {
+    const results = [];
+
+    enrichedData.forEach(r => {
+
+        if (!r["Date correction"]) return;
+
+        const dc = parseDate(r["Date correction"]);
+        if (!dc) return;
+
+        const nd = String(r.ND || "").trim().toUpperCase();
+
+        // DERNIERE cause avant correction
+        const avant = DATA_ROWS
+            .filter(dr => {
+                const d = parseDate(dr["DATE DE CRÉATION"]);
+                return String(dr.ND || "").trim().toUpperCase() === nd
+                    && d && d <= dc;
+            })
+            .sort((a,b)=> parseDate(b["DATE DE CRÉATION"]) - parseDate(a["DATE DE CRÉATION"]));
+
+        if (avant.length === 0) return;
+
+        const causeAvant = avant[0]["CAUSE RÉELLE"];
+
+        // Rechute dans les 2 mois
+        const limite = new Date(dc);
+        limite.setMonth(limite.getMonth() + 2);
+
+        const rechute = DATA_ROWS.find(dr => {
+            const d = parseDate(dr["DATE DE CRÉATION"]);
+            return String(dr.ND || "").trim().toUpperCase() === nd
+                && d && d > dc && d <= limite;
+        });
+
+        if (!rechute) return;
+
+        const causeApres = rechute["CAUSE RÉELLE"];
+
+        if (causeAvant && causeApres && causeAvant === causeApres) {
+            results.push(r);
+        }
+    });
+
+    return results;
+}
+
+
+// ================================
+// SURCHARGE splitTables dynamique
+// ================================
+
+(function() {
+
+    const baseSplit = splitTables;
+
+    splitTables = function(enrichedData) {
+
+        baseSplit(enrichedData);
+
+        const totalTraiteCalc = enrichedData.filter(r => r["Date correction"]).length;
+
+        const rechutesMemeCause = getTraitesRechutes2MoisMemeCause(enrichedData);
+
+        const kpiValue = document.getElementById("kpi-rechutes-memecause");
+        const kpiPercent = document.getElementById("kpi-rechutes-memecause-percent");
+
+        if (kpiValue) {
+            kpiValue.innerText = rechutesMemeCause.length;
+        }
+
+        if (kpiPercent) {
+            kpiPercent.innerText = totalTraiteCalc > 0
+                ? ((rechutesMemeCause.length / totalTraiteCalc) * 100).toFixed(1) + "%"
+                : "0%";
+        }
+    };
+
+})();
+
+</script>
+
+</body></html>
