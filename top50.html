@@ -7,149 +7,90 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
 <style>
-body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 20px;
-    background: linear-gradient(135deg,#e6ecf3,#f9f9f9);
-}
-.header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-}
-h1 { margin: 0; color: #003366; }
-button {
-    padding: 10px 15px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: bold;
-    margin-left: 5px;
-}
-.btn-retour { background: #003366; color: white; }
-.btn-export { background: #228B22; color: white; }
-.search-box { margin-bottom: 15px; }
-input {
-    width: 100%;
-    padding: 12px;
-    border-radius: 8px;
-    border: 1px solid #ccc;
-    font-size: 16px;
-}
-.total {
-    margin: 10px 0;
-    font-weight: bold;
-    color: #003366;
-}
-table {
-    width: 100%;
-    border-collapse: collapse;
-    background: white;
-    border-radius: 10px;
-    overflow: hidden;
-}
-th, td {
-    padding: 10px;
-    border-bottom: 1px solid #ddd;
-}
-th { background: #003366; color: white; }
-tr:hover { background: #f1f1f1; }
+body {font-family: Arial; padding:20px; background:linear-gradient(135deg,#e6ecf3,#f9f9f9);}
+.header {display:flex; justify-content:space-between; align-items:center;}
+h1 {color:#003366;}
+button {padding:10px; border:none; border-radius:8px; cursor:pointer; font-weight:bold; margin-left:5px;}
+.btn-retour {background:#003366;color:white;}
+.btn-export {background:#228B22;color:white;}
+input {width:100%; padding:10px; margin:15px 0; border-radius:8px; border:1px solid #ccc;}
+table {width:100%; border-collapse:collapse; background:white;}
+th,td {padding:10px; border-bottom:1px solid #ddd;}
+th {background:#003366;color:white;}
 </style>
 </head>
 
 <body>
 
 <div class="header">
-    <h1>Sites critiques Top 50</h1>
-    <div>
-        <button class="btn-retour" onclick="location.href='index.html'">Retour</button>
-        <button class="btn-export" onclick="exportExcel()">Exporter Excel</button>
-    </div>
+<h1>Sites critiques Top 50</h1>
+<div>
+<button class="btn-retour" onclick="location.href='index.html'">Retour</button>
+<button class="btn-export" onclick="exportExcel()">Exporter</button>
+</div>
 </div>
 
-<div class="search-box">
-    <input type="text" id="searchInput" placeholder="Rechercher..." onkeyup="filterTable()">
-</div>
+<input type="text" id="search" placeholder="Rechercher..." onkeyup="filterTable()">
 
-<div class="total">
-    Total : <span id="totalCount">0</span>
-</div>
+<div>Total : <span id="total">0</span></div>
 
 <table>
-    <thead id="thead"></thead>
-    <tbody id="tbody"></tbody>
+<thead id="thead"></thead>
+<tbody id="tbody"></tbody>
 </table>
 
 <script>
-let data = [];
-let filteredData = [];
-let headers = [];
+let data=[], filtered=[], headers=[];
 
-function loadExcel() {
-    fetch('Top 50.xlsx')
-    .then(res => res.arrayBuffer())
-    .then(buffer => {
-        const workbook = XLSX.read(buffer, {type: 'array'});
+// AUTO LOAD fichier local (même dossier)
+async function loadExcel(){
+    try{
+        const response = await fetch("./Top 50.xlsx");
+        const buffer = await response.arrayBuffer();
+
+        const workbook = XLSX.read(buffer, {type:'array'});
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const json = XLSX.utils.sheet_to_json(sheet);
 
         data = json;
-        filteredData = json;
+        filtered = json;
         headers = Object.keys(json[0]);
 
-        renderTable(filteredData);
-    });
-}
-
-function renderTable(dataset) {
-    const thead = document.getElementById("thead");
-    const tbody = document.getElementById("tbody");
-
-    thead.innerHTML = "";
-    tbody.innerHTML = "";
-
-    let headerRow = "<tr>";
-    headers.forEach(h => headerRow += "<th>" + h + "</th>");
-    headerRow += "</tr>";
-    thead.innerHTML = headerRow;
-
-    dataset.forEach(row => {
-        let tr = "<tr>";
-        headers.forEach(h => {
-            tr += "<td>" + (row[h] || "") + "</td>";
-        });
-        tr += "</tr>";
-        tbody.innerHTML += tr;
-    });
-
-    document.getElementById("totalCount").innerText = dataset.length;
-}
-
-function filterTable() {
-    const value = document.getElementById("searchInput").value.toLowerCase();
-
-    filteredData = data.filter(row => {
-        return headers.some(h => 
-            String(row[h]).toLowerCase().includes(value)
-        );
-    });
-
-    renderTable(filteredData);
-}
-
-function exportExcel() {
-    if(filteredData.length === 0) {
-        alert("Aucune donnée à exporter");
-        return;
+        render(filtered);
+    }catch(e){
+        alert("Erreur chargement fichier Top 50.xlsx (mets le fichier dans le même dossier)");
     }
+}
 
-    const worksheet = XLSX.utils.json_to_sheet(filteredData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Top50");
+function render(dataset){
+    let thead="<tr>";
+    headers.forEach(h=>thead+="<th>"+h+"</th>");
+    thead+="</tr>";
+    document.getElementById("thead").innerHTML=thead;
 
-    XLSX.writeFile(workbook, "Top50_filtré.xlsx");
+    let tbody="";
+    dataset.forEach(r=>{
+        tbody+="<tr>";
+        headers.forEach(h=>tbody+="<td>"+(r[h]||"")+"</td>");
+        tbody+="</tr>";
+    });
+    document.getElementById("tbody").innerHTML=tbody;
+
+    document.getElementById("total").innerText=dataset.length;
+}
+
+function filterTable(){
+    let v=document.getElementById("search").value.toLowerCase();
+    filtered=data.filter(r=>headers.some(h=>String(r[h]).toLowerCase().includes(v)));
+    render(filtered);
+}
+
+function exportExcel(){
+    if(filtered.length===0){alert("Aucune donnée");return;}
+    const ws=XLSX.utils.json_to_sheet(filtered);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"Top50");
+    XLSX.writeFile(wb,"Top50_filtre.xlsx");
 }
 
 loadExcel();
