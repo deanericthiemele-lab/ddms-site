@@ -10,10 +10,9 @@
 <style>
 body{
     font-family:Arial,sans-serif;
-    background:#fff;
+    background:#ffffff;
     margin:0;
     padding:20px;
-    color:#111827;
 }
 
 .topbar{
@@ -65,10 +64,6 @@ th{
 td{
     padding:12px;
     border:1px solid #e5e7eb;
-}
-
-tr:hover{
-    background:#f9fafb;
 }
 
 .red{
@@ -124,17 +119,17 @@ const search = document.getElementById("search");
 
 function normalize(v){
 
-    return String(v)
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g,'');
+    return String(v || "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g,'');
 
 }
 
-function findNDColumn(row){
+function detectNDColumn(headers){
 
-    return Object.keys(row).find(k =>
-        k.toUpperCase().includes("ND")
+    return headers.find(h =>
+        normalize(h).includes("ND")
     );
 
 }
@@ -147,11 +142,19 @@ async function loadExcel(file){
 
     const workbook = XLSX.read(buffer,{type:"array"});
 
-    const sheet = workbook.Sheets[
-        workbook.SheetNames[0]
-    ];
+    let allRows = [];
 
-    return XLSX.utils.sheet_to_json(sheet,{defval:""});
+    workbook.SheetNames.forEach(sheetName=>{
+
+        const sheet = workbook.Sheets[sheetName];
+
+        const rows = XLSX.utils.sheet_to_json(sheet,{defval:""});
+
+        allRows = allRows.concat(rows);
+
+    });
+
+    return allRows;
 }
 
 function render(rows){
@@ -162,9 +165,9 @@ function render(rows){
 
         tbody.innerHTML = `
         <tr>
-        <td class="red">
-        Aucun ND commun trouvé
-        </td>
+            <td class="red">
+                Aucun ND commun trouvé
+            </td>
         </tr>
         `;
 
@@ -199,29 +202,49 @@ function filter(){
 
 async function init(){
 
-    const rows1 = await loadExcel(FILE_1);
-    const rows2 = await loadExcel(FILE_2);
+    try{
 
-    const ndCol1 = findNDColumn(rows1[0]);
-    const ndCol2 = findNDColumn(rows2[0]);
+        const rows1 = await loadExcel(FILE_1);
+        const rows2 = await loadExcel(FILE_2);
 
-    const set2 = new Set();
+        const headers1 = Object.keys(rows1[0]);
+        const headers2 = Object.keys(rows2[0]);
 
-    rows2.forEach(r=>{
+        const ndCol1 = detectNDColumn(headers1);
+        const ndCol2 = detectNDColumn(headers2);
 
-        set2.add(
-            normalize(r[ndCol2])
-        );
+        const set2 = new Set();
 
-    });
+        rows2.forEach(r=>{
 
-    data = rows1
-    .map(r => normalize(r[ndCol1]))
-    .filter(nd => set2.has(nd));
+            const nd = normalize(r[ndCol2]);
 
-    data = [...new Set(data)];
+            if(nd){
+                set2.add(nd);
+            }
 
-    render(data);
+        });
+
+        data = rows1
+            .map(r => normalize(r[ndCol1]))
+            .filter(nd => nd && set2.has(nd));
+
+        data = [...new Set(data)];
+
+        render(data);
+
+    }catch(e){
+
+        console.error(e);
+
+        tbody.innerHTML = `
+        <tr>
+            <td class="red">
+                Erreur chargement fichiers
+            </td>
+        </tr>
+        `;
+    }
 }
 
 search.addEventListener("input",filter);
