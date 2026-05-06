@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NOC B2B</title>
+<title>ND Communs</title>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
@@ -11,9 +11,9 @@
 body{
     font-family:Arial,sans-serif;
     background:#fff;
-    color:#111827;
     margin:0;
     padding:20px;
+    color:#111827;
 }
 
 .topbar{
@@ -25,12 +25,10 @@ body{
 
 .btn{
     background:#2563eb;
-    color:#fff;
-    border:none;
+    color:white;
+    text-decoration:none;
     padding:10px 16px;
     border-radius:8px;
-    cursor:pointer;
-    text-decoration:none;
     font-weight:bold;
 }
 
@@ -39,56 +37,43 @@ body{
     padding:12px;
     border-radius:8px;
     border:1px solid #d1d5db;
-    font-size:14px;
 }
 
 .counter{
-    font-size:18px;
+    font-size:20px;
     font-weight:bold;
 }
 
 .title{
-    font-size:28px;
+    font-size:32px;
     font-weight:bold;
-    margin-bottom:15px;
-}
-
-.table-container{
-    overflow:auto;
-    border-radius:12px;
-    border:1px solid #d1d5db;
-    max-height:75vh;
+    margin-bottom:20px;
 }
 
 table{
     width:100%;
     border-collapse:collapse;
-    background:#fff;
 }
 
 th{
     background:#f1f5f9;
-    color:#0f172a;
-    padding:12px;
+    padding:14px;
     text-align:left;
-    position:sticky;
-    top:0;
+    border:1px solid #d1d5db;
 }
 
 td{
-    padding:10px;
-    border-top:1px solid #e5e7eb;
-    white-space:nowrap;
+    padding:12px;
+    border:1px solid #e5e7eb;
 }
 
 tr:hover{
     background:#f9fafb;
 }
 
-.loading{
-    padding:20px;
+.red{
+    color:red;
     font-weight:bold;
-    color:#2563eb;
 }
 </style>
 </head>
@@ -97,16 +82,16 @@ tr:hover{
 
 <div class="topbar">
 
-    <a href="index.html" class="btn">⬅ Retour</a>
+<a href="index.html" class="btn">⬅ Retour</a>
 
-    <input type="text"
-           id="searchInput"
-           class="search"
-           placeholder="Rechercher sur tous les champs...">
+<input type="text"
+       id="search"
+       class="search"
+       placeholder="Rechercher ND...">
 
-    <div class="counter">
-        Total : <span id="count">0</span>
-    </div>
+<div class="counter">
+Total : <span id="count">0</span>
+</div>
 
 </div>
 
@@ -114,21 +99,17 @@ tr:hover{
 ND présents dans les 2 fichiers
 </div>
 
-<div id="loading" class="loading">
-Chargement des fichiers...
-</div>
+<table>
 
-<div class="table-container">
+<thead>
+<tr>
+<th>ND</th>
+</tr>
+</thead>
 
-<table id="dataTable">
-
-<thead id="thead"></thead>
-
-<tbody></tbody>
+<tbody id="tbody"></tbody>
 
 </table>
-
-</div>
 
 <script>
 
@@ -137,41 +118,20 @@ const FILE_2 = "datac.xlsx";
 
 let data = [];
 
-const tbody = document.querySelector("#dataTable tbody");
-const thead = document.getElementById("thead");
+const tbody = document.getElementById("tbody");
 const count = document.getElementById("count");
-const searchInput = document.getElementById("searchInput");
-const loading = document.getElementById("loading");
+const search = document.getElementById("search");
 
-async function loadExcel(fileName){
+function normalize(v){
 
-    const response = await fetch(fileName);
-
-    if(!response.ok){
-        throw new Error("Impossible de charger : " + fileName);
-    }
-
-    const buffer = await response.arrayBuffer();
-
-    const workbook = XLSX.read(buffer,{type:"array"});
-
-    const sheetName = workbook.SheetNames[0];
-
-    const sheet = workbook.Sheets[sheetName];
-
-    return XLSX.utils.sheet_to_json(sheet,{defval:""});
-}
-
-function normalize(value){
-
-    return String(value)
-        .trim()
-        .toUpperCase()
-        .replace(/\s+/g,'');
+    return String(v)
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g,'');
 
 }
 
-function detectNDColumn(row){
+function findNDColumn(row){
 
     return Object.keys(row).find(k =>
         k.toUpperCase().includes("ND")
@@ -179,26 +139,22 @@ function detectNDColumn(row){
 
 }
 
-function createHeaders(headers){
+async function loadExcel(file){
 
-    thead.innerHTML = "";
+    const response = await fetch(file);
 
-    const tr = document.createElement("tr");
+    const buffer = await response.arrayBuffer();
 
-    headers.forEach(h=>{
+    const workbook = XLSX.read(buffer,{type:"array"});
 
-        const th = document.createElement("th");
+    const sheet = workbook.Sheets[
+        workbook.SheetNames[0]
+    ];
 
-        th.textContent = h;
-
-        tr.appendChild(th);
-
-    });
-
-    thead.appendChild(tr);
+    return XLSX.utils.sheet_to_json(sheet,{defval:""});
 }
 
-function renderTable(rows){
+function render(rows){
 
     tbody.innerHTML = "";
 
@@ -206,12 +162,9 @@ function renderTable(rows){
 
         tbody.innerHTML = `
         <tr>
-            <td colspan="100%"
-                style="padding:20px;
-                       color:red;
-                       font-weight:bold;">
-                Aucun ND commun trouvé
-            </td>
+        <td class="red">
+        Aucun ND commun trouvé
+        </td>
         </tr>
         `;
 
@@ -220,19 +173,11 @@ function renderTable(rows){
         return;
     }
 
-    rows.forEach(row=>{
+    rows.forEach(nd=>{
 
         const tr = document.createElement("tr");
 
-        Object.values(row).forEach(value=>{
-
-            const td = document.createElement("td");
-
-            td.textContent = value;
-
-            tr.appendChild(td);
-
-        });
+        tr.innerHTML = `<td>${nd}</td>`;
 
         tbody.appendChild(tr);
 
@@ -241,101 +186,45 @@ function renderTable(rows){
     count.textContent = rows.length;
 }
 
-function filterData(){
+function filter(){
 
-    const value = searchInput.value.toLowerCase();
+    const value = search.value.toLowerCase();
 
-    const filtered = data.filter(row=>
-
-        Object.values(row).some(v=>
-
-            String(v)
-            .toLowerCase()
-            .includes(value)
-
-        )
-
+    const filtered = data.filter(nd =>
+        nd.toLowerCase().includes(value)
     );
 
-    renderTable(filtered);
+    render(filtered);
 }
 
 async function init(){
 
-    try{
+    const rows1 = await loadExcel(FILE_1);
+    const rows2 = await loadExcel(FILE_2);
 
-        const rows1 = await loadExcel(FILE_1);
-        const rows2 = await loadExcel(FILE_2);
+    const ndCol1 = findNDColumn(rows1[0]);
+    const ndCol2 = findNDColumn(rows2[0]);
 
-        if(rows1.length === 0 || rows2.length === 0){
+    const set2 = new Set();
 
-            loading.innerHTML = "Fichier vide";
+    rows2.forEach(r=>{
 
-            return;
-        }
+        set2.add(
+            normalize(r[ndCol2])
+        );
 
-        const headers = Object.keys(rows1[0]);
+    });
 
-        createHeaders(headers);
+    data = rows1
+    .map(r => normalize(r[ndCol1]))
+    .filter(nd => set2.has(nd));
 
-        const ndColumn1 = detectNDColumn(rows1[0]);
-        const ndColumn2 = detectNDColumn(rows2[0]);
+    data = [...new Set(data)];
 
-        console.log("ND fichier 1 :", ndColumn1);
-        console.log("ND fichier 2 :", ndColumn2);
-
-        const ndSet = new Set();
-
-        rows2.forEach(r=>{
-
-            if(r[ndColumn2] !== undefined){
-
-                ndSet.add(
-                    normalize(r[ndColumn2])
-                );
-
-            }
-
-        });
-
-        data = rows1.filter(r=>{
-
-            if(r[ndColumn1] === undefined){
-
-                return false;
-            }
-
-            return ndSet.has(
-
-                normalize(r[ndColumn1])
-
-            );
-
-        });
-
-        renderTable(data);
-
-        loading.style.display = "none";
-
-    }catch(e){
-
-        console.error(e);
-
-        loading.innerHTML = `
-        Erreur chargement fichiers.
-        <br><br>
-        Vérifie que :
-        <br>
-        - data.xlsx existe
-        <br>
-        - datac.xlsx existe
-        <br>
-        - les fichiers sont dans le même dossier
-        `;
-    }
+    render(data);
 }
 
-searchInput.addEventListener("input",filterData);
+search.addEventListener("input",filter);
 
 init();
 
