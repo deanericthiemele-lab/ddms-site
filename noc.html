@@ -3,11 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ND Communs</title>
+
+<title>Comparaison ND</title>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 
 <style>
+
 body{
     font-family:Arial,sans-serif;
     background:#ffffff;
@@ -15,36 +17,36 @@ body{
     padding:20px;
 }
 
-.topbar{
-    display:flex;
-    align-items:center;
-    gap:15px;
+.title{
+    font-size:32px;
+    font-weight:bold;
     margin-bottom:20px;
 }
 
-.btn{
-    background:#2563eb;
-    color:white;
-    text-decoration:none;
-    padding:10px 16px;
+.imports{
+    display:flex;
+    gap:15px;
+    margin-bottom:20px;
+    flex-wrap:wrap;
+}
+
+input[type=file]{
+    padding:10px;
+    border:1px solid #d1d5db;
     border-radius:8px;
-    font-weight:bold;
+    background:#f8fafc;
 }
 
 .search{
-    flex:1;
+    width:100%;
     padding:12px;
     border-radius:8px;
     border:1px solid #d1d5db;
+    margin-bottom:20px;
 }
 
 .counter{
     font-size:20px;
-    font-weight:bold;
-}
-
-.title{
-    font-size:32px;
     font-weight:bold;
     margin-bottom:20px;
 }
@@ -70,28 +72,37 @@ td{
     color:red;
     font-weight:bold;
 }
+
+.green{
+    color:green;
+    font-weight:bold;
+}
+
 </style>
 </head>
 
 <body>
 
-<div class="topbar">
+<div class="title">
+ND présents dans les 2 fichiers
+</div>
 
-<a href="index.html" class="btn">⬅ Retour</a>
+<div class="imports">
+
+<input type="file" id="file1" accept=".xlsx,.xls">
+
+<input type="file" id="file2" accept=".xlsx,.xls">
+
+</div>
 
 <input type="text"
        id="search"
        class="search"
-       placeholder="Rechercher ND...">
+       placeholder="Rechercher un ND...">
 
 <div class="counter">
-Total : <span id="count">0</span>
-</div>
-
-</div>
-
-<div class="title">
-ND présents dans les 2 fichiers
+Total ND communs :
+<span id="count">0</span>
 </div>
 
 <table>
@@ -102,24 +113,29 @@ ND présents dans les 2 fichiers
 </tr>
 </thead>
 
-<tbody id="tbody"></tbody>
+<tbody id="tbody">
+
+<tr>
+<td class="red">
+Chargez les 2 fichiers Excel
+</td>
+</tr>
+
+</tbody>
 
 </table>
 
 <script>
 
-const FILE_1 = "data.xlsx";
-const FILE_2 = "datac.xlsx";
-
-let data = [];
+let commonND = [];
 
 const tbody = document.getElementById("tbody");
 const count = document.getElementById("count");
 const search = document.getElementById("search");
 
-function normalize(v){
+function normalize(value){
 
-    return String(v || "")
+    return String(value || "")
         .trim()
         .toUpperCase()
         .replace(/\s+/g,'');
@@ -134,34 +150,33 @@ function detectNDColumn(headers){
 
 }
 
-async function loadExcel(file){
+async function readExcel(file){
 
-    const response = await fetch(file);
-
-    const buffer = await response.arrayBuffer();
+    const buffer = await file.arrayBuffer();
 
     const workbook = XLSX.read(buffer,{type:"array"});
 
-    let allRows = [];
+    let rows = [];
 
     workbook.SheetNames.forEach(sheetName=>{
 
         const sheet = workbook.Sheets[sheetName];
 
-        const rows = XLSX.utils.sheet_to_json(sheet,{defval:""});
+        const data = XLSX.utils.sheet_to_json(sheet,{defval:""});
 
-        allRows = allRows.concat(rows);
+        rows = rows.concat(data);
 
     });
 
-    return allRows;
+    return rows;
+
 }
 
-function render(rows){
+function render(data){
 
     tbody.innerHTML = "";
 
-    if(rows.length === 0){
+    if(data.length === 0){
 
         tbody.innerHTML = `
         <tr>
@@ -174,44 +189,57 @@ function render(rows){
         count.textContent = 0;
 
         return;
+
     }
 
-    rows.forEach(nd=>{
+    data.forEach(nd=>{
 
         const tr = document.createElement("tr");
 
-        tr.innerHTML = `<td>${nd}</td>`;
+        tr.innerHTML = `
+        <td class="green">${nd}</td>
+        `;
 
         tbody.appendChild(tr);
 
     });
 
-    count.textContent = rows.length;
+    count.textContent = data.length;
+
 }
 
-function filter(){
+async function compareFiles(){
 
-    const value = search.value.toLowerCase();
+    const fileA = document.getElementById("file1").files[0];
+    const fileB = document.getElementById("file2").files[0];
 
-    const filtered = data.filter(nd =>
-        nd.toLowerCase().includes(value)
-    );
-
-    render(filtered);
-}
-
-async function init(){
+    if(!fileA || !fileB){
+        return;
+    }
 
     try{
 
-        const rows1 = await loadExcel(FILE_1);
-        const rows2 = await loadExcel(FILE_2);
+        const rows1 = await readExcel(fileA);
+        const rows2 = await readExcel(fileB);
 
-        const headers1 = Object.keys(rows1[0]);
-        const headers2 = Object.keys(rows2[0]);
+        const headers1 = Object.keys(rows1[0] || {});
+        const headers2 = Object.keys(rows2[0] || {});
 
         const ndCol1 = detectNDColumn(headers1);
         const ndCol2 = detectNDColumn(headers2);
+
+        if(!ndCol1 || !ndCol2){
+
+            tbody.innerHTML = `
+            <tr>
+                <td class="red">
+                    Colonne ND introuvable
+                </td>
+            </tr>
+            `;
+
+            return;
+        }
 
         const set2 = new Set();
 
@@ -225,31 +253,48 @@ async function init(){
 
         });
 
-        data = rows1
+        commonND = rows1
             .map(r => normalize(r[ndCol1]))
             .filter(nd => nd && set2.has(nd));
 
-        data = [...new Set(data)];
+        commonND = [...new Set(commonND)];
 
-        render(data);
+        render(commonND);
 
-    }catch(e){
+    }catch(error){
 
-        console.error(e);
+        console.error(error);
 
         tbody.innerHTML = `
         <tr>
             <td class="red">
-                Erreur chargement fichiers
+                Erreur lecture fichiers
             </td>
         </tr>
         `;
     }
+
 }
 
-search.addEventListener("input",filter);
+function filterND(){
 
-init();
+    const value = search.value.toLowerCase();
+
+    const filtered = commonND.filter(nd =>
+        nd.toLowerCase().includes(value)
+    );
+
+    render(filtered);
+
+}
+
+document.getElementById("file1")
+.addEventListener("change",compareFiles);
+
+document.getElementById("file2")
+.addEventListener("change",compareFiles);
+
+search.addEventListener("input",filterND);
 
 </script>
 
