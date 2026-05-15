@@ -482,14 +482,45 @@ document.addEventListener("DOMContentLoaded", function() {
   let kpiDataFull = [];
 
   function ouvrirKpiClient() {
-    if (!window.tableauActuel || !window.tableauActuel.length) {
-      alert("Aucune donnée chargée. Veuillez importer un fichier Excel d'abord.");
-      return;
+    if (window.tableauActuel && window.tableauActuel.length) {
+      // Données déjà chargées, ouvrir directement
+      kpiDataFull = construireKpiData(window.tableauActuel);
+      document.getElementById("kpi-search").value = "";
+      afficherKpiTable(kpiDataFull);
+      document.getElementById("popup-kpi-client").style.display = "flex";
+    } else {
+      // Charger automatiquement data.xlsx
+      const badge = document.getElementById("kpi-total-badge");
+      badge.textContent = "⏳ Chargement...";
+      document.getElementById("popup-kpi-client").style.display = "flex";
+      document.getElementById("kpi-tbody").innerHTML =
+        "<tr><td colspan='16' style='text-align:center;padding:30px;color:#7B1FA2;'>⏳ Chargement de data.xlsx...</td></tr>";
+
+      fetch("data.xlsx")
+        .then(function(r) {
+          if (!r.ok) throw new Error("Fichier data.xlsx introuvable (HTTP " + r.status + ")");
+          return r.arrayBuffer();
+        })
+        .then(function(buffer) {
+          var data = new Uint8Array(buffer);
+          var workbook = XLSX.read(data, { type: "array" });
+          var sheet = workbook.Sheets[workbook.SheetNames[0]];
+          window.donneesExcel = XLSX.utils.sheet_to_json(sheet);
+          try { analyser(); } catch(e) { console.error("analyser()", e); }
+          kpiDataFull = construireKpiData(window.tableauActuel);
+          document.getElementById("kpi-search").value = "";
+          afficherKpiTable(kpiDataFull);
+        })
+        .catch(function(err) {
+          document.getElementById("kpi-tbody").innerHTML =
+            "<tr><td colspan='16' style='text-align:center;padding:30px;color:#c62828;font-weight:bold;'>" +
+            "&#9888;&#65039; Impossible de charger data.xlsx automatiquement.<br>" +
+            "<span style='font-size:12px;font-weight:normal;color:#555;'>Assurez-vous que le fichier <b>data.xlsx</b> est dans le même dossier que cette page,<br>" +
+            "puis importez-le manuellement via le bouton &#128194; Parcourir.</span></td></tr>";
+          document.getElementById("kpi-total-badge").textContent = "Erreur chargement";
+          console.error(err);
+        });
     }
-    kpiDataFull = construireKpiData(window.tableauActuel);
-    document.getElementById("kpi-search").value = "";
-    afficherKpiTable(kpiDataFull);
-    document.getElementById("popup-kpi-client").style.display = "flex";
   }
 
   function fermerKpiClient() {
