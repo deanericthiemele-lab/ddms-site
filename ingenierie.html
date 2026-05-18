@@ -359,6 +359,9 @@ document.addEventListener("DOMContentLoaded", function() {
    <button onclick="ouvrirKpiClient()" style="background-color:#78909c;color:white;border:none;border-radius:4px;padding:6px 10px;margin-left:8px;cursor:pointer;">
     🏢 KPI Client
    </button>
+   <button onclick="ouvrirSummary()" style="background-color:#37474f;color:white;border:none;border-radius:4px;padding:6px 10px;margin-left:4px;cursor:pointer;">
+    📋 Summary
+   </button>
   </div>
 
   <!-- ===== POPUP KPI CLIENT ===== -->
@@ -572,6 +575,334 @@ document.addEventListener("DOMContentLoaded", function() {
     if (e.key === "Escape") fermerKpiClient();
   });
   </script>
+  <!-- ===== POPUP SUMMARY ===== -->
+  <div id="popup-summary" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);z-index:10000;justify-content:center;align-items:center;">
+    <div style="background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,0.25);width:95%;max-width:1100px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;">
+      <!-- Header -->
+      <div style="background:linear-gradient(135deg,#37474f,#546e7a);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+        <span style="color:white;font-size:20px;font-weight:bold;">📋 Summary — Vue d'ensemble des incidents</span>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span id="summary-badge" style="background:white;color:#37474f;padding:4px 14px;border-radius:20px;font-weight:bold;font-size:13px;">—</span>
+          <button onclick="fermerSummary()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:32px;height:32px;font-size:16px;cursor:pointer;line-height:1;">✕</button>
+        </div>
+      </div>
+      <!-- Body scrollable -->
+      <div id="summary-body" style="overflow:auto;flex:1;padding:20px 24px;background:#f5f7f8;">
+        <p style="color:#999;text-align:center;">⏳ Chargement...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  function ouvrirSummary() {
+    var src = (typeof tableauActuel !== 'undefined' && tableauActuel && tableauActuel.length)
+               ? tableauActuel : (window.tableauActuel || []);
+    if (!src.length) {
+      alert("Veuillez d'abord charger les données.");
+      return;
+    }
+    construireSummary(src);
+    document.getElementById("popup-summary").style.display = "flex";
+  }
+
+  function fermerSummary() {
+    document.getElementById("popup-summary").style.display = "none";
+  }
+
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") fermerSummary();
+  });
+
+  function construireSummary(data) {
+    const today = new Date();
+    const moisActuel = today.getMonth() + 1;
+    const moisN1 = moisActuel === 1 ? 12 : moisActuel - 1;
+    const moisN2 = moisActuel === 1 ? 11 : (moisActuel === 2 ? 12 : moisActuel - 2);
+    const MN = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"};
+    const MNC = {1:"Jan",2:"Fév",3:"Mar",4:"Avr",5:"Mai",6:"Jun",7:"Jul",8:"Aoû",9:"Sep",10:"Oct",11:"Nov",12:"Déc"};
+
+    // ── KPIs de base ──────────────────────────────────────────────
+    const ndReviensTousMois = data.filter(item => {
+      for (let m = 1; m <= moisActuel; m++) if (!(item.mois[m] > 0)) return false;
+      return true;
+    });
+    const ndRepetitifsMoisCourant = data.filter(item => (item.mois[moisActuel] || 0) >= 2);
+    const ndRepetitifs2Mois = data.filter(item => (item.mois[moisN1]||0) > 0 && (item.mois[moisN2]||0) > 0);
+    const ndAnnuel = data.filter(item => {
+      let t = 0; for (let m = 1; m <= moisActuel; m++) t += item.mois[m]||0; return t >= 7;
+    });
+
+    // Volume par mois
+    const volParMois = {};
+    for (let m = 1; m <= 12; m++) {
+      volParMois[m] = data.reduce((s, item) => s + (item.mois[m]||0), 0);
+    }
+
+    // Top 10 clients (par raison)
+    const clients = {};
+    data.forEach(item => {
+      const r = (item.raison || "Inconnu").trim();
+      if (!clients[r]) clients[r] = { raison: r, total: 0, nds: [] };
+      clients[r].total += item.total || 0;
+      if (item.nd) clients[r].nds.push(item.nd);
+    });
+    const top10clients = Object.values(clients).sort((a,b)=>b.total-a.total).slice(0,10);
+
+    // Top 10 liens (ND) les plus impactés
+    const top10liens = [...data].sort((a,b) => (b.total||0)-(a.total||0)).slice(0,10);
+
+    // Zones les plus impactées
+    const zones = {};
+    data.forEach(item => {
+      const z = (item.localisation || "Inconnue").trim();
+      zones[z] = (zones[z] || 0) + (item.total || 0);
+    });
+    const topZones = Object.entries(zones).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+    // Top 5 causes
+    const causes = {};
+    data.forEach(item => {
+      (item.causes || []).forEach(c => {
+        if (c && c.trim()) causes[c.trim()] = (causes[c.trim()]||0) + 1;
+      });
+    });
+    const top5causes = Object.entries(causes).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+    // Badge
+    document.getElementById("summary-badge").textContent = `${data.length} ND analysés`;
+
+    // ── Helper : ouvrir un popup détail ──────────────────────────
+    function lien(label, style, onclick) {
+      return `<span onclick="${onclick}" style="cursor:pointer;color:#1565c0;font-weight:700;text-decoration:underline;${style||''}">${label}</span>`;
+    }
+
+    // ── Sections HTML ─────────────────────────────────────────────
+    function sectionCard(titre, contenu) {
+      return `<div style="background:white;border-radius:10px;box-shadow:0 1px 6px rgba(0,0,0,0.08);padding:16px;margin-bottom:16px;">
+        <h3 style="margin:0 0 12px 0;color:#37474f;font-size:14px;border-bottom:2px solid #eceff1;padding-bottom:6px;">${titre}</h3>
+        ${contenu}
+      </div>`;
+    }
+
+    // ── 1. KPIs résumé (ligne de métriques) ──────────────────────
+    const kpis = [
+      { label:"ND tous les mois (YTD)", val: ndReviensTousMois.length, color:"#1b5e20", onclick:`afficherDetailSummary('ytd')` },
+      { label:"ND répétitifs mois courant (≥2)", val: ndRepetitifsMoisCourant.length, color:"#e65100", onclick:`afficherDetailSummary('mois')` },
+      { label:"ND répétitifs 2 mois consécutifs", val: ndRepetitifs2Mois.length, color:"#b71c1c", onclick:`afficherDetailSummary('2mois')` },
+      { label:"ND critiques annuels (≥7 inc.)", val: ndAnnuel.length, color:"#4a148c", onclick:`afficherDetailSummary('annuel')` },
+    ];
+    let kpiHtml = `<div style="display:flex;gap:12px;flex-wrap:wrap;">`;
+    kpis.forEach(k => {
+      kpiHtml += `<div onclick="${k.onclick}" style="flex:1;min-width:160px;background:#f9f9f9;border-radius:8px;padding:14px;text-align:center;cursor:pointer;border:2px solid #eceff1;transition:border-color .15s;" onmouseover="this.style.borderColor='${k.color}'" onmouseout="this.style.borderColor='#eceff1'">
+        <div style="font-size:28px;font-weight:bold;color:${k.color};">${k.val}</div>
+        <div style="font-size:11px;color:#546e7a;margin-top:4px;">${k.label}</div>
+      </div>`;
+    });
+    kpiHtml += `</div>`;
+
+    // ── 2. Volume incidents par mois ─────────────────────────────
+    let volHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">`;
+    const maxVol = Math.max(...Object.values(volParMois).filter(v=>v>0), 1);
+    for (let m = 1; m <= 12; m++) {
+      const v = volParMois[m];
+      if (!v) continue;
+      const h = Math.round((v / maxVol) * 60) + 10;
+      const isActuel = m === moisActuel;
+      volHtml += `<div onclick="afficherDetailSummary('vol_${m}')" style="flex:1;min-width:40px;text-align:center;cursor:pointer;">
+        <div style="font-size:10px;font-weight:bold;color:#37474f;margin-bottom:2px;">${v}</div>
+        <div style="height:${h}px;background:${isActuel?'#546e7a':'#90a4ae'};border-radius:4px 4px 0 0;transition:opacity .15s;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'"></div>
+        <div style="font-size:10px;color:#78909c;margin-top:3px;">${MNC[m]}</div>
+      </div>`;
+    }
+    volHtml += `</div>`;
+
+    // ── 3. Top 10 clients ────────────────────────────────────────
+    let clientHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="background:#eceff1;"><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th><th style="padding:6px 8px;text-align:center;">ND</th></tr>`;
+    top10clients.forEach((c, i) => {
+      const bg = i%2===0?'#fff':'#fafafa';
+      const bar = Math.round((c.total / (top10clients[0].total||1)) * 80);
+      clientHtml += `<tr style="background:${bg};" onclick="afficherDetailSummary('client_${encodeURIComponent(c.raison)}')" onmouseover="this.style.background='#e3f2fd'" onmouseout="this.style.background='${bg}'" style="cursor:pointer;">
+        <td style="padding:6px 8px;cursor:pointer;color:#1565c0;font-weight:600;">${i+1}. ${c.raison}</td>
+        <td style="padding:6px 8px;text-align:center;">
+          <span style="display:inline-block;width:${bar}px;height:8px;background:#78909c;border-radius:4px;margin-right:6px;"></span>
+          <b>${c.total}</b>
+        </td>
+        <td style="padding:6px 8px;text-align:center;color:#546e7a;">${c.nds.length}</td>
+      </tr>`;
+    });
+    clientHtml += `</table>`;
+
+    // ── 4. Top 10 liens ──────────────────────────────────────────
+    let lienHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="background:#eceff1;"><th style="padding:6px 8px;text-align:left;">ND</th><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th></tr>`;
+    top10liens.forEach((item, i) => {
+      const bg = i%2===0?'#fff':'#fafafa';
+      const bar = Math.round(((item.total||0) / (top10liens[0].total||1)) * 80);
+      lienHtml += `<tr onclick="afficherDetailSummary('nd_${encodeURIComponent(item.nd||'')}')" onmouseover="this.style.background='#e3f2fd'" onmouseout="this.style.background='${bg}'" style="background:${bg};cursor:pointer;">
+        <td style="padding:6px 8px;color:#1565c0;font-weight:600;">${i+1}. ${item.nd||'—'}</td>
+        <td style="padding:6px 8px;color:#546e7a;">${item.raison||'—'}</td>
+        <td style="padding:6px 8px;text-align:center;">
+          <span style="display:inline-block;width:${bar}px;height:8px;background:#78909c;border-radius:4px;margin-right:6px;"></span>
+          <b>${item.total||0}</b>
+        </td>
+      </tr>`;
+    });
+    lienHtml += `</table>`;
+
+    // ── 5. Zones ────────────────────────────────────────────────
+    let zoneHtml = `<div style="display:flex;gap:8px;flex-wrap:wrap;">`;
+    const maxZ = topZones[0] ? topZones[0][1] : 1;
+    topZones.forEach(([z, v], i) => {
+      const pct = Math.round((v/maxZ)*100);
+      const colors = ['#546e7a','#607d8b','#78909c','#90a4ae','#b0bec5','#cfd8dc','#eceff1','#f5f5f5'];
+      zoneHtml += `<div onclick="afficherDetailSummary('zone_${encodeURIComponent(z)}')" style="flex:1;min-width:120px;padding:10px;background:${colors[i]||'#cfd8dc'};border-radius:8px;text-align:center;cursor:pointer;transition:opacity .15s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">
+        <div style="font-size:18px;font-weight:bold;color:${i<3?'white':'#37474f'};">${v}</div>
+        <div style="font-size:10px;color:${i<3?'rgba(255,255,255,0.9)':'#546e7a'};margin-top:2px;">${z}</div>
+      </div>`;
+    });
+    zoneHtml += `</div>`;
+
+    // ── 6. Top 5 causes ──────────────────────────────────────────
+    let causeHtml = `<div style="display:flex;flex-direction:column;gap:8px;">`;
+    const maxC = top5causes[0] ? top5causes[0][1] : 1;
+    top5causes.forEach(([c, v], i) => {
+      const pct = Math.round((v/maxC)*100);
+      causeHtml += `<div onclick="afficherDetailSummary('cause_${encodeURIComponent(c)}')" style="cursor:pointer;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+          <span style="color:#37474f;font-weight:600;">${i+1}. ${c}</span>
+          <span style="color:#546e7a;font-weight:bold;">${v} ND</span>
+        </div>
+        <div style="background:#eceff1;border-radius:4px;height:10px;">
+          <div style="width:${pct}%;background:#546e7a;border-radius:4px;height:10px;transition:width .3s;"></div>
+        </div>
+      </div>`;
+    });
+    causeHtml += `</div>`;
+
+    // ── Layout 2 colonnes ────────────────────────────────────────
+    const html = `
+      ${sectionCard('🔢 Indicateurs clés', kpiHtml)}
+      ${sectionCard('📅 Volume d\'incidents par mois', volHtml)}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        ${sectionCard('🏆 Top 10 clients impactés', clientHtml)}
+        ${sectionCard('🔗 Top 10 liens impactés', lienHtml)}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        ${sectionCard('🌍 Zones les plus impactées', zoneHtml)}
+        ${sectionCard('🔧 Top 5 causes', causeHtml)}
+      </div>
+    `;
+    document.getElementById("summary-body").innerHTML = html;
+
+    // Store data for detail popups
+    window._summaryData = { data, ndReviensTousMois, ndRepetitifsMoisCourant, ndRepetitifs2Mois, ndAnnuel, volParMois, top10clients, top10liens, topZones, top5causes, MN, MNC, moisActuel };
+  }
+
+  // ── Popup détail depuis Summary ───────────────────────────────
+  function afficherDetailSummary(type) {
+    const d = window._summaryData;
+    if (!d) return;
+    const MN = d.MN, MNC = d.MNC, moisActuel = d.moisActuel;
+
+    let titre = '', rows = [], cols = [];
+
+    if (type === 'ytd') {
+      titre = 'ND présents tous les mois (YTD)';
+      cols = ['ND','Client','Localisation','Total YTD'];
+      rows = d.ndReviensTousMois.map(i => [i.nd, i.raison||'—', i.localisation||'—', Object.values(i.mois).reduce((s,v)=>s+v,0)]);
+    } else if (type === 'mois') {
+      titre = `ND répétitifs mois courant (≥2) — ${MN[moisActuel]}`;
+      cols = ['ND','Client','Localisation',`Incidents ${MN[moisActuel]}`];
+      rows = d.ndRepetitifsMoisCourant.sort((a,b)=>(b.mois[moisActuel]||0)-(a.mois[moisActuel]||0))
+        .map(i => [i.nd, i.raison||'—', i.localisation||'—', i.mois[moisActuel]||0]);
+    } else if (type === '2mois') {
+      const n1 = moisActuel===1?12:moisActuel-1, n2 = moisActuel===1?11:(moisActuel===2?12:moisActuel-2);
+      titre = `ND répétitifs sur 2 mois (${MN[n2]} & ${MN[n1]})`;
+      cols = ['ND','Client','Localisation', MN[n2], MN[n1]];
+      rows = d.ndRepetitifs2Mois.map(i => [i.nd, i.raison||'—', i.localisation||'—', i.mois[n2]||0, i.mois[n1]||0]);
+    } else if (type === 'annuel') {
+      titre = 'ND critiques annuels (≥7 incidents YTD)';
+      cols = ['ND','Client','Localisation','Total YTD','Évaluation'];
+      rows = d.ndAnnuel.map(i => {
+        const t = Object.entries(i.mois).filter(([m])=>parseInt(m)<=moisActuel).reduce((s,[,v])=>s+v,0);
+        return [i.nd, i.raison||'—', i.localisation||'—', t, t>=13?'Critique':'Instable'];
+      }).sort((a,b)=>b[3]-a[3]);
+    } else if (type.startsWith('vol_')) {
+      const m = parseInt(type.replace('vol_',''));
+      titre = `Incidents en ${MN[m]}`;
+      cols = ['ND','Client','Localisation','Incidents'];
+      rows = d.data.filter(i=>(i.mois[m]||0)>0).sort((a,b)=>(b.mois[m]||0)-(a.mois[m]||0))
+        .map(i=>[i.nd, i.raison||'—', i.localisation||'—', i.mois[m]||0]);
+    } else if (type.startsWith('client_')) {
+      const clientName = decodeURIComponent(type.replace('client_',''));
+      titre = `Détail client : ${clientName}`;
+      cols = ['ND','Localisation','Total'];
+      for (let m = 1; m <= moisActuel; m++) cols.push(MNC[m]);
+      rows = d.data.filter(i=>(i.raison||'Inconnu').trim()===clientName)
+        .sort((a,b)=>(b.total||0)-(a.total||0))
+        .map(i => { const r = [i.nd, i.localisation||'—', i.total||0]; for(let m=1;m<=moisActuel;m++) r.push(i.mois[m]||0); return r; });
+    } else if (type.startsWith('nd_')) {
+      const ndName = decodeURIComponent(type.replace('nd_',''));
+      titre = `Détail ND : ${ndName}`;
+      cols = ['ND','Client','Localisation','Total'];
+      for (let m = 1; m <= moisActuel; m++) cols.push(MNC[m]);
+      rows = d.data.filter(i=>i.nd===ndName)
+        .map(i => { const r = [i.nd, i.raison||'—', i.localisation||'—', i.total||0]; for(let m=1;m<=moisActuel;m++) r.push(i.mois[m]||0); return r; });
+    } else if (type.startsWith('zone_')) {
+      const z = decodeURIComponent(type.replace('zone_',''));
+      titre = `Zone : ${z}`;
+      cols = ['ND','Client','Total'];
+      for (let m = 1; m <= moisActuel; m++) cols.push(MNC[m]);
+      rows = d.data.filter(i=>(i.localisation||'Inconnue').trim()===z)
+        .sort((a,b)=>(b.total||0)-(a.total||0))
+        .map(i => { const r = [i.nd, i.raison||'—', i.total||0]; for(let m=1;m<=moisActuel;m++) r.push(i.mois[m]||0); return r; });
+    } else if (type.startsWith('cause_')) {
+      const cause = decodeURIComponent(type.replace('cause_',''));
+      titre = `Cause : ${cause}`;
+      cols = ['ND','Client','Localisation','Total'];
+      rows = d.data.filter(i=>(i.causes||[]).some(c=>c.trim()===cause))
+        .sort((a,b)=>(b.total||0)-(a.total||0))
+        .map(i=>[i.nd, i.raison||'—', i.localisation||'—', i.total||0]);
+    }
+
+    if (!rows.length) { alert("Aucune donnée à afficher."); return; }
+
+    let tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="background:linear-gradient(135deg,#546e7a,#78909c);color:white;">`;
+    cols.forEach(c => { tableHtml += `<th style="padding:8px 6px;">${c}</th>`; });
+    tableHtml += `</tr></thead><tbody>`;
+    rows.forEach((row, i) => {
+      const bg = i%2===0?'#fff':'#f5f7f8';
+      tableHtml += `<tr style="background:${bg};">`;
+      row.forEach((cell, ci) => {
+        const isNum = typeof cell === 'number';
+        const color = (ci===3 && isNum && cell>=5) ? '#b71c1c' : (ci===3 && isNum && cell>=3) ? '#e65100' : '#263238';
+        tableHtml += `<td style="padding:6px 8px;border-bottom:1px solid #eceff1;text-align:${isNum?'center':'left'};color:${color};font-weight:${isNum&&cell>0?'600':'400'};">${cell}</td>`;
+      });
+      tableHtml += `</tr>`;
+    });
+    tableHtml += `</tbody></table>`;
+
+    // Afficher dans un mini popup par dessus
+    let existing = document.getElementById('summary-detail-popup');
+    if (!existing) {
+      existing = document.createElement('div');
+      existing.id = 'summary-detail-popup';
+      existing.style.cssText = 'position:fixed;top:5%;left:50%;transform:translateX(-50%);width:85%;max-width:900px;max-height:85vh;background:white;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.4);z-index:10001;display:flex;flex-direction:column;overflow:hidden;';
+      document.body.appendChild(existing);
+    }
+    existing.innerHTML = `
+      <div style="background:linear-gradient(135deg,#37474f,#546e7a);padding:12px 18px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+        <span style="color:white;font-weight:bold;font-size:14px;">🔍 ${titre} <span style="font-size:11px;font-weight:normal;">(${rows.length} lignes)</span></span>
+        <button onclick="document.getElementById('summary-detail-popup').style.display='none'" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:26px;height:26px;font-size:13px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div style="overflow:auto;flex:1;padding:0;">${tableHtml}</div>
+    `;
+    existing.style.display = 'flex';
+  }
+  </script>
+
   <style>
    .dropdown {
   position: relative;
