@@ -1879,7 +1879,8 @@ function filtrerTableau() {
     afficherBarCritiquesPourSelection(filtres);
     afficherNDCritiquesParClient();
     afficherStats(filtres);
-    afficherGraphiqueFusionne();
+    afficherGraphiqueFusionne(filtres);
+    afficherGraphiqueFusionND(filtres);
     mettreAJourCasesVertes(filtres);
     document.getElementById("resume-douleurs").innerHTML = "";
     document.getElementById("info-resultats").textContent = `ND critiques pour ${clientCritiqueSelectionne} : ${filtres.length}`;
@@ -1891,7 +1892,8 @@ function filtrerTableau() {
     afficherTableau(filtres);
     afficherStats(filtres);
     afficherGraphique(filtres);
-    afficherGraphiqueFusionne();
+    afficherGraphiqueFusionne(filtres);
+    afficherGraphiqueFusionND(filtres);
     afficherBarCritiquesPourSelection(filtres);
     afficherNDCritiquesParClient();
     mettreAJourCasesVertes(filtres);
@@ -1913,7 +1915,8 @@ function filtrerTableau() {
 
   afficherTableau(filtres);
   afficherGraphique(filtres);
-  afficherGraphiqueFusionne();
+  afficherGraphiqueFusionne(filtres);
+  afficherGraphiqueFusionND(filtres);
   afficherBarCritiquesPourSelection(filtres);
   afficherNDCritiquesParClient();
   afficherStats(filtres);
@@ -2111,8 +2114,29 @@ function exporterTableauComplet() {
     return;
   }
 
+  // Exporter les données visibles (filtrées par recherche/date)
+  const filtre = document.getElementById("recherche").value.toLowerCase();
+  const motsCles = filtre.split(',').map(f => f.trim()).filter(f => f);
+  let sourceData = filtreDateActive ? appliquerFiltreDate(tableauActuel) : [...tableauActuel];
+
+  let donneesVisibles;
+  if (clientCritiqueSelectionne) {
+    donneesVisibles = sourceData.filter(item => item.critiques && canonicalClient(item.raison) === canonicalClient(clientCritiqueSelectionne));
+  } else if (motsCles.length > 0) {
+    donneesVisibles = sourceData.filter(item =>
+      motsCles.some(mot => item.nd.toLowerCase().includes(mot) || item.raison.toLowerCase().includes(mot))
+    );
+  } else {
+    donneesVisibles = sourceData;
+  }
+
+  if (!donneesVisibles.length) {
+    alert("Aucune donnée à exporter.");
+    return;
+  }
+
   const moisActuel = new Date().getMonth() + 1;
-  const lignes = tableauActuel.map(item => {
+  const lignes = donneesVisibles.map(item => {
     const ligne = {
       ND: item.nd,
       "Raison sociale": item.raison,
@@ -3175,14 +3199,15 @@ function exporterIncidentsND2ParMois() {
 }
   </script>
   <script>
-   function afficherGraphiqueFusionne() {
+   function afficherGraphiqueFusionne(dataParam) {
+  const src = dataParam || tableauActuel;
   const moisLabels = [];
   const signalisations = {};
   const ndSup2 = {};
   const ndTotal = {};
   const incidentsND2 = {};
 
-  tableauActuel.forEach(item => {
+  src.forEach(item => {
     Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
       const m = parseInt(mois);
       signalisations[m] = (signalisations[m] || 0) + nbIncidents;
@@ -4302,8 +4327,9 @@ return;
 }
   </script>
   <script>
-   function afficherGraphiqueFusionND() {
-  if (!Array.isArray(tableauActuel) || tableauActuel.length === 0) {
+   function afficherGraphiqueFusionND(dataParam) {
+  const src = dataParam || tableauActuel;
+  if (!Array.isArray(src) || src.length === 0) {
     const c = document.getElementById('graphique-nd-fusionne');
     if (c && c.getContext) { const ctx = c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); }
     return;
@@ -4324,7 +4350,7 @@ return;
     let totalRecurrent = 0;
     const ndSet = new Set();
 
-    tableauActuel.forEach(item => {
+    src.forEach(item => {
       const a = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
       const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
 
@@ -5700,10 +5726,10 @@ function exporterTableauParLocalisation() {
   XLSX.writeFile(wb, "ingenierie.xlsx");
 }
 
-// Override btn-export to use exporterTableauParLocalisation
+// Liaison btn-export → exporterTableauComplet (données filtrées affichées)
 document.addEventListener("DOMContentLoaded", function() {
   var b = document.getElementById("btn-export");
-  if (b) b.onclick = exporterTableauParLocalisation;
+  if (b) b.onclick = exporterTableauComplet;
 });
 
 </script>
