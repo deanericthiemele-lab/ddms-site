@@ -169,67 +169,41 @@ function loadSupportIP(data){
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <div class="title-row">
 <h2 id="clientTop20Title">Top 20 Clients (0)</h2>
-
-<div style="display:flex; gap:6px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
-  <label style="font-size:12px;">Début</label>
-  <input type="date" class="popupDateDebut" style="font-size:11px;">
-  <label style="font-size:12px;">Fin</label>
-  <input type="date" class="popupDateFin" style="font-size:11px;">
-  
-</div>
-
-
 </div>
 <div class="table-container">
 <table id="clientTop20">
 <thead>
-<tr><th>CLIENT</th><th>TOTAL</th><th>DANS LES DÉLAIS</th><th>HORS DÉLAIS</th></tr>
+<tr><th>CLIENT</th><th>TOTAL</th><th style="background:#e8f5e9;">🟢 DANS LES DÉLAIS (≤30j)</th><th style="background:#ffe5e5;">🔴 HORS DÉLAIS (&gt;30j)</th></tr>
 </thead>
 <tbody></tbody>
 </table>
 </div>
 <div class="title-row">
 <h2 id="clientOthersTitle">Autres Clients (0)</h2>
-
-<div style="display:flex; gap:6px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
-  <label style="font-size:12px;">Début</label>
-  <input type="date" class="popupDateDebut" style="font-size:11px;">
-  <label style="font-size:12px;">Fin</label>
-  <input type="date" class="popupDateFin" style="font-size:11px;">
-  
-</div>
-
-
 </div>
 <div class="table-container">
 <table id="clientOthers">
 <thead>
-<tr><th>CLIENT</th><th>TOTAL</th><th>DANS LES DÉLAIS</th><th>HORS DÉLAIS</th></tr>
+<tr><th>CLIENT</th><th>TOTAL</th><th style="background:#e8f5e9;">🟢 DANS LES DÉLAIS (≤30j)</th><th style="background:#ffe5e5;">🔴 HORS DÉLAIS (&gt;30j)</th></tr>
 </thead>
 <tbody></tbody>
 </table>
 </div>
 <!-- POPUP DETAIL CLIENT -->
 <div id="popupClientDetail" style="display:none; position:fixed; top:5%; left:3%; width:94%; height:90%; background:#fff; border:2px solid #444; border-radius:8px; padding:12px; overflow:auto; z-index:2000; box-shadow:0 4px 24px rgba(0,0,0,0.2);">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
     <h2 id="clientDetailTitle" style="margin:0; font-size:16px;"></h2>
     <button onclick="document.getElementById('popupClientDetail').style.display='none'" style="font-size:22px; background:none; border:none; cursor:pointer; line-height:1;">✖</button>
   </div>
-  <input id="clientDetailSearch" placeholder="Rechercher..." onkeyup="filterClientDetail()" style="padding:6px; width:100%; margin-bottom:8px; border:1px solid #aaa; border-radius:6px; font-size:13px; box-sizing:border-box;">
-  <div style="overflow-x:auto;">
-    <table id="tableClientDetail" style="border-collapse:collapse; width:100%; font-size:12px;">
-      <thead>
-        <tr style="background:#f5f5f5;">
-          <th style="border:1px solid #ccc; padding:6px;">ID DOSSIER</th>
-          <th style="border:1px solid #ccc; padding:6px;">DATE CRÉATION</th>
-          <th style="border:1px solid #ccc; padding:6px;">DURÉE (j)</th>
-          <th style="border:1px solid #ccc; padding:6px;">ETAPE</th>
-          <th style="border:1px solid #ccc; padding:6px;">ADR. GEO</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+  <!-- Légende -->
+  <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:10px; padding:6px 10px; background:#f9f9f9; border:1px solid #ddd; border-radius:6px; font-size:12px;">
+    <span style="font-weight:bold;">Âge dossier :</span>
+    <span style="display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:14px;height:14px;background:#e8f5e9;border:1px solid #aaa;border-radius:3px;"></span>🟢 ≤ 20 jours</span>
+    <span style="display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:14px;height:14px;background:#fff8e1;border:1px solid #aaa;border-radius:3px;"></span>🟡 21 – 30 jours</span>
+    <span style="display:flex;align-items:center;gap:5px;"><span style="display:inline-block;width:14px;height:14px;background:#ffe5e5;border:1px solid #aaa;border-radius:3px;"></span>🔴 &gt; 30 jours (hors délais)</span>
   </div>
+  <input id="clientDetailSearch" placeholder="Rechercher dans tous les tableaux..." onkeyup="filterClientDetail()" style="padding:6px; width:100%; margin-bottom:10px; border:1px solid #aaa; border-radius:6px; font-size:13px; box-sizing:border-box;">
+  <div id="clientDetailTables"></div>
 </div>
 
 <div id="ageTables"></div>
@@ -313,35 +287,60 @@ function loadSupportIP(data){
   let clientDossiers = {};
 
   function openClientDetail(clientName, filter) {
-    // filter: "all" | "delai" | "hors"
     const dossiers = clientDossiers[clientName] || [];
     let filtered = dossiers;
     if (filter === "delai") filtered = dossiers.filter(d => d.diffDays <= 30);
-    else if (filter === "hors") filtered = dossiers.filter(d => d.diffDays > 30);
+    else if (filter === "hors")  filtered = dossiers.filter(d => d.diffDays > 30);
 
-    const labels = { all: "Tous", delai: "Dans les délais", hors: "Hors délais" };
+    const labels = { all: "Tous les dossiers", delai: "Dans les délais (≤ 30 j)", hors: "Hors délais (> 30 j)" };
     document.getElementById("clientDetailTitle").innerText =
       `${clientName} — ${labels[filter]} (${filtered.length} dossier${filtered.length>1?"s":""})`;
 
-    const tbody = document.querySelector("#tableClientDetail tbody");
-    tbody.innerHTML = filtered.map(d => {
-      const color = d.diffDays > 30 ? "#ffe5e5" : d.diffDays > 20 ? "#fff8e1" : "#e8f5e9";
-      return `<tr style="background:${color}">
-        <td style="border:1px solid #ccc; padding:5px; white-space:nowrap;">${d.id}</td>
-        <td style="border:1px solid #ccc; padding:5px; white-space:nowrap;">${d.dateStr}</td>
-        <td style="border:1px solid #ccc; padding:5px; text-align:center; font-weight:bold;">${d.diffDays}</td>
-        <td style="border:1px solid #ccc; padding:5px;">${d.etape}</td>
-        <td style="border:1px solid #ccc; padding:5px;">${d.adr}</td>
-      </tr>`;
-    }).join("");
+    const theadHtml = `<tr style="background:#f5f5f5;">
+      <th style="border:1px solid #ccc;padding:5px;">ID DOSSIER</th>
+      <th style="border:1px solid #ccc;padding:5px;">DATE CRÉATION</th>
+      <th style="border:1px solid #ccc;padding:5px;">DURÉE (j)</th>
+      <th style="border:1px solid #ccc;padding:5px;">ETAPE</th>
+      <th style="border:1px solid #ccc;padding:5px;">ADR. GEO</th>
+    </tr>`;
 
+    const groups = [
+      { label:"Hors délais (> 30 j)",    emoji:"🔴", bg:"#ffe5e5", items: filtered.filter(d=>d.diffDays>30)  },
+      { label:"Attention (21 – 30 j)",   emoji:"🟡", bg:"#fff8e1", items: filtered.filter(d=>d.diffDays>20 && d.diffDays<=30) },
+      { label:"Dans les délais (≤ 20 j)", emoji:"🟢", bg:"#e8f5e9", items: filtered.filter(d=>d.diffDays<=20) }
+    ];
+
+    let html = "";
+    groups.forEach(g => {
+      const rows = g.items.map(d => `<tr style="background:${g.bg}">
+        <td style="border:1px solid #ccc;padding:5px;white-space:nowrap;">${d.id}</td>
+        <td style="border:1px solid #ccc;padding:5px;white-space:nowrap;">${d.dateStr}</td>
+        <td style="border:1px solid #ccc;padding:5px;text-align:center;font-weight:bold;">${d.diffDays}</td>
+        <td style="border:1px solid #ccc;padding:5px;">${d.etape}</td>
+        <td style="border:1px solid #ccc;padding:5px;">${d.adr}</td>
+      </tr>`).join("");
+      html += `
+        <div style="margin-bottom:14px;">
+          <div style="background:${g.bg};padding:5px 10px;border-radius:6px 6px 0 0;font-weight:bold;font-size:13px;border:1px solid #ccc;border-bottom:none;">
+            ${g.emoji} ${g.label} — ${g.items.length} dossier${g.items.length>1?"s":""}
+          </div>
+          <div style="overflow-x:auto;border:1px solid #ccc;border-radius:0 0 6px 6px;max-height:220px;overflow-y:auto;">
+            <table class="client-detail-subtable" style="border-collapse:collapse;width:100%;font-size:12px;">
+              <thead>${theadHtml}</thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>`;
+    });
+
+    document.getElementById("clientDetailTables").innerHTML = html;
     document.getElementById("clientDetailSearch").value = "";
     document.getElementById("popupClientDetail").style.display = "block";
   }
 
   function filterClientDetail() {
     const v = document.getElementById("clientDetailSearch").value.toLowerCase();
-    document.querySelectorAll("#tableClientDetail tbody tr").forEach(tr => {
+    document.querySelectorAll(".client-detail-subtable tbody tr").forEach(tr => {
       tr.style.display = tr.innerText.toLowerCase().includes(v) ? "" : "none";
     });
   }
@@ -389,26 +388,27 @@ function loadSupportIP(data){
     clientDossiers[c].sort((a,b) => b.diffDays - a.diffDays);
   });
 
-  const cellStyle = `style="border:1px solid #ccc; padding:6px; cursor:pointer;"`;
-  const clickableStyle = `style="border:1px solid #ccc; padding:6px; cursor:pointer; color:#0066cc; text-decoration:underline; font-weight:bold;"`;
+  const cellBase = `border:1px solid #ccc; padding:6px; cursor:pointer;`;
+  const clickableStyle = `style="${cellBase} color:#0066cc; text-decoration:underline; font-weight:bold;"`;
 
   const sorted = Object.entries(clientStats).sort((a,b) => b[1].total - a[1].total);
   const top20 = sorted.filter(([client]) => top20List.includes(client));
   const others = sorted.filter(([client]) => !top20List.includes(client));
-  document.querySelector("#clientTop20 tbody").innerHTML =
-    top20.map(([c,s]) => `<tr>
-      <td ${clickableStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','all')">${c}</td>
-      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','all')">${s.total}</td>
-      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','delai')">${s.delai}</td>
-      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','hors')">${s.hors}</td>
-    </tr>`).join("");
-  document.querySelector("#clientOthers tbody").innerHTML =
-    others.map(([c,s]) => `<tr>
-      <td ${clickableStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','all')">${c}</td>
-      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','all')">${s.total}</td>
-      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','delai')">${s.delai}</td>
-      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','hors')">${s.hors}</td>
-    </tr>`).join("");
+
+  function buildClientRow([c, s]) {
+    const ce = c.replace(/'/g, "\\'");
+    // couleur de la ligne selon proportion hors délais
+    const rowBg = s.hors === 0 ? "#e8f5e9" : s.delai === 0 ? "#ffe5e5" : "#fff";
+    return `<tr style="background:${rowBg}">
+      <td ${clickableStyle} onclick="openClientDetail('${ce}','all')">${c}</td>
+      <td style="${cellBase}" onclick="openClientDetail('${ce}','all')">${s.total}</td>
+      <td style="${cellBase} background:#e8f5e9;" onclick="openClientDetail('${ce}','delai')">${s.delai}</td>
+      <td style="${cellBase} background:#ffe5e5;" onclick="openClientDetail('${ce}','hors')">${s.hors}</td>
+    </tr>`;
+  }
+
+  document.querySelector("#clientTop20 tbody").innerHTML  = top20.map(buildClientRow).join("");
+  document.querySelector("#clientOthers tbody").innerHTML = others.map(buildClientRow).join("");
   document.getElementById("clientTop20Title").innerText = `Top 20 Clients (${top20.length} ‒ ${pct(top20.reduce((sum, [c,s])=>sum+s.total,0))}%)`;
   document.getElementById("clientOthersTitle").innerText = `Autres Clients (${others.length} ‒ ${pct(others.reduce((sum, [c,s])=>sum+s.total,0))}%)`;
   const totalClients = sorted.length;
