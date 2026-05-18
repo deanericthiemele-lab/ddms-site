@@ -285,18 +285,7 @@ document.addEventListener("DOMContentLoaded", function() {
   </style>
  </head>
  <body>
-  <div style="margin-bottom:10px;">
-   <label class="file btn" for="fileInput">
-    📂 Parcourir
-   </label>
-   <input accept=".xlsx,.xls,.csv" class="sr-only" id="fileInput" type="file"/>
-   <button class="btn" id="refreshBtn" title="Recharger la page">
-    ⟳ Actualiser
-   </button>
-   <script>
-    document.getElementById("refreshBtn").onclick = () => { window.location.reload(); };
-   </script>
-  </div>
+  <input accept=".xlsx,.xls,.csv" class="sr-only" id="fileInput" type="file"/>
   <a href="index.html">
    <button style="background-color: #2196F3; color: white;">
     🏠 Accueil
@@ -308,25 +297,6 @@ document.addEventListener("DOMContentLoaded", function() {
    <h2 style="margin: 0;">
     Analyse des incidents
    </h2>
-   <div class="dropdown">
-    <button class="dropbtn">
-     📂 ASM
-    </button>
-    <div class="dropdown-content">
-     <button onclick="afficherClientSelectionne()">
-      👤 Client
-     </button>
-     <button onclick="afficherTop20()">
-      🏆 Top 20
-     </button>
-     <button onclick="afficherTop20Synthese()">
-      🏆 Top 20 Synthèse
-     </button>
-     <button onclick="filtrerSitesCritiques()" style="background-color: yellow; color: black">
-      🚨 Sites Critiques
-     </button>
-    </div>
-   </div>
    <div class="dropdown">
     <button class="dropbtn">
      📊 QoS et Performance
@@ -353,12 +323,6 @@ document.addEventListener("DOMContentLoaded", function() {
      <!-- ✅ Nouveau bouton pour regroupement par CAUSE RÉELLE (même filtrage que Nouvelles signalisations) -->
     </div>
    </div>
-   <button onclick="afficherVueGlobale()">
-    🔄 Réinitialiser
-   </button>
-   <button onclick="afficherGraphiqueHebdo()" style="background-color:#1976D2;color:white;border:none;border-radius:4px;padding:6px 10px;margin-left:8px;cursor:pointer;">
-    📊 Incidents / semaine
-   </button>
    <button onclick="ouvrirKpiClient()" style="background-color:#7B1FA2;color:white;border:none;border-radius:4px;padding:6px 10px;margin-left:8px;cursor:pointer;">
     🏢 KPI Client
    </button>
@@ -1859,9 +1823,8 @@ function filtrerParDate() {
 function resetDates() {
   clientCritiqueSelectionne = null;
   filtreDateActive = false;
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById("date-debut").value = today;
-  document.getElementById("date-fin").value = today;
+  document.getElementById("date-debut").value = "";
+  document.getElementById("date-fin").value = "";
   document.getElementById("recherche").value = "";
   filtrerTableau();
 }
@@ -2114,43 +2077,33 @@ function exporterTableauComplet() {
     return;
   }
 
-  // Exporter les données visibles (filtrées par recherche/date)
-  const filtre = document.getElementById("recherche").value.toLowerCase();
-  const motsCles = filtre.split(',').map(f => f.trim()).filter(f => f);
-  let sourceData = filtreDateActive ? appliquerFiltreDate(tableauActuel) : [...tableauActuel];
-
-  let donneesVisibles;
-  if (clientCritiqueSelectionne) {
-    donneesVisibles = sourceData.filter(item => item.critiques && canonicalClient(item.raison) === canonicalClient(clientCritiqueSelectionne));
-  } else if (motsCles.length > 0) {
-    donneesVisibles = sourceData.filter(item =>
-      motsCles.some(mot => item.nd.toLowerCase().includes(mot) || item.raison.toLowerCase().includes(mot))
-    );
-  } else {
-    donneesVisibles = sourceData;
+  // Lire directement les lignes visibles dans le tableau DOM
+  const table = document.querySelector("#resultat table");
+  if (!table) {
+    alert("Aucun tableau à exporter. Veuillez d'abord charger un fichier.");
+    return;
   }
 
-  if (!donneesVisibles.length) {
+  const rows = [];
+  const headers = [];
+  const ths = table.querySelectorAll("thead th");
+  ths.forEach(th => headers.push(th.textContent.trim()));
+
+  const trs = table.querySelectorAll("tbody tr");
+  if (!trs.length) {
     alert("Aucune donnée à exporter.");
     return;
   }
 
-  const moisActuel = new Date().getMonth() + 1;
-  const lignes = donneesVisibles.map(item => {
-    const ligne = {
-      ND: item.nd,
-      "Raison sociale": item.raison,
-      "Localisation": item.localisation || "Inconnue",
-      Total: item.total,
-      "Causes 2 derniers mois": [...new Set(item.causes)].join(" | ")
-    };
-    for (let i = 1; i <= moisActuel; i++) {
-      ligne[moisNoms[i]] = item.mois[i] || 0;
-    }
-    return ligne;
+  trs.forEach(tr => {
+    const row = {};
+    tr.querySelectorAll("td").forEach((td, i) => {
+      row[headers[i] || "Col" + i] = td.innerText.trim();
+    });
+    rows.push(row);
   });
 
-  const ws = XLSX.utils.json_to_sheet(lignes);
+  const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Tableau incidents");
   XLSX.writeFile(wb, modeTop20 ? "Top20_Incidents_Complet.xlsx" : "Tableau_Incidents_Complet.xlsx");
@@ -5368,18 +5321,6 @@ document.addEventListener("DOMContentLoaded", () => {
   XLSX.writeFile(wb, "Nouvelles_Signalisations_par_Cause_Reelle.xlsx");
 }
   </script>
-  <button onclick="exporterZoneExcel()">
-   📥 Exporter Excel
-  </button>
-  <button onclick="fermerPopupZone()" style="background-color:#f44336;color:white;">
-   Fermer
-  </button>
-  <button onclick="exporterZoneExcel()">
-   📥 Exporter Excel
-  </button>
-  <button onclick="fermerPopupZone()" style="background-color:#f44336;color:white;">
-   Fermer
-  </button>
   <!-- Popup Zone -->
   <div id="popup-zone" style="display:none;position:fixed;top:10%;left:50%;transform:translateX(-50%);
  background:#fff;border:2px solid #4CAF50;padding:20px;z-index:9999;width:900px;max-height:70%;overflow:auto;">
@@ -5646,13 +5587,10 @@ document.getElementById("popup-semaine").style.display="none";
   </script>
  
 <script>
-// === CORRECTIONS AUTOMATIQUES ===
-// FIX: Liaison btn-export avec exporterTableauComplet (DOMContentLoaded)
+// Liaison unique btn-export → exporterTableauComplet
 document.addEventListener("DOMContentLoaded", function() {
-  var btnExport = document.getElementById("btn-export");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterTableauComplet);
-  }
+  var b = document.getElementById("btn-export");
+  if (b) b.onclick = exporterTableauComplet;
 });
 
 // FIX: Fonctions uniques déplacées hors de 
@@ -5725,12 +5663,6 @@ function exporterTableauParLocalisation() {
   // Export fichier final
   XLSX.writeFile(wb, "ingenierie.xlsx");
 }
-
-// Liaison btn-export → exporterTableauComplet (données filtrées affichées)
-document.addEventListener("DOMContentLoaded", function() {
-  var b = document.getElementById("btn-export");
-  if (b) b.onclick = exporterTableauComplet;
-});
 
 </script>
 
