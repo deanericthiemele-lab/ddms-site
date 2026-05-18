@@ -4269,10 +4269,33 @@ return;
     return;
   }
 
-  // Déterminer les mois à afficher selon le filtre de dates actif
+  // Déterminer les mois à afficher selon le filtre de dates
   const { debut, fin } = (typeof getPlageDate === 'function') ? getPlageDate() : { debut: null, fin: null };
-  const moisDebut = debut ? debut.getMonth() + 1 : 1;
-  const moisFin = fin ? fin.getMonth() + 1 : 11;
+  const filtreDateOn = debut || fin;
+
+  let moisAfficher; // liste des mois à inclure dans le graphe
+
+  if (!filtreDateOn) {
+    // Pas de filtre : toutes les paires Jan-Fév → Nov-Déc
+    moisAfficher = Array.from({length: 11}, (_, i) => i + 1); // [1..11]
+  } else {
+    // Avec filtre : les mois couverts par la plage
+    const m1 = debut ? debut.getMonth() + 1 : 1;
+    const m2 = fin   ? fin.getMonth()   + 1 : m1;
+    // Construire l'ensemble des mois dans la plage
+    const moisSet = new Set();
+    for (let m = m1; m <= m2; m++) moisSet.add(m);
+    // On veut les paires (mX, mX+1) où les deux mois sont dans la plage
+    // Si un seul mois sélectionné (ex Mai), on affiche la paire Avr-Mai et/ou Mai-Juin
+    moisAfficher = [];
+    for (let m = Math.max(1, m1 - 1); m <= Math.min(11, m2); m++) {
+      // Inclure la paire (m, m+1) si au moins un des deux est dans la plage
+      if (moisSet.has(m) || moisSet.has(m + 1)) {
+        moisAfficher.push(m);
+      }
+    }
+    if (moisAfficher.length === 0) moisAfficher = Array.from({length: 11}, (_, i) => i + 1);
+  }
 
   const labels = [];
   const dataTotalAll = [];
@@ -4280,14 +4303,10 @@ return;
   const dataVert = [];
   const dataNdTotal = [];
 
-  // N'itérer que sur les paires de mois dans la plage sélectionnée
-  for (let m1 = moisDebut; m1 <= Math.min(moisFin, 11); m1++) {
+  moisAfficher.forEach(m1 => {
     const m2 = m1 + 1;
-    if (m2 > moisFin && moisFin < 12) continue; // paire hors plage
     labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
-    let ndUnion = 0;
-    let totalTous = 0;
-    let totalRecurrent = 0;
+    let ndUnion = 0, totalTous = 0, totalRecurrent = 0;
     const ndSet = new Set();
 
     src.forEach(item => {
@@ -4295,38 +4314,14 @@ return;
       const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
       totalTous += a + b;
       if ((a + b) > 0) ndUnion++;
-      if (a > 0 && b > 0) {
-        totalRecurrent += a + b;
-        ndSet.add(item.nd);
-      }
+      if (a > 0 && b > 0) { totalRecurrent += a + b; ndSet.add(item.nd); }
     });
 
     dataTotalAll.push(totalTous);
     dataBleu.push(totalRecurrent);
     dataVert.push(ndSet.size);
     dataNdTotal.push(ndUnion);
-  }
-
-  // Si aucun filtre, afficher toutes les paires
-  if (labels.length === 0) {
-    for (let m1 = 1; m1 <= 11; m1++) {
-      const m2 = m1 + 1;
-      labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
-      let ndUnion = 0, totalTous = 0, totalRecurrent = 0;
-      const ndSet = new Set();
-      src.forEach(item => {
-        const a = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
-        const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
-        totalTous += a + b;
-        if ((a + b) > 0) ndUnion++;
-        if (a > 0 && b > 0) { totalRecurrent += a + b; ndSet.add(item.nd); }
-      });
-      dataTotalAll.push(totalTous);
-      dataBleu.push(totalRecurrent);
-      dataVert.push(ndSet.size);
-      dataNdTotal.push(ndUnion);
-    }
-  }
+  });
 
   const el = document.getElementById('graphique-nd-fusionne');
   if (!el) return;
