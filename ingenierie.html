@@ -3130,9 +3130,18 @@ function exporterIncidentsND2ParMois() {
   const ndTotal = {};
   const incidentsND2 = {};
 
+  // Déterminer les mois à afficher selon le filtre de dates actif
+  const { debut, fin } = (typeof getPlageDate === 'function') ? getPlageDate() : { debut: null, fin: null };
+  const moisDebut = debut ? debut.getMonth() + 1 : null;
+  const moisFin = fin ? fin.getMonth() + 1 : null;
+
   src.forEach(item => {
     Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
       const m = parseInt(mois);
+      // Si filtre date actif, ne garder que les mois dans la plage
+      if (moisDebut && moisFin && (m < moisDebut || m > moisFin)) return;
+      if (moisDebut && !moisFin && m < moisDebut) return;
+      if (!moisDebut && moisFin && m > moisFin) return;
       signalisations[m] = (signalisations[m] || 0) + nbIncidents;
       ndTotal[m] = (ndTotal[m] || 0) + (nbIncidents > 0 ? 1 : 0);
       if (nbIncidents >= 2) {
@@ -4260,17 +4269,23 @@ return;
     return;
   }
 
-  const labels = [];
-  const dataTotalAll = [];   // ORANGE: total incidents tous ND confondus (m1+m2)
-  const dataBleu = [];       // BLEU: volume incidents des ND présents sur 2 mois
-  const dataVert = [];       // VERT: ND distincts présents sur 2 mois
-  const dataNdTotal = [];    // VIOLET: ND ayant ≥1 incident sur la paire
+  // Déterminer les mois à afficher selon le filtre de dates actif
+  const { debut, fin } = (typeof getPlageDate === 'function') ? getPlageDate() : { debut: null, fin: null };
+  const moisDebut = debut ? debut.getMonth() + 1 : 1;
+  const moisFin = fin ? fin.getMonth() + 1 : 11;
 
-  for (let m1 = 1; m1 <= 11; m1++) {
+  const labels = [];
+  const dataTotalAll = [];
+  const dataBleu = [];
+  const dataVert = [];
+  const dataNdTotal = [];
+
+  // N'itérer que sur les paires de mois dans la plage sélectionnée
+  for (let m1 = moisDebut; m1 <= Math.min(moisFin, 11); m1++) {
     const m2 = m1 + 1;
+    if (m2 > moisFin && moisFin < 12) continue; // paire hors plage
     labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
     let ndUnion = 0;
-
     let totalTous = 0;
     let totalRecurrent = 0;
     const ndSet = new Set();
@@ -4278,12 +4293,11 @@ return;
     src.forEach(item => {
       const a = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
       const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
-
-      totalTous += a + b;               // ORANGE
-      if ((a + b) > 0) ndUnion++;     // VIOLET
+      totalTous += a + b;
+      if ((a + b) > 0) ndUnion++;
       if (a > 0 && b > 0) {
-        totalRecurrent += a + b;        // BLEU
-        ndSet.add(item.nd);             // VERT
+        totalRecurrent += a + b;
+        ndSet.add(item.nd);
       }
     });
 
@@ -4291,6 +4305,27 @@ return;
     dataBleu.push(totalRecurrent);
     dataVert.push(ndSet.size);
     dataNdTotal.push(ndUnion);
+  }
+
+  // Si aucun filtre, afficher toutes les paires
+  if (labels.length === 0) {
+    for (let m1 = 1; m1 <= 11; m1++) {
+      const m2 = m1 + 1;
+      labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
+      let ndUnion = 0, totalTous = 0, totalRecurrent = 0;
+      const ndSet = new Set();
+      src.forEach(item => {
+        const a = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
+        const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
+        totalTous += a + b;
+        if ((a + b) > 0) ndUnion++;
+        if (a > 0 && b > 0) { totalRecurrent += a + b; ndSet.add(item.nd); }
+      });
+      dataTotalAll.push(totalTous);
+      dataBleu.push(totalRecurrent);
+      dataVert.push(ndSet.size);
+      dataNdTotal.push(ndUnion);
+    }
   }
 
   const el = document.getElementById('graphique-nd-fusionne');
