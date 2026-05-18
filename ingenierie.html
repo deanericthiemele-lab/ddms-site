@@ -5607,7 +5607,41 @@ function exporterTableauParLocalisation() {
 <script>
 // Alias export Excel pour ✅ ND concernés (P1 - 2 derniers mois)
 function exporterNDsDeuxMoisExcel() {
-  exporterNDsDeuxMois();
+  if (!tableauActuel || !tableauActuel.length) return;
+
+  const aujourdHui = new Date();
+  const moisActuel = aujourdHui.getMonth() + 1;
+
+  const ndAnnuel = tableauActuel.filter(item => {
+    let total = 0;
+    for (let i = 1; i <= moisActuel; i++) total += item.mois[i] || 0;
+    return total >= 7;
+  });
+
+  if (!ndAnnuel.length) { alert("Aucun ND trouvé avec ≥7 incidents YTD."); return; }
+
+  const rows = ndAnnuel.map(item => {
+    const totalYTD = Object.entries(item.mois)
+      .filter(([m]) => parseInt(m) <= moisActuel)
+      .reduce((s, [, v]) => s + (v || 0), 0);
+    const evaluation = totalYTD >= 13 ? "Critique" : "Instable";
+    const row = {
+      "ND": item.nd || "",
+      "Raison Sociale": item.raisonSociale || "",
+      "Localisation": item.localisation || "",
+      "Total YTD": totalYTD,
+      "Évaluation": evaluation
+    };
+    for (let m = 1; m <= moisActuel; m++) {
+      row[moisNoms[m]] = item.mois[m] || 0;
+    }
+    return row;
+  }).sort((a, b) => b["Total YTD"] - a["Total YTD"]);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, "ND_Annuel_P3");
+  XLSX.writeFile(wb, "ND_Incidents_Annuel_P3.xlsx");
 }
 </script>
 
