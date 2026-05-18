@@ -209,6 +209,29 @@ function loadSupportIP(data){
 <tbody></tbody>
 </table>
 </div>
+<!-- POPUP DETAIL CLIENT -->
+<div id="popupClientDetail" style="display:none; position:fixed; top:5%; left:3%; width:94%; height:90%; background:#fff; border:2px solid #444; border-radius:8px; padding:12px; overflow:auto; z-index:2000; box-shadow:0 4px 24px rgba(0,0,0,0.2);">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+    <h2 id="clientDetailTitle" style="margin:0; font-size:16px;"></h2>
+    <button onclick="document.getElementById('popupClientDetail').style.display='none'" style="font-size:22px; background:none; border:none; cursor:pointer; line-height:1;">✖</button>
+  </div>
+  <input id="clientDetailSearch" placeholder="Rechercher..." onkeyup="filterClientDetail()" style="padding:6px; width:100%; margin-bottom:8px; border:1px solid #aaa; border-radius:6px; font-size:13px; box-sizing:border-box;">
+  <div style="overflow-x:auto;">
+    <table id="tableClientDetail" style="border-collapse:collapse; width:100%; font-size:12px;">
+      <thead>
+        <tr style="background:#f5f5f5;">
+          <th style="border:1px solid #ccc; padding:6px;">ID DOSSIER</th>
+          <th style="border:1px solid #ccc; padding:6px;">DATE CRÉATION</th>
+          <th style="border:1px solid #ccc; padding:6px;">DURÉE (j)</th>
+          <th style="border:1px solid #ccc; padding:6px;">ETAPE</th>
+          <th style="border:1px solid #ccc; padding:6px;">ADR. GEO</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
 <div id="ageTables"></div>
 <script>
   let allData = [];
@@ -289,9 +312,47 @@ function loadSupportIP(data){
     });
   }
 
+  // Stockage global des dossiers par client pour le popup
+  let clientDossiers = {};
+
+  function openClientDetail(clientName, filter) {
+    // filter: "all" | "delai" | "hors"
+    const dossiers = clientDossiers[clientName] || [];
+    let filtered = dossiers;
+    if (filter === "delai") filtered = dossiers.filter(d => d.diffDays <= 30);
+    else if (filter === "hors") filtered = dossiers.filter(d => d.diffDays > 30);
+
+    const labels = { all: "Tous", delai: "Dans les délais", hors: "Hors délais" };
+    document.getElementById("clientDetailTitle").innerText =
+      `${clientName} — ${labels[filter]} (${filtered.length} dossier${filtered.length>1?"s":""})`;
+
+    const tbody = document.querySelector("#tableClientDetail tbody");
+    tbody.innerHTML = filtered.map(d => {
+      const color = d.diffDays > 30 ? "#ffe5e5" : d.diffDays > 20 ? "#fff8e1" : "#e8f5e9";
+      return `<tr style="background:${color}">
+        <td style="border:1px solid #ccc; padding:5px; white-space:nowrap;">${d.id}</td>
+        <td style="border:1px solid #ccc; padding:5px; white-space:nowrap;">${d.dateStr}</td>
+        <td style="border:1px solid #ccc; padding:5px; text-align:center; font-weight:bold;">${d.diffDays}</td>
+        <td style="border:1px solid #ccc; padding:5px;">${d.etape}</td>
+        <td style="border:1px solid #ccc; padding:5px;">${d.adr}</td>
+      </tr>`;
+    }).join("");
+
+    document.getElementById("clientDetailSearch").value = "";
+    document.getElementById("popupClientDetail").style.display = "block";
+  }
+
+  function filterClientDetail() {
+    const v = document.getElementById("clientDetailSearch").value.toLowerCase();
+    document.querySelectorAll("#tableClientDetail tbody tr").forEach(tr => {
+      tr.style.display = tr.innerText.toLowerCase().includes(v) ? "" : "none";
+    });
+  }
+
   function loadClients(data) {
   totalDossiers = data.length;
   const clientStats = {};
+  clientDossiers = {};
   let pipeLS = 0, pipeLSI = 0, pipeNum = 0;
 
   data.forEach(item => {
@@ -314,15 +375,43 @@ function loadSupportIP(data){
     clientStats[client].total++;
     if (diffDays <= 30) clientStats[client].delai++;
     else clientStats[client].hors++;
+
+    // Stocker le dossier pour le popup
+    if (!clientDossiers[client]) clientDossiers[client] = [];
+    clientDossiers[client].push({
+      id: item["ID DOSSIER"] || "",
+      dateStr: formattedDate,
+      diffDays: diffDays,
+      etape: item["ETAPE"] || "",
+      adr: item["ADR. GEO"] || ""
+    });
   });
+
+  // Trier les dossiers de chaque client par durée décroissante
+  Object.keys(clientDossiers).forEach(c => {
+    clientDossiers[c].sort((a,b) => b.diffDays - a.diffDays);
+  });
+
+  const cellStyle = `style="border:1px solid #ccc; padding:6px; cursor:pointer;"`;
+  const clickableStyle = `style="border:1px solid #ccc; padding:6px; cursor:pointer; color:#0066cc; text-decoration:underline; font-weight:bold;"`;
 
   const sorted = Object.entries(clientStats).sort((a,b) => b[1].total - a[1].total);
   const top20 = sorted.filter(([client]) => top20List.includes(client));
   const others = sorted.filter(([client]) => !top20List.includes(client));
   document.querySelector("#clientTop20 tbody").innerHTML =
-    top20.map(([c,s]) => `<tr><td>${c}</td><td>${s.total}</td><td>${s.delai}</td><td>${s.hors}</td></tr>`).join("");
+    top20.map(([c,s]) => `<tr>
+      <td ${clickableStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','all')">${c}</td>
+      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','all')">${s.total}</td>
+      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','delai')">${s.delai}</td>
+      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','hors')">${s.hors}</td>
+    </tr>`).join("");
   document.querySelector("#clientOthers tbody").innerHTML =
-    others.map(([c,s]) => `<tr><td>${c}</td><td>${s.total}</td><td>${s.delai}</td><td>${s.hors}</td></tr>`).join("");
+    others.map(([c,s]) => `<tr>
+      <td ${clickableStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','all')">${c}</td>
+      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','all')">${s.total}</td>
+      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','delai')">${s.delai}</td>
+      <td ${cellStyle} onclick="openClientDetail('${c.replace(/'/g,"\\'")}','hors')">${s.hors}</td>
+    </tr>`).join("");
   document.getElementById("clientTop20Title").innerText = `Top 20 Clients (${top20.length} ‒ ${pct(top20.reduce((sum, [c,s])=>sum+s.total,0))}%)`;
   document.getElementById("clientOthersTitle").innerText = `Autres Clients (${others.length} ‒ ${pct(others.reduce((sum, [c,s])=>sum+s.total,0))}%)`;
   const totalClients = sorted.length;
