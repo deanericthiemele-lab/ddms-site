@@ -66,19 +66,43 @@ border:none;
 
 
 
-<h1 id="globalCounters">Nombre total de dossiers : 0 | Nombre total de clients : 0</h1>
-<div class="title-row">
-<h2 id="abonCounters" style="background:#fff; color:#000; padding:5px; border-radius:6px; font-size:15px; margin:5px 0; border:1px solid #ccc;">
-    
-  </h2>
-
-</div>
-<div class="title-row">
-<h2 id="abonCountersNoSusp" style="background:#fff; color:#000; padding:5px; border-radius:6px; 
-             font-size:15px; margin:5px 0; border:1px solid #ccc;">
-    
-  </h2>
-
+<div style="margin:8px 0;">
+  <table id="abonTable" style="border-collapse:collapse; font-size:13px; width:100%; max-width:500px; border:1px solid #ccc; border-radius:6px; overflow:hidden;">
+    <thead>
+      <tr style="background:#f5f5f5; font-weight:bold; text-align:center;">
+        <th style="border:1px solid #ccc; padding:6px 10px; text-align:left;">Catégorie</th>
+        <th style="border:1px solid #ccc; padding:6px 10px;">Total</th>
+        <th style="border:1px solid #ccc; padding:6px 10px;">Suspendus</th>
+        <th style="border:1px solid #ccc; padding:6px 10px;">Actifs</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="border:1px solid #ccc; padding:5px 10px;">Pipe LS</td>
+        <td id="ct_ls_total"  style="border:1px solid #ccc; padding:5px; text-align:center;">0</td>
+        <td id="ct_ls_susp"   style="border:1px solid #ccc; padding:5px; text-align:center; color:#c00;">0</td>
+        <td id="ct_ls_actif"  style="border:1px solid #ccc; padding:5px; text-align:center; color:#080;">0</td>
+      </tr>
+      <tr>
+        <td style="border:1px solid #ccc; padding:5px 10px;">Pipe LSI</td>
+        <td id="ct_lsi_total" style="border:1px solid #ccc; padding:5px; text-align:center;">0</td>
+        <td id="ct_lsi_susp"  style="border:1px solid #ccc; padding:5px; text-align:center; color:#c00;">0</td>
+        <td id="ct_lsi_actif" style="border:1px solid #ccc; padding:5px; text-align:center; color:#080;">0</td>
+      </tr>
+      <tr>
+        <td style="border:1px solid #ccc; padding:5px 10px;">Pipe numérique</td>
+        <td id="ct_num_total" style="border:1px solid #ccc; padding:5px; text-align:center;">0</td>
+        <td id="ct_num_susp"  style="border:1px solid #ccc; padding:5px; text-align:center; color:#c00;">0</td>
+        <td id="ct_num_actif" style="border:1px solid #ccc; padding:5px; text-align:center; color:#080;">0</td>
+      </tr>
+      <tr style="background:#f5f5f5; font-weight:bold;">
+        <td style="border:1px solid #ccc; padding:5px 10px;">TOTAL</td>
+        <td id="ct_tot_total" style="border:1px solid #ccc; padding:5px; text-align:center;">0</td>
+        <td id="ct_tot_susp"  style="border:1px solid #ccc; padding:5px; text-align:center; color:#c00;">0</td>
+        <td id="ct_tot_actif" style="border:1px solid #ccc; padding:5px; text-align:center; color:#080;">0</td>
+      </tr>
+    </tbody>
+  </table>
 </div>
 <div style="margin:10px 0; display:flex; gap:10px; flex-wrap:wrap;">
 
@@ -350,37 +374,49 @@ function loadSupportIP(data){
   totalDossiers = data.length;
   const clientStats = {};
   clientDossiers = {};
-  let pipeLS = 0, pipeLSI = 0, pipeNum = 0;
+
+  // Compteurs par catégorie : total / suspendus
+  const pipes = {
+    ls:  { total:0, susp:0 },
+    lsi: { total:0, susp:0 },
+    num: { total:0, susp:0 }
+  };
 
   data.forEach(item => {
     const client = normalizeClient(item["CLIENT"]);
     if (!client) return;
 
-    // Compteurs abonnements
-    const abo = (item["TYPE ABONNEMENT"] || "").toUpperCase();
-    if (abo.includes("LSI")) pipeLSI++;
-    else if (abo.includes("NUM")) pipeNum++;
-    else if (abo.includes("LS")) pipeLS++;
+    const abo  = (item["TYPE ABONNEMENT"] || "").toUpperCase();
+    const susp = (item["ETAPE"] || "").toUpperCase().includes("SUSPENDU");
 
-    const creationVal = item["DATE CREATION DOSSIER"];
+    let cat = null;
+    if (abo.includes("LSI"))       cat = "lsi";
+    else if (abo.includes("NUM"))  cat = "num";
+    else if (abo.includes("LS"))   cat = "ls";
+
+    if (cat) {
+      pipes[cat].total++;
+      if (susp) pipes[cat].susp++;
+    }
+
+    const creationVal   = item["DATE CREATION DOSSIER"];
     const formattedDate = formatDate(creationVal);
     if (!formattedDate) return;
     const creationDate = new Date(formattedDate.split("/").reverse().join("-"));
-    const diffDays = Math.floor((today - creationDate) / (1000 * 60 * 60 * 24));
+    const diffDays     = Math.floor((today - creationDate) / (1000 * 60 * 60 * 24));
 
     if (!clientStats[client]) clientStats[client] = { total:0, delai:0, hors:0 };
     clientStats[client].total++;
     if (diffDays <= 30) clientStats[client].delai++;
     else clientStats[client].hors++;
 
-    // Stocker le dossier pour le popup
     if (!clientDossiers[client]) clientDossiers[client] = [];
     clientDossiers[client].push({
       id: item["ID DOSSIER"] || "",
       dateStr: formattedDate,
-      diffDays: diffDays,
+      diffDays,
       etape: item["ETAPE"] || "",
-      adr: item["ADR. GEO"] || ""
+      adr:   item["ADR. GEO"] || ""
     });
   });
 
@@ -388,6 +424,19 @@ function loadSupportIP(data){
   Object.keys(clientDossiers).forEach(c => {
     clientDossiers[c].sort((a,b) => b.diffDays - a.diffDays);
   });
+
+  // Remplir le tableau des sous-totaux
+  ["ls","lsi","num"].forEach(cat => {
+    const actif = pipes[cat].total - pipes[cat].susp;
+    document.getElementById(`ct_${cat}_total`).innerText = pipes[cat].total;
+    document.getElementById(`ct_${cat}_susp`).innerText  = pipes[cat].susp;
+    document.getElementById(`ct_${cat}_actif`).innerText = actif;
+  });
+  const totTotal = pipes.ls.total + pipes.lsi.total + pipes.num.total;
+  const totSusp  = pipes.ls.susp  + pipes.lsi.susp  + pipes.num.susp;
+  document.getElementById("ct_tot_total").innerText = totTotal;
+  document.getElementById("ct_tot_susp").innerText  = totSusp;
+  document.getElementById("ct_tot_actif").innerText = totTotal - totSusp;
 
   const sorted = Object.entries(clientStats).sort((a,b) => b[1].total - a[1].total);
   const top20 = sorted.filter(([client]) => top20List.includes(client));
@@ -412,25 +461,6 @@ function loadSupportIP(data){
 
   document.getElementById("globalCounters").innerText =
     `Nombre total de dossiers : ${data.length} | Nombre total de clients : ${totalClients}`;
-  document.getElementById("abonCounters").innerText =
-    `Pipe LS = ${pipeLS} | Pipe LSI = ${pipeLSI} | Pipe numérique = ${pipeNum}`;
-  
-      `Nombre total de dossiers : ${data.length} | Nombre total de clients : ${totalClients}`;
-
-  // Compteurs hors suspendus
-  let pipeLS_ns = 0, pipeLSI_ns = 0, pipeNum_ns = 0;
-  data.forEach(item => {
-    const etape = (item["ETAPE"] || "").toUpperCase();
-    if(etape.includes("SUSPENDU")) return; // ignorer suspendus
-
-    const abo = (item["TYPE ABONNEMENT"] || "").toUpperCase();
-    if (abo.includes("LSI")) pipeLSI_ns++;
-    else if (abo.includes("NUM")) pipeNum_ns++;
-    else if (abo.includes("LS")) pipeLS_ns++;
-  });
-
-  document.getElementById("abonCountersNoSusp").innerText =
-    `Pipe LS = ${pipeLS_ns} | Pipe LSI = ${pipeLSI_ns} | Pipe numérique = ${pipeNum_ns} (hors suspendus)`;
 
   }
 
