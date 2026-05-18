@@ -44,6 +44,27 @@
     <span id="meta" class="status"></span>
   </div>
 
+  <!-- Ancienneté des dossiers -->
+  <div class="card" id="dureeCard">
+    <h2 style="font-size:15px;margin:0 0 10px;display:flex;align-items:center;gap:8px;">
+      ⏱️ Ancienneté des dossiers
+      <span id="duree-badge" style="font-size:11px;font-weight:400;color:#6b7280;background:#f3f4f6;border-radius:20px;padding:2px 10px;"></span>
+    </h2>
+    <div id="duree-bars" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;"></div>
+    <div id="duree-pills" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+
+  <!-- Popup détail ancienneté -->
+  <div id="popup-duree" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:flex-start;overflow-y:auto;">
+    <div style="background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,0.2);width:96%;max-width:1100px;margin:32px auto 40px;display:flex;flex-direction:column;overflow:hidden;">
+      <div id="popup-duree-header" style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <span id="popup-duree-title" style="color:white;font-size:15px;font-weight:700;"></span>
+        <button id="popup-duree-close" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:28px;height:28px;font-size:15px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div id="popup-duree-body" style="overflow:auto;max-height:78vh;"></div>
+    </div>
+  </div>
+
   <!-- Top 20 clients AVANT le tableau principal -->
   <div class="card" id="top20Card">
     <h2 style="font-size:16px;margin:0 0 8px;">🏆 Top 20 Clients (normalisés)</h2>
@@ -272,6 +293,7 @@
         buildTable(headers, json);
         computeVolumes(json, headers);
         buildTop20(json, headers);
+        buildDuree(json);
         setMeta(''); // masqué
         els.searchInput.value = '';
       } catch (err) {
@@ -282,6 +304,156 @@
     async function fetchAsArrayBuffer(url) {
       const res = await fetch(url); if (!res.ok) throw new Error('HTTP ' + res.status); return await res.arrayBuffer();
     }
+
+
+    // ── ANCIENNETÉ DES DOSSIERS ─────────────────────────────────
+    const TRANCHES = [
+      { label: '< 7 jours',   min: 0,   max: 6,           color: '#22c55e', bg: '#f0fdf4' },
+      { label: '7 – 15 j',    min: 7,   max: 15,          color: '#84cc16', bg: '#f7fee7' },
+      { label: '15 – 30 j',   min: 16,  max: 30,          color: '#f59e0b', bg: '#fffbeb' },
+      { label: '30 – 60 j',   min: 31,  max: 60,          color: '#f97316', bg: '#fff7ed' },
+      { label: '60 – 90 j',   min: 61,  max: 90,          color: '#ef4444', bg: '#fef2f2' },
+      { label: '> 90 jours',  min: 91,  max: Infinity,    color: '#7f1d1d', bg: '#fef2f2' },
+    ];
+
+    function getDaysOld(row) {
+      const val = row['DATE CREATION DOSSIER'];
+      if (!val) return null;
+      const d = toDate(val);
+      if (!d || d.getTime() === 0) return null;
+      return Math.floor((Date.now() - d.getTime()) / 86400000);
+    }
+
+    function buildDuree(rows) {
+      const buckets = TRANCHES.map(t => ({ ...t, rows: [] }));
+      let withDate = 0;
+      rows.forEach(r => {
+        const age = getDaysOld(r);
+        if (age === null) return;
+        withDate++;
+        for (const b of buckets) {
+          if (age >= b.min && age <= b.max) { b.rows.push({ ...r, _age: age }); break; }
+        }
+      });
+
+      const barsEl  = document.getElementById('duree-bars');
+      const pillsEl = document.getElementById('duree-pills');
+      const badgeEl = document.getElementById('duree-badge');
+      if (!barsEl) return;
+
+      badgeEl.textContent = withDate + ' dossiers datés';
+      barsEl.innerHTML = ''; pillsEl.innerHTML = '';
+      const maxCount = Math.max(...buckets.map(b => b.rows.length), 1);
+
+      buckets.forEach(b => {
+        const n = b.rows.length;
+        const pct = withDate > 0 ? Math.round((n / withDate) * 100) : 0;
+        const h = Math.round((n / maxCount) * 90) + 16;
+
+        // ── Colonne barre ──
+        const col = document.createElement('div');
+        col.style.cssText = 'flex:1;min-width:70px;text-align:center;cursor:pointer;';
+        col.title = b.label + ' : ' + n + ' dossiers (' + pct + '%)';
+
+        const num = document.createElement('div');
+        num.style.cssText = 'font-size:20px;font-weight:800;color:' + b.color + ';margin-bottom:4px;';
+        num.textContent = n;
+
+        const bar = document.createElement('div');
+        bar.style.cssText = 'height:' + h + 'px;background:' + b.color + ';border-radius:8px 8px 0 0;opacity:0.8;transition:opacity .15s;';
+        bar.onmouseover = function(){ this.style.opacity='1'; };
+        bar.onmouseout  = function(){ this.style.opacity='0.8'; };
+
+        const lbl = document.createElement('div');
+        lbl.style.cssText = 'font-size:11px;color:#6b7280;margin-top:5px;font-weight:600;';
+        lbl.textContent = b.label;
+
+        col.appendChild(num); col.appendChild(bar); col.appendChild(lbl);
+        if (n > 0) col.addEventListener('click', () => openDureePopup(b));
+        else col.style.cursor = 'default';
+        barsEl.appendChild(col);
+
+        // ── Pill ──
+        const pill = document.createElement('span');
+        pill.style.cssText = 'padding:5px 14px;border-radius:999px;font-size:12px;font-weight:600;'
+          + 'border:2px solid ' + b.color + ';color:' + b.color + ';background:' + b.bg + ';white-space:nowrap;'
+          + (n > 0 ? 'cursor:pointer;' : 'opacity:0.4;cursor:default;');
+        pill.textContent = b.label + '  ' + n + ' (' + pct + '%)';
+        if (n > 0) pill.addEventListener('click', () => openDureePopup(b));
+        pillsEl.appendChild(pill);
+      });
+    }
+
+    function openDureePopup(bucket) {
+      const rows = [...bucket.rows].sort((a, b) => b._age - a._age);
+      const header = document.getElementById('popup-duree-header');
+      const title  = document.getElementById('popup-duree-title');
+      const body   = document.getElementById('popup-duree-body');
+
+      header.style.cssText = 'padding:14px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,' + bucket.color + ',#1e293b);';
+      title.textContent = '⏱️ ' + bucket.label + ' — ' + rows.length + ' dossier' + (rows.length > 1 ? 's' : '');
+
+      const cols = state.headers;
+      const tbl = document.createElement('table');
+      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      hr.style.cssText = 'background:#f3f4f6;position:sticky;top:0;z-index:1;';
+
+      const thAge = document.createElement('th');
+      thAge.style.cssText = 'padding:8px 10px;text-align:center;border-bottom:2px solid #e5e7eb;white-space:nowrap;font-size:12px;';
+      thAge.textContent = 'Âge (j)';
+      hr.appendChild(thAge);
+      cols.forEach(h => {
+        const th = document.createElement('th');
+        th.style.cssText = 'padding:8px 8px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;font-size:12px;color:#374151;';
+        th.textContent = h; hr.appendChild(th);
+      });
+      thead.appendChild(hr); tbl.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      rows.forEach((r, i) => {
+        const tr = document.createElement('tr');
+        tr.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
+
+        const tdAge = document.createElement('td');
+        tdAge.style.cssText = 'padding:6px 10px;text-align:center;border-bottom:1px dashed #e5e7eb;';
+        const badge = document.createElement('span');
+        badge.style.cssText = 'background:' + bucket.color + ';color:white;padding:2px 8px;border-radius:999px;font-weight:700;font-size:11px;';
+        badge.textContent = r._age + 'j';
+        tdAge.appendChild(badge); tr.appendChild(tdAge);
+
+        cols.forEach(h => {
+          const td = document.createElement('td');
+          td.style.cssText = 'padding:6px 8px;border-bottom:1px dashed #e5e7eb;white-space:nowrap;';
+          let v = r[h]; if (v == null) v = '';
+          if (h === 'DATE CREATION DOSSIER' && v) {
+            const d = toDate(v);
+            if (d && d.getTime() !== 0) {
+              td.style.fontWeight = '700'; td.style.color = bucket.color;
+              v = d.toLocaleDateString('fr-FR');
+            }
+          }
+          td.textContent = String(v); tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      body.innerHTML = ''; body.appendChild(tbl);
+      document.getElementById('popup-duree').style.display = 'flex';
+    }
+
+    // Close popup
+    document.addEventListener('DOMContentLoaded', function() {
+      const closeBtn = document.getElementById('popup-duree-close');
+      if (closeBtn) closeBtn.addEventListener('click', function() {
+        document.getElementById('popup-duree').style.display = 'none';
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') document.getElementById('popup-duree').style.display = 'none';
+      });
+    });
 
     (async () => {
       try {
