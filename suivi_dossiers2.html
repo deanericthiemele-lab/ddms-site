@@ -173,7 +173,7 @@ function loadSupportIP(data){
 <div class="table-container">
 <table id="clientTop20">
 <thead>
-<tr><th>CLIENT</th><th>TOTAL</th><th style="background:#e8f5e9;">🟢 DANS LES DÉLAIS (≤30j)</th><th style="background:#ffe5e5;">🔴 HORS DÉLAIS (&gt;30j)</th></tr>
+<tr><th>CLIENT</th><th>TOTAL</th><th>DANS LES DÉLAIS</th><th>HORS DÉLAIS</th></tr>
 </thead>
 <tbody></tbody>
 </table>
@@ -184,7 +184,7 @@ function loadSupportIP(data){
 <div class="table-container">
 <table id="clientOthers">
 <thead>
-<tr><th>CLIENT</th><th>TOTAL</th><th style="background:#e8f5e9;">🟢 DANS LES DÉLAIS (≤30j)</th><th style="background:#ffe5e5;">🔴 HORS DÉLAIS (&gt;30j)</th></tr>
+<tr><th>CLIENT</th><th>TOTAL</th><th>DANS LES DÉLAIS</th><th>HORS DÉLAIS</th></tr>
 </thead>
 <tbody></tbody>
 </table>
@@ -388,22 +388,18 @@ function loadSupportIP(data){
     clientDossiers[c].sort((a,b) => b.diffDays - a.diffDays);
   });
 
-  const cellBase = `border:1px solid #ccc; padding:6px; cursor:pointer;`;
-  const clickableStyle = `style="${cellBase} color:#0066cc; text-decoration:underline; font-weight:bold;"`;
-
   const sorted = Object.entries(clientStats).sort((a,b) => b[1].total - a[1].total);
   const top20 = sorted.filter(([client]) => top20List.includes(client));
   const others = sorted.filter(([client]) => !top20List.includes(client));
 
   function buildClientRow([c, s]) {
     const ce = c.replace(/'/g, "\\'");
-    // couleur de la ligne selon proportion hors délais
-    const rowBg = s.hors === 0 ? "#e8f5e9" : s.delai === 0 ? "#ffe5e5" : "#fff";
-    return `<tr style="background:${rowBg}">
-      <td ${clickableStyle} onclick="openClientDetail('${ce}','all')">${c}</td>
-      <td style="${cellBase}" onclick="openClientDetail('${ce}','all')">${s.total}</td>
-      <td style="${cellBase} background:#e8f5e9;" onclick="openClientDetail('${ce}','delai')">${s.delai}</td>
-      <td style="${cellBase} background:#ffe5e5;" onclick="openClientDetail('${ce}','hors')">${s.hors}</td>
+    const link = `style="cursor:pointer; color:#0066cc; text-decoration:underline;"`;
+    return `<tr>
+      <td onclick="openClientDetail('${ce}','all')" ${link}>${c}</td>
+      <td onclick="openClientDetail('${ce}','all')" ${link}>${s.total}</td>
+      <td onclick="openClientDetail('${ce}','delai')" ${link}>${s.delai}</td>
+      <td onclick="openClientDetail('${ce}','hors')" ${link}>${s.hors}</td>
     </tr>`;
   }
 
@@ -477,6 +473,9 @@ function loadSupportIP(data){
   }
 
   function loadAgeTables(data) {
+    // Colonnes avec CLIENT en premier
+    const ageHeaders = ["CLIENT", ...headers.filter(h => h !== "CLIENT")];
+
     const groups = {};
     ageGroupsDef.forEach(g => groups[g.key] = []);
     data.forEach(item => {
@@ -488,7 +487,7 @@ function loadSupportIP(data){
       const group = ageGroupsDef.find(g => g.test(diffDays));
       if (!group) return;
       let row = `<tr style="background:${group.color}">`;
-      headers.forEach(h => {
+      ageHeaders.forEach(h => {
         let val = item[h] || "";
         if (h.includes("DATE")) val = formatDate(val);
         row += `<td>${val}</td>`;
@@ -497,8 +496,11 @@ function loadSupportIP(data){
       groups[group.key].push({ html: row, date: creationDate });
     });
     ageGroupsDef.forEach(g => {
-      const tbody = document.querySelector(`#table-${g.key.replace(/[^A-Z0-9]/gi,'')} tbody`);
-      if (!tbody) return;
+      const table = document.querySelector(`#table-${g.key.replace(/[^A-Z0-9]/gi,'')}`);
+      if (!table) return;
+      // Mettre à jour le thead avec CLIENT en premier
+      table.querySelector("thead tr").innerHTML = ageHeaders.map(h => `<th>${h}</th>`).join("");
+      const tbody = table.querySelector("tbody");
       const rows = groups[g.key].sort((a,b) => b.date - a.date);
       tbody.innerHTML = rows.map(r => r.html).join("");
       document.getElementById(`title-${g.key.replace(/[^A-Z0-9]/gi,'')}`).innerText =
