@@ -10,7 +10,7 @@
     table { border-collapse: collapse; width: 100%; margin-top: 10px; }
     th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
     th { background: #f2f2f2; }
-    #search { margin: 10px 0; padding: 6px; width: 25%; }
+    #search { margin: 0; padding: 6px; }
     .kpi { display: inline-block; margin: 5px; padding: 10px; border: 1px solid #ddd; border-radius: 8px; background: #fafafa; cursor:pointer; }
     .popup { display: none; position: fixed; top: 10%; left: 10%; width: 80%; height: 80%; background: white; border: 2px solid #333; overflow: auto; padding: 10px; z-index:1000; }
     .popup table { width: 100%; }
@@ -31,7 +31,7 @@
 <body>
 <h1>📄 Résiliations</h1>
 <a href="index.html"><button>Retour</button></a>
-<input id="search" placeholder="Recherche dynamique..." type="text"/>
+<div style="display:flex;align-items:center;gap:8px;margin:10px 0;"><input id="search" placeholder="Recherche dynamique..." type="text" style="padding:6px;width:300px;"/><button onclick="window.ouvrirSummaryResi()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;border-radius:10px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">📋 Summary</button></div>
 <h2>KPI Produits (2023-2024-2026)</h2>
 <div id="kpis"></div>
 <h2>KPI Produits 2026</h2>
@@ -115,6 +115,7 @@ async function chargerExcel() {
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   dataGlobal = XLSX.utils.sheet_to_json(sheet);
   dataFiltre = dataGlobal;
+  window._resiDataReady = true;
 
   mettreAJourAffichage();
 
@@ -442,6 +443,449 @@ mettreAJourAffichage = function() {
   afficherTableauParMotif(totalFormate);
 }
 </script>
+
+
+<!-- ===== POPUP SUMMARY RÉSILIATIONS ===== -->
+<div id="popup-resi-summary" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);z-index:9999;justify-content:center;align-items:flex-start;overflow:auto;">
+  <div style="background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,0.25);width:96%;max-width:1150px;margin:28px auto 40px;display:flex;flex-direction:column;">
+    <div style="background:linear-gradient(135deg,#7c3aed,#5b21b6);padding:16px 24px;border-radius:16px 16px 0 0;display:flex;align-items:center;justify-content:space-between;">
+      <span style="color:white;font-size:19px;font-weight:800;">📋 Summary — Analyse des Résiliations</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span id="resi-summary-badge" style="background:white;color:#7c3aed;padding:4px 14px;border-radius:20px;font-weight:bold;font-size:13px;">—</span>
+        <button onclick="document.getElementById('popup-resi-summary').style.display='none';document.getElementById('popup-resi-detail').style.display='none';" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:30px;height:30px;font-size:16px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+    </div>
+    <div id="resi-summary-body" style="padding:22px 26px;background:#f5f3ff;overflow:auto;max-height:84vh;border-radius:0 0 16px 16px;"></div>
+  </div>
+</div>
+
+<!-- ===== SOUS-POPUP DÉTAIL ===== -->
+<div id="popup-resi-detail" style="display:none;position:fixed;top:4%;left:50%;transform:translateX(-50%);width:88%;max-width:1000px;max-height:88vh;background:white;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,0.4);z-index:10000;flex-direction:column;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#7c3aed,#5b21b6);padding:12px 18px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+    <span id="resi-detail-title" style="color:white;font-weight:bold;font-size:14px;"></span>
+    <button id="close-resi-detail" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:26px;height:26px;font-size:13px;cursor:pointer;line-height:1;">✕</button>
+  </div>
+  <div id="resi-detail-body" style="overflow:auto;flex:1;padding:0;"></div>
+</div>
+
+<script>
+(function() {
+  document.getElementById('close-resi-detail').addEventListener('click', function() {
+    document.getElementById('popup-resi-detail').style.display = 'none';
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      document.getElementById('popup-resi-summary').style.display = 'none';
+      document.getElementById('popup-resi-detail').style.display = 'none';
+    }
+  });
+
+  window.ouvrirSummaryResi = function() {
+    var data = (dataFiltre && dataFiltre.length) ? dataFiltre
+             : (dataGlobal && dataGlobal.length) ? dataGlobal
+             : null;
+    if (!data || !data.length) {
+      // Proposer de charger le fichier manuellement
+      document.getElementById('resi-load-overlay').style.display = 'flex';
+      return;
+    }
+    construireSummaryResi(data);
+    document.getElementById('popup-resi-summary').style.display = 'flex';
+  };
+
+  // Chargement manuel du fichier si fetch échoue (mode file://)
+  document.getElementById('resi-file-input').addEventListener('change', function(e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        var wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array' });
+        var sheet = wb.Sheets[wb.SheetNames[0]];
+        dataGlobal = XLSX.utils.sheet_to_json(sheet);
+        dataFiltre = dataGlobal;
+        document.getElementById('resi-load-overlay').style.display = 'none';
+        construireSummaryResi(dataGlobal);
+        document.getElementById('popup-resi-summary').style.display = 'flex';
+      } catch(err) {
+        alert('Erreur de lecture : ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+
+  // ── Utilitaires ────────────────────────────────────────────────
+  function getDate(val) {
+    if (!val) return null;
+    if (val instanceof Date && !isNaN(val)) return val;
+    if (typeof val === 'number') {
+      var d = new Date(new Date(1899,11,30).getTime() + val*86400000);
+      return isNaN(d) ? null : d;
+    }
+    var s = String(val);
+    var m = s.match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+    if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+    var d2 = new Date(s);
+    return isNaN(d2) ? null : d2;
+  }
+
+  var MOIS_FR = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+  var MOIS_LONG = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+  function fmt(n) { return Number(n).toLocaleString('fr-FR'); }
+
+  function normClient(s) {
+    if (!s) return '';
+    s = String(s).toUpperCase().trim();
+    if (/MUGEF|MUTUELLE G/.test(s)) return 'MUGEF CI (groupe)';
+    if (/CANAL\+|CANAL PLUS/.test(s)) return 'CANAL+';
+    if (/UCP SANTE|UNITE DE COORD/.test(s)) return 'UCP SANTÉ BM';
+    if (/STE DICK JOEL/.test(s)) return 'STE DICK JOEL';
+    if (/AMBASSADE.*ETATS|AMBASSADE.*USA/.test(s)) return 'AMBASSADE USA';
+    if (/FONDS INTERN.*AGRI|FIDA/.test(s)) return 'FIDA / FONDS AGRIC.';
+    if (/BRS BROKER/.test(s)) return 'BRS BROKERS AFRIQUE';
+    return s.length > 35 ? s.slice(0,35) + '…' : s;
+  }
+
+  function montant(row) {
+    var r = String(row['Récurent'] || '0').replace(/\s/g,'').replace(/\.(?=\d{3})/g,'').replace(',','.');
+    return parseFloat(r) || 0;
+  }
+
+  // ── Card helper ────────────────────────────────────────────────
+  function sCard(titre, node_or_html, isNode) {
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;margin-bottom:16px;';
+    var h3 = document.createElement('h3');
+    h3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+    h3.textContent = titre;
+    wrap.appendChild(h3);
+    if (isNode) { wrap.appendChild(node_or_html); }
+    else { wrap.innerHTML += node_or_html; }
+    return wrap;
+  }
+
+  // ── Bar row helper ─────────────────────────────────────────────
+  function barRow(label, val, maxVal, color, onclick) {
+    var pct = maxVal > 0 ? Math.round((val/maxVal)*100) : 0;
+    var d = document.createElement('div');
+    d.style.cssText = 'display:flex;align-items:center;gap:10px;padding:5px 4px;cursor:pointer;border-radius:6px;';
+    d.onmouseover = function() { this.style.background='#f5f3ff'; };
+    d.onmouseout  = function() { this.style.background=''; };
+    if (onclick) d.addEventListener('click', onclick);
+    d.innerHTML = '<div style="width:190px;font-size:12px;color:#374151;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + label + '">' + label + '</div>'
+      + '<div style="flex:1;background:#f3f4f6;border-radius:4px;height:11px;"><div style="width:' + pct + '%;background:' + color + ';border-radius:4px;height:11px;"></div></div>'
+      + '<div style="width:44px;text-align:right;font-size:12px;font-weight:700;color:' + color + ';">' + val + '</div>';
+    return d;
+  }
+
+  // ── KPI tile helper ────────────────────────────────────────────
+  function kpiTile(label, val, sub, color, onclick) {
+    var d = document.createElement('div');
+    d.style.cssText = 'flex:1;min-width:140px;background:#faf5ff;border:2px solid #ede9fe;border-radius:12px;padding:14px;text-align:center;cursor:' + (onclick?'pointer':'default') + ';transition:border-color .15s;';
+    d.onmouseover = function() { if(onclick) this.style.borderColor = color; };
+    d.onmouseout  = function() { this.style.borderColor = '#ede9fe'; };
+    if (onclick) d.addEventListener('click', onclick);
+    d.innerHTML = '<div style="font-size:27px;font-weight:900;color:' + color + ';">' + val + '</div>'
+      + '<div style="font-size:11px;color:#6b7280;margin-top:4px;font-weight:600;">' + label + '</div>'
+      + (sub ? '<div style="font-size:10px;color:#9ca3af;margin-top:2px;">' + sub + '</div>' : '');
+    return d;
+  }
+
+  // ── Tableau détail ─────────────────────────────────────────────
+  function ouvrirDetail(titre, rows) {
+    if (!rows || !rows.length) { alert('Aucune donnée.'); return; }
+    document.getElementById('resi-detail-title').innerHTML = '🔍 ' + titre + ' <span style="font-size:11px;font-weight:400;">(' + rows.length + ' ligne' + (rows.length>1?'s':'') + ')</span>';
+
+    var cols = ['Clients','Produit','ND','Récurent','Date résiliation ','Motif de résiliation','Type de résiliation'];
+    var tbl = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    tbl += '<thead><tr style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;position:sticky;top:0;">';
+    cols.forEach(function(c){ tbl += '<th style="padding:8px 7px;text-align:left;white-space:nowrap;">' + c + '</th>'; });
+    tbl += '</tr></thead><tbody>';
+    rows.forEach(function(r, i) {
+      var bg = i%2===0?'#fff':'#faf5ff';
+      tbl += '<tr style="background:' + bg + ';" onmouseover="this.style.background='#ede9fe'" onmouseout="this.style.background='' + bg + ''">';
+      cols.forEach(function(c) {
+        var v = r[c] != null ? r[c] : '';
+        if ((c.includes('Date') || c.includes('date')) && v) {
+          var dt = getDate(v);
+          if (dt) { v = dt.toLocaleDateString('fr-FR'); }
+        }
+        var isNum = c === 'Récurent';
+        var style = 'padding:6px 8px;border-bottom:1px solid #f3f4f6;' + (isNum ? 'text-align:right;font-weight:700;color:#7c3aed;' : '');
+        if (isNum && v) v = fmt(v) + ' FCFA';
+        tbl += '<td style="' + style + '">' + String(v) + '</td>';
+      });
+      tbl += '</tr>';
+    });
+    tbl += '</tbody></table>';
+    document.getElementById('resi-detail-body').innerHTML = tbl;
+    document.getElementById('popup-resi-detail').style.display = 'flex';
+  }
+
+  // ── CONSTRUCTION DU SUMMARY ────────────────────────────────────
+  function construireSummaryResi(data) {
+    var total = data.length;
+    var totalRecurent = 0;
+    var motifs = {}, produits = {}, typeResi = {}, moisMap = {}, clients = {}, recurentParProduit = {}, recurentParMotif = {}, recurring = {};
+    var donneesParMois = {};
+
+    data.forEach(function(r) {
+      var m = montant(r);
+      totalRecurent += m;
+
+      // Motif
+      var motif = String(r['Motif de résiliation'] || '(non renseigné)').trim();
+      if (!motif) motif = '(non renseigné)';
+      motifs[motif] = (motifs[motif]||0)+1;
+      recurentParMotif[motif] = (recurentParMotif[motif]||0)+m;
+
+      // Produit
+      var prod = String(r['Produit'] || '(vide)').trim();
+      produits[prod] = (produits[prod]||0)+1;
+      recurentParProduit[prod] = (recurentParProduit[prod]||0)+m;
+
+      // Type résiliation
+      var tr = String(r['Type de résiliation'] || '(vide)').trim();
+      typeResi[tr] = (typeResi[tr]||0)+1;
+
+      // Par mois
+      var dt = getDate(r['Date résiliation '] || r['Date résiliation']);
+      if (dt) {
+        var key = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0');
+        moisMap[key] = (moisMap[key]||0)+1;
+        if (!donneesParMois[key]) donneesParMois[key] = [];
+        donneesParMois[key].push(r);
+      }
+
+      // Client normalisé
+      var cl = normClient(r['Clients']);
+      if (cl) {
+        if (!clients[cl]) clients[cl] = { count:0, recurent:0, rows:[] };
+        clients[cl].count++;
+        clients[cl].recurent += m;
+        clients[cl].rows.push(r);
+      }
+
+      // Multi-résiliation (même client brut)
+      var clBrut = String(r['Clients']||'').trim();
+      if (clBrut) recurring[clBrut] = (recurring[clBrut]||0)+1;
+    });
+
+    // ── Badge
+    document.getElementById('resi-summary-badge').textContent = total + ' résiliations';
+    var body = document.getElementById('resi-summary-body');
+    body.innerHTML = '';
+
+    function sorted(obj, key) {
+      var entries = Object.entries(obj);
+      if (key) entries = entries.map(function(e){ return [e[0], e[1][key], e[1]]; });
+      return entries.sort(function(a,b){ return b[1]-a[1]; });
+    }
+
+    // ── 1. KPIs ───────────────────────────────────────────────────
+    var kpiWrap = document.createElement('div');
+    kpiWrap.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;margin-bottom:16px;';
+    var kpiH3 = document.createElement('h3');
+    kpiH3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+    kpiH3.textContent = '🔢 Indicateurs clés';
+    kpiWrap.appendChild(kpiH3);
+    var kpiRow = document.createElement('div');
+    kpiRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;';
+
+    var multiResi = Object.values(recurring).filter(function(v){ return v>1; }).length;
+    var topMotif = sorted(motifs)[0];
+    var topProduit = sorted(produits)[0];
+    var moisKeys = Object.keys(moisMap).sort();
+    var moisPic = moisKeys.reduce(function(a,b){ return moisMap[a]>moisMap[b]?a:b; }, moisKeys[0]);
+
+    [
+      ['Total résiliations', total, '', '#7c3aed', function(){ ouvrirDetail('Toutes les résiliations', data); }],
+      ['Récurent perdu', fmt(Math.round(totalRecurent)), 'FCFA', '#dc2626', null],
+      ['Produit dominant', topProduit ? topProduit[0] : '—', topProduit ? topProduit[1]+' rés.' : '', '#0284c7', function(){ if(topProduit) ouvrirDetail('Produit: '+topProduit[0], data.filter(function(r){ return (r['Produit']||'').trim()===topProduit[0]; })); }],
+      ['Motif principal', topMotif ? topMotif[0] : '—', topMotif ? topMotif[1]+' cas' : '', '#ea580c', function(){ if(topMotif) ouvrirDetail('Motif: '+topMotif[0], data.filter(function(r){ return (String(r['Motif de résiliation']||'').trim()||'(non renseigné)')===topMotif[0]; })); }],
+      ['Mois pic', moisPic ? MOIS_LONG[+moisPic.split('-')[1]-1]+' '+moisPic.split('-')[0] : '—', moisPic ? moisMap[moisPic]+' rés.' : '', '#7c3aed', function(){ if(moisPic) ouvrirDetail('Mois: '+moisPic, donneesParMois[moisPic]||[]); }],
+      ['Multi-résiliations', multiResi, 'clients ≥2 fois', '#b45309', null],
+    ].forEach(function(k) {
+      kpiRow.appendChild(kpiTile(k[0], k[1], k[2], k[3], k[4]));
+    });
+    kpiWrap.appendChild(kpiRow);
+    body.appendChild(kpiWrap);
+
+    // ── 2. Fréquence par mois (bar chart) ─────────────────────────
+    var moisWrap = document.createElement('div');
+    moisWrap.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;margin-bottom:16px;';
+    var moisH3 = document.createElement('h3');
+    moisH3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+    moisH3.textContent = '📅 Fréquence des résiliations par mois';
+    moisWrap.appendChild(moisH3);
+    var maxM = Math.max.apply(null, Object.values(moisMap));
+    var moisBar = document.createElement('div');
+    moisBar.style.cssText = 'display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;';
+    Object.keys(moisMap).sort().forEach(function(k) {
+      var v = moisMap[k];
+      var h = Math.round((v/maxM)*90)+12;
+      var parts = k.split('-');
+      var label = MOIS_FR[+parts[1]-1] + ' ' + parts[0];
+      var isPic = k === moisPic;
+      var col = document.createElement('div');
+      col.style.cssText = 'flex:1;min-width:60px;text-align:center;cursor:pointer;';
+      col.title = label + ' : ' + v + ' résiliations';
+      col.onclick = (function(kk){ return function(){ ouvrirDetail('Résiliations ' + kk, donneesParMois[kk]||[]); }; })(k);
+      col.innerHTML = '<div style="font-size:11px;font-weight:700;color:#4c1d95;margin-bottom:3px;">' + v + '</div>'
+        + '<div style="height:' + h + 'px;background:' + (isPic?'#7c3aed':'#a78bfa') + ';border-radius:6px 6px 0 0;transition:opacity .15s;" onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'"></div>'
+        + '<div style="font-size:10px;color:#6b7280;margin-top:4px;">' + label + (isPic?' 🔺':'') + '</div>';
+      moisBar.appendChild(col);
+    });
+    moisWrap.appendChild(moisBar);
+    body.appendChild(moisWrap);
+
+    // ── 3. Grid 2 colonnes : Motifs + Produits ─────────────────────
+    var g1 = document.createElement('div');
+    g1.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;';
+
+    // Motifs
+    var motifCard = document.createElement('div');
+    motifCard.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;';
+    var mH3 = document.createElement('h3');
+    mH3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+    mH3.textContent = '🔎 Causes de résiliation';
+    motifCard.appendChild(mH3);
+    var maxMotif = sorted(motifs)[0] ? sorted(motifs)[0][1] : 1;
+    sorted(motifs).forEach(function(e) {
+      motifCard.appendChild(barRow(e[0], e[1], maxMotif, '#7c3aed', (function(motif, cnt){
+        return function() {
+          ouvrirDetail('Motif: ' + motif, data.filter(function(r){ return (String(r['Motif de résiliation']||'').trim()||'(non renseigné)') === motif; }));
+        };
+      })(e[0], e[1])));
+    });
+    g1.appendChild(motifCard);
+
+    // Produits
+    var prodCard = document.createElement('div');
+    prodCard.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;';
+    var pH3 = document.createElement('h3');
+    pH3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+    pH3.textContent = '📦 Résiliations par produit';
+    prodCard.appendChild(pH3);
+    var maxProd = sorted(produits)[0] ? sorted(produits)[0][1] : 1;
+    sorted(produits).forEach(function(e) {
+      var prod = e[0];
+      var rec = recurentParProduit[prod] || 0;
+      var labelProd = prod + '  —  ' + fmt(Math.round(rec)) + ' FCFA';
+      prodCard.appendChild(barRow(labelProd, e[1], maxProd, '#0284c7', (function(p){
+        return function() { ouvrirDetail('Produit: ' + p, data.filter(function(r){ return (r['Produit']||'').trim()===p; })); };
+      })(prod)));
+    });
+    g1.appendChild(prodCard);
+    body.appendChild(g1);
+
+    // ── 4. Grid 2 colonnes : Top clients + Récurent par motif ──────
+    var g2 = document.createElement('div');
+    g2.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;';
+
+    // Top clients
+    var cliCard = document.createElement('div');
+    cliCard.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;';
+    var cH3 = document.createElement('h3');
+    cH3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+    cH3.textContent = '🏢 Top clients résiliés';
+    cliCard.appendChild(cH3);
+    var clientsSorted = Object.entries(clients).sort(function(a,b){ return b[1].recurent-a[1].recurent; }).slice(0,12);
+    var maxCli = clientsSorted.length ? clientsSorted[0][1].recurent : 1;
+    clientsSorted.forEach(function(e) {
+      var label = e[0] + '  (' + e[1].count + ' rés.) — ' + fmt(Math.round(e[1].recurent)) + ' FCFA';
+      cliCard.appendChild(barRow(label, e[1].count, Math.max.apply(null, clientsSorted.map(function(x){ return x[1].count; })), '#dc2626', (function(rows, name){
+        return function() { ouvrirDetail('Client: ' + name, rows); };
+      })(e[1].rows, e[0])));
+    });
+    g2.appendChild(cliCard);
+
+    // Récurent perdu par motif
+    var recMotifCard = document.createElement('div');
+    recMotifCard.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;';
+    var rmH3 = document.createElement('h3');
+    rmH3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+    rmH3.textContent = '💸 Récurent perdu par cause';
+    recMotifCard.appendChild(rmH3);
+    var recMotifSorted = Object.entries(recurentParMotif).sort(function(a,b){ return b[1]-a[1]; });
+    var maxRM = recMotifSorted.length ? recMotifSorted[0][1] : 1;
+    recMotifSorted.forEach(function(e) {
+      var label = e[0] + '  —  ' + fmt(Math.round(e[1])) + ' FCFA';
+      recMotifCard.appendChild(barRow(label, Math.round(e[1]/1000)+'K', maxRM, '#ea580c', (function(motif){
+        return function() { ouvrirDetail('Motif: ' + motif, data.filter(function(r){ return (String(r['Motif de résiliation']||'').trim()||'(non renseigné)')===motif; })); };
+      })(e[0])));
+    });
+    g2.appendChild(recMotifCard);
+    body.appendChild(g2);
+
+    // ── 5. Alerte multi-résiliations ──────────────────────────────
+    var multiClients = Object.entries(recurring).filter(function(e){ return e[1]>1; }).sort(function(a,b){ return b[1]-a[1]; });
+    if (multiClients.length > 0) {
+      var alertWrap = document.createElement('div');
+      alertWrap.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;margin-bottom:16px;';
+      var alH3 = document.createElement('h3');
+      alH3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+      alH3.textContent = '⚠️ Clients avec résiliations multiples';
+      alertWrap.appendChild(alH3);
+      var alGrid = document.createElement('div');
+      alGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;';
+      multiClients.forEach(function(e) {
+        var badge = document.createElement('span');
+        badge.style.cssText = 'background:#fef3c7;border:1px solid #fbbf24;color:#92400e;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;';
+        badge.textContent = (e[0].length>40?e[0].slice(0,40)+'…':e[0]) + '  ×' + e[1];
+        badge.title = e[0];
+        badge.addEventListener('click', (function(cl){ return function(){ ouvrirDetail('Client: '+cl, data.filter(function(r){ return String(r['Clients']||'').trim()===cl; })); }; })(e[0]));
+        alGrid.appendChild(badge);
+      });
+      alertWrap.appendChild(alGrid);
+      body.appendChild(alertWrap);
+    }
+
+    // ── 6. Type de résiliation ─────────────────────────────────────
+    var typeCard = document.createElement('div');
+    typeCard.style.cssText = 'background:white;border-radius:12px;box-shadow:0 2px 8px rgba(124,58,237,.08);padding:16px;margin-bottom:16px;';
+    var tH3 = document.createElement('h3');
+    tH3.style.cssText = 'margin:0 0 14px;font-size:13px;color:#4c1d95;border-bottom:2px solid #ede9fe;padding-bottom:6px;font-weight:700;';
+    tH3.textContent = '📋 Type de résiliation';
+    typeCard.appendChild(tH3);
+    var maxType = Math.max.apply(null, Object.values(typeResi));
+    var typeRow = document.createElement('div');
+    typeRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;';
+    Object.entries(typeResi).sort(function(a,b){ return b[1]-a[1]; }).forEach(function(e) {
+      var pct = Math.round((e[1]/total)*100);
+      var tile = document.createElement('div');
+      tile.style.cssText = 'flex:1;min-width:120px;background:#faf5ff;border:2px solid #ede9fe;border-radius:10px;padding:12px;text-align:center;cursor:pointer;';
+      tile.onmouseover = function(){ this.style.borderColor='#7c3aed'; };
+      tile.onmouseout  = function(){ this.style.borderColor='#ede9fe'; };
+      tile.addEventListener('click', (function(t){ return function(){ ouvrirDetail('Type: '+t, data.filter(function(r){ return String(r['Type de résiliation']||'').trim()===t; })); }; })(e[0]));
+      tile.innerHTML = '<div style="font-size:24px;font-weight:800;color:#7c3aed;">' + e[1] + '</div>'
+        + '<div style="font-size:10px;color:#374151;margin-top:3px;font-weight:600;">' + (e[0]||'(vide)') + '</div>'
+        + '<div style="font-size:10px;color:#9ca3af;">' + pct + '% du total</div>';
+      typeRow.appendChild(tile);
+    });
+    typeCard.appendChild(typeRow);
+    body.appendChild(typeCard);
+  }
+})();
+</script>
+
+
+<!-- Overlay chargement fichier -->
+<div id="resi-load-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:20000;justify-content:center;align-items:center;">
+  <div style="background:white;border-radius:14px;padding:32px 40px;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,0.3);max-width:420px;">
+    <div style="font-size:40px;margin-bottom:12px;">📂</div>
+    <h3 style="margin:0 0 8px;color:#4c1d95;font-size:16px;">Charger le fichier Excel</h3>
+    <p style="color:#6b7280;font-size:13px;margin:0 0 20px;">Le fichier <strong>resi_final_.xlsx</strong> n'a pas pu être chargé automatiquement.<br>Sélectionnez-le manuellement pour continuer.</p>
+    <label style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;padding:10px 20px;border-radius:10px;cursor:pointer;font-weight:700;font-size:14px;display:inline-block;">
+      📂 Choisir le fichier
+      <input id="resi-file-input" type="file" accept=".xlsx,.xls" style="display:none;"/>
+    </label>
+    <br><br>
+    <button onclick="document.getElementById('resi-load-overlay').style.display='none'" style="background:none;border:1px solid #d1d5db;color:#6b7280;padding:6px 16px;border-radius:8px;cursor:pointer;font-size:12px;">Annuler</button>
+  </div>
+</div>
 
 </body>
 </html>
