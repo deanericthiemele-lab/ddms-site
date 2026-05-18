@@ -455,11 +455,19 @@ document.addEventListener("DOMContentLoaded", function() {
     source.forEach(item => {
       const raison = (item.raison || "Inconnu").trim();
       if (!clients[raison]) {
-        clients[raison] = { raison: raison, total: 0, nds: new Set(), mois: {} };
+        clients[raison] = { raison: raison, total: 0, nds: new Set(), ndsMois: {}, mois: {} };
         for (let m = 1; m <= 12; m++) clients[raison].mois[m] = 0;
       }
       clients[raison].total += item.total || 0;
-      if (item.nd) clients[raison].nds.add(item.nd);
+      if (item.nd) {
+        clients[raison].nds.add(item.nd);
+        if (!clients[raison].ndsMois[item.nd]) clients[raison].ndsMois[item.nd] = {};
+        for (let m = 1; m <= 12; m++) {
+          if (item.mois && item.mois[m]) {
+            clients[raison].ndsMois[item.nd][m] = (clients[raison].ndsMois[item.nd][m] || 0) + item.mois[m];
+          }
+        }
+      }
       for (let m = 1; m <= 12; m++) {
         clients[raison].mois[m] += (item.mois && item.mois[m]) ? item.mois[m] : 0;
       }
@@ -489,8 +497,22 @@ document.addEventListener("DOMContentLoaded", function() {
     let tbody = "";
     data.forEach((c, idx) => {
       const bg = idx % 2 === 0 ? "#fff" : "#faf5ff";
-      // Top 3 ND les plus impactés
-      const ndTri = c.nds.slice(0, 3).join(", ") || "-";
+      // Top 3 ND les plus impactés avec tous les mois et nb d'occurrences
+      const ndTries = c.nds.slice(0, 3).sort((a, b) => {
+        const totalA = Object.values((c.ndsMois && c.ndsMois[a]) || {}).reduce((s, v) => s + v, 0);
+        const totalB = Object.values((c.ndsMois && c.ndsMois[b]) || {}).reduce((s, v) => s + v, 0);
+        return totalB - totalA;
+      });
+      const ndAvecInfo = ndTries.map(nd => {
+        const moisData = (c.ndsMois && c.ndsMois[nd]) || {};
+        const detail = Object.entries(moisData)
+          .filter(([, v]) => v > 0)
+          .sort(([a], [b]) => parseInt(a) - parseInt(b))
+          .map(([m, v]) => `${moisNomsCourt[parseInt(m)]}: ${v}`)
+          .join(", ");
+        return detail ? `${nd} (${detail})` : nd;
+      });
+      const ndTri = ndAvecInfo.join(" | ") || "-";
       tbody += `<tr style='background:${bg};' onmouseover="this.style.background='#f3e5f5'" onmouseout="this.style.background='${bg}'">`;
       tbody += `<td style='padding:9px 8px;border-bottom:1px solid #f0e6ff;font-weight:600;color:#4A148C;text-align:left;'>${c.raison}</td>`;
       const totalColor = c.total >= 10 ? "#b71c1c" : c.total >= 5 ? "#e65100" : "#546e7a";
