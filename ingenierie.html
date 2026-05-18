@@ -285,7 +285,7 @@ document.addEventListener("DOMContentLoaded", function() {
   </style>
  </head>
  <body>
-  <input accept=".xlsx,.xls,.csv" class="sr-only" id="fileInput" type="file"/>
+  <input accept=".xlsx,.xls,.csv" id="fileInput" type="file" style="display:none"/>
   <a href="index.html">
    <button style="background-color: #2196F3; color: white;">
     🏠 Accueil
@@ -297,6 +297,25 @@ document.addEventListener("DOMContentLoaded", function() {
    <h2 style="margin: 0;">
     Analyse des incidents
    </h2>
+   <div class="dropdown">
+    <button class="dropbtn">
+     📂 ASM
+    </button>
+    <div class="dropdown-content">
+     <button onclick="afficherClientSelectionne()">
+      👤 Client
+     </button>
+     <button onclick="afficherTop20()">
+      🏆 Top 20
+     </button>
+     <button onclick="afficherTop20Synthese()">
+      🏆 Top 20 Synthèse
+     </button>
+     <button onclick="filtrerSitesCritiques()" style="background-color: yellow; color: black">
+      🚨 Sites Critiques
+     </button>
+    </div>
+   </div>
    <div class="dropdown">
     <button class="dropbtn">
      📊 QoS et Performance
@@ -323,6 +342,12 @@ document.addEventListener("DOMContentLoaded", function() {
      <!-- ✅ Nouveau bouton pour regroupement par CAUSE RÉELLE (même filtrage que Nouvelles signalisations) -->
     </div>
    </div>
+   <button onclick="afficherVueGlobale()">
+    🔄 Réinitialiser
+   </button>
+   <button onclick="afficherGraphiqueHebdo()" style="background-color:#1976D2;color:white;border:none;border-radius:4px;padding:6px 10px;margin-left:8px;cursor:pointer;">
+    📊 Incidents / semaine
+   </button>
    <button onclick="ouvrirKpiClient()" style="background-color:#7B1FA2;color:white;border:none;border-radius:4px;padding:6px 10px;margin-left:8px;cursor:pointer;">
     🏢 KPI Client
    </button>
@@ -613,7 +638,7 @@ ND avec ≥2 incidents en juin ET juillet = critique">
 ≥13 incidents/an → critique (&gt;1/mois)">
      ✔ ≤ 6/an : acceptable • ⚠ 7-12/an : instable • 🔥 ≥13/an : critique
     </div>
-    <button id="btn-export">
+    <button onclick="exporterTableauComplet()" style="background-color:#4CAF50;color:white;padding:10px;border:none;border-radius:4px;cursor:pointer;font-weight:bold;">
      📥 Exporter le tableau affiché vers Excel
     </button>
     <button onclick="afficherNDCompletsMensuels()" style="background-color: #4CAF50; color: white; padding: 10px; border: none; border-radius: 4px; cursor: pointer; margin-left:8px;">
@@ -1524,6 +1549,8 @@ function afficherTableau(data) {
   if (clientCritiqueSelectionne) {
     toDisplay = data.filter(item => item.critiques && canonicalClient(item.raison) === canonicalClient(clientCritiqueSelectionne));
   }
+  // Mettre à jour la variable globale pour l'export
+  donneesAffichees = toDisplay;
   toDisplay.forEach(item => {
     const estSiteCritique = ND_CRITIQUES_LIST.includes(item.nd);
     const classes = [];
@@ -2071,39 +2098,33 @@ function exporterIncidentsND2ParMois() {
         }
     });
 
+// Variable globale alimentée à chaque filtrage
+let donneesAffichees = [];
+
 function exporterTableauComplet() {
   if (typeof XLSX === "undefined") {
     alert("La bibliothèque XLSX n'est pas chargée.");
     return;
   }
-
-  // Lire directement les lignes visibles dans le tableau DOM
-  const table = document.querySelector("#resultat table");
-  if (!table) {
-    alert("Aucun tableau à exporter. Veuillez d'abord charger un fichier.");
+  if (!donneesAffichees || !donneesAffichees.length) {
+    alert("Aucune donnée à exporter. Veuillez d'abord charger un fichier.");
     return;
   }
-
-  const rows = [];
-  const headers = [];
-  const ths = table.querySelectorAll("thead th");
-  ths.forEach(th => headers.push(th.textContent.trim()));
-
-  const trs = table.querySelectorAll("tbody tr");
-  if (!trs.length) {
-    alert("Aucune donnée à exporter.");
-    return;
-  }
-
-  trs.forEach(tr => {
-    const row = {};
-    tr.querySelectorAll("td").forEach((td, i) => {
-      row[headers[i] || "Col" + i] = td.innerText.trim();
-    });
-    rows.push(row);
+  const moisActuel = new Date().getMonth() + 1;
+  const lignes = donneesAffichees.map(item => {
+    const ligne = {
+      ND: item.nd,
+      "Raison sociale": item.raison,
+      "Localisation": item.localisation || "Inconnue",
+      Total: item.total,
+      "Causes 2 derniers mois": [...new Set(item.causes)].join(" | ")
+    };
+    for (let i = 1; i <= moisActuel; i++) {
+      ligne[moisNoms[i]] = item.mois[i] || 0;
+    }
+    return ligne;
   });
-
-  const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+  const ws = XLSX.utils.json_to_sheet(lignes);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Tableau incidents");
   XLSX.writeFile(wb, modeTop20 ? "Top20_Incidents_Complet.xlsx" : "Tableau_Incidents_Complet.xlsx");
@@ -5587,13 +5608,7 @@ document.getElementById("popup-semaine").style.display="none";
   </script>
  
 <script>
-// Liaison unique btn-export → exporterTableauComplet
-document.addEventListener("DOMContentLoaded", function() {
-  var b = document.getElementById("btn-export");
-  if (b) b.onclick = exporterTableauComplet;
-});
-
-// FIX: Fonctions uniques déplacées hors de 
+// FIX: Fonctions uniques
 
 function mettreAJourCasesVertes(data) {
   const aujourdHui = new Date();
