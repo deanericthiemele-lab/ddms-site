@@ -36,7 +36,7 @@
     <button class="btn" id="backBtn" title="Retour vers l'index">⟵ Retour</button>
     <button class="btn" id="refreshBtn" title="Recharger la page">⟳ Actualiser</button>
     <button class="btn" id="crashBtn" title="Aller vers transfert_crash">⚡ Crash Parogram</button>
-    <button class="btn accent" id="summaryBtn" title="Vue d'ensemble des données">📋 Summary</button>
+    <button class="btn accent" id="summaryBtn">📋 Summary</button>
     
     <label class="file btn" for="fileInput">📂 Parcourir</label>
     <input id="fileInput" class="sr-only" type="file" accept=".xlsx,.xls,.csv" />
@@ -293,223 +293,220 @@
     })();
   </script>
 
-  <!-- ===== POPUP SUMMARY ===== -->
+  <!-- POPUP SUMMARY -->
   <div id="popup-summary" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:flex-start;overflow:auto;">
-    <div style="background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,0.2);width:95%;max-width:1100px;margin:32px auto;display:flex;flex-direction:column;overflow:hidden;">
-      <!-- Header -->
-      <div style="background:linear-gradient(135deg,#0ea5e9,#0284c7);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;">
-        <span style="color:white;font-size:18px;font-weight:700;">📋 Summary — Vue d'ensemble</span>
+    <div style="background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,0.2);width:95%;max-width:1100px;margin:32px auto;display:flex;flex-direction:column;">
+      <div style="background:linear-gradient(135deg,#0ea5e9,#0284c7);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;border-radius:16px 16px 0 0;">
+        <span style="color:white;font-size:18px;font-weight:700;">&#128203; Summary — Vue d'ensemble</span>
         <div style="display:flex;align-items:center;gap:10px;">
           <span id="summary-badge" style="background:white;color:#0284c7;padding:4px 14px;border-radius:20px;font-weight:bold;font-size:13px;">—</span>
           <button onclick="fermerSummary()" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:30px;height:30px;font-size:15px;cursor:pointer;line-height:1;">✕</button>
         </div>
       </div>
-      <!-- Body -->
-      <div id="summary-body" style="padding:20px 24px;background:#f7f8fa;overflow:auto;max-height:80vh;"></div>
+      <div id="summary-body" style="padding:20px 24px;background:#f7f8fa;overflow:auto;max-height:80vh;border-radius:0 0 16px 16px;"></div>
     </div>
   </div>
 
-  <!-- ===== DETAIL POPUP (sous-popup) ===== -->
-  <div id="summary-detail" style="display:none;position:fixed;top:5%;left:50%;transform:translateX(-50%);width:85%;max-width:900px;max-height:85vh;background:white;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.4);z-index:10000;flex-direction:column;overflow:hidden;">
-    <div id="summary-detail-header" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);padding:12px 18px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+  <!-- SOUS-POPUP DETAIL -->
+  <div id="summary-detail" style="display:none;position:fixed;top:5%;left:50%;transform:translateX(-50%);width:85%;max-width:950px;max-height:85vh;background:white;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,0.4);z-index:10000;flex-direction:column;overflow:hidden;">
+    <div style="background:linear-gradient(135deg,#0ea5e9,#0284c7);padding:12px 18px;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
       <span id="summary-detail-title" style="color:white;font-weight:bold;font-size:14px;"></span>
-      <button onclick="document.getElementById('summary-detail').style.display='none'" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:26px;height:26px;font-size:13px;cursor:pointer;line-height:1;">✕</button>
+      <button id="close-detail-btn" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:26px;height:26px;font-size:13px;cursor:pointer;line-height:1;">✕</button>
     </div>
     <div id="summary-detail-body" style="overflow:auto;flex:1;padding:0;"></div>
   </div>
 
   <script>
-  // ===== SUMMARY =====
-  document.getElementById('summaryBtn').onclick = () => ouvrirSummary();
-
-  function ouvrirSummary() {
-    if (!state.rows || !state.rows.length) { alert("Veuillez d'abord charger les données."); return; }
-    construireSummary(state.rows, state.headers);
-    document.getElementById('popup-summary').style.display = 'flex';
-  }
-  function fermerSummary() {
-    document.getElementById('popup-summary').style.display = 'none';
-    document.getElementById('summary-detail').style.display = 'none';
-  }
-  document.addEventListener('keydown', e => { if(e.key==='Escape'){ fermerSummary(); }});
-
-  function sCard(titre, html) {
-    return `<div style="background:white;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,0.07);padding:16px;margin-bottom:16px;">
-      <h3 style="margin:0 0 12px;font-size:13px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:6px;">${titre}</h3>
-      ${html}
-    </div>`;
-  }
-
-  function barRow(label, val, max, color, onclick) {
-    const pct = max > 0 ? Math.round((val/max)*100) : 0;
-    return `<div onclick="${onclick}" style="display:flex;align-items:center;gap:10px;padding:5px 0;cursor:pointer;border-radius:6px;" onmouseover="this.style.background='#f0f9ff'" onmouseout="this.style.background=''">
-      <div style="width:160px;font-size:12px;color:#374151;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${label}">${label}</div>
-      <div style="flex:1;background:#f3f4f6;border-radius:4px;height:10px;">
-        <div style="width:${pct}%;background:${color};border-radius:4px;height:10px;"></div>
-      </div>
-      <div style="width:40px;text-align:right;font-size:12px;font-weight:700;color:${color};">${val}</div>
-    </div>`;
-  }
-
-  function construireSummary(rows, headers) {
-    const total = rows.length;
-    document.getElementById('summary-badge').textContent = total + ' dossiers';
-
-    // Compteurs
-    const typeOp = {}, etatTache = {}, support = {}, typeAbo = {}, etape = {}, caract = {}, debit = {}, clients = {};
-    let transferts = 0, modifs = 0, debits = 0, supports = 0;
-
-    rows.forEach(r => {
-      const op = String(r['TYPE OPERATION TM']||'').trim();
-      typeOp[op] = (typeOp[op]||0)+1;
-      if(/transfert/i.test(op)) transferts++;
-      else if(/modif/i.test(op)) modifs++;
-      else if(/debit/i.test(op)) debits++;
-      else if(/support/i.test(op)) supports++;
-
-      const et = String(r['ETAT TACHE']||'').trim();
-      etatTache[et] = (etatTache[et]||0)+1;
-
-      const sp = String(r['SUPPORT']||'').trim();
-      support[sp] = (support[sp]||0)+1;
-
-      const ta = String(r['TYPE ABONNEMENT']||'').trim();
-      typeAbo[ta] = (typeAbo[ta]||0)+1;
-
-      const ep = String(r['ETAPE']||'').trim();
-      if(ep) etape[ep] = (etape[ep]||0)+1;
-
-      const ca = String(r['CARACTERISTIQUE']||'').trim();
-      if(ca) caract[ca] = (caract[ca]||0)+1;
-
-      const db = String(r['DEBIT']||'').trim();
-      if(db) debit[db] = (debit[db]||0)+1;
-
-      const cl = normalizeClient(r['NOM CLIENT']);
-      if(cl) clients[cl] = (clients[cl]||0)+1;
+  (function() {
+    document.getElementById('summaryBtn').addEventListener('click', ouvrirSummary);
+    document.getElementById('close-detail-btn').addEventListener('click', function() {
+      document.getElementById('summary-detail').style.display = 'none';
     });
 
-    const sorted = obj => Object.entries(obj).sort((a,b)=>b[1]-a[1]);
-
-    // ── KPIs ──────────────────────────────────────────────────────
-    const kpiData = [
-      { label:'Transferts', val:transferts, color:'#0ea5e9', key:'TYPE OPERATION TM', filter:'Transfert' },
-      { label:'Débits', val:debits, color:'#8b5cf6', key:'TYPE OPERATION TM', filter:'debit' },
-      { label:'Supports', val:supports, color:'#f59e0b', key:'TYPE OPERATION TM', filter:'support' },
-      { label:'En cours', val:etatTache['En cours']||0, color:'#10b981', key:'ETAT TACHE', filter:'En cours' },
-      { label:'Offert', val:etatTache['Offert']||0, color:'#6b7280', key:'ETAT TACHE', filter:'Offert' },
-      { label:'Total dossiers', val:total, color:'#374151', key:null, filter:null },
-    ];
-    let kpiHtml = '<div style="display:flex;gap:10px;flex-wrap:wrap;">';
-    kpiData.forEach(k => {
-      kpiHtml += `<div onclick="${k.key ? `ouvrirDetail('${k.key}','${k.filter}')` : ''}" style="flex:1;min-width:130px;background:#f9fafb;border:2px solid #f3f4f6;border-radius:10px;padding:12px;text-align:center;cursor:${k.key?'pointer':'default'};" onmouseover="this.style.borderColor='${k.color}'" onmouseout="this.style.borderColor='#f3f4f6'">
-        <div style="font-size:26px;font-weight:800;color:${k.color};">${k.val}</div>
-        <div style="font-size:11px;color:#6b7280;margin-top:3px;">${k.label}</div>
-      </div>`;
-    });
-    kpiHtml += '</div>';
-
-    // ── Type opération ─────────────────────────────────────────────
-    const maxOp = sorted(typeOp)[0]?.[1]||1;
-    let typeOpHtml = sorted(typeOp).map(([k,v]) =>
-      barRow(k||'(vide)', v, maxOp, '#0ea5e9', `ouvrirDetail('TYPE OPERATION TM','${k}')`)
-    ).join('');
-
-    // ── État tâche ─────────────────────────────────────────────────
-    const maxEt = sorted(etatTache)[0]?.[1]||1;
-    let etatHtml = sorted(etatTache).map(([k,v]) =>
-      barRow(k||'(vide)', v, maxEt, '#10b981', `ouvrirDetail('ETAT TACHE','${k}')`)
-    ).join('');
-
-    // ── Étape courante ─────────────────────────────────────────────
-    const maxEp = sorted(etape)[0]?.[1]||1;
-    let etapeHtml = sorted(etape).slice(0,8).map(([k,v]) =>
-      barRow(k||'(vide)', v, maxEp, '#8b5cf6', `ouvrirDetail('ETAPE','${k}')`)
-    ).join('');
-
-    // ── Support ────────────────────────────────────────────────────
-    const maxSp = sorted(support)[0]?.[1]||1;
-    let supportHtml = sorted(support).map(([k,v]) =>
-      barRow(k||'(vide)', v, maxSp, '#f59e0b', `ouvrirDetail('SUPPORT','${k}')`)
-    ).join('');
-
-    // ── Type abonnement ────────────────────────────────────────────
-    const maxTa = sorted(typeAbo)[0]?.[1]||1;
-    let typeAboHtml = sorted(typeAbo).map(([k,v]) =>
-      barRow(k||'(vide)', v, maxTa, '#6366f1', `ouvrirDetail('TYPE ABONNEMENT','${k}')`)
-    ).join('');
-
-    // ── Débit ──────────────────────────────────────────────────────
-    const maxDb = sorted(debit)[0]?.[1]||1;
-    let debitHtml = sorted(debit).slice(0,10).map(([k,v]) =>
-      barRow(k, v, maxDb, '#ec4899', `ouvrirDetail('DEBIT','${k}')`)
-    ).join('');
-
-    // ── Top clients ────────────────────────────────────────────────
-    const maxCl = sorted(clients)[0]?.[1]||1;
-    let clientHtml = sorted(clients).slice(0,10).map(([k,v]) =>
-      barRow(k, v, maxCl, '#0284c7', `ouvrirDetail('NOM CLIENT','${k}')`)
-    ).join('');
-
-    // ── Caractéristique ────────────────────────────────────────────
-    const maxCa = sorted(caract)[0]?.[1]||1;
-    let caractHtml = sorted(caract).map(([k,v]) =>
-      barRow(k||'(vide)', v, maxCa, '#14b8a6', `ouvrirDetail('CARACTERISTIQUE','${k}')`)
-    ).join('');
-
-    // ── Assemblage 2 colonnes ──────────────────────────────────────
-    const html = `
-      ${sCard('🔢 Indicateurs clés', kpiHtml)}
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        ${sCard('⚙️ Type d'opération', typeOpHtml)}
-        ${sCard('📊 État des tâches', etatHtml)}
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        ${sCard('🔗 Support réseau', supportHtml)}
-        ${sCard('📦 Type d'abonnement', typeAboHtml)}
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        ${sCard('📶 Débit demandé', debitHtml)}
-        ${sCard('🔧 Caractéristique', caractHtml)}
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-        ${sCard('🏆 Top clients', clientHtml)}
-        ${sCard('📍 Étape courante (top 8)', etapeHtml)}
-      </div>
-    `;
-    document.getElementById('summary-body').innerHTML = html;
-  }
-
-  function ouvrirDetail(col, val) {
-    const rows = state.rows.filter(r => {
-      const v = String(r[col]||'').trim();
-      // Pour NOM CLIENT on compare le nom normalisé
-      if (col === 'NOM CLIENT') return normalizeClient(r[col]) === val;
-      return v === val || v.toLowerCase() === val.toLowerCase();
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { fermerSummary(); }
     });
 
-    const headers = state.headers;
-    document.getElementById('summary-detail-title').innerHTML =
-      `🔍 ${col} = <em>${val}</em> <span style="font-size:11px;font-weight:normal;">(${rows.length} dossiers)</span>`;
+    function fermerSummary() {
+      document.getElementById('popup-summary').style.display = 'none';
+      document.getElementById('summary-detail').style.display = 'none';
+    }
+    window.fermerSummary = fermerSummary;
 
-    let tableHtml = '<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-    tableHtml += '<thead><tr style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:white;position:sticky;top:0;">';
-    headers.forEach(h => { tableHtml += `<th style="padding:8px 6px;text-align:left;white-space:nowrap;">${h}</th>`; });
-    tableHtml += '</tr></thead><tbody>';
-    rows.forEach((r, i) => {
-      const bg = i%2===0?'#fff':'#f7f8fa';
-      tableHtml += `<tr style="background:${bg};" onmouseover="this.style.background='#e0f2fe'" onmouseout="this.style.background='${bg}'">`;
-      headers.forEach(h => {
-        let v = r[h]; if(v==null) v='';
-        tableHtml += `<td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;white-space:nowrap;">${String(v)}</td>`;
+    function ouvrirSummary() {
+      if (!state.rows || !state.rows.length) {
+        alert("Veuillez d'abord charger les données.");
+        return;
+      }
+      construireSummary(state.rows, state.headers);
+      document.getElementById('popup-summary').style.display = 'flex';
+    }
+
+    function sCard(titre, html) {
+      return '<div style="background:white;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,0.07);padding:16px;margin-bottom:16px;">'
+           + '<h3 style="margin:0 0 12px;font-size:13px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:6px;">' + titre + '</h3>'
+           + html + '</div>';
+    }
+
+    function barRow(label, val, maxVal, color, col, filter) {
+      var pct = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
+      var div = document.createElement('div');
+      div.style.cssText = 'display:flex;align-items:center;gap:10px;padding:5px 0;cursor:pointer;border-radius:6px;';
+      div.onmouseover = function() { this.style.background = '#f0f9ff'; };
+      div.onmouseout = function() { this.style.background = ''; };
+      div.onclick = function() { ouvrirDetail(col, filter); };
+      div.innerHTML = '<div style="width:170px;font-size:12px;color:#374151;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + label + '">' + label + '</div>'
+        + '<div style="flex:1;background:#f3f4f6;border-radius:4px;height:10px;"><div style="width:' + pct + '%;background:' + color + ';border-radius:4px;height:10px;"></div></div>'
+        + '<div style="width:36px;text-align:right;font-size:12px;font-weight:700;color:' + color + ';">' + val + '</div>';
+      return div;
+    }
+
+    function kpiCard(label, val, color, col, filter) {
+      var div = document.createElement('div');
+      div.style.cssText = 'flex:1;min-width:130px;background:#f9fafb;border:2px solid #f3f4f6;border-radius:10px;padding:12px;text-align:center;cursor:' + (col ? 'pointer' : 'default') + ';transition:border-color .15s;';
+      div.onmouseover = function() { if (col) this.style.borderColor = color; };
+      div.onmouseout = function() { this.style.borderColor = '#f3f4f6'; };
+      if (col) div.onclick = function() { ouvrirDetail(col, filter); };
+      div.innerHTML = '<div style="font-size:26px;font-weight:800;color:' + color + ';">' + val + '</div>'
+        + '<div style="font-size:11px;color:#6b7280;margin-top:3px;">' + label + '</div>';
+      return div;
+    }
+
+    function buildSection(container, entries, color, col) {
+      var maxVal = entries.length ? entries[0][1] : 1;
+      entries.forEach(function(e) {
+        container.appendChild(barRow(e[0] || '(vide)', e[1], maxVal, color, col, e[0]));
       });
-      tableHtml += '</tr>';
-    });
-    tableHtml += '</tbody></table>';
+    }
 
-    document.getElementById('summary-detail-body').innerHTML = tableHtml;
-    document.getElementById('summary-detail').style.display = 'flex';
-  }
+    function sorted(obj) {
+      return Object.entries(obj).sort(function(a,b){ return b[1]-a[1]; });
+    }
+
+    function construireSummary(rows, headers) {
+      var total = rows.length;
+      document.getElementById('summary-badge').textContent = total + ' dossiers';
+
+      var typeOp={}, etatTache={}, support={}, typeAbo={}, etape={}, caract={}, debit={}, clients={};
+      var transferts=0, debits=0, supports=0, enCours=0, offert=0;
+
+      rows.forEach(function(r) {
+        var op = String(r['TYPE OPERATION TM'] || '').trim();
+        typeOp[op] = (typeOp[op]||0)+1;
+        if (/transfert/i.test(op)) transferts++;
+        else if (/debit/i.test(op)) debits++;
+        else if (/support/i.test(op)) supports++;
+
+        var et = String(r['ETAT TACHE'] || '').trim();
+        etatTache[et] = (etatTache[et]||0)+1;
+        if (et === 'En cours') enCours++;
+        if (et === 'Offert') offert++;
+
+        var sp = String(r['SUPPORT'] || '').trim();
+        if (sp) support[sp] = (support[sp]||0)+1;
+
+        var ta = String(r['TYPE ABONNEMENT'] || '').trim();
+        if (ta) typeAbo[ta] = (typeAbo[ta]||0)+1;
+
+        var ep = String(r['ETAPE'] || '').trim();
+        if (ep) etape[ep] = (etape[ep]||0)+1;
+
+        var ca = String(r['CARACTERISTIQUE'] || '').trim();
+        if (ca) caract[ca] = (caract[ca]||0)+1;
+
+        var db = String(r['DEBIT'] || '').trim();
+        if (db) debit[db] = (debit[db]||0)+1;
+
+        var cl = normalizeClient(r['NOM CLIENT']);
+        if (cl) clients[cl] = (clients[cl]||0)+1;
+      });
+
+      var body = document.getElementById('summary-body');
+      body.innerHTML = '';
+
+      // KPIs
+      var kpiWrap = document.createElement('div');
+      kpiWrap.style.cssText = 'background:white;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,0.07);padding:16px;margin-bottom:16px;';
+      var kpiTitle = document.createElement('h3');
+      kpiTitle.style.cssText = 'margin:0 0 12px;font-size:13px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:6px;';
+      kpiTitle.textContent = '🔢 Indicateurs clés';
+      kpiWrap.appendChild(kpiTitle);
+      var kpiRow = document.createElement('div');
+      kpiRow.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;';
+      [
+        ['Transferts', transferts, '#0ea5e9', 'TYPE OPERATION TM', 'Transfert'],
+        ['Débits', debits, '#8b5cf6', 'TYPE OPERATION TM', 'debit'],
+        ['Supports', supports, '#f59e0b', 'TYPE OPERATION TM', 'support'],
+        ['En cours', enCours, '#10b981', 'ETAT TACHE', 'En cours'],
+        ['Offert', offert, '#6b7280', 'ETAT TACHE', 'Offert'],
+        ['Total dossiers', total, '#374151', null, null]
+      ].forEach(function(k) {
+        kpiRow.appendChild(kpiCard(k[0], k[1], k[2], k[3], k[4]));
+      });
+      kpiWrap.appendChild(kpiRow);
+      body.appendChild(kpiWrap);
+
+      // Grid 2 colonnes helper
+      function grid2(leftTitle, leftColor, leftData, leftCol, rightTitle, rightColor, rightData, rightCol) {
+        var g = document.createElement('div');
+        g.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;';
+
+        [
+          [leftTitle, leftColor, leftData, leftCol],
+          [rightTitle, rightColor, rightData, rightCol]
+        ].forEach(function(cfg) {
+          var card = document.createElement('div');
+          card.style.cssText = 'background:white;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,0.07);padding:16px;';
+          var h3 = document.createElement('h3');
+          h3.style.cssText = 'margin:0 0 12px;font-size:13px;color:#374151;border-bottom:2px solid #f3f4f6;padding-bottom:6px;';
+          h3.textContent = cfg[0];
+          card.appendChild(h3);
+          buildSection(card, sorted(cfg[2]).slice(0,10), cfg[1], cfg[3]);
+          g.appendChild(card);
+        });
+        body.appendChild(g);
+      }
+
+      grid2('⚙️ Type d opération', '#0ea5e9', typeOp, 'TYPE OPERATION TM',
+            '📊 État des tâches',  '#10b981', etatTache, 'ETAT TACHE');
+      grid2('🔗 Support réseau',   '#f59e0b', support, 'SUPPORT',
+            '📦 Type d abonnement','#6366f1', typeAbo, 'TYPE ABONNEMENT');
+      grid2('📶 Débit demandé',    '#ec4899', debit, 'DEBIT',
+            '🔧 Caractéristique',  '#14b8a6', caract, 'CARACTERISTIQUE');
+      grid2('🏆 Top clients',      '#0284c7', clients, 'NOM CLIENT',
+            '📍 Étape courante',   '#8b5cf6', etape, 'ETAPE');
+    }
+
+    function ouvrirDetail(col, val) {
+      var rows = state.rows.filter(function(r) {
+        if (col === 'NOM CLIENT') return normalizeClient(r[col]) === val;
+        var v = String(r[col] || '').trim();
+        return v === val || v.toLowerCase() === (val||'').toLowerCase();
+      });
+
+      var headers = state.headers;
+      var titleEl = document.getElementById('summary-detail-title');
+      titleEl.innerHTML = '&#128269; ' + col + ' = <em>' + val + '</em> <span style="font-size:11px;font-weight:normal;">(' + rows.length + ' dossiers)</span>';
+
+      var tbl = '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+        + '<thead><tr style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:white;position:sticky;top:0;">';
+      headers.forEach(function(h) { tbl += '<th style="padding:8px 6px;text-align:left;white-space:nowrap;">' + h + '</th>'; });
+      tbl += '</tr></thead><tbody>';
+      rows.forEach(function(r, i) {
+        var bg = i % 2 === 0 ? '#fff' : '#f7f8fa';
+        tbl += '<tr style="background:' + bg + ';">';
+        headers.forEach(function(h) {
+          var v = r[h]; if (v == null) v = '';
+          tbl += '<td style="padding:6px 8px;border-bottom:1px solid #f3f4f6;white-space:nowrap;">' + String(v) + '</td>';
+        });
+        tbl += '</tr>';
+      });
+      tbl += '</tbody></table>';
+
+      document.getElementById('summary-detail-body').innerHTML = tbl;
+      document.getElementById('summary-detail').style.display = 'flex';
+    }
+  })();
   </script>
 
 </body>
