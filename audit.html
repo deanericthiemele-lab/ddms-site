@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit Réseau — LAN & WAN MPLS</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+:root{
+  --v:#E05A00;--v2:#F07020;--vp:#FEF0E6;
+  --noir:#1A1A1A;--r:#B22222;--rp:#FBEAEA;
+  --j:#B07700;--jp:#FDF5E0;--b:#1B4F72;--bp:#EBF3FA;
+  --gg:#1A6B3C;--gp:#E8F5EE;
+  --g1:#1A1A1A;--g3:#6B6B6B;--g4:#B0B0B0;--g5:#E8E8E8;--g6:#F8F8F8;
+  --mono:'JetBrains Mono',monospace;--cond:'Barlow Condensed',sans-serif;--body:'Barlow',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--body);font-size:12px;line-height:1.5;background:#F0F0EE;color:var(--g1)}
+
+@media print{
+  body{background:white;font-size:10.5px}
+  #sidebar,#topbar,.no-print{display:none!important}
+  #main{margin-left:0!important;padding:0!important}
+  .page{box-shadow:none!important;margin:0!important;page-break-after:always}
+  .page:last-child{page-break-after:avoid}
+  input,select,textarea{border:1px solid #ccc!important;background:transparent!important}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+
+/* ── SIDEBAR ── */
+#sidebar{position:fixed;top:0;left:0;width:235px;height:100vh;background:white;border-right:1px solid var(--g5);display:flex;flex-direction:column;z-index:100;overflow:hidden}
+#main{margin-left:235px;padding:0 24px 60px}
+
+.sb-hdr{padding:16px 14px 14px;border-bottom:1px solid var(--g5);background:var(--v)}
+.sb-logo{font-family:var(--cond);font-size:15px;font-weight:700;letter-spacing:1px;color:white}
+.sb-sub{font-size:9px;color:rgba(255,255,255,.65);letter-spacing:1px;margin-top:2px}
+
+.sb-new{margin:12px 12px 6px;background:var(--v);color:white;border:none;font-family:var(--body);font-size:12px;font-weight:600;padding:9px 14px;border-radius:3px;cursor:pointer;display:flex;align-items:center;gap:7px;width:calc(100% - 24px);transition:opacity .15s}
+.sb-new:hover{opacity:.85}
+
+.sb-section-label{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--g4);padding:10px 14px 5px}
+.sb-list{flex:1;overflow-y:auto;padding-bottom:8px}
+
+.sb-item{padding:9px 10px 9px 12px;cursor:pointer;border-left:3px solid transparent;display:flex;align-items:center;gap:8px;transition:background .12s;border-bottom:1px solid var(--g5)}
+.sb-item:hover{background:var(--g6)}
+.sb-item.active{background:var(--vp);border-left-color:var(--v)}
+.sb-item-info{flex:1;min-width:0}
+.sb-item-ref{font-family:var(--mono);font-size:9px;color:var(--g4)}
+.sb-item-name{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--g1)}
+.sb-item-date{font-size:9px;color:var(--g4)}
+.sb-item-badge{font-family:var(--mono);font-size:8px;font-weight:700;padding:2px 6px;border-radius:2px;white-space:nowrap;flex-shrink:0}
+.badge-lan{background:#EBF3FA;color:var(--b)}
+.badge-wan{background:var(--vp);color:var(--v)}
+.sb-del{background:none;border:none;color:var(--g4);cursor:pointer;font-size:14px;padding:3px 5px;border-radius:2px;flex-shrink:0}
+.sb-del:hover{color:var(--r)}
+.sb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-ok{background:#2E7D32}.dot-w{background:var(--j)}.dot-c{background:var(--r)}.dot-u{background:var(--g4)}
+.sb-foot{padding:10px 14px;border-top:1px solid var(--g5);font-size:9px;color:var(--g4);font-family:var(--mono)}
+
+/* ── TOPBAR ── */
+#topbar{background:white;border-bottom:1px solid var(--g5);padding:9px 22px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:50}
+.tb-ref{font-family:var(--mono);font-size:11px;color:var(--g3);background:var(--g6);padding:4px 10px;border-radius:2px;border:1px solid var(--g5)}
+.tb-type{font-family:var(--mono);font-size:10px;font-weight:700;padding:4px 10px;border-radius:2px}
+.tb-spacer{flex:1}
+.tb-saved{font-size:10px;color:#2E7D32;font-weight:600;opacity:0;transition:opacity .3s}
+.tb-saved.show{opacity:1}
+.btn-tb{border:none;font-family:var(--body);font-size:11.5px;font-weight:600;padding:7px 16px;border-radius:3px;cursor:pointer;transition:opacity .15s}
+.btn-tb:hover{opacity:.85}
+.btn-save{background:var(--v);color:white}
+.btn-print{background:var(--noir);color:white}
+
+/* ── CHOIX TYPE (modal) ── */
+#typeModal{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center}
+#typeModal.hidden{display:none}
+.modal-box{background:white;border-radius:4px;padding:32px 36px;max-width:480px;width:90%;box-shadow:0 8px 40px rgba(0,0,0,.18)}
+.modal-title{font-family:var(--cond);font-size:22px;font-weight:700;color:var(--g1);margin-bottom:6px}
+.modal-sub{font-size:12px;color:var(--g3);margin-bottom:24px}
+.modal-choices{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.modal-card{border:2px solid var(--g5);border-radius:4px;padding:20px 18px;cursor:pointer;transition:all .15s;text-align:left}
+.modal-card:hover{border-color:var(--v);background:var(--vp)}
+.modal-card-icon{font-size:28px;margin-bottom:10px}
+.modal-card-title{font-family:var(--cond);font-size:16px;font-weight:700;margin-bottom:4px}
+.modal-card-desc{font-size:11px;color:var(--g3);line-height:1.4}
+.modal-card.lan:hover .modal-card-title{color:var(--b)}
+.modal-card.lan:hover{border-color:var(--b);background:var(--bp)}
+.modal-card.wan:hover .modal-card-title{color:var(--v)}
+.modal-cancel{margin-top:18px;width:100%;background:none;border:1px solid var(--g5);font-family:var(--body);font-size:12px;color:var(--g3);padding:8px;border-radius:3px;cursor:pointer}
+.modal-cancel:hover{background:var(--g6)}
+
+/* ── EMPTY STATE ── */
+#emptyState{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;gap:12px;text-align:center}
+.es-icon{font-size:52px;opacity:.2}
+.es-title{font-family:var(--cond);font-size:22px;font-weight:700;color:var(--g3)}
+.es-sub{font-size:12px;color:var(--g4);max-width:300px}
+.es-btn{background:var(--v);color:white;border:none;font-family:var(--body);font-size:13px;font-weight:600;padding:11px 26px;border-radius:3px;cursor:pointer;margin-top:6px}
+.es-btn:hover{opacity:.85}
+
+/* ── PAGES ── */
+.page{background:white;box-shadow:0 1px 8px rgba(0,0,0,.07);border:1px solid var(--g5);margin-bottom:20px;overflow:hidden;max-width:920px}
+
+/* Header */
+.hdr{background:var(--noir);color:white;display:flex;align-items:stretch}
+.hdr-accent{width:6px;background:var(--v);flex-shrink:0}
+.hdr-body{flex:1;padding:16px 20px 12px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+.hdr-org{font-family:var(--mono);font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.4);margin-bottom:4px}
+.hdr-title{font-family:var(--cond);font-size:22px;font-weight:700;line-height:1.1}
+.hdr-sub{font-size:11px;font-weight:300;color:rgba(255,255,255,.55);margin-top:3px}
+.hdr-ref{font-family:var(--mono);font-size:9px;letter-spacing:1.5px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);padding:7px 11px;border-radius:2px;text-align:right;flex-shrink:0}
+.hdr-ref span{display:block;font-size:14px;font-weight:600;letter-spacing:2px;margin-top:2px;color:var(--v2)}
+.norms{background:var(--v);padding:5px 8px 5px 12px;display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.norms .lbl{font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.6);margin-right:4px}
+.nb{font-family:var(--mono);font-size:8px;font-weight:600;padding:2px 6px;border-radius:2px;background:rgba(0,0,0,.25);color:white}
+.hmeta{background:#111;padding:8px 12px;display:flex;gap:14px;flex-wrap:wrap}
+.hm{display:flex;flex-direction:column;gap:2px}
+.hm label{font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.4)}
+.hm input,.hm select{font-family:var(--body);font-size:11.5px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:white;padding:4px 8px;border-radius:2px;min-width:120px}
+.hm input::placeholder{color:rgba(255,255,255,.22)}
+.hm select option{color:black;background:white}
+
+/* Sections */
+.sec{border-bottom:1px solid var(--g5);padding:13px 20px;background:white}
+.sec:last-child{border-bottom:none}
+.sec-hd{display:flex;align-items:center;gap:8px;margin-bottom:11px}
+.sec-num{font-family:var(--mono);font-size:9px;font-weight:600;background:var(--v);color:white;width:20px;height:20px;border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sec-title{font-family:var(--cond);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--v);flex:1}
+.sec-norm{font-family:var(--mono);font-size:8px;color:var(--g3);border:1px solid var(--g5);padding:2px 6px;border-radius:10px}
+
+/* Grid / Fields */
+.g{display:grid;gap:8px}
+.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:1fr 1fr 1fr}.g4{grid-template-columns:1fr 1fr 1fr 1fr}
+.sa{grid-column:1/-1}
+.f{display:flex;flex-direction:column;gap:3px}
+.f label{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--g3)}
+.f input,.f select,.f textarea{font-family:var(--body);font-size:11.5px;color:var(--g1);background:white;border:1px solid var(--g5);border-radius:2px;padding:5px 8px;width:100%;transition:border-color .12s}
+.f input:focus,.f select:focus,.f textarea:focus{outline:none;border-color:var(--v2);box-shadow:0 0 0 2px var(--vp)}
+.f textarea{resize:vertical;min-height:48px}
+.f .hint{font-size:9px;color:var(--g4);font-style:italic}
+.div{height:1px;background:var(--g5);margin:9px 0}
+
+/* Tables */
+.tbl{width:100%;border-collapse:collapse;font-size:11px}
+.tbl th{padding:7px 8px;text-align:left;font-family:var(--cond);font-size:9.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;white-space:nowrap}
+.tbl td{padding:5px 8px;border-bottom:1px solid var(--g5);vertical-align:middle;background:white}
+.tbl tr:nth-child(even) td{background:#FAFAFA}
+.tbl tr:last-child td{border-bottom:none}
+.th-v{background:var(--v);color:white}.th-b{background:var(--b);color:white}.th-d{background:#2C2C2C;color:white}
+.tbl td input,.tbl td select{font-family:var(--body);font-size:11px;border:1px solid var(--g5);background:white;padding:3px 5px;border-radius:2px;width:100%}
+.tbl td input:focus,.tbl td select:focus{outline:none;border-color:var(--v2)}
+
+/* Info boxes */
+.ib{border-left:4px solid;padding:8px 12px;margin-bottom:8px;border-radius:0 2px 2px 0}
+.ib-title{font-family:var(--cond);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:3px}
+.ib-o{background:var(--vp);border-color:var(--v)}.ib-o .ib-title{color:var(--v)}
+.ib-r{background:var(--rp);border-color:var(--r)}.ib-r .ib-title{color:var(--r)}
+.ib-b{background:var(--bp);border-color:var(--b)}.ib-b .ib-title{color:var(--b)}
+.ib-g{background:var(--gp);border-color:var(--gg)}.ib-g .ib-title{color:var(--gg)}
+
+/* Score buttons */
+.sc-btn{padding:5px 12px;border:1px solid var(--g5);border-radius:2px;background:white;font-family:var(--body);font-size:11px;font-weight:600;cursor:pointer;transition:all .12s}
+.sc-btn:hover{border-color:var(--v2);color:var(--v2)}
+.sel-v{border-color:#2E7D32!important;background:#E8F5E9!important;color:#2E7D32!important}
+.sel-j{border-color:var(--j)!important;background:var(--jp)!important;color:var(--j)!important}
+.sel-r{border-color:var(--r)!important;background:var(--rp)!important;color:var(--r)!important}
+
+/* Criticité */
+.crit-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.cc{border:1px solid var(--g5);border-radius:2px;padding:9px 11px;background:white}
+.cc-bar{height:3px;border-radius:1px;margin-bottom:6px}
+.cc-lbl{font-family:var(--cond);font-size:12px;font-weight:700;margin-bottom:2px}
+.cc-desc{font-size:10px;color:var(--g3);margin-bottom:3px}
+.cc-ex{font-size:9px;font-family:var(--mono);color:var(--g4)}
+.cc-p1 .cc-bar{background:var(--r)}.cc-p1 .cc-lbl{color:var(--r)}
+.cc-p2 .cc-bar{background:var(--j)}.cc-p2 .cc-lbl{color:var(--j)}
+.cc-p3 .cc-bar{background:#2E7D32}.cc-p3 .cc-lbl{color:#2E7D32}
+
+/* Footer page */
+.ftr{background:var(--noir);color:rgba(255,255,255,.4);font-size:9px;padding:9px 20px;display:flex;justify-content:space-between;font-family:var(--mono)}
+.ftr-ref{color:var(--v2)!important}
+
+/* Eval box */
+.eval-box{border:1px solid var(--g5);border-radius:3px;padding:11px 13px;background:white}
+.eval-title{font-family:var(--cond);font-size:10px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--g3);margin-bottom:8px}
+.eval-btns{display:flex;gap:6px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<!-- ══════ MODAL CHOIX TYPE ══════ -->
+<div id="typeModal" class="hidden">
+  <div class="modal-box">
+    <div class="modal-title">Nouveau diagnostic</div>
+    <div class="modal-sub">Choisissez le type de réseau à auditer</div>
+    <div class="modal-choices">
+      <div class="modal-card lan" onclick="createDiag('LAN')">
+        <div class="modal-card-icon">🖧</div>
+        <div class="modal-card-title" style="color:var(--b)">Audit LAN</div>
+        <div class="modal-card-desc">Réseau local, équipements, câblage, WiFi, sécurité périmétrique</div>
+      </div>
+      <div class="modal-card wan" onclick="createDiag('WAN')">
+        <div class="modal-card-icon">🌐</div>
+        <div class="modal-card-title" style="color:var(--v)">Diagnostic WAN / MPLS</div>
+        <div class="modal-card-desc">Liaisons MPLS inter-sites, performance, incidents, plan d'action</div>
+      </div>
+    </div>
+    <button class="modal-cancel" onclick="closeModal()">Annuler</button>
+  </div>
+</div>
+
+<!-- ══════ SIDEBAR ══════ -->
+<div id="sidebar">
+  <div class="sb-hdr">
+    <div class="sb-logo">AUDIT RÉSEAU</div>
+    <div class="sb-sub">LAN · WAN MPLS · DIAGNOSTIC</div>
+  </div>
+  <button class="sb-new" onclick="openModal()">＋ Nouveau diagnostic</button>
+  <div class="sb-section-label" style="font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--g4);padding:10px 14px 5px">FICHES ENREGISTRÉES</div>
+  <div class="sb-list" id="sbList"></div>
+  <div class="sb-foot" id="sbCount">0 fiche(s)</div>
+</div>
+
+<!-- ══════ MAIN ══════ -->
+<div id="main">
+  <div id="topbar" class="no-print">
+    <span class="tb-ref" id="tbRef">—</span>
+    <span class="tb-type" id="tbType" style="display:none"></span>
+    <span class="tb-spacer"></span>
+    <span class="tb-saved" id="savedMsg">✓ Sauvegardé</span>
+    <button class="btn-tb btn-save" onclick="saveCurrent()">💾 Sauvegarder</button>
+    <button class="btn-tb btn-print" onclick="window.print()">🖨 Imprimer</button>
+  </div>
+
+  <!-- EMPTY STATE -->
+  <div id="emptyState" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;gap:12px;text-align:center">
+    <div class="es-icon">📋</div>
+    <div class="es-title">Aucun diagnostic ouvert</div>
+    <div class="es-sub">Créez un diagnostic LAN ou WAN/MPLS</div>
+    <button class="es-btn" onclick="openModal()">＋ Créer un diagnostic</button>
+  </div>
+
+  <!-- CONTENU DYNAMIQUE -->
+  <div id="formContainer" style="display:none"></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// DONNÉES & STATE
+// ══════════════════════════════════════════════════════════
+const STORE = 'audit_reseau_v1';
+let diags = [], currentId = null, autoTimer = null;
+
+window.addEventListener('DOMContentLoaded', () => {
+  try { diags = JSON.parse(localStorage.getItem(STORE)) || []; } catch(e) { diags = []; }
+  renderSidebar();
+  if (diags.length > 0) openDiag(diags[diags.length-1].id);
+});
+
+// ══════════════════════════════════════════════════════════
+// MODAL
+// ══════════════════════════════════════════════════════════
+function openModal() { document.getElementById('typeModal').classList.remove('hidden'); }
+function closeModal() { document.getElementById('typeModal').classList.add('hidden'); }
+
+function createDiag(type) {
+  closeModal();
+  const d = new Date(), y = d.getFullYear().toString().slice(2), m = String(d.getMonth()+1).padStart(2,'0');
+  const prefix = type === 'LAN' ? 'LAN' : 'WAN';
+  const id = prefix + '-' + y + m + '-' + Math.floor(Math.random()*900+100);
+  diags.push({ id, type, createdAt: new Date().toISOString(), data: { f_date: d.toISOString().split('T')[0] }, etat: '' });
+  persist();
+  openDiag(id);
+}
+
+// ══════════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════════
+function openDiag(id) {
+  currentId = id;
+  const diag = diags.find(d => d.id === id);
+  if (!diag) return;
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('formContainer').style.display = 'block';
+  document.getElementById('formContainer').innerHTML = diag.type === 'LAN' ? buildLAN() : buildWAN();
+  loadForm(diag);
+  renderSidebar();
+  // Topbar type badge
+  const tb = document.getElementById('tbType');
+  tb.style.display = 'inline-block';
+  if (diag.type === 'LAN') { tb.style.background = '#EBF3FA'; tb.style.color = '#1B4F72'; tb.textContent = 'LAN'; }
+  else { tb.style.background = '#FEF0E6'; tb.style.color = '#E05A00'; tb.textContent = 'WAN / MPLS'; }
+}
+
+// ══════════════════════════════════════════════════════════
+// FORM HELPERS
+// ══════════════════════════════════════════════════════════
+function loadForm(diag) {
+  const data = diag.data || {};
+  document.querySelectorAll('#formContainer [data-key]').forEach(el => {
+    const k = el.dataset.key;
+    if (data[k] !== undefined) { el.value = data[k]; if (el.tagName==='SELECT' && el.classList.contains('cs')) { el.style.color='';el.style.background='';el.style.fontWeight=''; applyCS(el); } }
+    else { el.value = ''; if(el.tagName==='SELECT'){ el.style.color='';el.style.background='';el.style.fontWeight=''; } }
+  });
+  // header fields
+  ['f_date','f_tech','f_ver','f_ticket','f_client','f_site','f_auditeur'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && data[id] !== undefined) el.value = data[id];
+  });
+  // ref
+  ['fRef','ftr_ref1','ftr_ref2'].forEach(id => { const el = document.getElementById(id); if(el) el.textContent = diag.id; });
+  document.getElementById('tbRef').textContent = diag.id;
+  // buttons
+  restoreGrps(diag);
+}
+
+function readForm() {
+  const data = {};
+  ['f_date','f_tech','f_ver','f_ticket','f_client','f_site','f_auditeur'].forEach(id => {
+    const el = document.getElementById(id); if(el) data[id] = el.value;
+  });
+  document.querySelectorAll('#formContainer [data-key]').forEach(el => { data[el.dataset.key] = el.value; });
+  return data;
+}
+
+function autoSave() {
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(saveCurrent, 1200);
+  const diag = diags.find(d => d.id === currentId);
+  if (diag) {
+    diag.label = document.getElementById('f_client')?.value || document.getElementById('f_site')?.value || '';
+    renderSidebar();
+  }
+}
+
+function saveCurrent() {
+  if (!currentId) return;
+  const diag = diags.find(d => d.id === currentId);
+  if (!diag) return;
+  diag.data = readForm();
+  diag.label = diag.data.f_client || diag.data.f_site || '';
+  diag.updatedAt = new Date().toISOString();
+  // save toggle buttons
+  document.querySelectorAll('#formContainer [data-grp]').forEach(btn => {
+    if (['sel-v','sel-j','sel-r'].some(c => btn.classList.contains(c))) diag[btn.dataset.grp] = btn.dataset.val;
+  });
+  persist(); renderSidebar();
+  const msg = document.getElementById('savedMsg');
+  msg.classList.add('show'); setTimeout(() => msg.classList.remove('show'), 2000);
+}
+
+function restoreGrps(diag) {
+  document.querySelectorAll('#formContainer [data-grp]').forEach(btn => {
+    btn.classList.remove('sel-v','sel-j','sel-r');
+    const grp = btn.dataset.grp;
+    if (diag[grp] && diag[grp] === btn.dataset.val) {
+      const m = btn.getAttribute('onclick')?.match(/tB\(this,'(sel-\w+)'/);
+      if (m) btn.classList.add(m[1]);
+    }
+  });
+}
+
+function deleteDiag(id, e) {
+  e.stopPropagation();
+  if (!confirm('Supprimer cette fiche ?')) return;
+  diags = diags.filter(d => d.id !== id);
+  persist();
+  if (currentId === id) {
+    currentId = null;
+    document.getElementById('formContainer').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'flex';
+    document.getElementById('tbRef').textContent = '—';
+    document.getElementById('tbType').style.display = 'none';
+    if (diags.length > 0) openDiag(diags[diags.length-1].id);
+  }
+  renderSidebar();
+}
+
+function persist() { localStorage.setItem(STORE, JSON.stringify(diags)); document.getElementById('sbCount').textContent = diags.length + ' fiche(s)'; }
+
+// Sidebar
+function renderSidebar() {
+  const list = document.getElementById('sbList');
+  document.getElementById('sbCount').textContent = diags.length + ' fiche(s)';
+  if (!diags.length) { list.innerHTML = '<div style="padding:14px;font-size:11px;color:var(--g4);font-family:var(--mono)">Aucune fiche</div>'; return; }
+  const dotMap = { bon:'dot-ok', ok:'dot-ok', sain:'dot-ok', moyen:'dot-w', risque:'dot-w', degrade:'dot-w', faible:'dot-c', critique:'dot-c', '':'dot-u' };
+  list.innerHTML = [...diags].reverse().map(d => {
+    const label = d.label || '(sans nom)';
+    const date = d.data?.f_date ? new Date(d.data.f_date).toLocaleDateString('fr-FR') : '—';
+    const dot = dotMap[d.etat || ''] || 'dot-u';
+    const badge = d.type === 'LAN' ? '<span class="sb-item-badge badge-lan">LAN</span>' : '<span class="sb-item-badge badge-wan">WAN</span>';
+    return `<div class="sb-item${d.id===currentId?' active':''}" onclick="openDiag('${d.id}')">
+      <div class="sb-dot ${dot}"></div>
+      <div class="sb-item-info">
+        <div class="sb-item-ref">${d.id}</div>
+        <div class="sb-item-name">${label}</div>
+        <div class="sb-item-date">${date}</div>
+      </div>
+      ${badge}
+      <button class="sb-del" onclick="deleteDiag('${d.id}',event)" title="Supprimer">×</button>
+    </div>`;
+  }).join('');
+}
+
+// Coloriser select statut
+function applyCS(s) {
+  s.style.color=''; s.style.background=''; s.style.fontWeight='';
+  if(s.value==='ok'){s.style.color='#2E7D32';s.style.background='#E8F5E9';s.style.fontWeight='600'}
+  if(s.value==='w'){s.style.color='var(--j)';s.style.background='var(--jp)';s.style.fontWeight='600'}
+  if(s.value==='c'){s.style.color='var(--r)';s.style.background='var(--rp)';s.style.fontWeight='600'}
+}
+function cS(s){ applyCS(s); autoSave(); }
+
+// Boutons toggle
+function tB(btn, cls, grp) {
+  document.querySelectorAll(`#formContainer [data-grp="${grp}"]`).forEach(b => b.classList.remove('sel-v','sel-j','sel-r'));
+  btn.classList.add(cls);
+  autoSave();
+}
+
+// Auto-save sur input/change
+document.addEventListener('input', e => { if(e.target.closest('#formContainer')) autoSave(); });
+document.addEventListener('change', e => { if(e.target.closest('#formContainer')) autoSave(); });
+
+// ══════════════════════════════════════════════════════════
+// TEMPLATE LAN
+// ══════════════════════════════════════════════════════════
+function buildLAN() { return `
+<div class="page">
+  <div class="hdr">
+    <div class="hdr-accent"></div>
+    <div style="flex:1">
+      <div class="hdr-body">
+        <div>
+          <div class="hdr-org">Fiche de diagnostic client — Réseau local</div>
+          <div class="hdr-title">AUDIT DU RÉSEAU LOCAL (LAN)</div>
+          <div class="hdr-sub">Infrastructure · Performance · Sécurité · Câblage · WiFi · Remédiation</div>
+        </div>
+        <div class="hdr-ref">RÉFÉRENCE<span id="fRef">—</span></div>
+      </div>
+      <div class="norms">
+        <span class="lbl">Conforme :</span>
+        <span class="nb">ITIL v4</span><span class="nb">ISO/IEC 27001</span><span class="nb">IEEE 802.1Q</span>
+        <span class="nb">IEEE 802.3</span><span class="nb">ISO/IEC 11801</span><span class="nb">CIS Controls v8</span>
+      </div>
+      <div class="hmeta">
+        <div class="hm"><label>Client</label><input type="text" id="f_client" placeholder="Organisation…"></div>
+        <div class="hm"><label>Site audité</label><input type="text" id="f_site" placeholder="Siège / Agence…"></div>
+        <div class="hm"><label>Date</label><input type="date" id="f_date"></div>
+        <div class="hm"><label>Auditeur</label><input type="text" id="f_auditeur" placeholder="Nom Prénom"></div>
+        <div class="hm"><label>Version</label><select id="f_ver"><option>v1.0 – Initial</option><option>v1.1 – Révision</option><option>v2.0 – Final</option></select></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S1 CONTEXTE -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">1</span><span class="sec-title">Contexte &amp; identification</span><span class="sec-norm">ITIL v4 · CMDB · CIS Controls v8 — Control 1</span></div>
+    <div class="g g4">
+      <div class="f"><label>Raison sociale</label><input type="text" data-key="s1_rs" placeholder="Société ABC SARL"></div>
+      <div class="f"><label>Secteur</label><select data-key="s1_sec"><option value="">--</option><option>Administration publique</option><option>Banque / Finance</option><option>Santé</option><option>Éducation</option><option>Commerce</option><option>Industrie</option><option>Télécoms</option><option>Autre</option></select></div>
+      <div class="f"><label>Nb. collaborateurs</label><input type="number" data-key="s1_col" placeholder="200"></div>
+      <div class="f"><label>Nb. postes LAN</label><input type="number" data-key="s1_pos" placeholder="150"></div>
+      <div class="f"><label>Interlocuteur technique</label><input type="text" data-key="s1_it" placeholder="Nom / Poste"></div>
+      <div class="f"><label>Contact (tél / email)</label><input type="text" data-key="s1_ct" placeholder="+225…"></div>
+      <div class="f"><label>Objectif de l'audit</label><select data-key="s1_obj"><option value="">--</option><option>Diagnostic complet</option><option>Préparation migration</option><option>Incident récurrent</option><option>Conformité ISO 27001</option><option>Due diligence</option><option>Autre</option></select></div>
+      <div class="f"><label>Applications critiques</label><input type="text" data-key="s1_apps" placeholder="ERP, VoIP, Messagerie…"></div>
+    </div>
+  </div>
+
+  <!-- S2 TOPOLOGIE -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">2</span><span class="sec-title">Topologie &amp; architecture</span><span class="sec-norm">IEEE 802.1Q · ISO/IEC 11801 · Cisco BP</span></div>
+    <div class="g g4">
+      <div class="f"><label>Topologie actuelle</label><select data-key="s2_topo"><option value="">--</option><option>Étoile — standard</option><option>Hiérarchique 3 couches</option><option>Hiérarchique 2 couches</option><option>Réseau à plat (flat)</option><option>Non documentée</option></select></div>
+      <div class="f"><label>Nb. VLANs configurés</label><input type="number" data-key="s2_vl" placeholder="8"></div>
+      <div class="f"><label>Segmentation VLAN</label><select data-key="s2_seg"><option value="">--</option><option>✅ Bien segmenté</option><option>⚠ Partielle</option><option>❌ Réseau à plat</option></select></div>
+      <div class="f"><label>Redondance STP</label><select data-key="s2_stp"><option value="">--</option><option>✅ RSTP</option><option>✅ MSTP</option><option>⚠ STP classique</option><option>❌ Aucune</option></select></div>
+      <div class="f"><label>Agrégation liens (LACP)</label><select data-key="s2_lag"><option value="">--</option><option>✅ LACP actif</option><option>⚠ Static bundling</option><option>❌ Absent</option></select></div>
+      <div class="f"><label>Schéma réseau</label><select data-key="s2_sch"><option value="">--</option><option>✅ À jour</option><option>⚠ Obsolète</option><option>❌ Inexistant</option></select></div>
+      <div class="f"><label>Plan IP documenté</label><select data-key="s2_ip"><option value="">--</option><option>✅ Oui</option><option>⚠ Partiel</option><option>❌ Non</option></select></div>
+      <div class="f"><label>Root Bridge STP</label><input type="text" data-key="s2_rb" placeholder="Core-SW-01"></div>
+    </div>
+  </div>
+
+  <!-- S3 INVENTAIRE -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">3</span><span class="sec-title">Inventaire des équipements</span><span class="sec-norm">ISO/IEC 27001 A.8 · ITIL v4 CMDB</span></div>
+    <table class="tbl">
+      <thead><tr class="th-b"><th>#</th><th>Rôle</th><th>Marque / Modèle</th><th>Qté</th><th>Version OS</th><th>Fin support (EoL)</th><th>Emplacement</th><th>État</th></tr></thead>
+      <tbody>
+        ${[1,2,3,4].map(i=>`<tr>
+          <td style="font-family:var(--mono);font-size:10px;color:var(--g4)">0${i}</td>
+          <td><select data-key="inv${i}_r" style="font-size:11px"><option>--</option><option>Switch core</option><option>Switch distribution</option><option>Switch accès</option><option>Routeur</option><option>Firewall</option><option>AP WiFi</option><option>Contrôleur WiFi</option><option>Serveur</option><option>Autre</option></select></td>
+          <td><input type="text" data-key="inv${i}_m" placeholder="Cisco C9300…"></td>
+          <td><input type="number" data-key="inv${i}_q" placeholder="1"></td>
+          <td><input type="text" data-key="inv${i}_v" placeholder="17.6.3"></td>
+          <td><input type="text" data-key="inv${i}_e" placeholder="2030-01"></td>
+          <td><input type="text" data-key="inv${i}_l" placeholder="Baie SS"></td>
+          <td><select data-key="inv${i}_s" class="cs" onchange="cS(this)"><option value="">--</option><option value="ok">✅ OK</option><option value="w">⚠ Alerte</option><option value="c">🔴 Critique</option></select></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="g g3" style="margin-top:9px">
+      <div class="f"><label>Nb. total switches</label><input type="number" data-key="s3_sw" placeholder="12"></div>
+      <div class="f"><label>Nb. total AP WiFi</label><input type="number" data-key="s3_ap" placeholder="8"></div>
+      <div class="f"><label>Nb. prises RJ45 actives</label><input type="number" data-key="s3_rj" placeholder="180"></div>
+    </div>
+  </div>
+
+  <div class="ftr"><span>Audit LAN — Fiche de diagnostic client</span><span class="ftr-ref" id="ftr_ref1">—</span><span>Page 1 / 2</span></div>
+</div>
+
+<div class="page">
+
+  <!-- S4 PERFORMANCE -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">4</span><span class="sec-title">Performance &amp; métriques LAN</span><span class="sec-norm">IEEE 802.3 · ITU-T Y.1541 · ISO/IEC 20000</span></div>
+    <div class="ib ib-b" style="margin-bottom:10px">
+      <div class="ib-title">📡 Source de mesure</div>
+      <div class="g g3">
+        <div class="f"><label>Outil utilisé</label><select data-key="s4_tool"><option value="">--</option><option>SolarWinds NPM</option><option>PRTG</option><option>Wireshark</option><option>iPerf3</option><option>ManageEngine</option><option>Autre</option></select></div>
+        <div class="f"><label>Période analysée</label><input type="text" data-key="s4_per" placeholder="01/05 → 31/05/2025"></div>
+        <div class="f"><label>Durée (jours)</label><input type="number" data-key="s4_days" placeholder="30"></div>
+      </div>
+    </div>
+    <table class="tbl">
+      <thead><tr class="th-v"><th>Métrique</th><th>Norme</th><th>Seuil ✅</th><th>Seuil 🔴</th><th>Valeur mesurée</th><th>Statut</th><th>Observation</th></tr></thead>
+      <tbody>
+        ${[
+          ['Débit réel switch core','IEEE 802.3','≥ 90% nominal','&lt; 70%','p_d'],
+          ['Latence LAN','ITU-T Y.1541','&lt; 1 ms','&gt; 5 ms','p_l'],
+          ['Perte de paquets LAN','IEEE 802.3','= 0 %','&gt; 0,1 %','p_pk'],
+          ['CPU switch core','SNMP Vendor','&lt; 50 %','&gt; 80 %','p_c'],
+          ['RAM switch core','SNMP Vendor','&lt; 60 %','&gt; 85 %','p_r'],
+          ['Erreurs / collisions','IF-MIB SNMP','= 0 /h','&gt; 10 /h','p_e'],
+          ['Saturation ports accès','IEEE 802.3','&lt; 70 %','&gt; 90 %','p_s'],
+          ['Trafic broadcast','IEEE 802.1D','&lt; 5 %','&gt; 20 %','p_b'],
+        ].map(([n,norm,ok,ko,k])=>`<tr>
+          <td><strong>${n}</strong></td>
+          <td style="font-family:var(--mono);font-size:9px;color:var(--b)">${norm}</td>
+          <td style="color:#2E7D32;font-weight:600">${ok}</td>
+          <td style="color:var(--r);font-weight:600">${ko}</td>
+          <td><input type="text" data-key="${k}_v" placeholder="…"></td>
+          <td><select data-key="${k}_s" class="cs" onchange="cS(this)"><option value="">--</option><option value="ok">✅ OK</option><option value="w">⚠ Alerte</option><option value="c">🔴 Critique</option></select></td>
+          <td><input type="text" data-key="${k}_o" placeholder="…"></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- S5 SÉCURITÉ -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">5</span><span class="sec-title">Sécurité du réseau local</span><span class="sec-norm">ISO/IEC 27001 A.8/A.13 · CIS Controls v8 · NIST SP 800-82</span></div>
+    <div class="g g4">
+      ${[
+        ['Firewall périmétrique','sec_fw','NGFW actif|✅ NextGen FW|✅ FW standard|⚠ Routeur filtrant|❌ Absent'],
+        ['Segmentation VLAN sécurité','sec_vl','|✅ DMZ / Serveurs / Users|⚠ Partielle|❌ Réseau à plat'],
+        ['Contrôle d\'accès 802.1X (NAC)','sec_nac','|✅ 802.1X déployé|⚠ Partiel|❌ Absent'],
+        ['IDS / IPS','sec_ids','|✅ IPS actif|⚠ IDS passif|❌ Absent'],
+        ['Port security (MAC)','sec_ps','|✅ Configuré|⚠ Partiel|❌ Absent'],
+        ['DHCP Snooping','sec_ds','|✅ Oui|❌ Non'],
+        ['Dynamic ARP Inspection','sec_dai','|✅ Oui|❌ Non'],
+        ['IP Source Guard','sec_isg','|✅ Oui|❌ Non'],
+        ['Logs / SIEM','sec_log','|✅ SIEM actif|⚠ Syslog local|❌ Aucun'],
+        ['MDP équipements modifiés','sec_mdp','|✅ Oui|❌ Non — défaut|🔲 Inconnu'],
+        ['SSH v2 uniquement (no Telnet)','sec_ssh','|✅ SSH v2|⚠ Telnet actif|❌ Non sécurisé'],
+        ['Dernière MAJ firmware','sec_fw_d','date'],
+      ].map(([lbl,k,opts])=>{
+        if(opts==='date') return `<div class="f"><label>${lbl}</label><input type="date" data-key="${k}"></div>`;
+        const os = opts.split('|').map((o,i)=>i===0?`<option value="">${o||'--'}</option>`:`<option>${o}</option>`).join('');
+        return `<div class="f"><label>${lbl}</label><select data-key="${k}">${os}</select></div>`;
+      }).join('')}
+    </div>
+    <div class="f" style="margin-top:8px"><label>Observations sécurité</label><textarea data-key="sec_obs" placeholder="Ex : VLAN natif 1 non modifié, ports inutilisés actifs, Telnet encore présent…"></textarea></div>
+  </div>
+
+  <!-- S6 CÂBLAGE -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">6</span><span class="sec-title">Câblage &amp; infrastructure physique</span><span class="sec-norm">ISO/IEC 11801 · TIA-568 · ISO/IEC 14763-2</span></div>
+    <div class="g g4">
+      <div class="f"><label>Catégorie câblage cuivre</label><select data-key="cab_cat"><option value="">--</option><option>Cat 5e (100 Mbps)</option><option>Cat 6 (1 Gbps)</option><option>Cat 6A (10 Gbps)</option><option>Cat 7 / 7A</option><option>Mixte</option><option>Cat 3 (obsolète)</option></select></div>
+      <div class="f"><label>Fibre optique</label><select data-key="cab_fo"><option value="">--</option><option>✅ SM monomode</option><option>✅ MM OM3/OM4</option><option>⚠ MM OM1/OM2 (ancien)</option><option>❌ Absent</option></select></div>
+      <div class="f"><label>Longueurs ≤ 90m (ISO 11801)</label><select data-key="cab_lng"><option value="">--</option><option>✅ Conformes</option><option>⚠ Dépassements localisés</option><option>❌ Non conformes</option></select></div>
+      <div class="f"><label>Certification liens (Fluke)</label><select data-key="cab_crt"><option value="">--</option><option>✅ Certifiés</option><option>⚠ Partiellement</option><option>❌ Non certifiés</option></select></div>
+      <div class="f"><label>Baies de brassage organisées</label><select data-key="cab_bai"><option value="">--</option><option>✅ Étiquetées</option><option>⚠ Partiellement</option><option>❌ Désorganisées</option></select></div>
+      <div class="f"><label>Alimentation PoE</label><select data-key="cab_poe"><option value="">--</option><option>✅ PoE+ 802.3at</option><option>✅ PoE++ 802.3bt</option><option>✅ PoE 802.3af</option><option>❌ Absent</option></select></div>
+      <div class="f"><label>Onduleur UPS salle réseau</label><select data-key="cab_ups"><option value="">--</option><option>✅ Oui — testé</option><option>⚠ Oui — non testé</option><option>❌ Absent</option></select></div>
+      <div class="f"><label>Climatisation salle serveur</label><select data-key="cab_clim"><option value="">--</option><option>✅ Conforme</option><option>⚠ Insuffisante</option><option>❌ Absente</option></select></div>
+    </div>
+    <div class="f" style="margin-top:8px"><label>Observations câblage</label><textarea data-key="cab_obs" placeholder="Ex : Cat 5e depuis 2008, dépassements aile B, aucune certification…"></textarea></div>
+  </div>
+
+  <!-- S7 WIFI -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">7</span><span class="sec-title">Réseau sans fil (WiFi)</span><span class="sec-norm">IEEE 802.11ax/ac · WPA3 · ISO/IEC 27001 A.13</span></div>
+    <div class="g g4">
+      <div class="f"><label>Standard WiFi déployé</label><select data-key="wf_std"><option value="">--</option><option>✅ WiFi 6 (802.11ax)</option><option>✅ WiFi 5 (802.11ac)</option><option>⚠ WiFi 4 (802.11n)</option><option>❌ WiFi 3 — obsolète</option><option>❌ Absent</option></select></div>
+      <div class="f"><label>Authentification</label><select data-key="wf_auth"><option value="">--</option><option>✅ WPA3-Enterprise (802.1X)</option><option>✅ WPA2-Enterprise (802.1X)</option><option>⚠ WPA2-Personal (PSK)</option><option>❌ WEP / Open</option></select></div>
+      <div class="f"><label>SSID séparés (User/IoT/Guest)</label><select data-key="wf_ssid"><option value="">--</option><option>✅ VLANs distincts</option><option>⚠ Partielle</option><option>❌ SSID unique</option></select></div>
+      <div class="f"><label>Couverture (% site)</label><input type="text" data-key="wf_cov" placeholder="85%"></div>
+      <div class="f"><label>Signal min. mesuré (RSSI)</label><input type="text" data-key="wf_rssi" placeholder="-65 dBm"></div>
+      <div class="f"><label>Interférences</label><select data-key="wf_int"><option value="">--</option><option>✅ Aucune</option><option>⚠ Légères</option><option>❌ Sévères</option></select></div>
+      <div class="f"><label>Contrôleur centralisé</label><select data-key="wf_ctrl"><option value="">--</option><option>✅ On-premise</option><option>✅ Cloud managed</option><option>❌ AP autonomes</option></select></div>
+      <div class="f"><label>Nb. AP total</label><input type="number" data-key="wf_nb" placeholder="8"></div>
+    </div>
+  </div>
+
+  <!-- S8 ACTIONS -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">8</span><span class="sec-title">Actions de remédiation</span><span class="sec-norm">ITIL v4 · Change Enablement · CSI</span></div>
+    <table class="tbl">
+      <thead><tr class="th-d"><th>Réf.</th><th>Action</th><th>Domaine</th><th>Priorité</th><th>Responsable</th><th>Délai</th><th>Statut</th></tr></thead>
+      <tbody>
+        ${[1,2,3,4].map(i=>`<tr>
+          <td style="font-family:var(--mono);font-size:10px;color:var(--g4)">ACT-0${i}</td>
+          <td><input type="text" data-key="a${i}_d" placeholder="Action…"></td>
+          <td><select data-key="a${i}_dom" style="font-size:11px"><option>--</option><option>Sécurité</option><option>Performance</option><option>Infrastructure</option><option>WiFi</option><option>Câblage</option><option>Documentation</option></select></td>
+          <td><select data-key="a${i}_p" style="font-size:11px"><option>--</option><option>🔴 Immédiat</option><option>🟡 Court terme</option><option>🟢 Moyen terme</option></select></td>
+          <td><input type="text" data-key="a${i}_r" placeholder="DSI"></td>
+          <td><input type="text" data-key="a${i}_dl" placeholder="2 sem."></td>
+          <td><select data-key="a${i}_s" style="font-size:11px"><option>--</option><option>⏳ À faire</option><option>🔄 En cours</option><option>✅ Terminé</option></select></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- S9 VALIDATION -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">9</span><span class="sec-title">Évaluation &amp; validation</span><span class="sec-norm">ITIL v4 · CSI · ISO/IEC 27001 A.18</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px">
+      <div class="eval-box"><div class="eval-title">Maturité réseau</div><div class="eval-btns">
+        <button class="sc-btn" data-grp="etat" data-val="bon" onclick="tB(this,'sel-v','etat')">🟢 Bon</button>
+        <button class="sc-btn" data-grp="etat" data-val="moyen" onclick="tB(this,'sel-j','etat')">🟡 Moyen</button>
+        <button class="sc-btn" data-grp="etat" data-val="faible" onclick="tB(this,'sel-r','etat')">🔴 Faible</button>
+      </div></div>
+      <div class="eval-box"><div class="eval-title">Niveau sécurité</div><div class="eval-btns">
+        <button class="sc-btn" data-grp="secu" data-val="ok" onclick="tB(this,'sel-v','secu')">🟢 OK</button>
+        <button class="sc-btn" data-grp="secu" data-val="risque" onclick="tB(this,'sel-j','secu')">🟡 Risque</button>
+        <button class="sc-btn" data-grp="secu" data-val="critique" onclick="tB(this,'sel-r','secu')">🔴 Critique</button>
+      </div></div>
+      <div class="eval-box"><div class="eval-title">Urgence intervention</div><div class="eval-btns">
+        <button class="sc-btn" data-grp="urgence" data-val="immediate" onclick="tB(this,'sel-r','urgence')">🔴 Immédiate</button>
+        <button class="sc-btn" data-grp="urgence" data-val="planifiee" onclick="tB(this,'sel-j','urgence')">🟡 Planifiée</button>
+        <button class="sc-btn" data-grp="urgence" data-val="differee" onclick="tB(this,'sel-v','urgence')">🟢 Différée</button>
+      </div></div>
+    </div>
+    <div class="g g2">
+      <div class="f"><label>Synthèse auditeur</label><textarea data-key="val_syn" style="min-height:60px" placeholder="Points forts, risques, recommandations…"></textarea></div>
+      <div class="g g2" style="align-content:start;gap:8px">
+        <div class="f"><label>Auditeur — visa</label><input type="text" data-key="val_aud"></div>
+        <div class="f"><label>Date</label><input type="date" data-key="val_da"></div>
+        <div class="f"><label>Validé par (client)</label><input type="text" data-key="val_cli"></div>
+        <div class="f"><label>Date validation</label><input type="date" data-key="val_dc"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ftr"><span>Audit LAN — Fiche de diagnostic client</span><span class="ftr-ref" id="ftr_ref2">—</span><span>Page 2 / 2</span></div>
+</div>`; }
+
+// ══════════════════════════════════════════════════════════
+// TEMPLATE WAN
+// ══════════════════════════════════════════════════════════
+function buildWAN() { return `
+<div class="page">
+  <div class="hdr">
+    <div class="hdr-accent"></div>
+    <div style="flex:1">
+      <div class="hdr-body">
+        <div>
+          <div class="hdr-org">Fiche de diagnostic — Réseau WAN inter-sites</div>
+          <div class="hdr-title">DIAGNOSTIC RÉSEAU WAN / MPLS</div>
+          <div class="hdr-sub">Collecte terrain · Performance · Sécurité · Remédiation</div>
+        </div>
+        <div class="hdr-ref">RÉFÉRENCE<span id="fRef">—</span></div>
+      </div>
+      <div class="norms">
+        <span class="lbl">Conforme :</span>
+        <span class="nb">ITIL v4</span><span class="nb">ISO/IEC 20000</span>
+        <span class="nb">ISO/IEC 27001</span><span class="nb">ITU-T G.826</span><span class="nb">Cisco MPLS BP</span>
+      </div>
+      <div class="hmeta">
+        <div class="hm"><label>Site</label><input type="text" id="f_site" placeholder="Ex : DGI Abobo"></div>
+        <div class="hm"><label>Date</label><input type="date" id="f_date"></div>
+        <div class="hm"><label>Technicien</label><input type="text" id="f_tech" placeholder="Nom Prénom"></div>
+        <div class="hm"><label>Version</label><select id="f_ver"><option>v1.0 – Initial</option><option>v1.1 – Révision</option><option>v2.0 – Clôture</option></select></div>
+        <div class="hm"><label>Ticket ITSM</label><input type="text" id="f_ticket" placeholder="INC-2025-XXXX"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- S1 IDENTIFICATION -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">1</span><span class="sec-title">Identification du site</span><span class="sec-norm">ITIL v4 · Configuration Management (CMDB)</span></div>
+    <div class="g g4">
+      <div class="f"><label>Nom officiel du site</label><input type="text" data-key="s1_nom" placeholder="DGI Direction de…"></div>
+      <div class="f"><label>Ville / Commune</label><input type="text" data-key="s1_ville" placeholder="Yopougon"></div>
+      <div class="f"><label>Responsable IT site</label><input type="text" data-key="s1_resp" placeholder="Nom / Contact"></div>
+      <div class="f"><label>Téléphone</label><input type="tel" data-key="s1_tel" placeholder="+225 …"></div>
+      <div class="f"><label>Nb. agents connectés</label><input type="number" data-key="s1_ag" placeholder="45"></div>
+      <div class="f"><label>Plage horaire</label><input type="text" data-key="s1_ph" placeholder="07h–18h L–V"></div>
+      <div class="f"><label>Applications critiques</label><input type="text" data-key="s1_apps" placeholder="SIGTAS, ERP…"></div>
+      <div class="f"><label>Criticité (ITIL Priority Matrix)</label><select data-key="s1_crit"><option value="">--</option><option>P1 — CRITIQUE (SLA &lt;4h)</option><option>P2 — IMPORTANT (SLA &lt;8h)</option><option>P3 — STANDARD (SLA &lt;24h)</option></select></div>
+    </div>
+    <div class="div"></div>
+    <div class="crit-row">
+      <div class="cc cc-p1"><div class="cc-bar"></div><div class="cc-lbl">P1 — CRITIQUE</div><div class="cc-desc">Coupure = impact maximal · SLA &lt;4h</div><div class="cc-ex">Recette principale · 24h/24</div></div>
+      <div class="cc cc-p2"><div class="cc-bar"></div><div class="cc-lbl">P2 — IMPORTANT</div><div class="cc-desc">Dégradation forte · SLA &lt;8h ouvrables</div><div class="cc-ex">Direction régionale · Guichet</div></div>
+      <div class="cc cc-p3"><div class="cc-bar"></div><div class="cc-lbl">P3 — STANDARD</div><div class="cc-desc">Impact limité · SLA &lt;24h ouvrables</div><div class="cc-ex">Bureau de proximité</div></div>
+    </div>
+  </div>
+
+  <!-- S2 LIEN MPLS -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">2</span><span class="sec-title">Caractéristiques du lien MPLS</span><span class="sec-norm">ISO/IEC 20000 · Asset Mgmt · Cisco MPLS BP</span></div>
+    <div class="g g4">
+      <div class="f"><label>Référence circuit opérateur</label><input type="text" data-key="s2_ref" placeholder="CI-MPLS-3847"><span class="hint">N° contrat</span></div>
+      <div class="f"><label>Opérateur</label><select data-key="s2_op"><option value="">--</option><option>Orange CI</option><option>MTN CI</option><option>Moov Africa</option><option>Wave CI</option><option>Autre</option></select></div>
+      <div class="f"><label>Support physique</label><select data-key="s2_sup"><option value="">--</option><option>Fibre optique</option><option>VSAT</option><option>Radio / Microonde</option><option>xDSL</option><option>4G LTE</option><option>Mixte</option></select></div>
+      <div class="f"><label>Débit contractuel</label><input type="text" data-key="s2_deb" placeholder="4 Mbps"></div>
+      <div class="f"><label>Routeur CE (modèle)</label><input type="text" data-key="s2_ce" placeholder="Cisco 2911"></div>
+      <div class="f"><label>Version IOS</label><input type="text" data-key="s2_ios" placeholder="15.7(3)M"></div>
+      <div class="f"><label>IP WAN interface CE</label><input type="text" data-key="s2_ip" placeholder="10.x.x.x /30"></div>
+      <div class="f"><label>VRF / MPLS Label</label><input type="text" data-key="s2_vrf" placeholder="VRF_PROD"></div>
+      <div class="f"><label>Lien de secours</label><select data-key="s2_bak"><option value="">--</option><option>Oui — 4G/LTE</option><option>Oui — autre opérateur</option><option>Oui — VSAT</option><option>Non</option></select></div>
+      <div class="f"><label>Chiffrement</label><select data-key="s2_chif"><option value="">--</option><option>✅ IPSec VPN</option><option>✅ MPLS VPN L3</option><option>✅ SSL/TLS</option><option>❌ Non chiffré</option></select></div>
+      <div class="f"><label>QoS / DSCP</label><select data-key="s2_qos"><option value="">--</option><option>✅ DSCP marqué</option><option>⚠ Partielle</option><option>❌ Absente</option></select></div>
+      <div class="f"><label>Date fin contrat</label><input type="date" data-key="s2_fin"></div>
+    </div>
+  </div>
+
+  <!-- S3 PLAINTES -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">3</span><span class="sec-title">Incidents &amp; plaintes</span><span class="sec-norm">ITIL v4 · Incident Mgmt · Problem Mgmt</span></div>
+    <div class="ib ib-r"><div class="ib-title">⚠ Qualification ITIL — Incident isolé vs Problème récurrent</div></div>
+    <div class="g g4">
+      <div class="f"><label>Type de plainte</label><select data-key="s3_t"><option value="">--</option><option>Lenteur généralisée</option><option>Coupures intermittentes</option><option>Inaccessibilité serveur central</option><option>Perte session VPN</option><option>Messagerie inaccessible</option><option>Internet hors service</option><option>Autre</option></select></div>
+      <div class="f"><label>Fréquence</label><select data-key="s3_f"><option value="">--</option><option>Permanente</option><option>Quasi-permanente (≥4j/sem)</option><option>Fréquente (2–3/sem)</option><option>Occasionnelle</option><option>Rare</option></select></div>
+      <div class="f"><label>Plage horaire</label><input type="text" data-key="s3_ph" placeholder="09h–12h"></div>
+      <div class="f"><label>Nb. agents impactés</label><input type="number" data-key="s3_ag" placeholder="30"></div>
+      <div class="f"><label>Qualification ITIL</label><select data-key="s3_q"><option value="">--</option><option>Incident isolé (cause connue)</option><option>Problème récurrent</option><option>Incident majeur P1</option></select></div>
+      <div class="f"><label>Durée interruption cumulée</label><input type="text" data-key="s3_dur" placeholder="14h / 30 jours"></div>
+      <div class="f"><label>N° ticket ITSM</label><input type="text" data-key="s3_tkt" placeholder="INC-2025-XXXX"></div>
+      <div class="f"><label>Date premier signalement</label><input type="date" data-key="s3_d"></div>
+      <div class="f sa"><label>Description verbatim</label><textarea data-key="s3_v" placeholder="« Quand on saisit une déclaration, ça tourne puis ça déconnecte… »"></textarea></div>
+    </div>
+  </div>
+
+  <div class="ftr"><span>Diagnostic WAN/MPLS</span><span class="ftr-ref" id="ftr_ref1">—</span><span>Page 1 / 2</span></div>
+</div>
+
+<div class="page">
+
+  <!-- S4 PERFORMANCES -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">4</span><span class="sec-title">Performances — SolarWinds NPM</span><span class="sec-norm">ITU-T G.826 / Y.1541 / G.114 · ISO/IEC 20000 SLM</span></div>
+    <div class="ib ib-b" style="margin-bottom:10px">
+      <div class="ib-title">📡 Paramètres de collecte SolarWinds</div>
+      <div class="g g3">
+        <div class="f"><label>Nœud (hostname NPM)</label><input type="text" data-key="s4_node" placeholder="DGI-SITE-RTR01"></div>
+        <div class="f"><label>Période analysée</label><input type="text" data-key="s4_per" placeholder="01/05 → 31/05/2025"></div>
+        <div class="f"><label>Durée (jours)</label><input type="number" data-key="s4_days" placeholder="30"></div>
+      </div>
+    </div>
+    <table class="tbl">
+      <thead><tr class="th-v"><th>Métrique</th><th>Norme</th><th>Seuil ✅</th><th>Seuil 🔴</th><th>Valeur mesurée</th><th>Statut</th><th>Observation</th></tr></thead>
+      <tbody>
+        ${[
+          ['Disponibilité lien','ITU-T G.826','≥ 99,5 %','&lt; 98 %','d'],
+          ['Latence moy. RTT','ITU-T G.114','&lt; 50 ms','&gt; 100 ms','r'],
+          ['Latence P95','ITU-T G.114','&lt; 80 ms','&gt; 150 ms','p95'],
+          ['Gigue (Jitter)','ITU-T Y.1541','&lt; 10 ms','&gt; 30 ms','j'],
+          ['Perte de paquets','ITU-T G.826','&lt; 0,5 %','&gt; 2 %','pk'],
+          ['Utilisation BW IN','Cisco MPLS BP','&lt; 70 %','&gt; 85 %','bi'],
+          ['Utilisation BW OUT','Cisco MPLS BP','&lt; 70 %','&gt; 85 %','bo'],
+          ['CPU routeur CE','SNMP Cisco','&lt; 60 %','&gt; 80 %','cpu'],
+          ['RAM routeur CE','SNMP Cisco','&lt; 70 %','&gt; 85 %','ram'],
+          ['Erreurs interface WAN','IF-MIB SNMP','= 0 /h','&gt; 10 /h','err'],
+          ['Coupures / période','SLA / NPM','&lt; 2','&gt; 5','cup'],
+        ].map(([n,norm,ok,ko,k])=>`<tr>
+          <td><strong>${n}</strong></td>
+          <td style="font-family:var(--mono);font-size:9px;color:var(--b)">${norm}</td>
+          <td style="color:#2E7D32;font-weight:600">${ok}</td>
+          <td style="color:var(--r);font-weight:600">${ko}</td>
+          <td><input type="text" data-key="w4_${k}v" placeholder="…"></td>
+          <td><select data-key="w4_${k}s" class="cs" onchange="cS(this)"><option value="">--</option><option value="ok">✅ OK</option><option value="w">⚠ Alerte</option><option value="c">🔴 Critique</option></select></td>
+          <td><input type="text" data-key="w4_${k}o" placeholder="…"></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="f" style="margin-top:8px"><label>Synthèse SolarWinds</label><textarea data-key="s4_syn" placeholder="Ex : Pics de latence 09h–10h30, BW saturée à 90%..."></textarea></div>
+  </div>
+
+  <!-- S5 SÉCURITÉ -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">5</span><span class="sec-title">Sécurité du lien &amp; du site</span><span class="sec-norm">ISO/IEC 27001 A.8 · A.13 · A.14</span></div>
+    <div class="g g4">
+      <div class="f"><label>VPN actif &amp; fonctionnel</label><select data-key="w5_vpn"><option value="">--</option><option>✅ Oui — vérifié</option><option>⚠ Partiellement</option><option>❌ Non</option><option>🔲 Non vérifié</option></select></div>
+      <div class="f"><label>Certificats à jour</label><select data-key="w5_cert"><option value="">--</option><option>✅ Valides</option><option>⚠ Expiration &lt;60j</option><option>❌ Expirés</option></select></div>
+      <div class="f"><label>Firewall actif</label><select data-key="w5_fw"><option value="">--</option><option>✅ Oui</option><option>❌ Non</option><option>🔲 Inconnu</option></select></div>
+      <div class="f"><label>ACL / Filtrage</label><select data-key="w5_acl"><option value="">--</option><option>✅ Conforme</option><option>⚠ Partiel</option><option>❌ Absent</option></select></div>
+      <div class="f"><label>MDP équipements modifié</label><select data-key="w5_mdp"><option value="">--</option><option>✅ Oui</option><option>❌ Non</option><option>🔲 Inconnu</option></select></div>
+      <div class="f"><label>Logs / Syslog</label><select data-key="w5_log"><option value="">--</option><option>✅ Syslog centralisé</option><option>⚠ Local seulement</option><option>❌ Désactivés</option></select></div>
+      <div class="f"><label>Accès physique équipements</label><select data-key="w5_phy"><option value="">--</option><option>✅ Baie fermée</option><option>⚠ Non contrôlé</option><option>❌ Exposé</option></select></div>
+      <div class="f"><label>Dernière MAJ firmware</label><input type="date" data-key="w5_fwd"></div>
+    </div>
+    <div class="f" style="margin-top:8px"><label>Observations sécurité</label><textarea data-key="w5_obs" placeholder="Ex : Routeur sans rack, firmware non patché depuis 18 mois…"></textarea></div>
+  </div>
+
+  <!-- S6 ACTIONS -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">6</span><span class="sec-title">Actions de remédiation</span><span class="sec-norm">ITIL v4 · Change Enablement · CSI</span></div>
+    <table class="tbl">
+      <thead><tr class="th-d"><th>Réf.</th><th>Action</th><th>Priorité</th><th>Responsable</th><th>Délai</th><th>Statut</th></tr></thead>
+      <tbody>
+        ${[1,2,3,4].map(i=>`<tr>
+          <td style="font-family:var(--mono);font-size:10px;color:var(--g4)">ACT-0${i}</td>
+          <td><input type="text" data-key="wa${i}_d" placeholder="Action…"></td>
+          <td><select data-key="wa${i}_p" style="font-size:11px"><option>--</option><option>🔴 Immédiat</option><option>🟡 Court terme</option><option>🟢 Moyen terme</option></select></td>
+          <td><input type="text" data-key="wa${i}_r" placeholder="Resp."></td>
+          <td><input type="text" data-key="wa${i}_dl" placeholder="délai"></td>
+          <td><select data-key="wa${i}_s" style="font-size:11px"><option>--</option><option>⏳ À faire</option><option>🔄 En cours</option><option>✅ Terminé</option></select></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- S7 VALIDATION -->
+  <div class="sec">
+    <div class="sec-hd"><span class="sec-num">7</span><span class="sec-title">Évaluation &amp; validation</span><span class="sec-norm">ITIL v4 · Continual Improvement · ISO/IEC 20000</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      <div class="eval-box"><div class="eval-title">État général du site</div><div class="eval-btns">
+        <button class="sc-btn" data-grp="etat" data-val="sain" onclick="tB(this,'sel-v','etat')">🟢 Sain</button>
+        <button class="sc-btn" data-grp="etat" data-val="degrade" onclick="tB(this,'sel-j','etat')">🟡 Dégradé</button>
+        <button class="sc-btn" data-grp="etat" data-val="critique" onclick="tB(this,'sel-r','etat')">🔴 Critique</button>
+      </div></div>
+      <div class="eval-box"><div class="eval-title">Urgence d'intervention</div><div class="eval-btns">
+        <button class="sc-btn" data-grp="urgence" data-val="immediate" onclick="tB(this,'sel-r','urgence')">🔴 Immédiate</button>
+        <button class="sc-btn" data-grp="urgence" data-val="planifiee" onclick="tB(this,'sel-j','urgence')">🟡 Planifiée</button>
+        <button class="sc-btn" data-grp="urgence" data-val="differee" onclick="tB(this,'sel-v','urgence')">🟢 Différée</button>
+      </div></div>
+    </div>
+    <div class="g g2">
+      <div class="f"><label>Synthèse technicien</label><textarea data-key="wval_syn" style="min-height:60px" placeholder="Résumé des constats, points critiques, recommandations…"></textarea></div>
+      <div class="g g2" style="align-content:start;gap:8px">
+        <div class="f"><label>Technicien — visa</label><input type="text" data-key="wval_t"></div>
+        <div class="f"><label>Date</label><input type="date" data-key="wval_dt"></div>
+        <div class="f"><label>Validé par (DSI)</label><input type="text" data-key="wval_dsi"></div>
+        <div class="f"><label>Date validation</label><input type="date" data-key="wval_dd"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ftr"><span>Diagnostic WAN/MPLS</span><span class="ftr-ref" id="ftr_ref2">—</span><span>Page 2 / 2</span></div>
+</div>`; }
+</script>
+</body>
+</html>
