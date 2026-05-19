@@ -1368,12 +1368,31 @@ function fermerPopupPourcentageFusionne() {
    <span id="export-label" style="font-size:12px;color:#546e7a;font-style:italic;margin-left:4px;"></span>
   </div>
   <script>
-  // ===== PLAN DE RÉSILIENCE — chargement dynamique depuis reference.xlsx =====
+  // ===== PLAN DE RÉSILIENCE — chargement depuis reference.xlsx (ND + DATE CORRECTION) =====
   let PLAN_RESILIENCE_NDS = new Set();
+  // Map ND -> date de correction (depuis reference.xlsx)
+  let PLAN_RESILIENCE_DATES = {};
   let planResilienceActif = false;
   let planResilienceCharge = false;
 
-  // Chargement automatique de reference.xlsx au démarrage de la page
+  function parseExcelDate(val) {
+    if (!val) return null;
+    if (typeof val === 'number') {
+      const parsed = XLSX.SSF.parse_date_code(val);
+      if (parsed && parsed.m) return new Date(parsed.y, parsed.m - 1, parsed.d || 1);
+    }
+    if (typeof val === 'string') {
+      val = val.trim();
+      // Format JJ/MM/AAAA
+      const m = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (m) return new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]));
+      const d = new Date(val);
+      if (!isNaN(d)) return d;
+    }
+    return null;
+  }
+
+  // Chargement automatique de reference.xlsx au démarrage
   window.addEventListener('DOMContentLoaded', function () {
     fetch('reference.xlsx')
       .then(res => {
@@ -1384,22 +1403,35 @@ function fermerPopupPourcentageFusionne() {
         const wb = XLSX.read(new Uint8Array(data), { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-        // Trouver l'index de la colonne "ND" dans la première ligne (entête)
+
         const header = rows[0] || [];
-        let colIndex = header.findIndex(h => String(h).trim().toUpperCase() === 'ND');
-        if (colIndex === -1) colIndex = 0; // fallback : première colonne si pas d'entête "ND"
-        // Lire uniquement la colonne ND, en ignorant la ligne d'entête
+        // Colonne ND
+        let colND = header.findIndex(h => String(h).trim().toUpperCase() === 'ND');
+        if (colND === -1) colND = 0;
+        // Colonne DATE CORRECTION (cherche plusieurs variantes dont "Datede correction")
+        let colDate = header.findIndex(h =>
+          ['DATE CORRECTION','DATE DE CORRECTION','CORRECTION','DATE_CORRECTION','DATEDE CORRECTION','DATEDE CORRECTION']
+          .includes(String(h).trim().toUpperCase().replace(/\s+/g,' '))
+        );
+
         rows.slice(1).forEach(row => {
-          const val = String(row[colIndex] || '').trim();
-          if (val) PLAN_RESILIENCE_NDS.add(val.toUpperCase());
+          const nd = String(row[colND] || '').trim().toUpperCase();
+          if (!nd) return;
+          PLAN_RESILIENCE_NDS.add(nd);
+          // Lire la date de correction si la colonne existe
+          if (colDate !== -1) {
+            const dateCorr = parseExcelDate(row[colDate]);
+            if (dateCorr) PLAN_RESILIENCE_DATES[nd] = dateCorr;
+          }
         });
+
         planResilienceCharge = true;
         const btn = document.getElementById('btn-plan-resilience');
         if (btn) {
           btn.title = `${PLAN_RESILIENCE_NDS.size} références chargées depuis reference.xlsx`;
           btn.innerHTML = `🛡️ Plan de Résilience <span id="badge-resilience" style="background:rgba(255,255,255,0.25);border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;">${PLAN_RESILIENCE_NDS.size}</span>`;
         }
-        console.log(`Plan de Résilience : ${PLAN_RESILIENCE_NDS.size} références chargées.`);
+        console.log(`Plan de Résilience : ${PLAN_RESILIENCE_NDS.size} NDs, ${Object.keys(PLAN_RESILIENCE_DATES).length} dates de correction chargées.`);
       })
       .catch(err => {
         console.warn('Plan de Résilience :', err.message);
@@ -1425,17 +1457,15 @@ function fermerPopupPourcentageFusionne() {
 
       const source = (typeof tableauActuel !== 'undefined' && tableauActuel) ? tableauActuel : [];
 
-      // Garder uniquement les ND du fichier reference.xlsx
-      // ET qui ont au moins un incident APRÈS leur date de correction
       const filtres = source.filter(item => {
-        // 1. Le ND doit être dans reference.xlsx
-        if (!PLAN_RESILIENCE_NDS.has((item.nd || '').trim().toUpperCase())) return false;
-
-        // 2. Si pas de date de correction → on l'affiche quand même (correction non renseignée)
-        if (!item.dateCorrection) return true;
-
-        // 3. A-t-il eu un incident APRÈS la date de correction ?
-        const dateCorr = item.dateCorrection;
+        const nd = (item.nd || '').trim().toUpperCase();
+        // 1. Doit être dans reference.xlsx
+        if (!PLAN_RESILIENCE_NDS.has(nd)) return false;
+        // 2. Récupérer la date de correction depuis reference.xlsx
+        const dateCorr = PLAN_RESILIENCE_DATES[nd] || null;
+        // 3. Si pas de date de correction → inclus par défaut
+        if (!dateCorr) return true;
+        // 4. A-t-il eu un incident APRÈS la date de correction dans data.xlsx ?
         return (item.datesCreation || []).some(d => d > dateCorr);
       });
 
@@ -1875,8 +1905,9 @@ function afficherTableau(data) {
     html += `<tr class='${classes.join(" ")}'>`;
     html += `<td class='nd-col'>${item.nd}</td><td class='raison-col'>${item.raison}</td><td class='localisation-col'>${item.localisation || 'Inconnue'}</td><td>${item.total}</td>`;
 
-    // Date de correction : mois exact = vert, mois après avec incidents = orange (rechute)
-    const dateCorr = item.dateCorrection || null;
+    // Date de correction depuis reference.xlsx (PLAN_RESILIENCE_DATES)
+    const nd_upper = (item.nd || '').trim().toUpperCase();
+    const dateCorr = (typeof PLAN_RESILIENCE_DATES !== 'undefined' && PLAN_RESILIENCE_DATES[nd_upper]) || null;
     const moisCorrection = dateCorr ? dateCorr.getMonth() + 1 : null;
     const anneeCorrection = dateCorr ? dateCorr.getFullYear() : null;
     const dateCorrecFmt = dateCorr
