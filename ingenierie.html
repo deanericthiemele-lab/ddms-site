@@ -1424,8 +1424,9 @@ function fermerPopupPourcentageFusionne() {
       const source = (typeof tableauActuel !== 'undefined' && tableauActuel) ? tableauActuel : [];
       const filtres = source.filter(item => PLAN_RESILIENCE_NDS.has((item.nd || '').trim().toUpperCase()));
       afficherTableau(filtres);
+      const pct = PLAN_RESILIENCE_NDS.size > 0 ? Math.round(filtres.length / PLAN_RESILIENCE_NDS.size * 100) : 0;
       document.getElementById('info-resultats').textContent =
-        `Plan de Résilience : ${filtres.length} ND trouvés sur ${PLAN_RESILIENCE_NDS.size} références`;
+        `Plan de Résilience : ${filtres.length} ND trouvés sur ${PLAN_RESILIENCE_NDS.size} références (${pct}%)`;
     } else {
       planResilienceActif = false;
       btn.style.backgroundColor = '#2e7d32';
@@ -1613,6 +1614,7 @@ function analyser() {
   const colonneDateFinTMC = trouverColonne(["DATE FIN TMC", "Date fin", "DATE FIN"], firstRow) || "DATE FIN TMC";
   const colonneDateCreation = trouverColonne(["DATE DE CRÉATION", "Date de création", "DATE CREATION"], firstRow) || "DATE DE CRÉATION";
   colonneDateCreationAuto = colonneDateCreation;
+  const colonneDateCorrection = trouverColonne(["DATE CORRECTION", "Date correction", "DATE DE CORRECTION", "Date de correction", "CORRECTION"], firstRow) || null;
 
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -1632,6 +1634,7 @@ function analyser() {
     const cause = ligne[colonneCause] || "Non renseignée";
     const dateFinTMC = ligne[colonneDateFinTMC] || "";
     const rawDate = ligne[colonneDateCreation];
+    const rawDateCorrection = colonneDateCorrection ? ligne[colonneDateCorrection] : null;
 
     let mois = 0, annee = anneeActuelle;
     let dateCreationValide = null;
@@ -1655,6 +1658,18 @@ function analyser() {
 
     if (!nd) return;
 
+    // Parser la date de correction
+    let dateCorrectionValide = null;
+    if (rawDateCorrection) {
+      if (typeof rawDateCorrection === 'number') {
+        const parsed = XLSX.SSF.parse_date_code(rawDateCorrection);
+        if (parsed && parsed.m) dateCorrectionValide = new Date(parsed.y, parsed.m - 1, parsed.d || 1);
+      } else {
+        const d = new Date(rawDateCorrection);
+        if (!isNaN(d)) dateCorrectionValide = d;
+      }
+    }
+
     if (!compteur[nd]) {
       compteur[nd] = {
         raison: raison,
@@ -1663,8 +1678,14 @@ function analyser() {
         mois: {},
         critiques: false,
         causes: [],
-        datesCreation: []
+        datesCreation: [],
+        dateCorrection: null
       };
+    }
+
+    // Prendre la date de correction la plus récente trouvée pour ce ND
+    if (dateCorrectionValide && (!compteur[nd].dateCorrection || dateCorrectionValide > compteur[nd].dateCorrection)) {
+      compteur[nd].dateCorrection = dateCorrectionValide;
     }
 
     compteur[nd].total++;
@@ -1682,7 +1703,7 @@ function analyser() {
   tableauGlobal = Object.entries(compteur).map(([nd, infos]) => {
     const total2Mois = (infos.mois[moisActuel] || 0) + (infos.mois[moisPrecedent] || 0);
     if (total2Mois >= 2) infos.critiques = true;
-    return { nd, localisation: infos.localisation, ...infos };
+    return { nd, localisation: infos.localisation, dateCorrection: infos.dateCorrection || null, ...infos };
   }).sort((a, b) => b.total - a.total);
 
   modeTop20 = false;
@@ -1819,7 +1840,7 @@ function afficherVueGlobale() {
 
 function afficherTableau(data) {
   const moisActuel = new Date().getMonth() + 1;
-  let html = '<table><thead><tr><th>ND</th><th>Raison sociale</th><th>Localisation</th><th>Cause réelle</th>';
+  let html = '<table><thead><tr><th>ND</th><th>Raison sociale</th><th>Localisation</th><th>Total sig.</th>';
   for (let i = 1; i <= moisActuel; i++) {
     html += `<th>${moisNoms[i]}</th>`;
   }
@@ -1828,7 +1849,6 @@ function afficherTableau(data) {
   if (clientCritiqueSelectionne) {
     toDisplay = data.filter(item => item.critiques && canonicalClient(item.raison) === canonicalClient(clientCritiqueSelectionne));
   }
-  // Mettre à jour la variable globale pour l'export
   donneesAffichees = toDisplay;
   toDisplay.forEach(item => {
     const estSiteCritique = ND_CRITIQUES_LIST.includes(item.nd);
@@ -1838,8 +1858,22 @@ function afficherTableau(data) {
     if (item.critiques && estSiteCritique) classes.push('site-critique-critique');
     html += `<tr class='${classes.join(" ")}'>`;
     html += `<td class='nd-col'>${item.nd}</td><td class='raison-col'>${item.raison}</td><td class='localisation-col'>${item.localisation || 'Inconnue'}</td><td>${item.total}</td>`;
+
+    // Mois de correction pour colorier la cellule
+    const moisCorrection = item.dateCorrection ? item.dateCorrection.getMonth() + 1 : null;
+    const dateCorrecFmt = item.dateCorrection
+      ? String(item.dateCorrection.getDate()).padStart(2,'0') + '/' +
+        String(item.dateCorrection.getMonth()+1).padStart(2,'0') + '/' +
+        item.dateCorrection.getFullYear()
+      : null;
+
     for (let i = 1; i <= moisActuel; i++) {
-      html += `<td>${item.mois[i] || 0}</td>`;
+      const val = item.mois[i] || 0;
+      if (i === moisCorrection && dateCorrecFmt) {
+        html += `<td style="background:#1b5e20;color:#fff;font-weight:bold;cursor:default;" title="Date correction : ${dateCorrecFmt}">${val}</td>`;
+      } else {
+        html += `<td>${val}</td>`;
+      }
     }
     html += `<td class="causes-col">${[...new Set(item.causes)].join('<br>')}</td>`;
     html += '</tr>';
