@@ -1417,16 +1417,32 @@ function fermerPopupPourcentageFusionne() {
     }
 
     const badge = `<span id="badge-resilience" style="background:rgba(255,255,255,0.25);border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;">${PLAN_RESILIENCE_NDS.size}</span>`;
+
     if (!planResilienceActif) {
       planResilienceActif = true;
       btn.style.backgroundColor = '#b71c1c';
       btn.innerHTML = `🛡️ Plan de Résilience ✓ ${badge}`;
+
       const source = (typeof tableauActuel !== 'undefined' && tableauActuel) ? tableauActuel : [];
-      const filtres = source.filter(item => PLAN_RESILIENCE_NDS.has((item.nd || '').trim().toUpperCase()));
+
+      // Garder uniquement les ND du fichier reference.xlsx
+      // ET qui ont au moins un incident APRÈS leur date de correction
+      const filtres = source.filter(item => {
+        // 1. Le ND doit être dans reference.xlsx
+        if (!PLAN_RESILIENCE_NDS.has((item.nd || '').trim().toUpperCase())) return false;
+
+        // 2. Si pas de date de correction → on l'affiche quand même (correction non renseignée)
+        if (!item.dateCorrection) return true;
+
+        // 3. A-t-il eu un incident APRÈS la date de correction ?
+        const dateCorr = item.dateCorrection;
+        return (item.datesCreation || []).some(d => d > dateCorr);
+      });
+
       afficherTableau(filtres);
       const pct = PLAN_RESILIENCE_NDS.size > 0 ? Math.round(filtres.length / PLAN_RESILIENCE_NDS.size * 100) : 0;
       document.getElementById('info-resultats').textContent =
-        `Plan de Résilience : ${filtres.length} ND trouvés sur ${PLAN_RESILIENCE_NDS.size} références (${pct}%)`;
+        `Plan de Résilience : ${filtres.length} ND revenus après correction sur ${PLAN_RESILIENCE_NDS.size} références (${pct}%)`;
     } else {
       planResilienceActif = false;
       btn.style.backgroundColor = '#2e7d32';
@@ -1859,19 +1875,29 @@ function afficherTableau(data) {
     html += `<tr class='${classes.join(" ")}'>`;
     html += `<td class='nd-col'>${item.nd}</td><td class='raison-col'>${item.raison}</td><td class='localisation-col'>${item.localisation || 'Inconnue'}</td><td>${item.total}</td>`;
 
-    // Mois de correction pour colorier la cellule
-    const moisCorrection = item.dateCorrection ? item.dateCorrection.getMonth() + 1 : null;
-    const dateCorrecFmt = item.dateCorrection
-      ? String(item.dateCorrection.getDate()).padStart(2,'0') + '/' +
-        String(item.dateCorrection.getMonth()+1).padStart(2,'0') + '/' +
-        item.dateCorrection.getFullYear()
+    // Date de correction : mois exact = vert, mois après avec incidents = orange (rechute)
+    const dateCorr = item.dateCorrection || null;
+    const moisCorrection = dateCorr ? dateCorr.getMonth() + 1 : null;
+    const anneeCorrection = dateCorr ? dateCorr.getFullYear() : null;
+    const dateCorrecFmt = dateCorr
+      ? String(dateCorr.getDate()).padStart(2,'0') + '/' +
+        String(dateCorr.getMonth()+1).padStart(2,'0') + '/' +
+        dateCorr.getFullYear()
       : null;
 
     for (let i = 1; i <= moisActuel; i++) {
       const val = item.mois[i] || 0;
-      if (i === moisCorrection && dateCorrecFmt) {
-        html += `<td style="background:#1b5e20;color:#fff;font-weight:bold;cursor:default;" title="Date correction : ${dateCorrecFmt}">${val}</td>`;
-      } else {
+      const anneeEnCours = new Date().getFullYear();
+
+      // Mois exact de la correction → vert avec infobulle
+      if (moisCorrection && i === moisCorrection && anneeCorrection === anneeEnCours && dateCorrecFmt) {
+        html += `<td style="background:#1b5e20;color:#fff;font-weight:bold;cursor:default;" title="✅ Date correction : ${dateCorrecFmt}">${val}</td>`;
+      }
+      // Mois APRÈS la correction avec incident → orange (rechute)
+      else if (moisCorrection && i > moisCorrection && anneeCorrection === anneeEnCours && val > 0 && dateCorrecFmt) {
+        html += `<td style="background:#e65100;color:#fff;font-weight:bold;cursor:default;" title="⚠️ Rechute après correction du ${dateCorrecFmt}">${val}</td>`;
+      }
+      else {
         html += `<td>${val}</td>`;
       }
     }
