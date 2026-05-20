@@ -9,6 +9,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
   import { getFirestore, collection, addDoc, getDocs, doc, getDoc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+  import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-storage.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyC4zvX8M3dyiGLjwQxYYensN2xYBgME_Mc",
@@ -22,9 +23,11 @@
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const storage = getStorage(app);
 
   // Exposer globalement
   window._db = db;
+  window._storage = storage;
   window._col = collection;
   window._addDoc = addDoc;
   window._getDocs = getDocs;
@@ -34,6 +37,10 @@
   window._deleteDoc = deleteDoc;
   window._query = query;
   window._orderBy = orderBy;
+  window._ref = ref;
+  window._uploadBytes = uploadBytes;
+  window._getDownloadURL = getDownloadURL;
+  window._deleteObject = deleteObject;
 
   window.dispatchEvent(new Event('firebaseReady'));
 </script>
@@ -569,15 +576,7 @@ function renderFP(){
   }).join('');
 }
 
-// Convertir fichier en base64 pour stockage Firestore
-function fileToBase64(file){
-  return new Promise((res,rej)=>{
-    const r=new FileReader();
-    r.onload=()=>res(r.result.split(',')[1]);
-    r.onerror=()=>rej(new Error('Lecture impossible'));
-    r.readAsDataURL(file);
-  });
-}
+// b64Blob conservé pour rétrocompatibilité anciens fichiers
 
 // ══════════════════════════════════════════════════
 // TAGS & COMPOSANTS
@@ -609,7 +608,7 @@ function addComp(val=''){
 function getComps(){return[...document.querySelectorAll('.comp-inp')].map(i=>i.value.trim()).filter(Boolean);}
 
 // ══════════════════════════════════════════════════
-// SAUVEGARDER DANS FIREBASE
+// SAUVEGARDER DANS FIREBASE (Storage pour fichiers)
 // ══════════════════════════════════════════════════
 async function saveArchi(){
   const client=document.getElementById('f_client').value.trim();
@@ -619,12 +618,17 @@ async function saveArchi(){
   btn.disabled=true;btn.textContent='Enregistrement…';
 
   try{
-    // Convertir les nouveaux fichiers en base64 pour Firestore
+    // Upload des nouveaux fichiers vers Firebase Storage
     const newFilesData=[];
-    for(const f of pendingFiles){
-      btn.textContent=`Traitement ${f.name}…`;
-      const b64=await fileToBase64(f);
-      newFilesData.push({name:f.name,size:f.size,type:f.type,data:b64});
+    for(let i=0;i<pendingFiles.length;i++){
+      const f=pendingFiles[i];
+      btn.textContent=`Upload ${i+1}/${pendingFiles.length} : ${f.name}…`;
+      // Chemin unique dans Storage
+      const path=`architectures/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const storageRef=window._ref(window._storage, path);
+      await window._uploadBytes(storageRef, f);
+      const url=await window._getDownloadURL(storageRef);
+      newFilesData.push({name:f.name, size:f.size, type:f.type, url, path});
     }
 
     let filesData=newFilesData;
@@ -720,18 +724,29 @@ function openDetail(id){
 
 function closeDetail(){document.getElementById('detailModal').classList.add('hidden');currentDetailId=null;}
 
-// Télécharger un fichier depuis Firestore
+// Télécharger un fichier depuis Firebase Storage
 function downloadFile(archiId,fileName){
   const a=allArchis.find(x=>x.id===archiId);if(!a)return;
-  const f=(a.files||[]).find(x=>x.name===fileName);if(!f?.data)return showToast('Fichier non disponible','err');
-  const ext=fileName.split('.').pop().toLowerCase();
-  const mimes={pdf:'application/pdf',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation',ppt:'application/vnd.ms-powerpoint',vsdx:'application/vnd.ms-visio.drawing',vsd:'application/vnd.ms-visio.drawing',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',svg:'image/svg+xml'};
-  const mime=mimes[ext]||f.type||'application/octet-stream';
-  const blob=b64Blob(f.data,mime);
-  const url=URL.createObjectURL(blob);
-  const link=document.createElement('a');link.href=url;link.download=fileName;link.click();
-  setTimeout(()=>URL.revokeObjectURL(url),3000);
-  showToast('⬇ Téléchargement de '+fileName,'ok');
+  const f=(a.files||[]).find(x=>x.name===fileName);if(!f)return showToast('Fichier non disponible','err');
+  // Nouveau format : URL Storage
+  if(f.url){
+    const link=document.createElement('a');link.href=f.url;link.download=fileName;link.target='_blank';link.click();
+    showToast('⬇ Téléchargement de '+fileName,'ok');
+    return;
+  }
+  // Ancien format : base64 (rétrocompatibilité)
+  if(f.data){
+    const ext=fileName.split('.').pop().toLowerCase();
+    const mimes={pdf:'application/pdf',pptx:'application/vnd.openxmlformats-officedocument.presentationml.presentation',ppt:'application/vnd.ms-powerpoint',vsdx:'application/vnd.ms-visio.drawing',vsd:'application/vnd.ms-visio.drawing',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',svg:'image/svg+xml'};
+    const mime=mimes[ext]||f.type||'application/octet-stream';
+    const blob=b64Blob(f.data,mime);
+    const url=URL.createObjectURL(blob);
+    const link=document.createElement('a');link.href=url;link.download=fileName;link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+    showToast('⬇ Téléchargement de '+fileName,'ok');
+    return;
+  }
+  showToast('Fichier non disponible','err');
 }
 
 // ══════════════════════════════════════════════════
