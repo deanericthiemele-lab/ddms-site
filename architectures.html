@@ -375,6 +375,7 @@ body{font-family:var(--body);font-size:13px;background:#EFEFED;color:var(--g1);m
 // ══════════════════════════════════════════════════
 let db, allArchis = [], currentFilter = 'all';
 let pendingFiles = [], tags = [], editingId = null, currentDetailId = null;
+let existingFilesKept = []; // fichiers existants à conserver en mode édition
 
 const TC={'MPLS':'var(--b)','SD-WAN':'var(--b)','Internet':'var(--gg)','VDC':'var(--v)','Cloud':'var(--p)','Hybride':'var(--j)','Sécurité':'var(--r)','Voix / ToIP':'#546E7A','LAN Managé':'var(--gg)','PRA / Backup':'#546E7A','IoT':'#B07700','Backbone':'var(--noir)'};
 const TB={'MPLS':'var(--bp)','SD-WAN':'var(--bp)','Internet':'var(--gp)','VDC':'var(--vp)','Cloud':'var(--pp)','Hybride':'var(--jp)','Sécurité':'var(--rp)','Voix / ToIP':'#EEF2F4','LAN Managé':'var(--gp)','PRA / Backup':'#EEF2F4','IoT':'var(--jp)','Backbone':'#E8E8E8'};
@@ -522,12 +523,30 @@ async function editById(id) {
   if(!(a.composants||[]).length){addComp();addComp();addComp();}
   tags=[...(a.tags||[])]; renderTags();
   pendingFiles=[];
-  // Afficher fichiers existants
-  const ef = document.getElementById('existingFiles');
-  ef.innerHTML = (a.files||[]).length ? `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--g4);margin-bottom:5px">Fichiers déjà archivés</div>` +
-    (a.files||[]).map(f=>{const ext=(f.name||'').split('.').pop().toLowerCase();return`<div class="fp-item"><span class="fp-icon">${FI[ext]||FI.default}</span><div class="fp-info"><div class="fp-name">${f.name}</div><div class="fp-size">Déjà dans Firebase</div></div></div>`;}).join('') : '';
+  existingFilesKept=[...(a.files||[])];
+  renderExistingFiles();
   document.getElementById('fpList').innerHTML='';
   document.getElementById('addModal').classList.remove('hidden');
+}
+
+function renderExistingFiles(){
+  const ef = document.getElementById('existingFiles');
+  if(!existingFilesKept.length){ef.innerHTML='';return;}
+  ef.innerHTML = `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--g4);margin-bottom:5px">Fichiers déjà archivés</div>` +
+    existingFilesKept.map((f,i)=>{
+      const ext=(f.name||'').split('.').pop().toLowerCase();
+      return`<div class="fp-item">
+        <span class="fp-icon">${FI[ext]||FI.default}</span>
+        <div class="fp-info"><div class="fp-name">${f.name}</div><div class="fp-size">Déjà dans Firebase</div></div>
+        <button class="fp-rm" onclick="removeExistingFile(${i})" title="Supprimer">×</button>
+      </div>`;
+    }).join('');
+}
+
+function removeExistingFile(i){
+  existingFilesKept.splice(i,1);
+  renderExistingFiles();
+  showToast('Fichier retiré (enregistre pour confirmer)','ok');
 }
 
 function editCurrent(){ if(currentDetailId) editById(currentDetailId); }
@@ -541,6 +560,7 @@ function clearForm(){
   addComp();addComp();addComp();
   tags=[];renderTags();
   pendingFiles=[];renderFP();
+  existingFilesKept=[];
   document.getElementById('existingFiles').innerHTML='';
 }
 
@@ -613,6 +633,7 @@ async function uploadToCloudinary(file, onProgress){
     fd.append('file', file);
     fd.append('upload_preset', CLOUDINARY_PRESET);
     fd.append('resource_type', 'raw');
+    fd.append('access_mode', 'public');
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`);
     xhr.upload.onprogress = e => { if(e.lengthComputable && onProgress) onProgress(Math.round(e.loaded/e.total*100)); };
@@ -648,10 +669,9 @@ async function saveArchi(){
     }
 
     let filesData=newFilesData;
-    // En mode édition : garder les fichiers existants + ajouter les nouveaux
+    // En mode édition : garder les fichiers conservés + ajouter les nouveaux
     if(editingId){
-      const existing=allArchis.find(x=>x.id===editingId);
-      filesData=[...(existing?.files||[]),...newFilesData];
+      filesData=[...existingFilesKept,...newFilesData];
     }
 
     const archi={
@@ -744,9 +764,11 @@ function closeDetail(){document.getElementById('detailModal').classList.add('hid
 function downloadFile(archiId,fileName){
   const a=allArchis.find(x=>x.id===archiId);if(!a)return;
   const f=(a.files||[]).find(x=>x.name===fileName);if(!f)return showToast('Fichier non disponible','err');
-  // Nouveau format : URL Cloudinary → ouvrir dans nouvel onglet
+  // Nouveau format : URL Cloudinary → forcer téléchargement
   if(f.url){
-    window.open(f.url,'_blank');
+    // Transformer l'URL pour forcer le téléchargement direct
+    const dlUrl = f.url.replace('/raw/upload/', '/raw/upload/fl_attachment/');
+    window.open(dlUrl,'_blank');
     showToast('⬇ Ouverture de '+fileName,'ok');
     return;
   }
