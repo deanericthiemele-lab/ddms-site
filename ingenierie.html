@@ -362,6 +362,7 @@ document.addEventListener("DOMContentLoaded", function() {
    <button onclick="ouvrirSummary()" style="background-color:#37474f;color:white;border:none;border-radius:4px;padding:6px 10px;margin-left:4px;cursor:pointer;">
     📋 Summary
    </button>
+   <span id="last-load-info-top" style="font-size:11px;color:#546e7a;font-style:italic;margin-left:8px;display:none;">📂 Dernier chargement : <strong id="last-load-datetime-top"></strong></span>
   </div>
 
   <!-- ===== POPUP KPI CLIENT ===== -->
@@ -422,6 +423,13 @@ document.addEventListener("DOMContentLoaded", function() {
       fetch("data.xlsx")
         .then(function(r) {
           if (!r.ok) throw new Error("HTTP " + r.status);
+          // Lire la date de dernière modification du fichier sur le serveur
+          const lastMod = r.headers.get('Last-Modified');
+          if(lastMod) {
+            const d = new Date(lastMod);
+            const fmt = d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' à ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+            updateLastLoad(fmt);
+          }
           return r.arrayBuffer();
         })
         .then(function(buffer) {
@@ -429,7 +437,6 @@ document.addEventListener("DOMContentLoaded", function() {
           var workbook = XLSX.read(raw, { type: "array" });
           var sheet = workbook.Sheets[workbook.SheetNames[0]];
           donneesExcel = XLSX.utils.sheet_to_json(sheet);
-          if(typeof updateLastLoad==='function') updateLastLoad();
           try { analyser(); } catch(e) { console.error("analyser()", e); }
           var src2 = (typeof tableauActuel !== 'undefined' && tableauActuel && tableauActuel.length)
                        ? tableauActuel : (window.tableauActuel || []);
@@ -1646,19 +1653,21 @@ document.getElementById('fileInput').addEventListener('change', (e) => {
     const workbook = XLSX.read(data, { type: 'array' });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     donneesExcel = XLSX.utils.sheet_to_json(sheet);
-    updateLastLoad();
     try { analyser(); } catch(_) {}
   };
   reader.readAsArrayBuffer(e.target.files[0]);
 });
 
-function updateLastLoad() {
-  const now = new Date();
-  const fmt = now.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' à ' + now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+function updateLastLoad(fmt) {
+  if(!fmt) return;
   const el = document.getElementById('last-load-datetime');
   const info = document.getElementById('last-load-info');
   if(el) el.textContent = fmt;
   if(info) info.style.display = 'inline';
+  const elTop = document.getElementById('last-load-datetime-top');
+  const infoTop = document.getElementById('last-load-info-top');
+  if(elTop) elTop.textContent = fmt;
+  if(infoTop) infoTop.style.display = 'inline';
 }
 
 function analyser() {
@@ -5060,12 +5069,20 @@ function fermerTop20Synthese() {
   <script>
    window.addEventListener('DOMContentLoaded', function () {
     fetch('data.xlsx') // Fichier Excel dans le même dossier que le HTML
-        .then(res => res.arrayBuffer())
+        .then(res => {
+            // Lire la date de dernière modification du fichier sur le serveur
+            const lastMod = res.headers.get('Last-Modified');
+            if(lastMod) {
+              const d = new Date(lastMod);
+              const fmt = d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' à ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+              updateLastLoad(fmt);
+            }
+            return res.arrayBuffer();
+        })
         .then(data => {
             const workbook = XLSX.read(new Uint8Array(data), { type: 'array' });
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             donneesExcel = XLSX.utils.sheet_to_json(sheet);
-            if(typeof updateLastLoad==='function') updateLastLoad();
             analyser(); // Appelle ta fonction d'analyse existante
         })
         .catch(err => console.error('Erreur chargement fichier :', err));
