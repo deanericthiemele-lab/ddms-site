@@ -632,14 +632,13 @@ async function uploadToCloudinary(file, onProgress){
     const fd = new FormData();
     fd.append('file', file);
     fd.append('upload_preset', CLOUDINARY_PRESET);
-    fd.append('resource_type', 'raw');
-    fd.append('access_mode', 'public');
+    fd.append('resource_type', 'auto');
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/raw/upload`);
+    xhr.open('POST', `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/auto/upload`);
     xhr.upload.onprogress = e => { if(e.lengthComputable && onProgress) onProgress(Math.round(e.loaded/e.total*100)); };
     xhr.onload = () => {
       if(xhr.status===200){ resolve(JSON.parse(xhr.responseText)); }
-      else { reject(new Error('Cloudinary error: '+xhr.responseText)); }
+      else { reject(new Error('Upload échoué: '+xhr.status)); }
     };
     xhr.onerror = () => reject(new Error('Erreur réseau'));
     xhr.send(fd);
@@ -764,12 +763,25 @@ function closeDetail(){document.getElementById('detailModal').classList.add('hid
 function downloadFile(archiId,fileName){
   const a=allArchis.find(x=>x.id===archiId);if(!a)return;
   const f=(a.files||[]).find(x=>x.name===fileName);if(!f)return showToast('Fichier non disponible','err');
-  // Nouveau format : URL Cloudinary → forcer téléchargement
+  // Nouveau format : URL Cloudinary → téléchargement direct
   if(f.url){
-    // Transformer l'URL pour forcer le téléchargement direct
-    const dlUrl = f.url.replace('/raw/upload/', '/raw/upload/fl_attachment/');
-    window.open(dlUrl,'_blank');
-    showToast('⬇ Ouverture de '+fileName,'ok');
+    // Construire URL de téléchargement forcé via Cloudinary
+    // Remplacer /raw/upload/ par /raw/upload/fl_attachment:1/ pour forcer le download
+    let dlUrl = f.url;
+    // Si l'URL contient /raw/upload/, on force le téléchargement
+    if(dlUrl.includes('/raw/upload/')){
+      dlUrl = dlUrl.replace('/raw/upload/', '/raw/upload/fl_attachment:1/');
+    }
+    // Créer un lien invisible et cliquer dessus
+    const a = document.createElement('a');
+    a.href = dlUrl;
+    a.download = fileName;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('⬇ Téléchargement de '+fileName,'ok');
     return;
   }
   // Ancien format : base64 (rétrocompatibilité)
