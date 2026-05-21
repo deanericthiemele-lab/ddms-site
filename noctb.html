@@ -389,7 +389,7 @@ function enterApp(){
   <div class="t-sep"></div>
   <button class="t-btn" onclick="exportAll()">⬇ Export JSON</button>
   <div class="t-sep"></div>
-  <a href="index.html" class="t-btn" style="text-decoration:none;">🏠 Accueil</a>
+  <a href="noctb.html" class="t-btn" style="text-decoration:none;">🏠 Accueil</a>
 </div>
 
 <!-- LAYOUT -->
@@ -420,7 +420,6 @@ function enterApp(){
   <div class="si" data-page="roadmap" onclick="nav(this)"><span class="si-ico">🗺️</span>Roadmap 4 Phases</div>
   <div class="si" data-page="gouvernance" onclick="nav(this)"><span class="si-ico">⚖️</span>Gouvernance & SLA</div>
   <div class="si" data-page="equipe" onclick="nav(this)"><span class="si-ico">👥</span>Équipe NOC<span class="si-badge" id="b-agents">0</span></div>
-  <div class="si" data-page="docs" onclick="nav(this)"><span class="si-ico">📁</span>Documents<span class="si-badge" id="b-docs">0</span></div>
 </div>
 
 <!-- MAIN -->
@@ -587,10 +586,15 @@ function enterApp(){
     <!-- CHRONOLOGIE -->
     <div class="crise-form-section">
       <div class="crise-form-section-title">Chronologie</div>
-      <div class="cfg-row cfg-row-3">
+      <div class="cfg-row cfg-row-3" style="margin-bottom:12px">
         <div class="cfg"><label>Date / Heure de début *</label><input type="datetime-local" id="cf-debut"></div>
         <div class="cfg"><label>Date / Heure de détection</label><input type="datetime-local" id="cf-detection"></div>
         <div class="cfg"><label>Date / Heure de résolution</label><input type="datetime-local" id="cf-fin"></div>
+      </div>
+      <div style="margin-bottom:6px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--n3);margin-bottom:8px">Étapes de chronologie personnalisées</div>
+        <div id="cf-chron-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+        <button type="button" onclick="criseAddChron()" style="background:none;border:1px dashed var(--n5);color:var(--n3);padding:5px 14px;border-radius:3px;cursor:pointer;font-size:11px;font-family:var(--body)">+ Ajouter une étape chronologique</button>
       </div>
     </div>
 
@@ -672,6 +676,7 @@ function criseOpenForm(id=null){
     document.getElementById('cf-manager').value=c.manager||'';
     document.getElementById('cf-ref-client').value=c.refClient||'';
     document.getElementById('cf-action1').value=c.action1||'';
+    const clist=document.getElementById('cf-chron-list');if(clist){clist.innerHTML='';(c.chronologie||[]).forEach(e=>criseAddChron(e.desc,e.ts));}
     document.getElementById('cf-comm-client').value=c.commClient||'';
     document.getElementById('cf-ticket-op').value=c.ticketOp||'';
     document.getElementById('cf-escalade').value=c.escalade||'';
@@ -714,6 +719,22 @@ function criseGenRef(){
   return 'CRI-'+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+'-'+Math.floor(Math.random()*900+100);
 }
 
+function criseAddChron(val='',ts=''){
+  const list=document.getElementById('cf-chron-list');if(!list)return;
+  const idx=list.children.length+1;
+  const div=document.createElement('div');
+  div.style.cssText='display:flex;gap:8px;align-items:center';
+  div.innerHTML=`<input type="datetime-local" value="${ts||new Date().toISOString().slice(0,16)}" style="border:1px solid var(--n5);border-radius:3px;padding:6px 10px;font-size:12px;font-family:var(--body);flex-shrink:0"><input type="text" placeholder="Description de l'étape (ex : Escalade N+1 effectuée…)" value="${val.replace(/"/g,'&quot;')}" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 10px;font-size:12px;font-family:var(--body)"><button type="button" onclick="this.closest('div').remove()" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:18px;padding:0 4px">×</button>`;
+  list.appendChild(div);
+}
+
+function criseGetChron(){
+  return [...document.querySelectorAll('#cf-chron-list > div')].map(div=>{
+    const inputs=div.querySelectorAll('input');
+    return{ts:inputs[0]?.value||'',desc:inputs[1]?.value.trim()||''};
+  }).filter(e=>e.desc);
+}
+
 async function criseSave(){
   const titre=document.getElementById('cf-titre').value.trim();
   if(!titre){toast('Titre requis','err');return;}
@@ -744,6 +765,7 @@ async function criseSave(){
     statut:document.getElementById('cf-statut').value,
     cause:document.getElementById('cf-cause').value.trim(),
     solution:document.getElementById('cf-solution').value.trim(),
+    chronologie:criseGetChron(),
   };
   try{
     if(criseEditingId){
@@ -847,6 +869,7 @@ function renderCrises(){
           <div class="crise-col-v">${c.description||'—'}</div>
           ${c.equip?`<div style="font-size:11px;color:var(--n4);margin-top:6px">⚙️ ${c.equip}</div>`:''}
           ${c.ticketOp?`<div style="font-size:11px;color:var(--b);margin-top:4px;font-family:var(--mono)">🎫 ${c.ticketOp}</div>`:''}
+          ${(c.chronologie||[]).length?`<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--n3);margin-top:10px;margin-bottom:4px">Chronologie (${c.chronologie.length})</div>${c.chronologie.map(e=>`<div style="display:flex;gap:6px;font-size:11px;padding:3px 0;border-bottom:1px solid var(--n6)"><span style="font-family:var(--mono);color:var(--n4);white-space:nowrap;flex-shrink:0">${e.ts||''}</span><span>${e.desc}</span></div>`).join('')}`:''}
         </div>
         <div class="crise-col">
           <div class="crise-col-t">Cause & Solution</div>
@@ -907,14 +930,14 @@ window.addEventListener('fbReady',async()=>{
     <div class="tbl-wrap">
       <table><thead><tr><th>Métrique</th><th>Description</th><th>Seuil Warning</th><th>Seuil Critique</th><th>Criticité</th></tr></thead>
       <tbody>
-        <tr><td><b>Latence</b></td><td>Response Time moyen</td><td class="sv" data-key="reseau-latence-w">50 ms</td><td class="sv" data-key="reseau-latence-c">100 ms</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
-        <tr><td><b>Perte paquets</b></td><td>Packet Loss %</td><td class="sv" data-key="reseau-perte-w">0.5%</td><td class="sv" data-key="reseau-perte-c">1%</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
-        <tr><td><b>Débit</b></td><td>% débit contractuel utilisé</td><td class="sv" data-key="reseau-debit-w">70%</td><td class="sv" data-key="reseau-debit-c">&lt;80% contractuel</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
-        <tr><td><b>Saturation BW</b></td><td>Utilisation bande passante</td><td class="sv" data-key="reseau-bw-w">70%</td><td class="sv" data-key="reseau-bw-c">&gt;80%</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
-        <tr><td><b>Flapping</b></td><td>Instabilité lien (up/down)</td><td class="sv" data-key="reseau-flap-w">2×/h</td><td class="sv" data-key="reseau-flap-c">&gt;3×/h</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
-        <tr><td><b>Disponibilité nœud</b></td><td>Node Down ICMP</td><td class="sv" data-key="reseau-dispo-w">1 poll KO</td><td class="sv" data-key="reseau-dispo-c">3 polls KO consécutifs</td><td><span class="seuil-badge seuil-critique">CRITIQUE</span></td></tr>
-        <tr><td><b>Jitter</b></td><td>Variation délai</td><td class="sv" data-key="reseau-jitter-w">20 ms</td><td class="sv" data-key="reseau-jitter-c">50 ms</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
-        <tr><td><b>Erreurs interface</b></td><td>CRC errors, collisions</td><td class="sv" data-key="reseau-err-w">Augmentation</td><td class="sv" data-key="reseau-err-c">Anormale soutenue</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Latence</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Response Time moyen</td><td class="sv" data-key="reseau-latence-w">50 ms</td><td class="sv" data-key="reseau-latence-c">100 ms</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Perte paquets</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Packet Loss %</td><td class="sv" data-key="reseau-perte-w">0.5%</td><td class="sv" data-key="reseau-perte-c">1%</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Débit</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">% débit contractuel utilisé</td><td class="sv" data-key="reseau-debit-w">70%</td><td class="sv" data-key="reseau-debit-c">&lt;80% contractuel</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Saturation BW</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Utilisation bande passante</td><td class="sv" data-key="reseau-bw-w">70%</td><td class="sv" data-key="reseau-bw-c">&gt;80%</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Flapping</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Instabilité lien (up/down)</td><td class="sv" data-key="reseau-flap-w">2×/h</td><td class="sv" data-key="reseau-flap-c">&gt;3×/h</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Disponibilité nœud</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Node Down ICMP</td><td class="sv" data-key="reseau-dispo-w">1 poll KO</td><td class="sv" data-key="reseau-dispo-c">3 polls KO consécutifs</td><td><span class="seuil-badge seuil-critique">CRITIQUE</span></td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Jitter</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Variation délai</td><td class="sv" data-key="reseau-jitter-w">20 ms</td><td class="sv" data-key="reseau-jitter-c">50 ms</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Erreurs interface</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">CRC errors, collisions</td><td class="sv" data-key="reseau-err-w">Augmentation</td><td class="sv" data-key="reseau-err-c">Anormale soutenue</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
       </tbody></table>
     </div>
   </div>
@@ -924,15 +947,15 @@ window.addEventListener('fbReady',async()=>{
     <div class="tbl-wrap">
       <table><thead><tr><th>Catégorie</th><th>Métrique</th><th>Warning</th><th>Critique</th></tr></thead>
       <tbody>
-        <tr><td><b>CPU</b></td><td>Utilisation CPU global</td><td class="sv" data-key="srv-cpu-w">&gt;70%</td><td class="sv" data-key="srv-cpu-c">&gt;90%</td></tr>
-        <tr><td><b>RAM</b></td><td>% mémoire utilisée</td><td class="sv" data-key="srv-ram-w">&gt;80%</td><td class="sv" data-key="srv-ram-c">&gt;92%</td></tr>
-        <tr><td><b>Disque capacité</b></td><td>% espace utilisé par partition</td><td class="sv" data-key="srv-disk-w">&lt;20% libre</td><td class="sv" data-key="srv-disk-c">&gt;95% utilisé</td></tr>
-        <tr><td><b>Disque I/O</b></td><td>Latence I/O (ms)</td><td class="sv" data-key="srv-io-w">&gt;10ms</td><td class="sv" data-key="srv-io-c">&gt;30ms</td></tr>
-        <tr><td><b>Services OS</b></td><td>État services critiques</td><td class="sv" data-key="srv-svc-w">1 restart</td><td class="sv" data-key="srv-svc-c">Service Down</td></tr>
-        <tr><td><b>ESXi CPU</b></td><td>Host CPU</td><td class="sv" data-key="srv-esxi-cpu-w">&gt;80%</td><td class="sv" data-key="srv-esxi-cpu-c">&gt;95%</td></tr>
-        <tr><td><b>ESXi RAM</b></td><td>Host RAM (ballooning)</td><td class="sv" data-key="srv-esxi-ram-w">&gt;90%</td><td class="sv" data-key="srv-esxi-ram-c">&gt;95% swapping</td></tr>
-        <tr><td><b>Datastore</b></td><td>Espace libre</td><td class="sv" data-key="srv-ds-w">&lt;20%</td><td class="sv" data-key="srv-ds-c">&lt;10%</td></tr>
-        <tr><td><b>VM état</b></td><td>État VM production</td><td class="sv" data-key="srv-vm-w">Non joignable</td><td class="sv" data-key="srv-vm-c">VM arrêtée non planifiée</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>CPU</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Utilisation CPU global</td><td class="sv" data-key="srv-cpu-w">&gt;70%</td><td class="sv" data-key="srv-cpu-c">&gt;90%</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>RAM</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">% mémoire utilisée</td><td class="sv" data-key="srv-ram-w">&gt;80%</td><td class="sv" data-key="srv-ram-c">&gt;92%</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Disque capacité</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">% espace utilisé par partition</td><td class="sv" data-key="srv-disk-w">&lt;20% libre</td><td class="sv" data-key="srv-disk-c">&gt;95% utilisé</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Disque I/O</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Latence I/O (ms)</td><td class="sv" data-key="srv-io-w">&gt;10ms</td><td class="sv" data-key="srv-io-c">&gt;30ms</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Services OS</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">État services critiques</td><td class="sv" data-key="srv-svc-w">1 restart</td><td class="sv" data-key="srv-svc-c">Service Down</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>ESXi CPU</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Host CPU</td><td class="sv" data-key="srv-esxi-cpu-w">&gt;80%</td><td class="sv" data-key="srv-esxi-cpu-c">&gt;95%</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>ESXi RAM</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Host RAM (ballooning)</td><td class="sv" data-key="srv-esxi-ram-w">&gt;90%</td><td class="sv" data-key="srv-esxi-ram-c">&gt;95% swapping</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Datastore</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Espace libre</td><td class="sv" data-key="srv-ds-w">&lt;20%</td><td class="sv" data-key="srv-ds-c">&lt;10%</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>VM état</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">État VM production</td><td class="sv" data-key="srv-vm-w">Non joignable</td><td class="sv" data-key="srv-vm-c">VM arrêtée non planifiée</td></tr>
       </tbody></table>
     </div>
   </div>
@@ -942,14 +965,14 @@ window.addEventListener('fbReady',async()=>{
     <div class="tbl-wrap">
       <table><thead><tr><th>Métrique</th><th>Warning</th><th>Critique</th><th>Notes</th></tr></thead>
       <tbody>
-        <tr><td><b>CPU Firewall</b></td><td class="sv" data-key="fw-cpu-w">&gt;70%</td><td class="sv" data-key="fw-cpu-c">&gt;90%</td><td class="sv" data-key="fw-cpu-n">Haute CPU = déni de service possible</td></tr>
-        <tr><td><b>Sessions actives</b></td><td class="sv" data-key="fw-sess-w">&gt;70% capacité</td><td class="sv" data-key="fw-sess-c">&gt;90% capacité</td><td class="sv" data-key="fw-sess-n">Vérifier tables de sessions</td></tr>
-        <tr><td><b>VPN Tunnels IPSec</b></td><td class="sv" data-key="fw-vpn-w">Tunnel Down</td><td class="sv" data-key="fw-vpn-c">&gt;3 tunnels down</td><td class="sv" data-key="fw-vpn-n">Alerte immédiate</td></tr>
-        <tr><td><b>BW VPN</b></td><td class="sv" data-key="fw-bwvpn-w">&gt;70%</td><td class="sv" data-key="fw-bwvpn-c">&gt;85%</td><td class="sv" data-key="fw-bwvpn-n">Saturation = dégradation accès</td></tr>
-        <tr><td><b>Dispo firewall</b></td><td class="sv" data-key="fw-dispo-w">Agent timeout</td><td class="sv" data-key="fw-dispo-c">Firewall Down</td><td class="sv" data-key="fw-dispo-n">Risque réseau ouvert</td></tr>
-        <tr><td><b>HA Sync</b></td><td class="sv" data-key="fw-ha-w">Sync en retard</td><td class="sv" data-key="fw-ha-c">Sync arrêtée</td><td class="sv" data-key="fw-ha-n">Protection réduite</td></tr>
-        <tr><td><b>RAM firewall</b></td><td class="sv" data-key="fw-ram-w">&gt;80%</td><td class="sv" data-key="fw-ram-c">&gt;92%</td><td class="sv" data-key="fw-ram-n">Crash possible</td></tr>
-        <tr><td><b>Interfaces</b></td><td class="sv" data-key="fw-itf-w">Dégradée</td><td class="sv" data-key="fw-itf-c">Interface DOWN</td><td class="sv" data-key="fw-itf-n">Alerte immédiate DMZ/WAN</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>CPU Firewall</b></td><td class="sv" data-key="fw-cpu-w">&gt;70%</td><td class="sv" data-key="fw-cpu-c">&gt;90%</td><td class="sv" data-key="fw-cpu-n">Haute CPU = déni de service possible</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Sessions actives</b></td><td class="sv" data-key="fw-sess-w">&gt;70% capacité</td><td class="sv" data-key="fw-sess-c">&gt;90% capacité</td><td class="sv" data-key="fw-sess-n">Vérifier tables de sessions</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>VPN Tunnels IPSec</b></td><td class="sv" data-key="fw-vpn-w">Tunnel Down</td><td class="sv" data-key="fw-vpn-c">&gt;3 tunnels down</td><td class="sv" data-key="fw-vpn-n">Alerte immédiate</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>BW VPN</b></td><td class="sv" data-key="fw-bwvpn-w">&gt;70%</td><td class="sv" data-key="fw-bwvpn-c">&gt;85%</td><td class="sv" data-key="fw-bwvpn-n">Saturation = dégradation accès</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Dispo firewall</b></td><td class="sv" data-key="fw-dispo-w">Agent timeout</td><td class="sv" data-key="fw-dispo-c">Firewall Down</td><td class="sv" data-key="fw-dispo-n">Risque réseau ouvert</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>HA Sync</b></td><td class="sv" data-key="fw-ha-w">Sync en retard</td><td class="sv" data-key="fw-ha-c">Sync arrêtée</td><td class="sv" data-key="fw-ha-n">Protection réduite</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>RAM firewall</b></td><td class="sv" data-key="fw-ram-w">&gt;80%</td><td class="sv" data-key="fw-ram-c">&gt;92%</td><td class="sv" data-key="fw-ram-n">Crash possible</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Interfaces</b></td><td class="sv" data-key="fw-itf-w">Dégradée</td><td class="sv" data-key="fw-itf-c">Interface DOWN</td><td class="sv" data-key="fw-itf-n">Alerte immédiate DMZ/WAN</td></tr>
       </tbody></table>
     </div>
     <div class="ibox info" style="margin-top:12px">Constructeurs supportés : Cisco ASA, Fortinet FortiGate, Palo Alto, Check Point, Juniper SRX — via SNMP MIBs + NCM</div>
@@ -960,12 +983,12 @@ window.addEventListener('fbReady',async()=>{
     <div class="tbl-wrap">
       <table><thead><tr><th>Métrique</th><th>Warning</th><th>Critique</th><th>Impact</th></tr></thead>
       <tbody>
-        <tr><td><b>MOS Score</b></td><td class="sv" data-key="voip-mos-w">&lt;3.8</td><td class="sv" data-key="voip-mos-c">&lt;3.5</td><td class="sv" data-key="voip-mos-n">Qualité voix dégradée</td></tr>
-        <tr><td><b>Jitter voix</b></td><td class="sv" data-key="voip-jitter-w">&gt;20ms</td><td class="sv" data-key="voip-jitter-c">&gt;50ms</td><td class="sv" data-key="voip-jitter-n">Échos, coupures</td></tr>
-        <tr><td><b>Perte paquets voix</b></td><td class="sv" data-key="voip-perte-w">&gt;0.5%</td><td class="sv" data-key="voip-perte-c">&gt;1%</td><td class="sv" data-key="voip-perte-n">Mots coupés</td></tr>
-        <tr><td><b>Trunk SIP état</b></td><td class="sv" data-key="voip-sip-w">Dégradé</td><td class="sv" data-key="voip-sip-c">Trunk Down</td><td class="sv" data-key="voip-sip-n">Pas d'appels entrants/sortants</td></tr>
-        <tr><td><b>Saturation trunks</b></td><td class="sv" data-key="voip-sat-w">&gt;70% canaux</td><td class="sv" data-key="voip-sat-c">&gt;90% canaux</td><td class="sv" data-key="voip-sat-n">Appels refusés</td></tr>
-        <tr><td><b>Appels internationaux</b></td><td class="sv" data-key="voip-intl-w">+200% moyenne</td><td class="sv" data-key="voip-intl-c">+300% → Toll Fraud</td><td class="sv" data-key="voip-intl-n">Fraude — couper trunk</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>MOS Score</b></td><td class="sv" data-key="voip-mos-w">&lt;3.8</td><td class="sv" data-key="voip-mos-c">&lt;3.5</td><td class="sv" data-key="voip-mos-n">Qualité voix dégradée</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Jitter voix</b></td><td class="sv" data-key="voip-jitter-w">&gt;20ms</td><td class="sv" data-key="voip-jitter-c">&gt;50ms</td><td class="sv" data-key="voip-jitter-n">Échos, coupures</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Perte paquets voix</b></td><td class="sv" data-key="voip-perte-w">&gt;0.5%</td><td class="sv" data-key="voip-perte-c">&gt;1%</td><td class="sv" data-key="voip-perte-n">Mots coupés</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Trunk SIP état</b></td><td class="sv" data-key="voip-sip-w">Dégradé</td><td class="sv" data-key="voip-sip-c">Trunk Down</td><td class="sv" data-key="voip-sip-n">Pas d'appels entrants/sortants</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Saturation trunks</b></td><td class="sv" data-key="voip-sat-w">&gt;70% canaux</td><td class="sv" data-key="voip-sat-c">&gt;90% canaux</td><td class="sv" data-key="voip-sat-n">Appels refusés</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Appels internationaux</b></td><td class="sv" data-key="voip-intl-w">+200% moyenne</td><td class="sv" data-key="voip-intl-c">+300% → Toll Fraud</td><td class="sv" data-key="voip-intl-n">Fraude — couper trunk</td></tr>
       </tbody></table>
     </div>
   </div>
@@ -975,12 +998,12 @@ window.addEventListener('fbReady',async()=>{
     <div class="tbl-wrap">
       <table><thead><tr><th>Composant</th><th>Métrique</th><th>Warning</th><th>Critique</th><th>Impact</th></tr></thead>
       <tbody>
-        <tr><td><b>NAS/SAN Capacité</b></td><td>% espace utilisé</td><td class="sv" data-key="stk-nas-cap-w">Libre &lt;20%</td><td class="sv" data-key="stk-nas-cap-c">Libre &lt;10%</td><td class="sv" data-key="stk-nas-cap-n">Arrêt écritures</td></tr>
-        <tr><td><b>NAS/SAN I/O</b></td><td>Latence I/O</td><td class="sv" data-key="stk-nas-io-w">&gt;15ms</td><td class="sv" data-key="stk-nas-io-c">&gt;40ms</td><td class="sv" data-key="stk-nas-io-n">Dégradation appli</td></tr>
-        <tr><td><b>Disques locaux</b></td><td>% espace partition</td><td class="sv" data-key="stk-disk-w">Libre &lt;15%</td><td class="sv" data-key="stk-disk-c">Libre &lt;5% / SMART err</td><td class="sv" data-key="stk-disk-n">Crash OS</td></tr>
-        <tr><td><b>Réplication</b></td><td>Retard réplication</td><td class="sv" data-key="stk-rep-w">Lag &gt;5min</td><td class="sv" data-key="stk-rep-c">Réplication arrêtée</td><td class="sv" data-key="stk-rep-n">Perte données DR</td></tr>
-        <tr><td><b>RAID</b></td><td>Disques RAID</td><td class="sv" data-key="stk-raid-w">1 disque dégradé</td><td class="sv" data-key="stk-raid-c">2 disques KO</td><td class="sv" data-key="stk-raid-n">Perte données totale</td></tr>
-        <tr><td><b>Snapshots</b></td><td>Âge / Espace</td><td class="sv" data-key="stk-snap-w">Snap &gt;7j</td><td class="sv" data-key="stk-snap-c">Espace snap &gt;30%</td><td class="sv" data-key="stk-snap-n">Performance + capacité</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>NAS/SAN Capacité</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">% espace utilisé</td><td class="sv" data-key="stk-nas-cap-w">Libre &lt;20%</td><td class="sv" data-key="stk-nas-cap-c">Libre &lt;10%</td><td class="sv" data-key="stk-nas-cap-n">Arrêt écritures</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>NAS/SAN I/O</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Latence I/O</td><td class="sv" data-key="stk-nas-io-w">&gt;15ms</td><td class="sv" data-key="stk-nas-io-c">&gt;40ms</td><td class="sv" data-key="stk-nas-io-n">Dégradation appli</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Disques locaux</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">% espace partition</td><td class="sv" data-key="stk-disk-w">Libre &lt;15%</td><td class="sv" data-key="stk-disk-c">Libre &lt;5% / SMART err</td><td class="sv" data-key="stk-disk-n">Crash OS</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Réplication</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Retard réplication</td><td class="sv" data-key="stk-rep-w">Lag &gt;5min</td><td class="sv" data-key="stk-rep-c">Réplication arrêtée</td><td class="sv" data-key="stk-rep-n">Perte données DR</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>RAID</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Disques RAID</td><td class="sv" data-key="stk-raid-w">1 disque dégradé</td><td class="sv" data-key="stk-raid-c">2 disques KO</td><td class="sv" data-key="stk-raid-n">Perte données totale</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Snapshots</b></td><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer">Âge / Espace</td><td class="sv" data-key="stk-snap-w">Snap &gt;7j</td><td class="sv" data-key="stk-snap-c">Espace snap &gt;30%</td><td class="sv" data-key="stk-snap-n">Performance + capacité</td></tr>
       </tbody></table>
     </div>
   </div>
@@ -990,11 +1013,11 @@ window.addEventListener('fbReady',async()=>{
     <div class="tbl-wrap">
       <table><thead><tr><th>Métrique</th><th>Warning</th><th>Critique</th><th>Notes</th></tr></thead>
       <tbody>
-        <tr><td><b>AP Disponibilité</b></td><td class="sv" data-key="wifi-ap-w">AP non joignable &gt;2min</td><td class="sv" data-key="wifi-ap-c">AP Down confirmé</td><td class="sv" data-key="wifi-ap-n">Alerte si zone critique</td></tr>
-        <tr><td><b>Signal RSSI</b></td><td class="sv" data-key="wifi-rssi-w">&lt;-70 dBm</td><td class="sv" data-key="wifi-rssi-c">&lt;-80 dBm</td><td class="sv" data-key="wifi-rssi-n">Dégradation connexions</td></tr>
-        <tr><td><b>Clients connectés</b></td><td class="sv" data-key="wifi-cli-w">&gt;80% capacité AP</td><td class="sv" data-key="wifi-cli-c">&gt;95% capacité</td><td class="sv" data-key="wifi-cli-n">Saturation canal</td></tr>
-        <tr><td><b>Contrôleur Wi-Fi</b></td><td class="sv" data-key="wifi-ctrl-w">Erreur gestion</td><td class="sv" data-key="wifi-ctrl-c">Contrôleur Down</td><td class="sv" data-key="wifi-ctrl-n">Tous AP orphelins</td></tr>
-        <tr><td><b>Canal interférence</b></td><td class="sv" data-key="wifi-canal-w">Chevauchement détecté</td><td class="sv" data-key="wifi-canal-c">SNR &lt;10 dB</td><td class="sv" data-key="wifi-canal-n">Réaffectation canal</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>AP Disponibilité</b></td><td class="sv" data-key="wifi-ap-w">AP non joignable &gt;2min</td><td class="sv" data-key="wifi-ap-c">AP Down confirmé</td><td class="sv" data-key="wifi-ap-n">Alerte si zone critique</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Signal RSSI</b></td><td class="sv" data-key="wifi-rssi-w">&lt;-70 dBm</td><td class="sv" data-key="wifi-rssi-c">&lt;-80 dBm</td><td class="sv" data-key="wifi-rssi-n">Dégradation connexions</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Clients connectés</b></td><td class="sv" data-key="wifi-cli-w">&gt;80% capacité AP</td><td class="sv" data-key="wifi-cli-c">&gt;95% capacité</td><td class="sv" data-key="wifi-cli-n">Saturation canal</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Contrôleur Wi-Fi</b></td><td class="sv" data-key="wifi-ctrl-w">Erreur gestion</td><td class="sv" data-key="wifi-ctrl-c">Contrôleur Down</td><td class="sv" data-key="wifi-ctrl-n">Tous AP orphelins</td></tr>
+        <tr><td class="sw-edit" ondblclick="swEditCell(this,'sw-edit')" title="Double-clic pour éditer"><b>Canal interférence</b></td><td class="sv" data-key="wifi-canal-w">Chevauchement détecté</td><td class="sv" data-key="wifi-canal-c">SNR &lt;10 dB</td><td class="sv" data-key="wifi-canal-n">Réaffectation canal</td></tr>
       </tbody></table>
     </div>
   </div>
@@ -1004,30 +1027,43 @@ window.addEventListener('fbReady',async()=>{
 // ═══════════════════════════════════════════════════════════
 // SEUILS ÉDITABLES — localStorage
 // ═══════════════════════════════════════════════════════════
-const LS_KEY = 'noc_seuils_v1';
+const SEUILS_COL = 'noc_seuils';
+let _seuilsDocId = null;
 
-function loadSeuils(){
+async function loadSeuils(){
   try{
-    const saved = JSON.parse(localStorage.getItem(LS_KEY)||'{}');
-    document.querySelectorAll('.sv[data-key]').forEach(td=>{
-      const k = td.dataset.key;
-      if(saved[k] !== undefined) td.textContent = saved[k];
-    });
-  }catch(e){}
+    const snap=await window._gets(window._col(window._db,SEUILS_COL));
+    if(snap.docs.length>0){
+      _seuilsDocId=snap.docs[0].id;
+      const saved=snap.docs[0].data()||{};
+      document.querySelectorAll('.sv[data-key]').forEach(td=>{
+        const k=td.dataset.key;
+        if(saved[k]!==undefined) td.textContent=saved[k];
+      });
+    }
+  }catch(e){console.warn('seuils load:',e);}
 }
 
-function saveSeuil(key, val){
+async function saveSeuil(key, val){
   try{
-    const saved = JSON.parse(localStorage.getItem(LS_KEY)||'{}');
-    saved[key] = val;
-    localStorage.setItem(LS_KEY, JSON.stringify(saved));
-  }catch(e){}
+    const db=window._db;
+    if(_seuilsDocId){
+      await window._upd(window._doc(db,SEUILS_COL,_seuilsDocId),{[key]:val,updatedAt:new Date().toISOString()});
+    }else{
+      const r=await window._add(window._col(db,SEUILS_COL),{[key]:val,createdAt:new Date().toISOString()});
+      _seuilsDocId=r.id;
+    }
+  }catch(e){console.warn('saveSeuil:',e);}
 }
 
-function resetSeuils(){
+async function resetSeuils(){
   if(!confirm('Remettre tous les seuils aux valeurs par défaut ?')) return;
-  localStorage.removeItem(LS_KEY);
-  location.reload();
+  try{
+    if(_seuilsDocId) await window._del(window._doc(window._db,SEUILS_COL,_seuilsDocId));
+    _seuilsDocId=null;
+    document.querySelectorAll('.sv[data-key]').forEach(td=>td.textContent=td.getAttribute('data-default')||td.textContent);
+    toast('Seuils réinitialisés ✓','ok');
+  }catch(e){toast('Erreur: '+e.message,'err');}
 }
 
 // Attacher les événements dblclick sur toutes les cellules .sv
@@ -1066,8 +1102,7 @@ document.querySelectorAll('.sv[data-key]').forEach(td=>{
   });
 });
 
-// Charger les valeurs sauvegardées au démarrage
-loadSeuils();
+window.addEventListener('fbReady',()=>loadSeuils());
 </script>
 
 <!-- ═══════════════════════════════════════════════════════ PAGE: CHANGEMENTS RFC -->
@@ -1384,6 +1419,13 @@ NOC B2B OCI</textarea>
 
 <!-- ═══════════════════════════════════════════════════════ PAGE: CLOUD -->
 <div class="page" id="page-cloud">
+<style>
+.cl-edit{cursor:default;transition:background .12s}
+.cl-edit:hover{background:var(--vl)!important}
+.cl-edit:hover::after{content:'✏';font-size:9px;color:var(--v);margin-left:6px;opacity:.7}
+.cl-edit.editing{background:var(--vl)!important;outline:2px solid var(--v)!important;border-radius:3px;cursor:text}
+.cl-edit.saved{background:var(--gl)!important;transition:background .4s}
+</style>
   <div class="ph"><div><div class="ph-title">☁️ Supervision Cloud OCI</div><div class="ph-sub">Lot 1 Infrastructures · Lot 2 Services métiers</div></div></div>
 
   <div class="tabs">
@@ -1414,11 +1456,11 @@ NOC B2B OCI</textarea>
     <div class="step-row"><span class="sn">7</span><div class="step-content"><h4>COMMUNICATION</h4><p>Notifier le client si impact service confirmé. Documenter dans le ticket ITSM.</p></div></div>
     <div class="sec-t">Actions correctives VPS</div>
     <div class="tbl-wrap"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
-      <tr><td><b>CPU &gt;85% / 5min</b></td><td>Identifier processus via portail OCI ou SSH. Redémarrer processus fautif si autorisé. Proposer upgrade vCPU si récurrent.</td></tr>
-      <tr><td><b>RAM &gt;90%</b></td><td>Vérifier processus en mémoire. Redémarrer service le plus consommateur. Proposer upgrade RAM si récurrent.</td></tr>
-      <tr><td><b>Disque &gt;80%</b></td><td>Identifier fichiers volumineux (logs, backups). Déclencher nettoyage ou extension disque. Alerter client.</td></tr>
-      <tr><td><b>Serveur injoignable</b></td><td>Vérifier statut sur portail OCI. Si VPS stopped → démarrer. Si erreur → ticket OCI. Notifier client immédiatement.</td></tr>
-      <tr><td><b>Latence anormale</b></td><td>Tester depuis plusieurs points (ping, traceroute). Si problème réseau OCI → ticket Orange Cloud Support.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>CPU &gt;85% / 5min</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Identifier processus via portail OCI ou SSH. Redémarrer processus fautif si autorisé. Proposer upgrade vCPU si récurrent.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>RAM &gt;90%</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier processus en mémoire. Redémarrer service le plus consommateur. Proposer upgrade RAM si récurrent.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Disque &gt;80%</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Identifier fichiers volumineux (logs, backups). Déclencher nettoyage ou extension disque. Alerter client.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Serveur injoignable</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier statut sur portail OCI. Si VPS stopped → démarrer. Si erreur → ticket OCI. Notifier client immédiatement.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Latence anormale</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Tester depuis plusieurs points (ping, traceroute). Si problème réseau OCI → ticket Orange Cloud Support.</td></tr>
     </tbody></table></div>
   </div>
 
@@ -1432,11 +1474,11 @@ NOC B2B OCI</textarea>
       <div class="alrt-card moyen"><div class="alrt-name">Latence intra-réseau</div><div class="alrt-seuil">Comm. inter-instances lentes</div><span class="alrt-crit moyen">MOYEN</span></div>
     </div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
-      <tr><td><b>Instance inactive/gelée</b></td><td>Redémarrer via portail OCI. Si échec → ticket Orange Cloud urgence.</td></tr>
-      <tr><td><b>Dépassement ressources</b></td><td>Identifier instance en cause. Limiter processus si possible. Proposer upgrade plan VPC.</td></tr>
-      <tr><td><b>Perte connectivité réseau</b></td><td>Vérifier Security Groups (ports bloqués ?). Vérifier routes et table de routage VPC. Relancer interfaces si nécessaire.</td></tr>
-      <tr><td><b>SLA &lt;99,9%</b></td><td>Documenter incident avec horodatage précis. Ouvrir ticket OCI pour SLA credit. Informer client.</td></tr>
-      <tr><td><b>Latence intra-réseau</b></td><td>Tester latence entre instances. Si &gt; seuil OCI → ticket support Orange Cloud.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Instance inactive/gelée</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Redémarrer via portail OCI. Si échec → ticket Orange Cloud urgence.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Dépassement ressources</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Identifier instance en cause. Limiter processus si possible. Proposer upgrade plan VPC.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Perte connectivité réseau</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier Security Groups (ports bloqués ?). Vérifier routes et table de routage VPC. Relancer interfaces si nécessaire.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>SLA &lt;99,9%</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Documenter incident avec horodatage précis. Ouvrir ticket OCI pour SLA credit. Informer client.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Latence intra-réseau</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Tester latence entre instances. Si &gt; seuil OCI → ticket support Orange Cloud.</td></tr>
     </tbody></table></div>
   </div>
 
@@ -1450,11 +1492,11 @@ NOC B2B OCI</textarea>
       <div class="alrt-card moyen"><div class="alrt-name">Latence webmail</div><div class="alrt-seuil">Interface lente</div><span class="alrt-crit moyen">MOYEN</span></div>
     </div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
-      <tr><td><b>Stockage &gt;80%</b></td><td>Identifier boîtes les plus volumineuses. Alerter client pour nettoyage ou upgrade quota.</td></tr>
-      <tr><td><b>Taux rebond &gt;5%</b></td><td>Vérifier si IP d'envoi est blacklistée (MXToolbox). Vérifier SPF/DKIM/DMARC. Contacter Orange Cloud si IP bloquée.</td></tr>
-      <tr><td><b>SMTP indisponible</b></td><td>Vérifier statut service sur portail OCI. Ticket Orange Cloud si service KO côté infra.</td></tr>
-      <tr><td><b>DKIM en échec</b></td><td>Vérifier enregistrements DNS TXT du domaine. Régénérer clé DKIM si nécessaire depuis le portail.</td></tr>
-      <tr><td><b>Webmail lent</b></td><td>Tester depuis autre réseau. Si latence serveur → ticket OCI support.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Stockage &gt;80%</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Identifier boîtes les plus volumineuses. Alerter client pour nettoyage ou upgrade quota.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Taux rebond &gt;5%</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier si IP d'envoi est blacklistée (MXToolbox). Vérifier SPF/DKIM/DMARC. Contacter Orange Cloud si IP bloquée.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>SMTP indisponible</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier statut service sur portail OCI. Ticket Orange Cloud si service KO côté infra.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>DKIM en échec</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier enregistrements DNS TXT du domaine. Régénérer clé DKIM si nécessaire depuis le portail.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Webmail lent</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Tester depuis autre réseau. Si latence serveur → ticket OCI support.</td></tr>
     </tbody></table></div>
   </div>
 
@@ -1467,9 +1509,9 @@ NOC B2B OCI</textarea>
       <div class="alrt-card moyen"><div class="alrt-name">Poste non sauvegardé</div><div class="alrt-seuil">Machine hors sauvegarde &gt;Xj</div><span class="alrt-crit moyen">MOYEN</span></div>
     </div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
-      <tr><td><b>Backup échoué</b></td><td>Vérifier les logs Acronis. Relancer manuellement si possible. Si persistant → ticket OCI.</td></tr>
-      <tr><td><b>Aucun backup &gt;24h</b></td><td>Vérifier statut agent Acronis sur la machine. Redémarrer l'agent si nécessaire. Notifier client.</td></tr>
-      <tr><td><b>Stockage &gt;80%</b></td><td>Analyser les politiques de rétention. Proposer extension ou nettoyage des sauvegardes anciennes.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Backup échoué</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier les logs Acronis. Relancer manuellement si possible. Si persistant → ticket OCI.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Aucun backup &gt;24h</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier statut agent Acronis sur la machine. Redémarrer l'agent si nécessaire. Notifier client.</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Stockage &gt;80%</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Analyser les politiques de rétention. Proposer extension ou nettoyage des sauvegardes anciennes.</td></tr>
     </tbody></table></div>
   </div>
 
@@ -1486,12 +1528,12 @@ NOC B2B OCI</textarea>
   <div class="tab-panel" id="cl-lot2">
     <div class="sec-t">Lot 2 — Services Métiers & Collaboratifs</div>
     <div class="tbl-wrap"><table><thead><tr><th>Service</th><th>Alerte critique</th><th>Seuil</th><th>Action NOC</th></tr></thead><tbody>
-      <tr><td><b>Drive Pro</b></td><td>Stockage &gt;80% / Synchro KO</td><td>80%</td><td>Alerter client, vérifier agent synchro</td></tr>
-      <tr><td><b>Stockage S3</b></td><td>Taux erreur API &gt;1% / Latence &gt;SLA</td><td>1%</td><td>Vérifier logs API, ouvrir ticket OCI</td></tr>
-      <tr><td><b>ERP / CRM</b></td><td>App inaccessible / Job facturation KO</td><td>—</td><td>Vérifier serveur appli, redémarrer job</td></tr>
-      <tr><td><b>GED</b></td><td>Échec indexation / Stockage &gt;80%</td><td>80%</td><td>Vérifier moteur indexation, alerter client</td></tr>
-      <tr><td><b>WordPress</b></td><td>Plugin vulnérable / SSL expirant &lt;14j</td><td>—</td><td>Alerter client pour mise à jour urgente</td></tr>
-      <tr><td><b>PrestaShop</b></td><td>Paiement en échec / SSL expirant &lt;7j</td><td>—</td><td>Vérifier passerelle OM/VISA, renouveler SSL urgent</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Drive Pro</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Stockage &gt;80% / Synchro KO</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">80%</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Alerter client, vérifier agent synchro</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>Stockage S3</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Taux erreur API &gt;1% / Latence &gt;SLA</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">1%</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier logs API, ouvrir ticket OCI</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>ERP / CRM</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">App inaccessible / Job facturation KO</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">—</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier serveur appli, redémarrer job</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>GED</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Échec indexation / Stockage &gt;80%</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">80%</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier moteur indexation, alerter client</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>WordPress</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Plugin vulnérable / SSL expirant &lt;14j</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">—</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Alerter client pour mise à jour urgente</td></tr>
+      <tr><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer"><b>PrestaShop</b></td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Paiement en échec / SSL expirant &lt;7j</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">—</td><td class="cl-edit" ondblclick="swEditCell(this,'cl-edit')" title="Double-clic pour éditer">Vérifier passerelle OM/VISA, renouveler SSL urgent</td></tr>
     </tbody></table></div>
     <div class="ibox warn" style="margin-top:12px">SSL expirant sur PrestaShop : seuil critique à <b>7 jours</b> (paiements bloqués). Sur autres services : 14 jours.</div>
   </div>
@@ -1499,6 +1541,13 @@ NOC B2B OCI</textarea>
 
 <!-- ═══════════════════════════════════════════════════════ PAGE: SIM MONITORING -->
 <div class="page" id="page-sim">
+<style>
+.sim-edit{cursor:default;transition:background .12s}
+.sim-edit:hover{background:var(--vl)!important}
+.sim-edit:hover::after{content:'✏';font-size:9px;color:var(--v);margin-left:6px;opacity:.7}
+.sim-edit.editing{background:var(--vl)!important;outline:2px solid var(--v)!important;border-radius:3px;cursor:text}
+.sim-edit.saved{background:var(--gl)!important;transition:background .4s}
+</style>
   <div class="ph"><div><div class="ph-title">📱 SIM Monitoring OCI</div><div class="ph-sub">Portail Cloud · Authentification · Flotte SIM · Consommation Data</div></div></div>
 
   <div class="tabs">
@@ -1517,10 +1566,10 @@ NOC B2B OCI</textarea>
       <div class="alrt-card haut"><div class="alrt-name">Taux erreur API &gt;1%</div><div class="alrt-seuil">API back-end en échec</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
     </div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
-      <tr><td><b>Portail inaccessible</b></td><td>Vérifier DNS (nslookup). Tester depuis autre IP. Si problème OCI → ticket support Orange Cloud en urgence.</td></tr>
-      <tr><td><b>Temps réponse &gt;3s</b></td><td>Vérifier charge serveur depuis tableau de bord OCI. Signaler à Orange Cloud si charge infra.</td></tr>
-      <tr><td><b>SSL expirant</b></td><td>Déclencher renouvellement SSL depuis portail OCI. Vérifier que le renouvellement automatique est actif.</td></tr>
-      <tr><td><b>Erreur API &gt;1%</b></td><td>Vérifier logs API. Si erreur auth → vérifier clés API clients. Si erreur serveur → ticket OCI.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>Portail inaccessible</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Vérifier DNS (nslookup). Tester depuis autre IP. Si problème OCI → ticket support Orange Cloud en urgence.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>Temps réponse &gt;3s</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Vérifier charge serveur depuis tableau de bord OCI. Signaler à Orange Cloud si charge infra.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>SSL expirant</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Déclencher renouvellement SSL depuis portail OCI. Vérifier que le renouvellement automatique est actif.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>Erreur API &gt;1%</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Vérifier logs API. Si erreur auth → vérifier clés API clients. Si erreur serveur → ticket OCI.</td></tr>
     </tbody></table></div>
   </div>
 
@@ -1532,10 +1581,10 @@ NOC B2B OCI</textarea>
       <div class="alrt-card moyen"><div class="alrt-name">2FA inactive</div><div class="alrt-seuil">Sécurité d'accès dégradée</div><span class="alrt-crit moyen">MOYEN</span></div>
     </div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
-      <tr><td><b>Tentatives &gt;5</b></td><td>Bloquer IP source sur firewall portail. Alerter RSSI. Vérifier si compte ciblé est compromis.</td></tr>
-      <tr><td><b>Connexion IP inconnue</b></td><td>Alerter client immédiatement. Suspendre compte si connexion confirmée non autorisée.</td></tr>
-      <tr><td><b>Service auth KO</b></td><td>Ouvrir ticket OCI en urgence. Notifier tous les clients. Surveiller toutes les 5 minutes.</td></tr>
-      <tr><td><b>2FA inactive</b></td><td>Alerter client : recommander activation immédiate de la double authentification.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>Tentatives &gt;5</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Bloquer IP source sur firewall portail. Alerter RSSI. Vérifier si compte ciblé est compromis.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>Connexion IP inconnue</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Alerter client immédiatement. Suspendre compte si connexion confirmée non autorisée.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>Service auth KO</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Ouvrir ticket OCI en urgence. Notifier tous les clients. Surveiller toutes les 5 minutes.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>2FA inactive</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Alerter client : recommander activation immédiate de la double authentification.</td></tr>
     </tbody></table></div>
     <div class="ibox crit" style="margin-top:12px">Toute intrusion confirmée → escalader NOC+SOC + RSSI immédiatement.</div>
   </div>
@@ -1548,10 +1597,10 @@ NOC B2B OCI</textarea>
       <div class="alrt-card moyen"><div class="alrt-name">SIM expiration &lt;7j</div><div class="alrt-seuil">SIM proche de l'expiration</div><span class="alrt-crit moyen">MOYEN</span></div>
     </div>
     <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
-      <tr><td><b>SIM inactive &gt;X jours</b></td><td>Alerter client : SIM inutilisée consomme une licence. Proposer suspension ou réactivation.</td></tr>
-      <tr><td><b>Chute brutale SIM actives</b></td><td>Vérifier statut plateforme SIM. Si problème infra → ticket OCI urgent. Notifier client.</td></tr>
-      <tr><td><b>Synchro base SIM KO</b></td><td>Identifier erreur synchro dans les logs. Forcer resynchronisation si possible. Ticket OCI si persistant.</td></tr>
-      <tr><td><b>SIM expirant &lt;7j</b></td><td>Alerter client IMMÉDIATEMENT pour renouvellement. Sans action → SIM désactivée automatiquement.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>SIM inactive &gt;X jours</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Alerter client : SIM inutilisée consomme une licence. Proposer suspension ou réactivation.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>Chute brutale SIM actives</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Vérifier statut plateforme SIM. Si problème infra → ticket OCI urgent. Notifier client.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>Synchro base SIM KO</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Identifier erreur synchro dans les logs. Forcer resynchronisation si possible. Ticket OCI si persistant.</td></tr>
+      <tr><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer"><b>SIM expirant &lt;7j</b></td><td class="sim-edit" ondblclick="swEditCell(this,'sim-edit')" title="Double-clic pour éditer">Alerter client IMMÉDIATEMENT pour renouvellement. Sans action → SIM désactivée automatiquement.</td></tr>
     </tbody></table></div>
     <div class="ibox warn">Si chute &gt;10% du parc → escalader N2 + Orange Cloud Support immédiatement.</div>
   </div>
@@ -1582,6 +1631,7 @@ NOC B2B OCI</textarea>
   <div class="ph-sp"></div>
   <button class="btn btn-sm btn-v" onclick="incNewFiche()">＋ Nouveau</button>
   <button class="btn btn-sm btn-out" onclick="incSaveFiche()">💾 Sauvegarder</button>
+  <a href="incident_ICT.html" target="_blank" class="btn btn-sm" style="background:var(--bl,#EBF3FA);color:var(--b,#1B4F72);border:1px solid var(--b,#1B4F72);text-decoration:none;padding:6px 12px;border-radius:4px;font-weight:600;font-size:12px;display:inline-flex;align-items:center;gap:5px">🖥 Incident ICT</a>
   <button class="btn btn-sm btn-out" onclick="incExportJSON()">⬇ Export JSON</button>
   <button class="btn btn-sm btn-out" onclick="window.print()">🖨 Imprimer</button>
 </div>
@@ -1759,16 +1809,39 @@ NOC B2B OCI</textarea>
 </div>
 </div>
 <script>
-const INC_STORE="orange_cri_noctb_v1";
+const INC_COL="noc_inc_rapports";
 let incFiches=[],incCurrentId=null,incAutoTimer=null;
 const INC_FIELDS=["i_emetteur","i_ref","i_ticket_op","i_date","i_client","i_service","i_zone","i_nb_imp","i_concerne","i_equip","i_debut","i_fin","i_resume","i_duree","i_perimetre","i_impact","i_sla_ouv","i_sla_pec","i_sla_res","i_sla_clo","i_sla_contrat","i_constat","i_esc_vers","i_esc_nom","i_esc_dt","i_esc_moyen","i_esc_resume","i_actions","i_cause","i_cause_cat","i_preventif","i_clo_dt","i_asm_nom","i_asm_date","i_n1_nom","i_n1_date","i_dest_nom","i_dest_date","i_obs_final"];
-(function incInit(){try{incFiches=JSON.parse(localStorage.getItem(INC_STORE))||[];}catch(e){incFiches=[];}if(incFiches.length>0)incLoadFiche(incFiches[incFiches.length-1]);else incNewFiche();})();
+(function incInit(){ incNewFiche(); })();
+window.addEventListener('fbReady',async()=>{
+  try{
+    const snap=await window._gets(window._col(window._db,INC_COL));
+    incFiches=snap.docs.map(d=>({_fbId:d.id,...d.data()})).sort((a,b)=>new Date(b.updatedAt||b.createdAt||0)-new Date(a.updatedAt||a.createdAt||0));
+    if(incFiches.length>0) incLoadFiche(incFiches[0]);
+  }catch(e){console.warn('inc load:',e);}
+});
 function incGenId(){const d=new Date(),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0");return"INC-"+y+m+"-"+Math.floor(Math.random()*900+100);}
 function incNewFiche(){const id=incGenId();incFiches.push({id,createdAt:new Date().toISOString(),data:{},radios:{},hist:[],cloture:""});incCurrentId=id;incPersist();incClearForm();const el=document.getElementById("i_date");if(el)el.value=new Date().toISOString().split("T")[0];const elR=document.getElementById("i_ref");if(elR)elR.value=id;incUpdateRefs(id);incInitHist();}
 function incLoadFiche(fiche){incCurrentId=fiche.id;const d=fiche.data||{};INC_FIELDS.forEach(id=>{const el=document.getElementById(id);if(el&&d[id]!==undefined)el.value=d[id];});const r=fiche.radios||{};["idispo","isev","ifreq","isla"].forEach(n=>{if(r[n]){const el=document.querySelector(`input[name="${n}"][value="${r[n]}"]`);if(el)el.closest(".irg-opt")?.click();}});if(fiche.cloture)iSetCloture(fiche.cloture==="Oui"?"oui":"non");iRebuildHist(fiche.hist||[]);incUpdateRefs(fiche.id);}
-function incSaveFiche(){const fiche=incFiches.find(f=>f.id===incCurrentId);if(!fiche)return;fiche.data={};INC_FIELDS.forEach(id=>{const el=document.getElementById(id);if(el)fiche.data[id]=el.value;});fiche.radios={};["idispo","isev","ifreq","isla"].forEach(n=>{const el=document.querySelector(`input[name="${n}"]:checked`);if(el)fiche.radios[n]=el.value;});fiche.hist=[...document.querySelectorAll("#i_histBody tr")].map(tr=>{const o={};tr.querySelectorAll("[data-key]").forEach(el=>o[el.dataset.key]=el.value);return o;});fiche.cloture=document.querySelector("input[name=icloture]:checked")?.value||"";fiche.updatedAt=new Date().toISOString();incPersist();toast("Rapport sauvegardé ✓","ok");}
+async function incSaveFiche(){
+  const fiche=incFiches.find(f=>f.id===incCurrentId);if(!fiche)return;
+  fiche.data={};INC_FIELDS.forEach(id=>{const el=document.getElementById(id);if(el)fiche.data[id]=el.value;});
+  fiche.radios={};["idispo","isev","ifreq","isla"].forEach(n=>{const el=document.querySelector(`input[name="${n}"]:checked`);if(el)fiche.radios[n]=el.value;});
+  fiche.hist=[...document.querySelectorAll("#i_histBody tr")].map(tr=>{const o={};tr.querySelectorAll("[data-key]").forEach(el=>o[el.dataset.key]=el.value);return o;});
+  fiche.cloture=document.querySelector("input[name=icloture]:checked")?.value||"";
+  fiche.updatedAt=new Date().toISOString();
+  try{
+    if(fiche._fbId){
+      await fbUpdate(INC_COL,fiche._fbId,{data:fiche.data,radios:fiche.radios,hist:fiche.hist,cloture:fiche.cloture,updatedAt:fiche.updatedAt});
+    }else{
+      const r=await fbSave(INC_COL,{id:fiche.id,data:fiche.data,radios:fiche.radios,hist:fiche.hist,cloture:fiche.cloture});
+      fiche._fbId=r.id;
+    }
+    toast("Rapport sauvegardé ✓","ok");
+  }catch(e){toast("Erreur Firebase: "+e.message,"err");}
+}
 function incAutoSave(){clearTimeout(incAutoTimer);incAutoTimer=setTimeout(incSaveFiche,1500);}
-function incPersist(){localStorage.setItem(INC_STORE,JSON.stringify(incFiches));}
+function incPersist(){/* Firebase — via incSaveFiche */}
 function incClearForm(){INC_FIELDS.forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});document.querySelectorAll(".irg-opt").forEach(el=>el.classList.remove("is-ok","is-warn","is-crit","is-info"));document.querySelectorAll(".irg-opt input[type=radio]").forEach(el=>el.checked=false);const co=document.getElementById("icl_oui"),cn=document.getElementById("icl_non");if(co)co.classList.remove("sel");if(cn)cn.classList.remove("sel");}
 function incUpdateRefs(id){["i_ftr1","i_ftr2","i_hdr2"].forEach(i=>{const el=document.getElementById(i);if(el)el.textContent=id;});}
 function irg(lbl,gid,cls){document.querySelectorAll(`#${gid} .irg-opt`).forEach(l=>l.classList.remove("is-ok","is-warn","is-crit","is-info"));lbl.classList.add(cls);incAutoSave();}
@@ -1845,22 +1918,60 @@ const CONTACTS_INIT=[
   {client:"ORABANK COTE D'IVOIRE",mail:"mohamed.yeo@orabank.net",num:"0707836562"},
   {client:"LGL RESOURCES COTE D'IVOIRE",mail:"ocndri@roxgold.com",num:"0708802335"}
 ];
-const CT_LS="noc_contacts_v1";
+const CT_COL="noc_contacts";
 let ctEditingId=null;
-function ctGet(){try{const d=JSON.parse(localStorage.getItem(CT_LS));if(d)return d;}catch(e){}const d=CONTACTS_INIT.map((c,i)=>({id:"ct-"+i,...c}));localStorage.setItem(CT_LS,JSON.stringify(d));return d;}
-function ctSet(d){localStorage.setItem(CT_LS,JSON.stringify(d));}
+
+// Seed initial si Firebase vide
+async function ctSeedIfEmpty(){
+  if((DB.contacts||[]).length===0 && CONTACTS_INIT.length>0){
+    for(const c of CONTACTS_INIT){
+      const r=await fbSave(CT_COL,c);
+      (DB.contacts=DB.contacts||[]).push({id:r.id,...c});
+    }
+  }
+}
+window.addEventListener('fbReady',async()=>{
+  try{
+    const snap=await window._gets(window._col(window._db,CT_COL));
+    DB.contacts=snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(DB.contacts.length===0) await ctSeedIfEmpty();
+    renderContacts();
+  }catch(e){console.warn('contacts load:',e);}
+});
 function renderContacts(){
   const q=(document.getElementById("contacts-search")?.value||"").toLowerCase();
-  let data=ctGet();if(q)data=data.filter(c=>(c.client||"").toLowerCase().includes(q)||(c.mail||"").toLowerCase().includes(q)||(c.num||"").toLowerCase().includes(q));
+  let data=(DB.contacts||[]);if(q)data=data.filter(c=>(c.client||"").toLowerCase().includes(q)||(c.mail||"").toLowerCase().includes(q)||(c.num||"").toLowerCase().includes(q));
   const tb=document.getElementById("tbl-contacts");if(!tb)return;
   tb.innerHTML=data.length?data.map((c,i)=>`<tr><td style="font-family:var(--mono);font-size:10px;color:var(--n4)">${i+1}</td><td><b>${c.client||"—"}</b></td><td style="font-size:11.5px;color:var(--b)">${(c.mail||"—").split("/").map(m=>`<div>${m.trim()}</div>`).join("")}</td><td style="font-family:var(--mono);font-size:11.5px">${(c.num||"—").split("/").map(n=>`<div>${n.trim()}</div>`).join("")}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-out" onclick="editContact('${c.id}')">✏️</button><button class="btn btn-sm btn-out" onclick="deleteContact('${c.id}')">🗑</button></td></tr>`).join(""):"<tr><td colspan=5 class=empty><div class=empty-ico>📋</div><div class=empty-txt>Aucun contact</div></td></tr>";
 }
 function openContactModal(){ctEditingId=null;document.getElementById("ct-client").value="";document.getElementById("ct-mail").value="";document.getElementById("ct-num").value="";document.getElementById("contact-modal-title").textContent="Nouveau contact";document.getElementById("mo-contact").style.display="flex";}
 function closeContactModal(){document.getElementById("mo-contact").style.display="none";}
-function saveContact(){const client=document.getElementById("ct-client").value.trim();if(!client){toast("Nom du client requis","err");return;}const data=ctGet();if(ctEditingId){const idx=data.findIndex(c=>c.id===ctEditingId);if(idx>=0){data[idx].client=client;data[idx].mail=document.getElementById("ct-mail").value.trim();data[idx].num=document.getElementById("ct-num").value.trim();}}else{data.push({id:"ct-"+Date.now(),client,mail:document.getElementById("ct-mail").value.trim(),num:document.getElementById("ct-num").value.trim()});}ctSet(data);closeContactModal();renderContacts();toast("Contact enregistré ✓","ok");}
-function editContact(id){const c=ctGet().find(x=>x.id===id);if(!c)return;ctEditingId=id;document.getElementById("ct-client").value=c.client||"";document.getElementById("ct-mail").value=c.mail||"";document.getElementById("ct-num").value=c.num||"";document.getElementById("contact-modal-title").textContent="Modifier — "+c.client;document.getElementById("mo-contact").style.display="flex";}
-function deleteContact(id){if(!confirm("Supprimer ce contact ?"))return;const data=ctGet().filter(c=>c.id!==id);ctSet(data);renderContacts();toast("Contact supprimé ✓","ok");}
-setTimeout(renderContacts,100);
+async function saveContact(){
+  const client=document.getElementById("ct-client").value.trim();
+  if(!client){toast("Nom du client requis","err");return;}
+  const payload={client,mail:document.getElementById("ct-mail").value.trim(),num:document.getElementById("ct-num").value.trim()};
+  try{
+    if(ctEditingId){
+      await fbUpdate(CT_COL,ctEditingId,payload);
+      const idx=(DB.contacts||[]).findIndex(c=>c.id===ctEditingId);
+      if(idx>=0) DB.contacts[idx]={id:ctEditingId,...payload};
+    }else{
+      const r=await fbSave(CT_COL,payload);
+      (DB.contacts=DB.contacts||[]).push({id:r.id,...payload});
+    }
+    closeContactModal();renderContacts();toast("Contact enregistré ✓","ok");
+  }catch(e){toast("Erreur Firebase: "+e.message,"err");}
+}
+function editContact(id){const c=(DB.contacts||[]).find(x=>x.id===id);if(!c)return;ctEditingId=id;document.getElementById("ct-client").value=c.client||"";document.getElementById("ct-mail").value=c.mail||"";document.getElementById("ct-num").value=c.num||"";document.getElementById("contact-modal-title").textContent="Modifier — "+c.client;document.getElementById("mo-contact").style.display="flex";}
+async function deleteContact(id){
+  if(!confirm("Supprimer ce contact ?"))return;
+  try{
+    await fbDelete(CT_COL,id);
+    DB.contacts=(DB.contacts||[]).filter(c=>c.id!==id);
+    renderContacts();toast("Contact supprimé ✓","ok");
+  }catch(e){toast("Erreur Firebase: "+e.message,"err");}
+}
+
 </script>
 </div>
 
@@ -2359,6 +2470,73 @@ async function loadAll(){
     toast('Erreur chargement Firebase: '+e.message,'err');
   }
 }
+
+
+// ═══════════════════════════════════════════════════════════
+// ÉDITION INLINE — Supervision SW / Cloud / SIM
+// ═══════════════════════════════════════════════════════════
+const _swEdits = {};  // cache en mémoire
+const SW_EDIT_COLL = 'noc_sw_edits';
+
+function swEditCell(td, cls){
+  if(td.classList.contains('editing')) return;
+  td.classList.add('editing');
+  const orig = td.getAttribute('data-orig') || td.innerHTML;
+  td.setAttribute('data-orig', orig);
+  td.setAttribute('data-text-orig', td.textContent.trim());
+  const key = td.closest('.page')?.id + '|' + (td.cellIndex||0) + '|' + (td.closest('tr')?.rowIndex||0);
+  td.contentEditable = 'true';
+  td.focus();
+  const range = document.createRange();
+  range.selectNodeContents(td);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+
+  const commit = async () => {
+    td.contentEditable = 'false';
+    td.classList.remove('editing');
+    const newVal = td.textContent.trim();
+    const origVal = td.getAttribute('data-text-orig') || '';
+    if(newVal === origVal){ return; }
+    td.classList.add('saved');
+    setTimeout(()=>td.classList.remove('saved'), 1200);
+    _swEdits[key] = newVal;
+    toast('Cellule mise à jour ✓', 'ok');
+    // Sauvegarde Firebase
+    try{
+      const db = window._db;
+      const snap = await window._gets(window._col(db, SW_EDIT_COLL));
+      const existing = snap.docs.find(d => d.data().key === key);
+      if(existing){
+        await window._upd(window._doc(db, SW_EDIT_COLL, existing.id), {key, value: newVal, updatedAt: new Date().toISOString()});
+      } else {
+        await window._add(window._col(db, SW_EDIT_COLL), {key, value: newVal, createdAt: new Date().toISOString()});
+      }
+    }catch(e){ console.warn('swEdit save:', e); }
+  };
+  td.addEventListener('blur', commit, {once:true});
+  td.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); td.blur(); }
+    if(e.key==='Escape'){ td.innerHTML=td.getAttribute('data-orig'); td.blur(); }
+  }, {once:true});
+}
+
+// Charger les éditions sauvegardées depuis Firebase au démarrage
+window.addEventListener('fbReady', async ()=>{
+  try{
+    const db = window._db;
+    const snap = await window._gets(window._col(db, SW_EDIT_COLL));
+    snap.docs.forEach(d=>{
+      const {key, value} = d.data();
+      _swEdits[key] = value;
+      // Réappliquer aux cellules déjà rendues
+      document.querySelectorAll('.sw-edit, .cl-edit, .sim-edit').forEach(td=>{
+        const k = td.closest('.page')?.id + '|' + (td.cellIndex||0) + '|' + (td.closest('tr')?.rowIndex||0);
+        if(k === key) td.textContent = value;
+      });
+    });
+  }catch(e){ console.warn('swEdit load:', e); }
+});
 
 function renderAll(){
   updateBadges();
