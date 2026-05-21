@@ -1,0 +1,2083 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NOC B2B — Espace Pilotage OCI</title>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+  import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-storage.js";
+  const cfg = {
+    apiKey:"AIzaSyC4zvX8M3dyiGLjwQxYYensN2xYBgME_Mc",
+    authDomain:"ong-dons-app.firebaseapp.com",
+    projectId:"ong-dons-app",
+    storageBucket:"ong-dons-app.firebasestorage.app",
+    messagingSenderId:"1074497073956",
+    appId:"1:1074497073956:web:240dc3bb278da82f6139b1"
+  };
+  const app = initializeApp(cfg);
+  const db  = getFirestore(app);
+  const st  = getStorage(app);
+  window._db=db; window._st=st;
+  window._col=collection; window._add=addDoc; window._gets=getDocs;
+  window._doc=doc; window._upd=updateDoc; window._del=deleteDoc;
+  window._q=query; window._ord=orderBy;
+  window._ref=ref; window._upb=uploadBytesResumable; window._url=getDownloadURL;
+  window.dispatchEvent(new Event('fbReady'));
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --v:#E05A00;--vl:#FEF0E6;--vd:#B84A00;
+  --b:#1B4F72;--bl:#EBF3FA;
+  --g:#1A6B3C;--gl:#E8F5EE;
+  --r:#B22222;--rl:#FBEAEA;
+  --a:#B07700;--al:#FDF5E0;
+  --p:#5B2C8D;--pl:#F3EEF9;
+  --n1:#1A1A1A;--n2:#333;--n3:#6B6B6B;--n4:#B0B0B0;--n5:#E4E4E4;--n6:#F7F7F7;--n7:#FAFAFA;
+  --mono:'JetBrains Mono',monospace;--cond:'Barlow Condensed',sans-serif;--body:'Barlow',sans-serif;
+  --sd:0 1px 4px rgba(0,0,0,.08);--sdm:0 4px 16px rgba(0,0,0,.1);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--body);font-size:13px;background:#EFEFED;color:var(--n1);display:flex;flex-direction:column;min-height:100vh}
+a{color:inherit;text-decoration:none}
+button,input,select,textarea{font-family:var(--body);font-size:13px}
+
+/* ─ TOPBAR ─ */
+#top{position:sticky;top:0;z-index:300;background:var(--n1);height:52px;display:flex;align-items:center;padding:0 18px;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.t-logo{font-family:var(--cond);font-size:19px;font-weight:800;color:#fff;letter-spacing:.5px}
+.t-tag{font-family:var(--mono);font-size:8px;background:var(--v);color:#fff;padding:2px 7px;border-radius:2px;letter-spacing:1px;text-transform:uppercase}
+.t-sep{width:1px;height:20px;background:rgba(255,255,255,.14);flex-shrink:0}
+.t-sp{flex:1}
+#t-clock{font-family:var(--mono);font-size:11px;color:rgba(255,255,255,.55)}
+#fb-dot{width:8px;height:8px;border-radius:50%;background:var(--a);flex-shrink:0}
+#fb-dot.ok{background:#2E7D32}#fb-dot.err{background:var(--r)}
+#fb-dot.load{background:var(--a);animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+.t-btn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.7);padding:6px 13px;border-radius:3px;cursor:pointer;font-size:11.5px;font-weight:600;transition:.15s}
+.t-btn:hover{background:var(--vl);color:var(--v);border-color:var(--v)}
+
+/* ─ LAYOUT ─ */
+#wrap{display:flex;flex:1;overflow:hidden}
+
+/* ─ SIDEBAR ─ */
+#side{width:220px;flex-shrink:0;background:#fff;border-right:1px solid var(--n5);overflow-y:auto;padding:10px 0 60px}
+.sg{padding:6px 14px 3px;font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.2px;color:var(--n4)}
+.si{display:flex;align-items:center;gap:9px;padding:8px 14px;cursor:pointer;transition:.12s;border-left:3px solid transparent;font-size:12.5px;font-weight:500;color:var(--n2)}
+.si:hover{background:var(--vl);color:var(--v)}
+.si.on{background:var(--vl);color:var(--v);font-weight:700;border-left-color:var(--v)}
+.si-ico{font-size:15px;width:20px;text-align:center;flex-shrink:0}
+.si-badge{margin-left:auto;background:var(--v);color:#fff;font-family:var(--mono);font-size:9px;padding:1px 6px;border-radius:10px}
+
+/* ─ MAIN ─ */
+#main{flex:1;overflow-y:auto;padding:20px 22px 60px}
+
+/* ─ PAGE ─ */
+.page{display:none}.page.on{display:block}
+
+/* ─ PAGE HEADER ─ */
+.ph{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.ph-title{font-family:var(--cond);font-size:26px;font-weight:800;color:var(--n1)}
+.ph-sub{font-size:12px;color:var(--n3);margin-top:1px}
+.ph-sp{flex:1}
+
+/* ─ CARDS KPI ─ */
+.kgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:20px}
+.kcard{background:#fff;border:1px solid var(--n5);border-radius:5px;padding:14px;cursor:default}
+.kcard-v{font-family:var(--cond);font-size:32px;font-weight:800;line-height:1}
+.kcard-l{font-size:11px;color:var(--n3);margin-top:4px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.kcard-bar{height:3px;border-radius:2px;margin-top:10px;background:var(--n5)}
+.kcard-fill{height:100%;border-radius:2px;transition:.4s}
+.kcard.ok .kcard-v{color:var(--g)} .kcard.ok .kcard-fill{background:var(--g)}
+.kcard.warn .kcard-v{color:var(--a)} .kcard.warn .kcard-fill{background:var(--a)}
+.kcard.crit .kcard-v{color:var(--r)} .kcard.crit .kcard-fill{background:var(--r)}
+.kcard.info .kcard-v{color:var(--b)} .kcard.info .kcard-fill{background:var(--b)}
+.kcard.orange .kcard-v{color:var(--v)} .kcard.orange .kcard-fill{background:var(--v)}
+
+/* ─ BTN ─ */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 15px;border-radius:3px;border:none;cursor:pointer;font-size:12px;font-weight:600;transition:.15s}
+.btn-v{background:var(--v);color:#fff}.btn-v:hover{background:var(--vd)}
+.btn-g{background:var(--g);color:#fff}.btn-g:hover{opacity:.85}
+.btn-out{background:#fff;border:1px solid var(--n5);color:var(--n2)}.btn-out:hover{border-color:var(--v);color:var(--v)}
+.btn-r{background:var(--r);color:#fff}.btn-r:hover{opacity:.85}
+.btn-sm{padding:5px 11px;font-size:11px}
+
+/* ─ TABLE ─ */
+.tbl-wrap{background:#fff;border:1px solid var(--n5);border-radius:5px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+thead th{background:var(--n6);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--n3);padding:9px 12px;text-align:left;border-bottom:1px solid var(--n5)}
+tbody tr{border-bottom:1px solid var(--n5);transition:.1s}
+tbody tr:hover{background:var(--n7)}
+tbody tr:last-child{border:none}
+tbody td{padding:9px 12px;font-size:12.5px;vertical-align:middle}
+
+/* ─ BADGE PRIORITÉ ─ */
+.bp{display:inline-block;font-family:var(--mono);font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:2px}
+.bp-p1{background:var(--rl);color:var(--r)}.bp-p2{background:var(--al);color:var(--a)}
+.bp-p3{background:var(--bl);color:var(--b)}.bp-ok{background:var(--gl);color:var(--g)}
+.bp-open{background:var(--rl);color:var(--r)}.bp-prog{background:var(--al);color:var(--a)}
+.bp-done{background:var(--gl);color:var(--g)}.bp-late{background:#f3e0e0;color:#8b0000}
+
+/* ─ FICHE ACCORDÉON ─ */
+.fiche{background:#fff;border:1px solid var(--n5);border-radius:5px;margin-bottom:10px;overflow:hidden}
+.fiche-hdr{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;user-select:none;transition:.12s}
+.fiche-hdr:hover{background:var(--n7)}
+.fiche-hdr.open{background:var(--vl)}
+.fiche-ico{font-size:18px;flex-shrink:0}
+.fiche-title{font-family:var(--cond);font-size:16px;font-weight:700}
+.fiche-tag{margin-left:auto;font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:2px}
+.fiche-arrow{font-size:10px;color:var(--n4);transition:.2s}
+.fiche-hdr.open .fiche-arrow{transform:rotate(180deg)}
+.fiche-body{display:none;padding:16px;border-top:1px solid var(--n5);background:#fafafa}
+.fiche-body.open{display:block}
+
+/* ─ STEP TABLE ─ */
+.step-tbl{width:100%;border-collapse:collapse;margin:10px 0}
+.step-tbl th{background:var(--n6);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);padding:7px 10px;text-align:left;border-bottom:1px solid var(--n5)}
+.step-tbl td{padding:8px 10px;font-size:12px;border-bottom:1px solid var(--n5);vertical-align:top}
+.step-tbl tr:last-child td{border:none}
+.sn{background:var(--v);color:#fff;font-family:var(--mono);font-size:11px;font-weight:700;width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.step-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--n5)}
+.step-row:last-child{border:none}
+.step-content h4{font-size:12px;font-weight:700;margin-bottom:3px}
+.step-content p{font-size:12px;color:var(--n2);line-height:1.5}
+
+/* ─ ALERT ROW ─ */
+.alrt-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:10px 0}
+.alrt-card{border:1px solid var(--n5);border-radius:4px;padding:10px 12px;background:#fff}
+.alrt-card.haut{border-left:4px solid var(--r)}.alrt-card.moyen{border-left:4px solid var(--a)}.alrt-card.critique{border-left:4px solid #7B0000}
+.alrt-name{font-size:12px;font-weight:700;margin-bottom:4px}
+.alrt-seuil{font-family:var(--mono);font-size:11px;color:var(--n3);margin-bottom:4px}
+.alrt-crit{font-size:10px;font-weight:700;padding:2px 7px;border-radius:2px}
+.alrt-crit.haut{background:var(--rl);color:var(--r)}.alrt-crit.moyen{background:var(--al);color:var(--a)}.alrt-crit.critique{background:#f3e0e0;color:#7B0000}
+
+/* ─ TEMPLATE EMAIL ─ */
+.tpl-box{background:var(--n6);border:1px solid var(--n5);border-radius:4px;padding:12px;margin:10px 0}
+.tpl-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--n4);margin-bottom:6px}
+.tpl-content{font-family:var(--mono);font-size:11.5px;line-height:1.7;white-space:pre-wrap;color:var(--n1)}
+.tpl-actions{display:flex;gap:8px;margin-top:8px}
+
+/* ─ MODALES ─ */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;display:none;align-items:center;justify-content:center}
+.overlay.on{display:flex}
+.modal{background:#fff;border-radius:6px;width:600px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal.wide{width:780px}
+.modal-hdr{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--n5)}
+.modal-title{font-family:var(--cond);font-size:18px;font-weight:700;flex:1}
+.modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--n4);padding:2px 6px;border-radius:3px;transition:.12s}
+.modal-close:hover{background:var(--rl);color:var(--r)}
+.modal-body{flex:1;overflow-y:auto;padding:20px}
+.modal-foot{padding:14px 20px;border-top:1px solid var(--n5);display:flex;justify-content:flex-end;gap:8px}
+
+/* ─ FORM ─ */
+.fgrp{margin-bottom:14px}
+.fgrp label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);margin-bottom:5px}
+.fgrp input,.fgrp select,.fgrp textarea{width:100%;border:1px solid var(--n5);border-radius:3px;padding:8px 10px;font-size:13px;background:#fff;transition:.12s}
+.fgrp input:focus,.fgrp select:focus,.fgrp textarea:focus{outline:none;border-color:var(--v);box-shadow:0 0 0 3px rgba(224,90,0,.08)}
+.fgrp textarea{resize:vertical;min-height:80px}
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.frow3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+
+/* ─ CHECKLIST ─ */
+.chk-item{display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--n5)}
+.chk-item:last-child{border:none}
+.chk-item input[type=checkbox]{margin-top:2px;accent-color:var(--v);width:15px;height:15px;flex-shrink:0}
+.chk-item label{font-size:12.5px;cursor:pointer;line-height:1.4}
+
+/* ─ TOAST ─ */
+#toast{position:fixed;bottom:24px;right:24px;z-index:9999;background:var(--n1);color:#fff;padding:10px 18px;border-radius:4px;font-size:13px;font-weight:600;transform:translateY(20px);opacity:0;transition:.3s;pointer-events:none}
+#toast.show{transform:translateY(0);opacity:1}
+#toast.ok{background:var(--g)}#toast.err{background:var(--r)}#toast.info{background:var(--b)}
+
+/* ─ ROADMAP ─ */
+.rm-phases{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.rm-phase{background:#fff;border:1px solid var(--n5);border-radius:5px;padding:14px;border-top:4px solid var(--v)}
+.rm-phase:nth-child(2){border-top-color:var(--b)}
+.rm-phase:nth-child(3){border-top-color:var(--g)}
+.rm-phase:nth-child(4){border-top-color:var(--p)}
+.rm-num{font-family:var(--cond);font-size:38px;font-weight:800;color:var(--n5);line-height:1}
+.rm-title{font-family:var(--cond);font-size:16px;font-weight:700;margin-bottom:6px}
+.rm-steps{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.rm-step{font-size:10px;padding:2px 7px;border-radius:2px;font-weight:600}
+
+/* ─ AGENT CARD ─ */
+.agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.agent-card{background:#fff;border:1px solid var(--n5);border-radius:5px;padding:14px;display:flex;gap:12px;align-items:flex-start}
+.agent-av{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--cond);font-size:16px;font-weight:800;color:#fff;flex-shrink:0}
+.agent-name{font-weight:700;font-size:13.5px;margin-bottom:2px}
+.agent-role{font-size:11px;color:var(--n3);margin-bottom:4px}
+.agent-actions{display:flex;gap:5px;margin-top:6px}
+
+/* ─ SEUILS TABLE ─ */
+.seuil-badge{font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:2px}
+.seuil-eleve{background:var(--rl);color:var(--r)}.seuil-moyen{background:var(--al);color:var(--a)}.seuil-critique{background:#f3e0e0;color:#7B0000}
+
+/* ─ SCROLLBAR ─ */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--n5);border-radius:3px}
+
+/* ─ EMPTY STATE ─ */
+.empty{text-align:center;padding:40px 20px;color:var(--n4)}
+.empty-ico{font-size:40px;margin-bottom:10px}
+.empty-txt{font-size:13px;font-weight:600}
+
+/* ─ SECTION TITLE ─ */
+.sec-t{font-family:var(--cond);font-size:16px;font-weight:700;color:var(--n1);margin:18px 0 10px;display:flex;align-items:center;gap:8px}
+.sec-t::after{content:'';flex:1;height:1px;background:var(--n5)}
+
+/* ─ INFO BOX ─ */
+.ibox{border-radius:4px;padding:12px 14px;margin:10px 0;font-size:12.5px;line-height:1.6}
+.ibox.warn{background:var(--al);border-left:4px solid var(--a);color:var(--a)}
+.ibox.info{background:var(--bl);border-left:4px solid var(--b);color:var(--b)}
+.ibox.ok{background:var(--gl);border-left:4px solid var(--g);color:var(--g)}
+.ibox.crit{background:var(--rl);border-left:4px solid var(--r);color:var(--r)}
+
+/* ─ TABS ─ */
+.tabs{display:flex;gap:2px;border-bottom:2px solid var(--n5);margin-bottom:16px}
+.tab{padding:8px 16px;font-size:12.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--n3);transition:.12s}
+.tab:hover{color:var(--v)}
+.tab.on{color:var(--v);border-bottom-color:var(--v)}
+.tab-panel{display:none}.tab-panel.on{display:block}
+
+/* ─ UPLOAD ZONE ─ */
+.drop-zone{border:2px dashed var(--n5);border-radius:4px;padding:20px;text-align:center;cursor:pointer;transition:.15s;background:#fff}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--v);background:var(--vl)}
+.drop-zone p{font-size:12px;color:var(--n3);margin-top:6px}
+
+/* ─ TIMELINE ─ */
+.timeline{position:relative;padding-left:28px}
+.timeline::before{content:'';position:absolute;left:9px;top:0;bottom:0;width:2px;background:var(--n5)}
+.tl-item{position:relative;margin-bottom:14px}
+.tl-dot{position:absolute;left:-24px;top:4px;width:12px;height:12px;border-radius:50%;background:var(--v);border:2px solid #fff;box-shadow:0 0 0 2px var(--v)}
+.tl-item.done .tl-dot{background:var(--g);box-shadow:0 0 0 2px var(--g)}
+.tl-item.late .tl-dot{background:var(--r);box-shadow:0 0 0 2px var(--r)}
+.tl-date{font-family:var(--mono);font-size:10px;color:var(--n4);margin-bottom:2px}
+.tl-text{font-size:12.5px}
+
+/* ─ MATRICE ─ */
+.mat-grid{display:grid;gap:8px;margin:10px 0}
+.mat-row{display:grid;gap:8px}
+.mat-cell{border:1px solid var(--n5);border-radius:3px;padding:8px 10px;font-size:11.5px;background:#fff}
+.mat-cell.head{background:var(--n6);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--n3)}
+.mat-cell.p1{background:#FBEAEA;border-left:3px solid var(--r)}
+.mat-cell.p2{background:#FDF5E0;border-left:3px solid var(--a)}
+
+/* ─ DOC CARD ─ */
+.doc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.doc-card{background:#fff;border:1px solid var(--n5);border-radius:5px;padding:14px;display:flex;gap:10px;cursor:pointer;transition:.15s}
+.doc-card:hover{border-color:var(--v);box-shadow:var(--sdm)}
+.doc-ico{font-size:28px;flex-shrink:0}
+.doc-name{font-weight:700;font-size:12.5px;margin-bottom:3px}
+.doc-meta{font-size:10.5px;color:var(--n4);font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div id="top">
+  <span class="t-logo">NOC B2B</span>
+  <span class="t-tag">OCI · Pilotage</span>
+  <div class="t-sep"></div>
+  <span style="font-size:11.5px;color:rgba(255,255,255,.55);font-weight:600">Orange CI — 412 Liens</span>
+  <div class="t-sp"></div>
+  <span id="t-clock"></span>
+  <div class="t-sep"></div>
+  <div id="fb-dot" class="load" title="Firebase"></div>
+  <span id="fb-lbl" style="font-family:var(--mono);font-size:10px;color:rgba(255,255,255,.4)">Connexion…</span>
+  <div class="t-sep"></div>
+  <button class="t-btn" onclick="exportAll()">⬇ Export JSON</button>
+  <div class="t-sep"></div>
+  <a href="index.html" class="t-btn" style="text-decoration:none;">🏠 Accueil</a>
+</div>
+
+<!-- LAYOUT -->
+<div id="wrap">
+
+<!-- SIDEBAR -->
+<div id="side">
+  <div class="sg">Pilotage</div>
+  <div class="si on" data-page="dashboard" onclick="nav(this)"><span class="si-ico">📊</span>Dashboard KPIs</div>
+  <div class="si" data-page="reunions" onclick="nav(this)"><span class="si-ico">📅</span>Réunions<span class="si-badge" id="b-reunions">0</span></div>
+  <div class="si" data-page="cr" onclick="nav(this)"><span class="si-ico">📝</span>Comptes-Rendus<span class="si-badge" id="b-cr">0</span></div>
+  <div class="si" data-page="plans" onclick="nav(this)"><span class="si-ico">📋</span>Plans d'Action<span class="si-badge" id="b-plans">0</span></div>
+
+  <div class="sg">Opérations</div>
+  <div class="si" data-page="incidents" onclick="nav(this)"><span class="si-ico">🚨</span>Incidents<span class="si-badge" id="b-incidents">0</span></div>
+  <div class="si" data-page="supervision" onclick="nav(this)"><span class="si-ico">📡</span>Supervision SW</div>
+  <div class="si" data-page="changements" onclick="nav(this)"><span class="si-ico">🔧</span>Changements RFC<span class="si-badge" id="b-chg">0</span></div>
+
+  <div class="sg">Fiches & Outils</div>
+  <div class="si" data-page="fiches" onclick="nav(this)"><span class="si-ico">📖</span>Fiches Procédures</div>
+  <div class="si" data-page="templates" onclick="nav(this)"><span class="si-ico">✉️</span>Templates Comm.</div>
+  <div class="si" data-page="cloud" onclick="nav(this)"><span class="si-ico">☁️</span>Supervision Cloud</div>
+  <div class="si" data-page="sim" onclick="nav(this)"><span class="si-ico">📱</span>SIM Monitoring</div>
+
+  <div class="sg">Stratégie & Gov.</div>
+  <div class="si" data-page="roadmap" onclick="nav(this)"><span class="si-ico">🗺️</span>Roadmap 4 Phases</div>
+  <div class="si" data-page="gouvernance" onclick="nav(this)"><span class="si-ico">⚖️</span>Gouvernance & SLA</div>
+  <div class="si" data-page="equipe" onclick="nav(this)"><span class="si-ico">👥</span>Équipe NOC<span class="si-badge" id="b-agents">0</span></div>
+  <div class="si" data-page="docs" onclick="nav(this)"><span class="si-ico">📁</span>Documents<span class="si-badge" id="b-docs">0</span></div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: DASHBOARD -->
+<div class="page on" id="page-dashboard">
+  <div class="ph">
+    <div><div class="ph-title">📊 Dashboard Opérationnel</div><div class="ph-sub">Vue temps réel — NOC B2B OCI</div></div>
+    <div class="t-sp"></div>
+    <button class="btn btn-v" onclick="openModal('mo-incident')">+ Incident</button>
+    <button class="btn btn-out" onclick="loadAll()">↻ Actualiser</button>
+  </div>
+  <div class="kgrid" id="kpi-grid">
+    <div class="kcard crit"><div class="kcard-v" id="k-p1">—</div><div class="kcard-l">P1 Ouverts</div><div class="kcard-bar"><div class="kcard-fill" style="width:100%"></div></div></div>
+    <div class="kcard warn"><div class="kcard-v" id="k-p2">—</div><div class="kcard-l">P2 Ouverts</div><div class="kcard-bar"><div class="kcard-fill" style="width:100%"></div></div></div>
+    <div class="kcard info"><div class="kcard-v" id="k-mttr">—</div><div class="kcard-l">MTTR Moy. (h)</div><div class="kcard-bar"><div class="kcard-fill" style="width:60%"></div></div></div>
+    <div class="kcard ok"><div class="kcard-v" id="k-res">—</div><div class="kcard-l">Résolus 30j</div><div class="kcard-bar"><div class="kcard-fill" style="width:80%"></div></div></div>
+    <div class="kcard orange"><div class="kcard-v" id="k-plans">—</div><div class="kcard-l">Actions en cours</div><div class="kcard-bar"><div class="kcard-fill" style="width:50%"></div></div></div>
+    <div class="kcard warn"><div class="kcard-v" id="k-late">—</div><div class="kcard-l">Actions en retard</div><div class="kcard-bar"><div class="kcard-fill" style="width:30%"></div></div></div>
+  </div>
+
+  <div class="sec-t">🚨 Incidents récents</div>
+  <div class="tbl-wrap" style="margin-bottom:20px">
+    <table><thead><tr><th>Ref</th><th>Client</th><th>Type</th><th>Priorité</th><th>Statut</th><th>Ouverture</th><th>MTTR</th><th>Actions</th></tr></thead>
+    <tbody id="dash-incidents"></tbody></table>
+  </div>
+
+  <div class="sec-t">📋 Actions en retard</div>
+  <div class="tbl-wrap" style="margin-bottom:20px">
+    <table><thead><tr><th>Action</th><th>Responsable</th><th>Échéance</th><th>Source</th></tr></thead>
+    <tbody id="dash-late"></tbody></table>
+  </div>
+
+  <div class="sec-t">📅 Prochaines réunions</div>
+  <div class="tbl-wrap">
+    <table><thead><tr><th>Date</th><th>Type</th><th>Participants</th><th>Lieu</th></tr></thead>
+    <tbody id="dash-reunions"></tbody></table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: RÉUNIONS -->
+<div class="page" id="page-reunions">
+  <div class="ph">
+    <div><div class="ph-title">📅 Réunions NOC</div><div class="ph-sub">Planification & suivi des réunions</div></div>
+    <div class="t-sp"></div>
+    <button class="btn btn-v" onclick="openModal('mo-reunion')">+ Nouvelle réunion</button>
+  </div>
+  <div class="tbl-wrap">
+    <table><thead><tr><th>Date</th><th>Heure</th><th>Type</th><th>Participants</th><th>Lieu / Lien</th><th>Statut</th><th>CR</th><th>Actions</th></tr></thead>
+    <tbody id="tbl-reunions"></tbody></table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: CR -->
+<div class="page" id="page-cr">
+  <div class="ph">
+    <div><div class="ph-title">📝 Comptes-Rendus</div><div class="ph-sub">Rédaction et archivage des CR de réunion</div></div>
+    <div class="t-sp"></div>
+    <button class="btn btn-v" onclick="openModal('mo-cr')">+ Nouveau CR</button>
+  </div>
+  <div class="tbl-wrap">
+    <table><thead><tr><th>Date</th><th>Réunion</th><th>Rédigé par</th><th>Points clés</th><th>Actions créées</th><th>Fichiers</th><th>Actions</th></tr></thead>
+    <tbody id="tbl-cr"></tbody></table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: PLANS D'ACTION -->
+<div class="page" id="page-plans">
+  <div class="ph">
+    <div><div class="ph-title">📋 Plans d'Action</div><div class="ph-sub">Suivi des actions NOC</div></div>
+    <div class="t-sp"></div>
+    <button class="btn btn-v" onclick="openModal('mo-action')">+ Nouvelle action</button>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button class="btn btn-sm btn-out" onclick="filterActions('all')">Toutes</button>
+    <button class="btn btn-sm btn-out" onclick="filterActions('en_cours')">En cours</button>
+    <button class="btn btn-sm btn-out" onclick="filterActions('late')">En retard</button>
+    <button class="btn btn-sm btn-out" onclick="filterActions('done')">Terminées</button>
+  </div>
+  <div class="tbl-wrap">
+    <table><thead><tr><th>Action</th><th>Responsable</th><th>Source</th><th>Priorité</th><th>Échéance</th><th>Statut</th><th>Avancement</th><th>Actions</th></tr></thead>
+    <tbody id="tbl-plans"></tbody></table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: INCIDENTS -->
+<div class="page" id="page-incidents">
+  <div class="ph">
+    <div><div class="ph-title">🚨 Incidents</div><div class="ph-sub">Gestion des incidents NOC B2B</div></div>
+    <div class="t-sp"></div>
+    <button class="btn btn-v" onclick="openModal('mo-incident')">+ Déclarer</button>
+  </div>
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button class="btn btn-sm btn-out" onclick="filterInc('all')">Tous</button>
+    <button class="btn btn-sm btn-out" onclick="filterInc('P1')">P1 Critiques</button>
+    <button class="btn btn-sm btn-out" onclick="filterInc('P2')">P2 Majeurs</button>
+    <button class="btn btn-sm btn-out" onclick="filterInc('open')">Ouverts</button>
+    <button class="btn btn-sm btn-out" onclick="filterInc('done')">Résolus</button>
+  </div>
+  <div class="tbl-wrap">
+    <table><thead><tr><th>Ref</th><th>Date</th><th>Client / Site</th><th>Type</th><th>Priorité</th><th>Description</th><th>Statut</th><th>MTTR</th><th>Actions</th></tr></thead>
+    <tbody id="tbl-incidents"></tbody></table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: SUPERVISION -->
+<div class="page" id="page-supervision">
+  <div class="ph"><div><div class="ph-title">📡 Supervision SolarWinds</div><div class="ph-sub">Référentiels seuils & alertes NPM/NCM</div></div></div>
+
+  <div class="tabs">
+    <div class="tab on" onclick="swTab(this,'sw-reseau')">Réseau WAN</div>
+    <div class="tab" onclick="swTab(this,'sw-serveurs')">Serveurs & VM</div>
+    <div class="tab" onclick="swTab(this,'sw-firewall')">Firewalls</div>
+    <div class="tab" onclick="swTab(this,'sw-voip')">VoIP & QoS</div>
+    <div class="tab" onclick="swTab(this,'sw-stockage')">Stockage</div>
+    <div class="tab" onclick="swTab(this,'sw-wifi')">Wi-Fi</div>
+  </div>
+
+  <div class="tab-panel on" id="sw-reseau">
+    <div class="sec-t">Seuils Alertes — Liens WAN</div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>Métrique</th><th>Description</th><th>Seuil Warning</th><th>Seuil Critique</th><th>Criticité</th></tr></thead>
+      <tbody>
+        <tr><td><b>Latence</b></td><td>Response Time moyen</td><td>50 ms</td><td>100 ms</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
+        <tr><td><b>Perte paquets</b></td><td>Packet Loss %</td><td>0.5%</td><td>1%</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
+        <tr><td><b>Débit</b></td><td>% débit contractuel utilisé</td><td>70%</td><td>&lt;80% contractuel</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
+        <tr><td><b>Saturation BW</b></td><td>Utilisation bande passante</td><td>70%</td><td>&gt;80%</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
+        <tr><td><b>Flapping</b></td><td>Instabilité lien (up/down)</td><td>2×/h</td><td>&gt;3×/h</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
+        <tr><td><b>Disponibilité nœud</b></td><td>Node Down ICMP</td><td>1 poll KO</td><td>3 polls KO consécutifs</td><td><span class="seuil-badge seuil-critique">CRITIQUE</span></td></tr>
+        <tr><td><b>Jitter</b></td><td>Variation délai</td><td>20 ms</td><td>50 ms</td><td><span class="seuil-badge seuil-moyen">MOYEN</span></td></tr>
+        <tr><td><b>Erreurs interface</b></td><td>CRC errors, collisions</td><td>Augmentation</td><td>Anormale soutenue</td><td><span class="seuil-badge seuil-eleve">ÉLEVÉ</span></td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="sw-serveurs">
+    <div class="sec-t">Seuils Alertes — Serveurs & VM (SAM)</div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>Catégorie</th><th>Métrique</th><th>Warning</th><th>Critique</th></tr></thead>
+      <tbody>
+        <tr><td><b>CPU</b></td><td>Utilisation CPU global</td><td>&gt;70%</td><td><b>&gt;90%</b></td></tr>
+        <tr><td><b>RAM</b></td><td>% mémoire utilisée</td><td>&gt;80%</td><td><b>&gt;92%</b></td></tr>
+        <tr><td><b>Disque capacité</b></td><td>% espace utilisé par partition</td><td>&lt;20% libre</td><td><b>&gt;95% utilisé</b></td></tr>
+        <tr><td><b>Disque I/O</b></td><td>Latence I/O (ms)</td><td>&gt;10ms</td><td><b>&gt;30ms</b></td></tr>
+        <tr><td><b>Services OS</b></td><td>État services critiques</td><td>1 restart</td><td><b>Service Down</b></td></tr>
+        <tr><td><b>ESXi CPU</b></td><td>Host CPU</td><td>&gt;80%</td><td><b>&gt;95%</b></td></tr>
+        <tr><td><b>ESXi RAM</b></td><td>Host RAM (ballooning)</td><td>&gt;90%</td><td><b>&gt;95% swapping</b></td></tr>
+        <tr><td><b>Datastore</b></td><td>Espace libre</td><td>&lt;20%</td><td><b>&lt;10%</b></td></tr>
+        <tr><td><b>VM état</b></td><td>État VM production</td><td>Non joignable</td><td><b>VM arrêtée non planifiée</b></td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="sw-firewall">
+    <div class="sec-t">Seuils Alertes — Firewalls</div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>Métrique</th><th>Warning</th><th>Critique</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><b>CPU Firewall</b></td><td>&gt;70%</td><td><b>&gt;90%</b></td><td>Haute CPU = déni de service possible</td></tr>
+        <tr><td><b>Sessions actives</b></td><td>&gt;70% capacité</td><td><b>&gt;90% capacité</b></td><td>Vérifier tables de sessions</td></tr>
+        <tr><td><b>VPN Tunnels IPSec</b></td><td>Tunnel Down</td><td><b>&gt;3 tunnels down</b></td><td>Alerte immédiate</td></tr>
+        <tr><td><b>BW VPN</b></td><td>&gt;70%</td><td><b>&gt;85%</b></td><td>Saturation = dégradation accès</td></tr>
+        <tr><td><b>Dispo firewall</b></td><td>Agent timeout</td><td><b>Firewall Down</b></td><td>Risque réseau ouvert</td></tr>
+        <tr><td><b>HA Sync</b></td><td>Sync en retard</td><td><b>Sync arrêtée</b></td><td>Protection réduite</td></tr>
+        <tr><td><b>RAM firewall</b></td><td>&gt;80%</td><td><b>&gt;92%</b></td><td>Crash possible</td></tr>
+        <tr><td><b>Interfaces</b></td><td>Dégradée</td><td><b>Interface DOWN</b></td><td>Alerte immédiate DMZ/WAN</td></tr>
+      </tbody></table>
+    </div>
+    <div class="ibox info" style="margin-top:12px">Constructeurs supportés : Cisco ASA, Fortinet FortiGate, Palo Alto, Check Point, Juniper SRX — via SNMP MIBs + NCM</div>
+  </div>
+
+  <div class="tab-panel" id="sw-voip">
+    <div class="sec-t">Seuils VoIP & QoS (SolarWinds VoIP & QoS Analyzer)</div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>Métrique</th><th>Warning</th><th>Critique</th><th>Impact</th></tr></thead>
+      <tbody>
+        <tr><td><b>MOS Score</b></td><td>&lt;3.8</td><td><b>&lt;3.5</b></td><td>Qualité voix dégradée</td></tr>
+        <tr><td><b>Jitter voix</b></td><td>&gt;20ms</td><td><b>&gt;50ms</b></td><td>Échos, coupures</td></tr>
+        <tr><td><b>Perte paquets voix</b></td><td>&gt;0.5%</td><td><b>&gt;1%</b></td><td>Mots coupés</td></tr>
+        <tr><td><b>Trunk SIP état</b></td><td>Dégradé</td><td><b>Trunk Down</b></td><td>Pas d'appels entrants/sortants</td></tr>
+        <tr><td><b>Saturation trunks</b></td><td>&gt;70% canaux</td><td><b>&gt;90% canaux</b></td><td>Appels refusés</td></tr>
+        <tr><td><b>Appels internationaux</b></td><td>+200% moyenne</td><td><b>+300% → Toll Fraud</b></td><td>Fraude — couper trunk</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="sw-stockage">
+    <div class="sec-t">Seuils — Stockage SAN/NAS/Disques</div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>Composant</th><th>Métrique</th><th>Warning</th><th>Critique</th><th>Impact</th></tr></thead>
+      <tbody>
+        <tr><td><b>NAS/SAN Capacité</b></td><td>% espace utilisé</td><td>Libre &lt;20%</td><td><b>Libre &lt;10%</b></td><td>Arrêt écritures</td></tr>
+        <tr><td><b>NAS/SAN I/O</b></td><td>Latence I/O</td><td>&gt;15ms</td><td><b>&gt;40ms</b></td><td>Dégradation appli</td></tr>
+        <tr><td><b>Disques locaux</b></td><td>% espace partition</td><td>Libre &lt;15%</td><td><b>Libre &lt;5% / SMART err</b></td><td>Crash OS</td></tr>
+        <tr><td><b>Réplication</b></td><td>Retard réplication</td><td>Lag &gt;5min</td><td><b>Réplication arrêtée</b></td><td>Perte données DR</td></tr>
+        <tr><td><b>RAID</b></td><td>Disques RAID</td><td>1 disque dégradé</td><td><b>2 disques KO</b></td><td>Perte données totale</td></tr>
+        <tr><td><b>Snapshots</b></td><td>Âge / Espace</td><td>Snap &gt;7j</td><td><b>Espace snap &gt;30%</b></td><td>Performance + capacité</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="sw-wifi">
+    <div class="sec-t">Seuils — Wi-Fi (NPM + UDT)</div>
+    <div class="tbl-wrap">
+      <table><thead><tr><th>Métrique</th><th>Warning</th><th>Critique</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><b>AP Disponibilité</b></td><td>AP non joignable &gt;2min</td><td><b>AP Down confirmé</b></td><td>Alerte si zone critique</td></tr>
+        <tr><td><b>Signal RSSI</b></td><td>&lt;-70 dBm</td><td><b>&lt;-80 dBm</b></td><td>Dégradation connexions</td></tr>
+        <tr><td><b>Clients connectés</b></td><td>&gt;80% capacité AP</td><td><b>&gt;95% capacité</b></td><td>Saturation canal</td></tr>
+        <tr><td><b>Contrôleur Wi-Fi</b></td><td>Erreur gestion</td><td><b>Contrôleur Down</b></td><td>Tous AP orphelins</td></tr>
+        <tr><td><b>Canal interférence</b></td><td>Chevauchement détecté</td><td><b>SNR &lt;10 dB</b></td><td>Réaffectation canal</td></tr>
+      </tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: CHANGEMENTS RFC -->
+<div class="page" id="page-changements">
+  <div class="ph">
+    <div><div class="ph-title">🔧 Changements RFC</div><div class="ph-sub">Gestion des demandes de changement</div></div>
+    <div class="t-sp"></div>
+    <button class="btn btn-v" onclick="openModal('mo-chg')">+ Nouveau RFC</button>
+  </div>
+  <div class="tbl-wrap">
+    <table><thead><tr><th>Ref</th><th>Titre</th><th>Type</th><th>Planifié</th><th>Demandeur</th><th>Risque</th><th>Statut</th><th>Actions</th></tr></thead>
+    <tbody id="tbl-chg"></tbody></table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: FICHES PROCÉDURES -->
+<div class="page" id="page-fiches">
+  <div class="ph"><div><div class="ph-title">📖 Fiches Procédures NOC</div><div class="ph-sub">Runbooks opérationnels N1 / N2</div></div></div>
+
+  <!-- FICHE 1: LIEN DOWN -->
+  <div class="fiche">
+    <div class="fiche-hdr" onclick="toggleFiche(this)">
+      <span class="fiche-ico">🔴</span>
+      <div><div class="fiche-title">Fiche N°1 — Coupure de Lien (Node/Interface Down)</div><div style="font-size:11px;color:var(--n3)">Détection · Vérification · Escalade SAV B2B</div></div>
+      <span class="fiche-tag bp-p1">P1 / P2</span>
+      <span class="fiche-arrow">▼</span>
+    </div>
+    <div class="fiche-body">
+      <div class="ibox crit">DÉCLENCHEUR : Alerte SolarWinds "Node Down" ou "Interface Down" — Délai max de prise en charge : 5 min (P1)</div>
+      <div class="sec-t" style="margin-top:14px">Procédure de traitement</div>
+      <div class="step-row"><span class="sn">1</span><div class="step-content"><h4>DÉTECTION</h4><p>Identifier l'alerte sur SolarWinds NPM (Node Down / Interface Down). Noter l'heure, le client, la référence du lien.</p></div></div>
+      <div class="step-row"><span class="sn">2</span><div class="step-content"><h4>VÉRIFICATION</h4><p>Consulter NPM → confirmer l'état du nœud/interface et la durée de l'indisponibilité. Vérifier que ce n'est pas un faux positif (poll unique).</p></div></div>
+      <div class="step-row"><span class="sn">3</span><div class="step-content"><h4>APPEL CLIENT</h4><p>Contacter le client pour confirmer la coupure côté site. Demander : état équipements (routeur, ONT), voyants lumineux, coupures électriques éventuelles.</p></div></div>
+      <div class="step-row"><span class="sn">4</span><div class="step-content"><h4>DIAGNOSTIC</h4><p>Vérifier avec le client : état du routeur CE, de l'ONT, alimentation électrique. Tenter un ping depuis un autre équipement du réseau.</p></div></div>
+      <div class="step-row"><span class="sn">5</span><div class="step-content"><h4>CONFIRMATION</h4><p>Lien confirmé DOWN après appel + vérification → ouvrir ticket ITSM immédiatement. Notifier le client (Template C-01 si P1).</p></div></div>
+      <div class="step-row"><span class="sn">6</span><div class="step-content"><h4>ESCALADE SAV B2B</h4><p>Envoyer email d'escalade SAV B2B avec tous les éléments requis (voir template ci-dessous).</p></div></div>
+      <div class="sec-t">Template — Email Escalade SAV B2B</div>
+      <div class="tpl-box">
+        <div class="tpl-label">Email à envoyer — SAV B2B</div>
+        <textarea class="tpl-content" rows="12" id="tpl-sav">OBJET : [ESCALADE NOC B2B] Lien down — [CLIENT] Référence lien [XXX]
+
+Bonjour l'équipe SAV B2B,
+
+Je vous informe d'une indisponibilité confirmée sur le lien suivant :
+
+  • Référence lien     : [Référence technique]
+  • Type de lien       : LS / LSI / T0 / T2
+  • Date / heure début : [JJ/MM/AAAA HH:MM]
+  • Localisation       : [Adresse site]
+  • Contact client     : [Nom / Téléphone]
+
+Action demandée : Intervention technique et suivi de résolution.
+
+Cordialement,
+NOC B2B</textarea>
+        <div class="tpl-actions">
+          <button class="btn btn-sm btn-out" onclick="copyTpl('tpl-sav')">📋 Copier</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FICHE 2: DÉGRADATIONS -->
+  <div class="fiche">
+    <div class="fiche-hdr" onclick="toggleFiche(this)">
+      <span class="fiche-ico">🟡</span>
+      <div><div class="fiche-title">Fiche N°2 — Analyse des Dégradations (Lien UP mais dégradé)</div><div style="font-size:11px;color:var(--n3)">Latence · Perte paquets · Débit · Flapping · Saturation</div></div>
+      <span class="fiche-tag bp-p2">P2</span>
+      <span class="fiche-arrow">▼</span>
+    </div>
+    <div class="fiche-body">
+      <div class="ibox warn">OBJECTIF : Détecter, analyser et corriger les anomalies sur liens UP mais en sous-performance. Distinct des coupures totales (Fiche N°1).</div>
+      <div class="sec-t">Seuils SolarWinds à surveiller</div>
+      <div class="alrt-grid">
+        <div class="alrt-card moyen"><div class="alrt-name">Latence élevée</div><div class="alrt-seuil">Seuil : &gt;100 ms</div><span class="alrt-crit moyen">MOYEN</span></div>
+        <div class="alrt-card haut"><div class="alrt-name">Perte de paquets</div><div class="alrt-seuil">Seuil : &gt;1%</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+        <div class="alrt-card moyen"><div class="alrt-name">Débit anormal</div><div class="alrt-seuil">Seuil : &lt;80% contractuel</div><span class="alrt-crit moyen">MOYEN</span></div>
+        <div class="alrt-card haut"><div class="alrt-name">Flapping lien</div><div class="alrt-seuil">Seuil : &gt;3 chgmt/heure</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+        <div class="alrt-card haut"><div class="alrt-name">Erreurs interface</div><div class="alrt-seuil">CRC errors, collisions</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+        <div class="alrt-card moyen"><div class="alrt-name">Saturation BW</div><div class="alrt-seuil">Seuil : &gt;80% débit</div><span class="alrt-crit moyen">MOYEN</span></div>
+      </div>
+      <div class="sec-t">Procédure en 6 phases</div>
+      <div class="step-row"><span class="sn">1</span><div class="step-content"><h4>DÉTECTION</h4><p>Identifier l'anomalie sur SolarWinds NPM (Alertes, Tableau de bord, Events).</p></div></div>
+      <div class="step-row"><span class="sn">2</span><div class="step-content"><h4>QUALIFICATION</h4><p>Déterminer la nature et la gravité — NPM : Historique métriques, NetPath pour corrélation.</p></div></div>
+      <div class="step-row"><span class="sn">3</span><div class="step-content"><h4>DIAGNOSTIC</h4><p>Identifier la cause racine — NPM : Ping, SNMP polling, Interface details, NetPath hop-by-hop.</p></div></div>
+      <div class="step-row"><span class="sn">4</span><div class="step-content"><h4>CORRECTION</h4><p>Appliquer la correction adaptée selon le tableau des actions correctives.</p></div></div>
+      <div class="step-row"><span class="sn">5</span><div class="step-content"><h4>VÉRIFICATION</h4><p>Confirmer la résolution — surveiller 15 min minimum. NPM : Monitoring post-correction.</p></div></div>
+      <div class="step-row"><span class="sn">6</span><div class="step-content"><h4>DOCUMENTATION</h4><p>Enregistrer dans le ticket NOC B2B et fiche de suivi SolarWinds.</p></div></div>
+      <div class="sec-t">Actions correctives par type</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Anomalie</th><th>Cause probable</th><th>Action corrective</th></tr></thead><tbody>
+        <tr><td><b>Latence élevée</b></td><td>Congestion réseau</td><td>Vérifier charge via NPM, contacter transporteur si nécessaire</td></tr>
+        <tr><td><b>Perte de paquets</b></td><td>Dégradation physique</td><td>Tester ligne, demander intervention fibre/cuivre</td></tr>
+        <tr><td><b>Débit anormal</b></td><td>Négociation interface</td><td>Forcer duplex, vérifier paramètres port via SNMP</td></tr>
+        <tr><td><b>Instabilité lien</b></td><td>Équipement défectueux</td><td>Remplacement routeur/ONT, vérification alimentation</td></tr>
+        <tr><td><b>Erreurs interface</b></td><td>Câble défectueux</td><td>Changement câble/patch, test de continuité</td></tr>
+        <tr><td><b>Saturation BW</b></td><td>Trafic excessif</td><td>Proposer upgrade, QoS, analyse trafic NetFlow</td></tr>
+        <tr><td><b>CPU/RAM élevé</b></td><td>Processus anormal</td><td>Redémarrage contrôlé, analyse processus, màj firmware</td></tr>
+      </tbody></table></div>
+    </div>
+  </div>
+
+  <!-- FICHE 3: SERVEUR DOWN -->
+  <div class="fiche">
+    <div class="fiche-hdr" onclick="toggleFiche(this)">
+      <span class="fiche-ico">🖥️</span>
+      <div><div class="fiche-title">Runbook RB-04 — Serveur Critique Injoignable</div><div style="font-size:11px;color:var(--n3)">Node Down · Agent Unreachable · SAM</div></div>
+      <span class="fiche-tag bp-p1">P1</span>
+      <span class="fiche-arrow">▼</span>
+    </div>
+    <div class="fiche-body">
+      <div class="ibox crit">DÉCLENCHEUR : Alerte SAM "Node Down" ou "Agent Unreachable" sur un serveur de production.</div>
+      <div class="step-row"><span class="sn">1</span><div class="step-content"><h4>DISTINCTION (&lt;2 min)</h4><p>Serveur down OU agent SAM seulement HS ? Tenter ping depuis NMS + autre serveur du même réseau. Vérifier si le réseau est lui-même impacté (lien DOWN ?).</p></div></div>
+      <div class="step-row"><span class="sn">2</span><div class="step-content"><h4>IMPACT (&lt;3 min)</h4><p>Quelles applications/services tournent sur ce serveur ? Y a-t-il un failover / cluster HA ? Combien d'utilisateurs/clients impactés ? → Serveur de prod sans failover = P1 immédiat.</p></div></div>
+      <div class="step-row"><span class="sn">3</span><div class="step-content"><h4>ESCALADE N2</h4><p>Escalade N2 immédiate si serveur de production. N2 tente connexion console/iDRAC/iLO/IPMI. Vérifier alimentation électrique (UPS, PDU). Ouvrir ticket + notifier client si impact service.</p></div></div>
+      <div class="step-row"><span class="sn">4</span><div class="step-content"><h4>ACTIONS N2</h4><p>Connexion OOB (iDRAC, iLO, IPMI) pour état physique. Vérifier logs système (Event Viewer Windows / /var/log Linux). Tentative redémarrage si autorisation d'exploitation. Intervention terrain si redémarrage impossible à distance.</p></div></div>
+    </div>
+  </div>
+
+  <!-- FICHE 4: SÉCURITÉ SIEM -->
+  <div class="fiche">
+    <div class="fiche-hdr" onclick="toggleFiche(this)">
+      <span class="fiche-ico">🔐</span>
+      <div><div class="fiche-title">Fiche N°4 — Incidents Sécurité SIEM (Phase 3)</div><div style="font-size:11px;color:var(--n3)">Brute Force · Intrusion · Exfiltration · Toll Fraud</div></div>
+      <span class="fiche-tag" style="background:var(--pl);color:var(--p)">SOC</span>
+      <span class="fiche-arrow">▼</span>
+    </div>
+    <div class="fiche-body">
+      <div class="sec-t">Règles de détection prioritaires (Wazuh SIEM)</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Règle</th><th>Pattern</th><th>Sévérité</th><th>Action</th></tr></thead><tbody>
+        <tr><td><b>Brute Force SSH/RDP</b></td><td>5 échecs auth en 1min même IP</td><td><span class="seuil-badge seuil-eleve">P2</span></td><td>Bloquer IP + notifier RSSI</td></tr>
+        <tr><td><b>Connexion hors horaires</b></td><td>Admin connecté hors plages</td><td><span class="seuil-badge seuil-eleve">P2</span></td><td>Alerter RSSI</td></tr>
+        <tr><td><b>Escalade privilèges</b></td><td>sudo/su vers root prod</td><td><span class="seuil-badge seuil-eleve">P2</span></td><td>Alerter RSSI + N2</td></tr>
+        <tr><td><b>Port Scanning</b></td><td>1 IP → &gt;50 ports en &lt;30s</td><td><span class="seuil-badge seuil-eleve">P2</span></td><td>Bloquer IP firewall</td></tr>
+        <tr><td><b>Exfiltration données</b></td><td>Transfert &gt;500MB IP externe inconnue</td><td><span class="seuil-badge seuil-critique">P1</span></td><td>Isoler machine + forensique</td></tr>
+        <tr><td><b>Malware signature</b></td><td>Processus = signature malware connue</td><td><span class="seuil-badge seuil-critique">P1</span></td><td>Isoler + forensique</td></tr>
+        <tr><td><b>Config firewall modifiée</b></td><td>Changement règle non planifié</td><td><span class="seuil-badge seuil-eleve">P2</span></td><td>Alerter RSSI + N2</td></tr>
+        <tr><td><b>Toll Fraud VoIP</b></td><td>Appels internationaux +300%</td><td><span class="seuil-badge seuil-critique">P1</span></td><td>Couper trunk SIP + alerter</td></tr>
+        <tr><td><b>API Cloud abuse</b></td><td>Appels API &gt;10× moyenne horaire</td><td><span class="seuil-badge seuil-eleve">P2</span></td><td>Alerter + investiguer</td></tr>
+      </tbody></table></div>
+      <div class="ibox info" style="margin-top:12px">SIEM recommandé : <b>Wazuh (Open Source)</b> — Sources : Windows Events, Linux Syslog, Firewall Syslog, IPBX/VoIP, Cloud (AWS/Azure/GCP), DNS, Applications métiers.</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: TEMPLATES COMMUNICATION -->
+<div class="page" id="page-templates">
+  <div class="ph"><div><div class="ph-title">✉️ Templates Communication Client</div><div class="ph-sub">Notification · Mise à jour · Clôture — P1 / P2</div></div></div>
+
+  <div class="ibox warn">⚠️ <b>Règles d'or :</b> 1/ Notifier AVANT que le client n'appelle. 2/ Dire ce qu'on sait, pas ce qu'on suppose. 3/ Donner un délai de prochain update et le respecter. 4/ Un seul interlocuteur par incident. 5/ Documenter chaque communication dans le ticket ITSM.</div>
+
+  <div class="sec-t">Matrice de communication</div>
+  <div class="tbl-wrap" style="margin-bottom:20px">
+    <table><thead><tr><th>Priorité</th><th>Canal</th><th>Délai max</th><th>Update</th><th>Templates</th></tr></thead>
+    <tbody>
+      <tr><td><span class="bp bp-p1">P1 CRITIQUE</span></td><td>📞 Appel + 📧 Email</td><td><b style="color:var(--r)">&lt;5 min</b></td><td>Toutes les 15 min</td><td>C-01 + C-02 + C-03</td></tr>
+      <tr><td><span class="bp bp-p2">P2 MAJEUR</span></td><td>📧 Email + Appel si demandé</td><td><b style="color:var(--a)">&lt;15 min</b></td><td>Toutes les 30 min</td><td>C-04 + C-02 + C-03</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="fgrp"><label>🔍 Personnaliser le client (remplace [NOM CLIENT])</label><input type="text" id="tpl-client" placeholder="Ex: ENTERPRISE TECH CI" oninput="updateTpls()"></div>
+  <div class="fgrp"><label>Référence ticket</label><input type="text" id="tpl-ticket" placeholder="TICKET-XXXXX" oninput="updateTpls()"></div>
+
+  <div id="tpl-c01" class="tpl-box">
+    <div class="tpl-label">📧 C-01 — Notification P1 (Ouverture) — Envoyer dans les 5 min</div>
+    <textarea class="tpl-content" rows="16" id="c01-text">OBJET : [INCIDENT P1 - EN COURS] Dégradation service — [NOM CLIENT] — [DATE] [HEURE]
+
+Madame, Monsieur,
+
+Nous vous informons qu'un incident affectant votre service est actuellement en cours de traitement par notre équipe NOC.
+
+  • Heure de détection    : [HH:MM]
+  • Service impacté       : [Lien WAN / VoIP / Accès Internet / Autre]
+  • Site(s) concerné(s)   : [NOM DU SITE]
+  • Impact constaté       : [Perte de connectivité totale / dégradation qualité]
+  • Priorité              : P1 — Incident Critique
+  • Référence ticket      : [TICKET-XXXXX]
+
+Nos équipes sont mobilisées et travaillent activement à la résolution.
+Prochain point de situation dans 15 minutes.
+
+Nous restons joignables au [NUMÉRO NOC 24/7] pour toute question urgente.
+
+Cordialement,
+[Prénom NOM]  —  NOC B2B OCI  │  Tél. : [NUMÉRO]</textarea>
+    <div class="tpl-actions"><button class="btn btn-sm btn-out" onclick="copyTpl('c01-text')">📋 Copier</button></div>
+  </div>
+
+  <div class="tpl-box">
+    <div class="tpl-label">📧 C-02 — Mise à jour en cours d'incident (P1: toutes les 15min / P2: 30min)</div>
+    <textarea class="tpl-content" rows="14" id="c02-text">OBJET : [UPDATE #__  -  EN COURS] Incident [TICKET-XXXXX] — [NOM CLIENT] — [HEURE]
+
+Madame, Monsieur,
+
+Voici le point de situation n°[__] concernant l'incident en cours sur votre service.
+
+  • Statut actuel              : En cours de résolution
+  • Actions effectuées         : [Ex : escalade vers opérateur / ouverture ticket TAC Cisco]
+  • Cause identifiée           : [Ex : panne fibre opérateur / en cours d'investigation]
+  • Délai de résolution estimé : [Ex : 45 minutes / En attente retour opérateur]
+  • Prochain update            : dans [15 / 30] minutes ou dès résolution
+
+Nous maintenons nos équipes mobilisées et vous informons de toute évolution.
+
+Cordialement,
+[Prénom NOM]  —  NOC B2B OCI  │  Tél. : [NUMÉRO]</textarea>
+    <div class="tpl-actions"><button class="btn btn-sm btn-out" onclick="copyTpl('c02-text')">📋 Copier</button></div>
+  </div>
+
+  <div class="tpl-box">
+    <div class="tpl-label">📧 C-03 — Clôture (Envoyer après 15min de surveillance post-résolution)</div>
+    <textarea class="tpl-content" rows="17" id="c03-text">OBJET : [RÉSOLU] Incident [TICKET-XXXXX] — [NOM CLIENT] — Service rétabli à [HH:MM]
+
+Madame, Monsieur,
+
+Nous avons le plaisir de vous informer que l'incident affectant votre service est résolu.
+
+  • Heure de détection        : [HH:MM]
+  • Heure de résolution       : [HH:MM]
+  • Durée totale de l'incident : [X heures X minutes]
+  • Cause racine              : [Description claire — ex : défaillance carte d'interface sur routeur PE opérateur, remplacée à distance]
+  • Action corrective         : [Ce qui a été fait pour résoudre]
+  • Mesures préventives       : [Ce qui sera mis en place pour éviter la récurrence]
+
+Un rapport d'incident complet (RCA) vous sera transmis dans les [4h / 24h].
+
+Nous nous excusons pour la gêne occasionnée et restons disponibles pour toute question.
+
+Cordialement,
+[Prénom NOM]  —  NOC B2B OCI  │  Tél. : [NUMÉRO]</textarea>
+    <div class="tpl-actions"><button class="btn btn-sm btn-out" onclick="copyTpl('c03-text')">📋 Copier</button></div>
+  </div>
+
+  <div class="tpl-box">
+    <div class="tpl-label">📧 C-04 — Notification P2 (Ouverture dans les 15 min)</div>
+    <textarea class="tpl-content" rows="15" id="c04-text">OBJET : [INCIDENT P2 - EN COURS] Dégradation service — [NOM CLIENT] — [DATE] [HEURE]
+
+Madame, Monsieur,
+
+Nous vous informons d'une dégradation de service en cours sur votre infrastructure.
+
+  • Heure de détection    : [HH:MM]
+  • Service impacté       : [Description]
+  • Site(s) concerné(s)   : [NOM DU SITE]
+  • Impact constaté       : [Latence élevée / dégradation partielle / backup actif]
+  • Priorité              : P2 — Incident Majeur
+  • Référence ticket      : [TICKET-XXXXX]
+
+Nos équipes travaillent à l'identification de la cause et à la résolution.
+Prochain point de situation dans 30 minutes ou dès résolution.
+
+Cordialement,
+[Prénom NOM]  —  NOC B2B OCI  │  Tél. : [NUMÉRO]</textarea>
+    <div class="tpl-actions"><button class="btn btn-sm btn-out" onclick="copyTpl('c04-text')">📋 Copier</button></div>
+  </div>
+
+  <div class="tpl-box">
+    <div class="tpl-label">📧 OCI-SEC — Alerte Sécurité (Accès suspect portail OCI)</div>
+    <textarea class="tpl-content" rows="12" id="coci-text">OBJET : [NOC B2B OCI] ALERTE SÉCURITÉ — Accès suspect détecté — [NOM CLIENT] — [DATE] [HEURE]
+
+Madame, Monsieur,
+
+Nous avons détecté une tentative d'accès suspecte sur votre portail OCI :
+
+  • IP source   : [XXX.XXX.XXX.XXX]
+  • Heure       : [HH:MM]
+  • Tentatives  : [X] échecs en [X] minutes
+
+Par mesure de sécurité, nous avons bloqué cette IP.
+Veuillez vérifier vos accès et changer votre mot de passe immédiatement.
+
+NOC B2B OCI  │  Tél. : [NUMÉRO]</textarea>
+    <div class="tpl-actions"><button class="btn btn-sm btn-out" onclick="copyTpl('coci-text')">📋 Copier</button></div>
+  </div>
+
+  <div class="tpl-box">
+    <div class="tpl-label">📧 OCI-VPS — Alerte VPS / Cloud Infrastructure</div>
+    <textarea class="tpl-content" rows="12" id="cvps-text">OBJET : [NOC B2B OCI] Alerte VPS — [NOM CLIENT] — [DATE] [HEURE]
+
+Madame, Monsieur,
+
+Nous avons détecté une anomalie sur votre VPS [référence] :
+
+  • Type d'alerte    : [CPU élevé / RAM saturée / Disque plein / Serveur injoignable]
+  • Heure détection  : [HH:MM]
+  • Impact constaté  : [Description]
+
+Nos équipes traitent l'incident. Prochain point dans 15 minutes.
+
+NOC B2B OCI  │  Tél. : [NUMÉRO]</textarea>
+    <div class="tpl-actions"><button class="btn btn-sm btn-out" onclick="copyTpl('cvps-text')">📋 Copier</button></div>
+  </div>
+
+  <div class="tpl-box">
+    <div class="tpl-label">📧 OCI-SIM — Alerte Flotte SIM</div>
+    <textarea class="tpl-content" rows="12" id="csim-text">OBJET : [NOC B2B OCI] Alerte flotte SIM — [NOM CLIENT] — [DATE] [HEURE]
+
+Madame, Monsieur,
+
+Nous avons détecté une anomalie sur votre flotte SIM :
+
+  • Type d'alerte         : [SIM inactive / Chute SIM actives / SIM expirant]
+  • Nombre de SIM impactées : [X]
+  • Heure de détection    : [HH:MM]
+
+Action requise de votre part : [Description action client].
+
+Nos équipes restent disponibles au [NUMÉRO NOC].
+
+NOC B2B OCI</textarea>
+    <div class="tpl-actions"><button class="btn btn-sm btn-out" onclick="copyTpl('csim-text')">📋 Copier</button></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: CLOUD -->
+<div class="page" id="page-cloud">
+  <div class="ph"><div><div class="ph-title">☁️ Supervision Cloud OCI</div><div class="ph-sub">Lot 1 Infrastructures · Lot 2 Services métiers</div></div></div>
+
+  <div class="tabs">
+    <div class="tab on" onclick="swTab(this,'cl-vps')">VPS</div>
+    <div class="tab" onclick="swTab(this,'cl-vpc')">VPC</div>
+    <div class="tab" onclick="swTab(this,'cl-email')">Email Pro</div>
+    <div class="tab" onclick="swTab(this,'cl-backup')">Cloud Backup</div>
+    <div class="tab" onclick="swTab(this,'cl-web')">Web Hosting</div>
+    <div class="tab" onclick="swTab(this,'cl-lot2')">Lot 2 Métier</div>
+  </div>
+
+  <div class="tab-panel on" id="cl-vps">
+    <div class="ibox info"><b>VPS — Serveur Privé Virtuel</b> | Surveillance : SolarWinds NPM + Portail OCI</div>
+    <div class="alrt-grid">
+      <div class="alrt-card haut"><div class="alrt-name">CPU &gt;85% / 5min</div><div class="alrt-seuil">Charge CPU soutenue</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">RAM &gt;90%</div><div class="alrt-seuil">Mémoire quasi saturée</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Disque &gt;80%</div><div class="alrt-seuil">Espace SSD insuffisant</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Serveur injoignable</div><div class="alrt-seuil">IP publique KO (ping)</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Latence anormale</div><div class="alrt-seuil">Ping élevé vers VPS</div><span class="alrt-crit moyen">MOYEN</span></div>
+    </div>
+    <div class="sec-t">Procédure NOC (7 étapes)</div>
+    <div class="step-row"><span class="sn">1</span><div class="step-content"><h4>DÉTECTION</h4><p>Alerte SolarWinds / portail OCI. Identifier le VPS (nom, IP publique, client).</p></div></div>
+    <div class="step-row"><span class="sn">2</span><div class="step-content"><h4>VÉRIFICATION</h4><p>Se connecter au portail cloud OCI. Confirmer état VPS (running/stopped/error). Vérifier CPU, RAM, disque en temps réel.</p></div></div>
+    <div class="step-row"><span class="sn">3</span><div class="step-content"><h4>DIAGNOSTIC</h4><p>Identifier la cause : pic CPU (processus zombie ?), saturation RAM, disque plein, panne réseau. Consulter logs système si accès disponible.</p></div></div>
+    <div class="step-row"><span class="sn">4</span><div class="step-content"><h4>ACTION</h4><p>Appliquer l'action corrective selon le type d'alerte (voir tableau).</p></div></div>
+    <div class="step-row"><span class="sn">5</span><div class="step-content"><h4>VÉRIFICATION</h4><p>Surveiller les métriques 15 min après action. Confirmer retour à la normale.</p></div></div>
+    <div class="step-row"><span class="sn">6</span><div class="step-content"><h4>ESCALADE</h4><p>Si non résolu en 20 min → escalader N2. Si VPS injoignable sans raison → escalader OCI/Orange Cloud.</p></div></div>
+    <div class="step-row"><span class="sn">7</span><div class="step-content"><h4>COMMUNICATION</h4><p>Notifier le client si impact service confirmé. Documenter dans le ticket ITSM.</p></div></div>
+    <div class="sec-t">Actions correctives VPS</div>
+    <div class="tbl-wrap"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
+      <tr><td><b>CPU &gt;85% / 5min</b></td><td>Identifier processus via portail OCI ou SSH. Redémarrer processus fautif si autorisé. Proposer upgrade vCPU si récurrent.</td></tr>
+      <tr><td><b>RAM &gt;90%</b></td><td>Vérifier processus en mémoire. Redémarrer service le plus consommateur. Proposer upgrade RAM si récurrent.</td></tr>
+      <tr><td><b>Disque &gt;80%</b></td><td>Identifier fichiers volumineux (logs, backups). Déclencher nettoyage ou extension disque. Alerter client.</td></tr>
+      <tr><td><b>Serveur injoignable</b></td><td>Vérifier statut sur portail OCI. Si VPS stopped → démarrer. Si erreur → ticket OCI. Notifier client immédiatement.</td></tr>
+      <tr><td><b>Latence anormale</b></td><td>Tester depuis plusieurs points (ping, traceroute). Si problème réseau OCI → ticket Orange Cloud Support.</td></tr>
+    </tbody></table></div>
+  </div>
+
+  <div class="tab-panel" id="cl-vpc">
+    <div class="ibox info"><b>VPC — Cloud Privé Virtuel</b> | SLA cible : 99,9% disponibilité</div>
+    <div class="alrt-grid">
+      <div class="alrt-card haut"><div class="alrt-name">Instance gelée</div><div class="alrt-seuil">Instance ne répond plus</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Dépassement ressources</div><div class="alrt-seuil">CPU/RAM au-delà limites</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Perte connectivité</div><div class="alrt-seuil">Interfaces IPv4 KO</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card critique"><div class="alrt-name">SLA &lt;99,9%</div><div class="alrt-seuil">Sous seuil contractuel</div><span class="alrt-crit critique">CRITIQUE</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Latence intra-réseau</div><div class="alrt-seuil">Comm. inter-instances lentes</div><span class="alrt-crit moyen">MOYEN</span></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
+      <tr><td><b>Instance inactive/gelée</b></td><td>Redémarrer via portail OCI. Si échec → ticket Orange Cloud urgence.</td></tr>
+      <tr><td><b>Dépassement ressources</b></td><td>Identifier instance en cause. Limiter processus si possible. Proposer upgrade plan VPC.</td></tr>
+      <tr><td><b>Perte connectivité réseau</b></td><td>Vérifier Security Groups (ports bloqués ?). Vérifier routes et table de routage VPC. Relancer interfaces si nécessaire.</td></tr>
+      <tr><td><b>SLA &lt;99,9%</b></td><td>Documenter incident avec horodatage précis. Ouvrir ticket OCI pour SLA credit. Informer client.</td></tr>
+      <tr><td><b>Latence intra-réseau</b></td><td>Tester latence entre instances. Si &gt; seuil OCI → ticket support Orange Cloud.</td></tr>
+    </tbody></table></div>
+  </div>
+
+  <div class="tab-panel" id="cl-email">
+    <div class="ibox info"><b>Email Pro — Messagerie</b> | SMTP/IMAP/DKIM</div>
+    <div class="alrt-grid">
+      <div class="alrt-card moyen"><div class="alrt-name">Stockage &gt;80%</div><div class="alrt-seuil">Boîtes quasi pleines</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Taux rebond &gt;5%</div><div class="alrt-seuil">Emails non délivrés masse</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">SMTP indisponible</div><div class="alrt-seuil">Envoi emails impossible</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">DKIM en échec</div><div class="alrt-seuil">Emails rejetés/spam</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Latence webmail</div><div class="alrt-seuil">Interface lente</div><span class="alrt-crit moyen">MOYEN</span></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
+      <tr><td><b>Stockage &gt;80%</b></td><td>Identifier boîtes les plus volumineuses. Alerter client pour nettoyage ou upgrade quota.</td></tr>
+      <tr><td><b>Taux rebond &gt;5%</b></td><td>Vérifier si IP d'envoi est blacklistée (MXToolbox). Vérifier SPF/DKIM/DMARC. Contacter Orange Cloud si IP bloquée.</td></tr>
+      <tr><td><b>SMTP indisponible</b></td><td>Vérifier statut service sur portail OCI. Ticket Orange Cloud si service KO côté infra.</td></tr>
+      <tr><td><b>DKIM en échec</b></td><td>Vérifier enregistrements DNS TXT du domaine. Régénérer clé DKIM si nécessaire depuis le portail.</td></tr>
+      <tr><td><b>Webmail lent</b></td><td>Tester depuis autre réseau. Si latence serveur → ticket OCI support.</td></tr>
+    </tbody></table></div>
+  </div>
+
+  <div class="tab-panel" id="cl-backup">
+    <div class="ibox info"><b>Cloud Backup — Acronis</b> | Sauvegarde automatique</div>
+    <div class="alrt-grid">
+      <div class="alrt-card haut"><div class="alrt-name">Backup échoué/manqué</div><div class="alrt-seuil">Sauvegarde non effectuée</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Aucun backup &gt;24h</div><div class="alrt-seuil">Sans sauvegarde 24 heures</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Stockage &gt;80%</div><div class="alrt-seuil">Espace backup insuffisant</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Poste non sauvegardé</div><div class="alrt-seuil">Machine hors sauvegarde &gt;Xj</div><span class="alrt-crit moyen">MOYEN</span></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
+      <tr><td><b>Backup échoué</b></td><td>Vérifier les logs Acronis. Relancer manuellement si possible. Si persistant → ticket OCI.</td></tr>
+      <tr><td><b>Aucun backup &gt;24h</b></td><td>Vérifier statut agent Acronis sur la machine. Redémarrer l'agent si nécessaire. Notifier client.</td></tr>
+      <tr><td><b>Stockage &gt;80%</b></td><td>Analyser les politiques de rétention. Proposer extension ou nettoyage des sauvegardes anciennes.</td></tr>
+    </tbody></table></div>
+  </div>
+
+  <div class="tab-panel" id="cl-web">
+    <div class="ibox info"><b>Web Hosting</b> | Sites hébergés — SSL · Performance</div>
+    <div class="alrt-grid">
+      <div class="alrt-card haut"><div class="alrt-name">Site HTTP 4xx/5xx</div><div class="alrt-seuil">Erreurs serveur/client</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">SSL expirant &lt;14j</div><div class="alrt-seuil">Certificat SSL bientôt expiré</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Disque &gt;80%</div><div class="alrt-seuil">Espace hébergement</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Réponse &gt;3s</div><div class="alrt-seuil">Temps chargement élevé</div><span class="alrt-crit moyen">MOYEN</span></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="cl-lot2">
+    <div class="sec-t">Lot 2 — Services Métiers & Collaboratifs</div>
+    <div class="tbl-wrap"><table><thead><tr><th>Service</th><th>Alerte critique</th><th>Seuil</th><th>Action NOC</th></tr></thead><tbody>
+      <tr><td><b>Drive Pro</b></td><td>Stockage &gt;80% / Synchro KO</td><td>80%</td><td>Alerter client, vérifier agent synchro</td></tr>
+      <tr><td><b>Stockage S3</b></td><td>Taux erreur API &gt;1% / Latence &gt;SLA</td><td>1%</td><td>Vérifier logs API, ouvrir ticket OCI</td></tr>
+      <tr><td><b>ERP / CRM</b></td><td>App inaccessible / Job facturation KO</td><td>—</td><td>Vérifier serveur appli, redémarrer job</td></tr>
+      <tr><td><b>GED</b></td><td>Échec indexation / Stockage &gt;80%</td><td>80%</td><td>Vérifier moteur indexation, alerter client</td></tr>
+      <tr><td><b>WordPress</b></td><td>Plugin vulnérable / SSL expirant &lt;14j</td><td>—</td><td>Alerter client pour mise à jour urgente</td></tr>
+      <tr><td><b>PrestaShop</b></td><td>Paiement en échec / SSL expirant &lt;7j</td><td>—</td><td>Vérifier passerelle OM/VISA, renouveler SSL urgent</td></tr>
+    </tbody></table></div>
+    <div class="ibox warn" style="margin-top:12px">SSL expirant sur PrestaShop : seuil critique à <b>7 jours</b> (paiements bloqués). Sur autres services : 14 jours.</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: SIM MONITORING -->
+<div class="page" id="page-sim">
+  <div class="ph"><div><div class="ph-title">📱 SIM Monitoring OCI</div><div class="ph-sub">Portail Cloud · Authentification · Flotte SIM · Consommation Data</div></div></div>
+
+  <div class="tabs">
+    <div class="tab on" onclick="swTab(this,'sim-portail')">Portail OCI</div>
+    <div class="tab" onclick="swTab(this,'sim-auth')">Authentification</div>
+    <div class="tab" onclick="swTab(this,'sim-flotte')">Flotte SIM</div>
+    <div class="tab" onclick="swTab(this,'sim-data')">Consommation Data</div>
+    <div class="tab" onclick="swTab(this,'sim-geo')">Géolocalisation</div>
+  </div>
+
+  <div class="tab-panel on" id="sim-portail">
+    <div class="alrt-grid">
+      <div class="alrt-card haut"><div class="alrt-name">Portail inaccessible &gt;2min</div><div class="alrt-seuil">Le portail ne répond plus</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Temps réponse &gt;3s</div><div class="alrt-seuil">Pages trop lentes</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">SSL expirant &lt;14j</div><div class="alrt-seuil">Certificat SSL bientôt expiré</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Taux erreur API &gt;1%</div><div class="alrt-seuil">API back-end en échec</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
+      <tr><td><b>Portail inaccessible</b></td><td>Vérifier DNS (nslookup). Tester depuis autre IP. Si problème OCI → ticket support Orange Cloud en urgence.</td></tr>
+      <tr><td><b>Temps réponse &gt;3s</b></td><td>Vérifier charge serveur depuis tableau de bord OCI. Signaler à Orange Cloud si charge infra.</td></tr>
+      <tr><td><b>SSL expirant</b></td><td>Déclencher renouvellement SSL depuis portail OCI. Vérifier que le renouvellement automatique est actif.</td></tr>
+      <tr><td><b>Erreur API &gt;1%</b></td><td>Vérifier logs API. Si erreur auth → vérifier clés API clients. Si erreur serveur → ticket OCI.</td></tr>
+    </tbody></table></div>
+  </div>
+
+  <div class="tab-panel" id="sim-auth">
+    <div class="alrt-grid">
+      <div class="alrt-card haut"><div class="alrt-name">Tentatives échouées &gt;5/10min</div><div class="alrt-seuil">Possible attaque brute force</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Connexion IP inconnue</div><div class="alrt-seuil">Accès suspect portail</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Service auth indisponible</div><div class="alrt-seuil">Aucun accès possible</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">2FA inactive</div><div class="alrt-seuil">Sécurité d'accès dégradée</div><span class="alrt-crit moyen">MOYEN</span></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
+      <tr><td><b>Tentatives &gt;5</b></td><td>Bloquer IP source sur firewall portail. Alerter RSSI. Vérifier si compte ciblé est compromis.</td></tr>
+      <tr><td><b>Connexion IP inconnue</b></td><td>Alerter client immédiatement. Suspendre compte si connexion confirmée non autorisée.</td></tr>
+      <tr><td><b>Service auth KO</b></td><td>Ouvrir ticket OCI en urgence. Notifier tous les clients. Surveiller toutes les 5 minutes.</td></tr>
+      <tr><td><b>2FA inactive</b></td><td>Alerter client : recommander activation immédiate de la double authentification.</td></tr>
+    </tbody></table></div>
+    <div class="ibox crit" style="margin-top:12px">Toute intrusion confirmée → escalader NOC+SOC + RSSI immédiatement.</div>
+  </div>
+
+  <div class="tab-panel" id="sim-flotte">
+    <div class="alrt-grid">
+      <div class="alrt-card moyen"><div class="alrt-name">SIM inactive &gt;X jours</div><div class="alrt-seuil">SIM non utilisée trop longtemps</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Chute brutale SIM actives</div><div class="alrt-seuil">Plusieurs SIM tombées simultanément</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Synchro base SIM KO</div><div class="alrt-seuil">Base SIM non à jour</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">SIM expiration &lt;7j</div><div class="alrt-seuil">SIM proche de l'expiration</div><span class="alrt-crit moyen">MOYEN</span></div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Problème</th><th>Action corrective NOC</th></tr></thead><tbody>
+      <tr><td><b>SIM inactive &gt;X jours</b></td><td>Alerter client : SIM inutilisée consomme une licence. Proposer suspension ou réactivation.</td></tr>
+      <tr><td><b>Chute brutale SIM actives</b></td><td>Vérifier statut plateforme SIM. Si problème infra → ticket OCI urgent. Notifier client.</td></tr>
+      <tr><td><b>Synchro base SIM KO</b></td><td>Identifier erreur synchro dans les logs. Forcer resynchronisation si possible. Ticket OCI si persistant.</td></tr>
+      <tr><td><b>SIM expirant &lt;7j</b></td><td>Alerter client IMMÉDIATEMENT pour renouvellement. Sans action → SIM désactivée automatiquement.</td></tr>
+    </tbody></table></div>
+    <div class="ibox warn">Si chute &gt;10% du parc → escalader N2 + Orange Cloud Support immédiatement.</div>
+  </div>
+
+  <div class="tab-panel" id="sim-data">
+    <div class="alrt-grid">
+      <div class="alrt-card moyen"><div class="alrt-name">Data &gt;80% forfait</div><div class="alrt-seuil">SIM proche épuisement</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Data &gt;100% (dépassement)</div><div class="alrt-seuil">SIM dépassé son forfait</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">Consommation anormale</div><div class="alrt-seuil">Pic inhabituel vs moyenne</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">SIM sans conso &gt;Xj</div><div class="alrt-seuil">Aucune activité data</div><span class="alrt-crit moyen">MOYEN</span></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="sim-geo">
+    <div class="alrt-grid">
+      <div class="alrt-card haut"><div class="alrt-name">SIM hors zone autorisée</div><div class="alrt-seuil">Géolocalisation hors périmètre</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+      <div class="alrt-card moyen"><div class="alrt-name">Position non updatée &gt;Xmin</div><div class="alrt-seuil">Fraîcheur position insuffisante</div><span class="alrt-crit moyen">MOYEN</span></div>
+      <div class="alrt-card haut"><div class="alrt-name">SIM zone inconnue</div><div class="alrt-seuil">Zone géographique non référencée</div><span class="alrt-crit haut">ÉLEVÉ</span></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: ROADMAP -->
+<div class="page" id="page-roadmap">
+  <div class="ph"><div><div class="ph-title">🗺️ Roadmap NOC Transformation</div><div class="ph-sub">4 Phases · 18 Mois · Réactif → Autonome</div></div></div>
+
+  <div class="ibox info" style="margin-bottom:16px">Auteur : Direction NOC/SOC · Version v1.0 Final · Mai 2025 · CONFIDENTIEL — Usage Interne<br>Pipeline : <b>1 Collecter → 2 Détecter → 3 Corréler → 4 Comprendre → 5 Prioriser → 6 Notifier → 7 Agir → 8 Prédire → 9 Apprendre</b></div>
+
+  <div class="rm-phases">
+    <div class="rm-phase">
+      <div class="rm-num">01</div>
+      <div class="rm-title">Fondation NOC</div>
+      <div style="font-size:11px;color:var(--n3);margin-bottom:8px">M0 → M3 — Poser les bases</div>
+      <div style="font-size:11.5px;color:var(--n2);margin-bottom:8px">Procédures, runbooks, SLA, organisation, seuils standardisés, ticketing automatique.</div>
+      <div class="rm-steps">
+        <span class="rm-step" style="background:var(--vl);color:var(--v)">1 Collecter</span>
+        <span class="rm-step" style="background:var(--vl);color:var(--v)">2 Détecter</span>
+        <span class="rm-step" style="background:var(--vl);color:var(--v)">5 Prioriser</span>
+        <span class="rm-step" style="background:var(--vl);color:var(--v)">6 Notifier</span>
+        <span class="rm-step" style="background:var(--vl);color:var(--v)">7 Agir</span>
+      </div>
+    </div>
+    <div class="rm-phase">
+      <div class="rm-num">02</div>
+      <div class="rm-title">Supervision Avancée</div>
+      <div style="font-size:11px;color:var(--n3);margin-bottom:8px">M3 → M8 — Vision étendue</div>
+      <div style="font-size:11.5px;color:var(--n2);margin-bottom:8px">Serveurs SAM, VMware, stockage, firewalls, Wi-Fi, VoIP, bases de données.</div>
+      <div class="rm-steps">
+        <span class="rm-step" style="background:var(--bl);color:var(--b)">1 Collecter+</span>
+        <span class="rm-step" style="background:var(--bl);color:var(--b)">2 Détecter+</span>
+        <span class="rm-step" style="background:var(--bl);color:var(--b)">5 Prioriser</span>
+      </div>
+    </div>
+    <div class="rm-phase">
+      <div class="rm-num">03</div>
+      <div class="rm-title">SOC & Cloud</div>
+      <div style="font-size:11px;color:var(--n3);margin-bottom:8px">M8 → M14 — NOC+SOC unifié</div>
+      <div style="font-size:11.5px;color:var(--n2);margin-bottom:8px">SIEM Wazuh, logs, AWS/Azure/GCP, corrélation multi-sources, automatisation.</div>
+      <div class="rm-steps">
+        <span class="rm-step" style="background:var(--gl);color:var(--g)">3 Corréler</span>
+        <span class="rm-step" style="background:var(--gl);color:var(--g)">4 Comprendre</span>
+        <span class="rm-step" style="background:var(--gl);color:var(--g)">9 Apprendre</span>
+      </div>
+    </div>
+    <div class="rm-phase">
+      <div class="rm-num">04</div>
+      <div class="rm-title">AIOps & Observabilité</div>
+      <div style="font-size:11px;color:var(--n3);margin-bottom:8px">M14 → M18+ — IA prend le relais</div>
+      <div style="font-size:11.5px;color:var(--n2);margin-bottom:8px">ML/IA, prédiction pannes, self-healing, réduction faux positifs 60-80%.</div>
+      <div class="rm-steps">
+        <span class="rm-step" style="background:var(--pl);color:var(--p)">2 Détecter ML</span>
+        <span class="rm-step" style="background:var(--pl);color:var(--p)">7 Agir auto</span>
+        <span class="rm-step" style="background:var(--pl);color:var(--p)">8 Prédire</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec-t">Matrice de Maturité NOC</div>
+  <div class="tbl-wrap" style="margin-bottom:20px">
+    <table><thead><tr><th>Niveau</th><th>Description</th><th>Statut actuel</th><th>Objectif</th><th>Horizon</th></tr></thead>
+    <tbody>
+      <tr style="background:#FEF0E6"><td><b>Niveau 1 — RÉACTIF</b></td><td>Alertes sans contexte, traitement au cas par cas</td><td><span style="background:var(--vl);color:var(--v);font-weight:700;padding:2px 8px;border-radius:2px">✔ VOUS ÊTES ICI</span></td><td>Sortir dès Phase 1</td><td>M0 → M3</td></tr>
+      <tr><td><b>Niveau 2 — PROACTIF</b></td><td>Seuils définis, procédures, corrélation partielle</td><td><span class="bp bp-p2">Cible Phase 2</span></td><td>Atteindre Phase 2</td><td>M3 → M8</td></tr>
+      <tr><td><b>Niveau 3 — PRÉDICTIF</b></td><td>Automatisation, AIOps, supervision 360°</td><td><span class="bp bp-p3">Cible Phase 3-4</span></td><td>Phase 3-4</td><td>M8 → M18</td></tr>
+      <tr><td><b>Niveau 4 — AUTONOME</b></td><td>Self-healing, NOC cognitif, zéro intervention manuelle</td><td><span class="bp bp-ok">Vision LT</span></td><td>Vision 2-3 ans</td><td>M18+</td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="sec-t">Problèmes Structurels à Corriger (Phase 1 — URGENT)</div>
+  <div class="tbl-wrap" style="margin-bottom:20px">
+    <table><thead><tr><th>Problème</th><th>Impact opérationnel</th><th>Risque business</th><th>Priorité</th></tr></thead>
+    <tbody>
+      <tr><td><b>Absence procédures N1/N2</b></td><td>Traitement hétérogène, panique en incident</td><td>SLA non tenus, escalades non maîtrisées</td><td><span class="seuil-badge seuil-critique">URGENT</span></td></tr>
+      <tr><td><b>Supervision 100% réactive</b></td><td>Panne connue par le client avant le NOC</td><td>Perte de crédibilité, pénalités contractuelles</td><td><span class="seuil-badge seuil-critique">URGENT</span></td></tr>
+      <tr><td><b>Seuils non standardisés</b></td><td>Trop d'alertes ou alertes manquées</td><td>Incidents passés sous le radar</td><td><span class="seuil-badge seuil-critique">URGENT</span></td></tr>
+      <tr><td><b>Pas de ticketing automatique</b></td><td>Tickets créés en retard ou jamais</td><td>MTTR non mesurable, SLA indéfendables</td><td><span class="seuil-badge seuil-critique">URGENT</span></td></tr>
+      <tr><td><b>Pas de priorisation business</b></td><td>Tout traité pareil — Call Center = Siège</td><td>Temps perdu sur faible impact</td><td><span class="seuil-badge seuil-eleve">HAUTE</span></td></tr>
+      <tr><td><b>Pas de corrélation événements</b></td><td>Storm d'alertes sur panne unique</td><td>Surcharge cognitive, fatigue d'alerte</td><td><span class="seuil-badge seuil-eleve">HAUTE</span></td></tr>
+    </tbody></table>
+  </div>
+
+  <div class="sec-t">Phase 4 — Algorithmes ML par Cas d'Usage</div>
+  <div class="tbl-wrap">
+    <table><thead><tr><th>Cas d'usage</th><th>Algorithme recommandé</th><th>Données d'entrée</th><th>Prérequis</th></tr></thead>
+    <tbody>
+      <tr><td><b>Anomalie latence</b></td><td>Prophet (Facebook) / LSTM</td><td>Latence historique par lien (&gt;6 mois)</td><td>6 mois données Phase 1</td></tr>
+      <tr><td><b>Anomalie trafic</b></td><td>Isolation Forest / LOF</td><td>NetFlow historique par port/IP</td><td>Phase 2 NetFlow</td></tr>
+      <tr><td><b>Prédiction saturation BW</b></td><td>Régression linéaire / ARIMA</td><td>Utilisation BW 12 mois</td><td>12 mois données</td></tr>
+      <tr><td><b>Prédiction défaillance disque</b></td><td>Random Forest</td><td>SMART + historique I/O</td><td>Phase 2 SAM</td></tr>
+      <tr><td><b>Corrélation cause racine</b></td><td>Graph Neural Network</td><td>Topologie réseau + événements</td><td>Phase 3 SIEM</td></tr>
+      <tr><td><b>Scoring priorité incidents</b></td><td>XGBoost</td><td>Tickets historiques + métriques</td><td>6 mois tickets ITSM</td></tr>
+    </tbody></table>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: GOUVERNANCE & SLA -->
+<div class="page" id="page-gouvernance">
+  <div class="ph"><div><div class="ph-title">⚖️ Gouvernance & SLA</div><div class="ph-sub">Matrice priorités · SLA · Escalade · Organisation</div></div></div>
+
+  <div class="tabs">
+    <div class="tab on" onclick="swTab(this,'gov-sla')">SLA & Priorités</div>
+    <div class="tab" onclick="swTab(this,'gov-escalade')">Workflow Escalade</div>
+    <div class="tab" onclick="swTab(this,'gov-org')">Organisation Cible</div>
+    <div class="tab" onclick="swTab(this,'gov-kpi')">KPI NOC</div>
+  </div>
+
+  <div class="tab-panel on" id="gov-sla">
+    <div class="sec-t">SLA par Priorité</div>
+    <div class="tbl-wrap" style="margin-bottom:16px">
+      <table><thead><tr><th>Priorité</th><th>Définition</th><th>Prise en charge</th><th>Résolution cible</th><th>Notification client</th><th>Update</th></tr></thead>
+      <tbody>
+        <tr style="background:#FEF3F3"><td><span class="bp bp-p1">P1 CRITIQUE</span></td><td>Coupure totale, service inaccessible, impact fort</td><td><b style="color:var(--r)">&lt;5 min</b></td><td><b>&lt;4 heures</b></td><td>Appel + Email &lt;5min</td><td>Toutes les 15 min</td></tr>
+        <tr style="background:#FFFBF0"><td><span class="bp bp-p2">P2 MAJEUR</span></td><td>Dégradation significative, backup actif, impact partiel</td><td><b style="color:var(--a)">&lt;15 min</b></td><td><b>&lt;8 heures</b></td><td>Email &lt;15min</td><td>Toutes les 30 min</td></tr>
+        <tr><td><span class="bp bp-p3">P3 MINEUR</span></td><td>Dégradation légère, contournement possible</td><td>&lt;30 min</td><td>&lt;24 heures</td><td>Email &lt;30min</td><td>Toutes les 2h</td></tr>
+      </tbody></table>
+    </div>
+    <div class="sec-t">KPI SLA Cibles</div>
+    <div class="kgrid">
+      <div class="kcard ok"><div class="kcard-v">99,9%</div><div class="kcard-l">Dispo liens High Value</div><div class="kcard-bar"><div class="kcard-fill" style="width:99%"></div></div></div>
+      <div class="kcard ok"><div class="kcard-v">&gt;98%</div><div class="kcard-l">Taux SLA tenus</div><div class="kcard-bar"><div class="kcard-fill" style="width:98%"></div></div></div>
+      <div class="kcard info"><div class="kcard-v">&lt;5min</div><div class="kcard-l">MTTA (P1)</div><div class="kcard-bar"><div class="kcard-fill" style="width:70%"></div></div></div>
+      <div class="kcard info"><div class="kcard-v">&lt;4h</div><div class="kcard-l">MTTR cible P1</div><div class="kcard-bar"><div class="kcard-fill" style="width:60%"></div></div></div>
+      <div class="kcard warn"><div class="kcard-v">&gt;95%</div><div class="kcard-l">Taux escalade correcte N1</div><div class="kcard-bar"><div class="kcard-fill" style="width:95%"></div></div></div>
+      <div class="kcard orange"><div class="kcard-v">&gt;40%</div><div class="kcard-l">Résolution N1 sans escalade</div><div class="kcard-bar"><div class="kcard-fill" style="width:40%"></div></div></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="gov-escalade">
+    <div class="sec-t">Workflow d'Escalade NOC</div>
+    <div class="ibox info">Règle d'or : Jamais de P1 non notifié au management. Jamais d'escalade N2 sans avoir appliqué le runbook N1.</div>
+    <div style="background:#fff;border:1px solid var(--n5);border-radius:5px;padding:20px;margin-top:14px">
+      <div style="display:grid;grid-template-columns:1fr;gap:12px">
+        <div style="background:var(--rl);border-left:4px solid var(--r);border-radius:3px;padding:12px">
+          <div style="font-weight:700;font-size:13px;color:var(--r);margin-bottom:4px">🚨 N1 — ANALYSTE NOC (Immédiat)</div>
+          <div style="font-size:12px;line-height:1.6">Détection alerte SolarWinds → Qualification → Application runbook → Ouverture ticket → Notification client. Si non résolu P1 en <b>20 min</b> → escalade N2.</div>
+        </div>
+        <div style="text-align:center;font-size:20px;color:var(--n4)">↓ si non résolu P1 en 20min / P2 en 1h</div>
+        <div style="background:var(--al);border-left:4px solid var(--a);border-radius:3px;padding:12px">
+          <div style="font-weight:700;font-size:13px;color:var(--a);margin-bottom:4px">⚙️ N2 — ANALYSTE SENIOR (20 min après escalade)</div>
+          <div style="font-size:12px;line-height:1.6">Diagnostic approfondi, analyse logs, intervention corrective équipements, coordination terrain. Si non résolu N2 en <b>1h</b> → escalade N3.</div>
+        </div>
+        <div style="text-align:center;font-size:20px;color:var(--n4)">↓ si non résolu en 1h</div>
+        <div style="background:var(--pl);border-left:4px solid var(--p);border-radius:3px;padding:12px">
+          <div style="font-weight:700;font-size:13px;color:var(--p);margin-bottom:4px">🔬 N3 — EXPERT / INGÉNIEUR (1h après escalade N2)</div>
+          <div style="font-size:12px;line-height:1.6">Root Cause Analysis, escalade constructeurs/opérateurs, intervention spécialisée. Pour tout P1 : notification Management en parallèle.</div>
+        </div>
+        <div style="text-align:center;font-size:20px;color:var(--n4)">↓ P1 confirmé (toujours)</div>
+        <div style="background:var(--n6);border-left:4px solid var(--n3);border-radius:3px;padding:12px">
+          <div style="font-weight:700;font-size:13px;color:var(--n1);margin-bottom:4px">👔 MANAGEMENT NOC / SUPERVISEUR (tout P1 confirmé)</div>
+          <div style="font-size:12px;line-height:1.6">Information direction, coordination cellule de crise si nécessaire, communication vers client haut niveau, suivi jusqu'à résolution.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="gov-org">
+    <div class="sec-t">Organisation Cible NOC B2B</div>
+    <div style="background:#fff;border:1px solid var(--n5);border-radius:5px;padding:16px">
+      <div style="text-align:center;background:var(--n1);color:#fff;padding:10px;border-radius:3px;font-family:var(--cond);font-size:15px;font-weight:700;margin-bottom:12px">DIRECTEUR NOC / SOC — Stratégie · Gouvernance · Budget · Relation DG</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+        <div style="background:var(--vl);border:1px solid var(--v);border-radius:3px;padding:8px;text-align:center;font-size:11.5px"><b>SUPERVISEUR NOC</b><br><span style="color:var(--n3);font-size:10.5px">Coordination ops · Gestion P1 · Reporting</span></div>
+        <div style="background:var(--bl);border:1px solid var(--b);border-radius:3px;padding:8px;text-align:center;font-size:11.5px"><b>EXPERT N3</b><br><span style="color:var(--n3);font-size:10.5px">Incidents complexes · RCA · Ingénierie</span></div>
+        <div style="background:var(--gl);border:1px solid var(--g);border-radius:3px;padding:8px;text-align:center;font-size:11.5px"><b>INGÉNIEUR AUTOM.</b><br><span style="color:var(--n3);font-size:10.5px">Scripts · Intégration · Maintenance NMS</span></div>
+        <div style="background:var(--pl);border:1px solid var(--p);border-radius:3px;padding:8px;text-align:center;font-size:11.5px"><b>ANALYSTE SOC</b><br><span style="color:var(--n3);font-size:10.5px">SIEM · Sécurité · Audit · Compliance</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div style="background:var(--al);border:1px solid var(--a);border-radius:3px;padding:10px;font-size:11.5px"><b>ANALYSTE NOC N2</b><br><span style="color:var(--n3);font-size:10.5px">Diagnostic · Correction config · Relation client N2 · Escalade constructeur · RCA</span></div>
+        <div style="background:var(--rl);border:1px solid var(--r);border-radius:3px;padding:10px;font-size:11.5px"><b>ANALYSTE NOC N1</b><br><span style="color:var(--n3);font-size:10.5px">Surveillance alertes 24/7 · Qualification · Runbooks · Tickets ITSM · Notifications clients</span></div>
+      </div>
+    </div>
+    <div class="sec-t">Fiches de Poste — KPI N1</div>
+    <div class="tbl-wrap"><table><thead><tr><th>Missions N1</th><th>Compétences requises</th><th>KPI performance</th></tr></thead><tbody>
+      <tr><td>Surveillance alertes SolarWinds 24/7</td><td>Maîtrise SolarWinds NPM</td><td>MTTA &lt;5 min</td></tr>
+      <tr><td>Qualification et priorisation incidents</td><td>Connaissance TCP/IP, WAN, VPN</td><td>Taux escalade correcte &gt;95%</td></tr>
+      <tr><td>Application runbooks (procédures)</td><td>Utilisation outil ITSM</td><td>Tickets documentés &gt;98%</td></tr>
+      <tr><td>Notification clients selon procédures</td><td>Communication client (email, tél.)</td><td>Taux résolution N1 &gt;40%</td></tr>
+      <tr><td>Escalade N2 selon matrice criticité</td><td>Rigueur procédurale</td><td>Délai ouverture ticket &lt;3 min</td></tr>
+    </tbody></table></div>
+  </div>
+
+  <div class="tab-panel" id="gov-kpi">
+    <div class="sec-t">KPI NOC Opérationnels — Tableau de bord direction</div>
+    <div class="tbl-wrap"><table><thead><tr><th>KPI</th><th>Définition</th><th>Cible Phase 1</th><th>Cible Phase 2+</th><th>Fréquence</th></tr></thead><tbody>
+      <tr><td><b>Disponibilité réseau</b></td><td>% liens UP / total liens supervisés</td><td>&gt;99.5%</td><td><b>&gt;99.9%</b></td><td>Temps réel</td></tr>
+      <tr><td><b>MTTA (Mean Time To Acknowledge)</b></td><td>Délai détection → prise en charge</td><td>&lt;10 min</td><td><b>&lt;5 min</b></td><td>Par incident</td></tr>
+      <tr><td><b>MTTR (Mean Time To Resolve)</b></td><td>Délai détection → résolution</td><td>&lt;6h P1</td><td><b>&lt;4h P1</b></td><td>Par incident</td></tr>
+      <tr><td><b>Taux SLA tenus</b></td><td>% incidents résolus dans les délais SLA</td><td>&gt;90%</td><td><b>&gt;98%</b></td><td>Mensuel</td></tr>
+      <tr><td><b>Taux résolution N1</b></td><td>% incidents résolus sans escalade</td><td>&gt;30%</td><td><b>&gt;40%</b></td><td>Mensuel</td></tr>
+      <tr><td><b>Faux positifs</b></td><td>% alertes fermées sans action</td><td>&lt;40%</td><td><b>&lt;20%</b> (Phase 4: &lt;5%)</td><td>Mensuel</td></tr>
+      <tr><td><b>CSAT client</b></td><td>Satisfaction client post-incident</td><td>&gt;3.5/5</td><td><b>&gt;4/5</b></td><td>Post-incident</td></tr>
+      <tr><td><b>Incidents P1 non notifiés</b></td><td>P1 sans notification dans les 5min</td><td>0</td><td><b>0 absolu</b></td><td>Par incident</td></tr>
+    </tbody></table></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: ÉQUIPE NOC -->
+<div class="page" id="page-equipe">
+  <div class="ph">
+    <div><div class="ph-title">👥 Équipe NOC B2B</div><div class="ph-sub">Gestion des agents et plannings</div></div>
+    <div class="t-sp"></div>
+    <button class="btn btn-v" onclick="openModal('mo-agent')">+ Ajouter agent</button>
+  </div>
+  <div class="agent-grid" id="agent-grid"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: DOCUMENTS -->
+<div class="page" id="page-docs">
+  <div class="ph">
+    <div><div class="ph-title">📁 Bibliothèque Documents</div><div class="ph-sub">Archives & documentation NOC</div></div>
+    <div class="t-sp"></div>
+    <button class="btn btn-v" onclick="openModal('mo-doc')">+ Ajouter document</button>
+  </div>
+  <div id="doc-grid" class="doc-grid"></div>
+</div>
+
+</div><!-- /main -->
+</div><!-- /wrap -->
+
+
+<!-- ═══════════════════════════════════════════════════════ MODALES -->
+
+<!-- Modale Réunion -->
+<div class="overlay" id="mo-reunion">
+  <div class="modal"><div class="modal-hdr"><span class="modal-title">📅 Nouvelle Réunion</span><button class="modal-close" onclick="closeModal('mo-reunion')">✕</button></div>
+  <div class="modal-body">
+    <div class="frow"><div class="fgrp"><label>Date *</label><input type="date" id="r-date"></div><div class="fgrp"><label>Heure *</label><input type="time" id="r-heure"></div></div>
+    <div class="frow"><div class="fgrp"><label>Type *</label><select id="r-type"><option>Réunion hebdo NOC</option><option>Point P1 post-incident</option><option>Comité pilotage</option><option>Formation équipe</option><option>Revue mensuelle SLA</option><option>Réunion d'urgence</option></select></div><div class="fgrp"><label>Statut</label><select id="r-statut"><option>Planifiée</option><option>En cours</option><option>Terminée</option><option>Annulée</option></select></div></div>
+    <div class="fgrp"><label>Participants</label><input type="text" id="r-participants" placeholder="Ex: Dean, Ali, Kouassi, N2 Team"></div>
+    <div class="fgrp"><label>Lieu / Lien visio</label><input type="text" id="r-lieu" placeholder="Ex: Salle NOC / Teams Meeting"></div>
+    <div class="fgrp"><label>Ordre du jour</label><textarea id="r-odj" rows="4" placeholder="Points à aborder..."></textarea></div>
+    <div class="fgrp"><label>Notes</label><textarea id="r-notes" rows="3"></textarea></div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-reunion')">Annuler</button><button class="btn btn-v" onclick="saveReunion()">💾 Enregistrer</button></div>
+  </div>
+</div>
+
+<!-- Modale CR -->
+<div class="overlay" id="mo-cr">
+  <div class="modal wide"><div class="modal-hdr"><span class="modal-title">📝 Nouveau Compte-Rendu</span><button class="modal-close" onclick="closeModal('mo-cr')">✕</button></div>
+  <div class="modal-body">
+    <div class="frow"><div class="fgrp"><label>Date de la réunion *</label><input type="date" id="cr-date"></div><div class="fgrp"><label>Rédigé par *</label><input type="text" id="cr-auteur" placeholder="Prénom NOM"></div></div>
+    <div class="fgrp"><label>Intitulé de la réunion *</label><input type="text" id="cr-titre" placeholder="Ex: Réunion hebdo NOC - Semaine 21"></div>
+    <div class="fgrp"><label>Participants</label><input type="text" id="cr-participants"></div>
+    <div class="fgrp"><label>Ordre du jour</label><textarea id="cr-odj" rows="3"></textarea></div>
+    <div class="fgrp"><label>Points discutés / Résumé *</label><textarea id="cr-points" rows="5" placeholder="Résumé des échanges, décisions, constats..."></textarea></div>
+    <div class="fgrp"><label>Actions décidées</label><textarea id="cr-actions" rows="4" placeholder="Liste des actions — Qui fait quoi avant quand..."></textarea></div>
+    <div class="fgrp"><label>Prochaine réunion</label><input type="text" id="cr-next" placeholder="Ex: Jeudi 29 mai 2025 - 14h00"></div>
+    <div class="fgrp"><label>Fichiers joints (upload)</label>
+      <div class="drop-zone" id="cr-drop" onclick="document.getElementById('cr-file').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event,'cr')">
+        <div>📎 Cliquer ou glisser-déposer les fichiers</div><p id="cr-file-list">Aucun fichier sélectionné</p>
+      </div>
+      <input type="file" id="cr-file" multiple style="display:none" onchange="handleFiles(this,'cr')">
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-cr')">Annuler</button><button class="btn btn-v" onclick="saveCR()">💾 Enregistrer dans Firebase</button></div>
+  </div>
+</div>
+
+<!-- Modale Action -->
+<div class="overlay" id="mo-action">
+  <div class="modal"><div class="modal-hdr"><span class="modal-title">📋 Nouvelle Action</span><button class="modal-close" onclick="closeModal('mo-action')">✕</button></div>
+  <div class="modal-body">
+    <div class="fgrp"><label>Intitulé de l'action *</label><input type="text" id="ac-titre" placeholder="Décrivez l'action à réaliser"></div>
+    <div class="frow"><div class="fgrp"><label>Responsable *</label><input type="text" id="ac-resp"></div><div class="fgrp"><label>Date échéance *</label><input type="date" id="ac-date"></div></div>
+    <div class="frow"><div class="fgrp"><label>Priorité</label><select id="ac-prio"><option>Haute</option><option>Moyenne</option><option>Basse</option></select></div><div class="fgrp"><label>Statut</label><select id="ac-statut"><option value="a_faire">À faire</option><option value="en_cours">En cours</option><option value="done">Terminée</option><option value="bloquee">Bloquée</option></select></div></div>
+    <div class="fgrp"><label>Source (réunion, incident…)</label><input type="text" id="ac-source" placeholder="Ex: Réunion hebdo 20/05 / Incident INC-042"></div>
+    <div class="fgrp"><label>Avancement (%)</label><input type="range" id="ac-avc" min="0" max="100" step="10" value="0" oninput="document.getElementById('ac-avc-v').textContent=this.value+'%'"> <span id="ac-avc-v">0%</span></div>
+    <div class="fgrp"><label>Notes</label><textarea id="ac-notes" rows="3"></textarea></div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-action')">Annuler</button><button class="btn btn-v" onclick="saveAction()">💾 Enregistrer</button></div>
+  </div>
+</div>
+
+<!-- Modale Incident -->
+<div class="overlay" id="mo-incident">
+  <div class="modal wide"><div class="modal-hdr"><span class="modal-title">🚨 Déclarer un Incident</span><button class="modal-close" onclick="closeModal('mo-incident')">✕</button></div>
+  <div class="modal-body">
+    <div class="frow"><div class="fgrp"><label>Référence ticket</label><input type="text" id="inc-ref" placeholder="INC-XXXXX (auto si vide)"></div><div class="fgrp"><label>Date / Heure début *</label><input type="datetime-local" id="inc-debut"></div></div>
+    <div class="frow"><div class="fgrp"><label>Client / Site *</label><input type="text" id="inc-client" placeholder="Nom client — Site concerné"></div><div class="fgrp"><label>Priorité *</label><select id="inc-prio"><option>P1 - Critique</option><option>P2 - Majeur</option><option>P3 - Mineur</option></select></div></div>
+    <div class="frow"><div class="fgrp"><label>Type d'incident</label><select id="inc-type"><option>Lien WAN DOWN</option><option>Dégradation performance</option><option>VPS/VPC Cloud</option><option>Email Pro</option><option>VoIP / IPBX</option><option>Sécurité / Intrusion</option><option>Backup KO</option><option>Serveur DOWN</option><option>Firewall</option><option>SIM Data</option><option>Autre</option></select></div><div class="fgrp"><label>Statut</label><select id="inc-statut"><option value="ouvert">Ouvert</option><option value="en_cours">En cours</option><option value="resolu">Résolu</option><option value="ferme">Fermé</option></select></div></div>
+    <div class="fgrp"><label>Description *</label><textarea id="inc-desc" rows="3" placeholder="Symptômes observés, impact constaté..."></textarea></div>
+    <div class="fgrp"><label>Cause racine (si connue)</label><input type="text" id="inc-cause"></div>
+    <div class="fgrp"><label>Actions effectuées</label><textarea id="inc-actions" rows="3"></textarea></div>
+    <div class="frow"><div class="fgrp"><label>Analyste N1</label><input type="text" id="inc-n1"></div><div class="fgrp"><label>Date / Heure résolution</label><input type="datetime-local" id="inc-fin"></div></div>
+    <div class="sec-t" style="margin-top:10px">Checklist Communication</div>
+    <div id="inc-chk">
+      <div class="chk-item"><input type="checkbox" id="chk1"><label for="chk1">Ticket ITSM ouvert dans les 3 min</label></div>
+      <div class="chk-item"><input type="checkbox" id="chk2"><label for="chk2">Client notifié (appel si P1, email si P2)</label></div>
+      <div class="chk-item"><input type="checkbox" id="chk3"><label for="chk3">Template communication envoyé (C-01 ou C-04)</label></div>
+      <div class="chk-item"><input type="checkbox" id="chk4"><label for="chk4">Escalade N2 si non résolu (P1:20min, P2:1h)</label></div>
+      <div class="chk-item"><input type="checkbox" id="chk5"><label for="chk5">Template clôture envoyé (C-03) après résolution</label></div>
+      <div class="chk-item"><input type="checkbox" id="chk6"><label for="chk6">RCA documenté dans le ticket</label></div>
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-incident')">Annuler</button><button class="btn btn-v" onclick="saveIncident()">💾 Enregistrer dans Firebase</button></div>
+  </div>
+</div>
+
+<!-- Modale RFC Changement -->
+<div class="overlay" id="mo-chg">
+  <div class="modal"><div class="modal-hdr"><span class="modal-title">🔧 Nouveau RFC — Demande de Changement</span><button class="modal-close" onclick="closeModal('mo-chg')">✕</button></div>
+  <div class="modal-body">
+    <div class="frow"><div class="fgrp"><label>Référence RFC</label><input type="text" id="chg-ref" placeholder="RFC-XXXXX"></div><div class="fgrp"><label>Date planifiée *</label><input type="datetime-local" id="chg-date"></div></div>
+    <div class="fgrp"><label>Titre du changement *</label><input type="text" id="chg-titre"></div>
+    <div class="frow"><div class="fgrp"><label>Type</label><select id="chg-type"><option>Standard</option><option>Normal</option><option>Urgent</option><option>Majeur</option></select></div><div class="fgrp"><label>Risque</label><select id="chg-risque"><option>Faible</option><option>Moyen</option><option>Élevé</option><option>Critique</option></select></div></div>
+    <div class="fgrp"><label>Demandeur</label><input type="text" id="chg-demandeur"></div>
+    <div class="fgrp"><label>Description du changement</label><textarea id="chg-desc" rows="3"></textarea></div>
+    <div class="fgrp"><label>Plan de rollback</label><textarea id="chg-rollback" rows="2" placeholder="Procédure de retour arrière si le changement échoue..."></textarea></div>
+    <div class="fgrp"><label>Statut</label><select id="chg-statut"><option>Planifié</option><option>En attente approbation</option><option>Approuvé</option><option>En cours</option><option>Terminé</option><option>Annulé</option></select></div>
+    <div class="sec-t">Checklist pré-changement</div>
+    <div>
+      <div class="chk-item"><input type="checkbox" id="cc1"><label for="cc1">Fenêtre de maintenance définie et communiquée</label></div>
+      <div class="chk-item"><input type="checkbox" id="cc2"><label for="cc2">Client notifié du changement planifié</label></div>
+      <div class="chk-item"><input type="checkbox" id="cc3"><label for="cc3">Plan de rollback validé par N2/N3</label></div>
+      <div class="chk-item"><input type="checkbox" id="cc4"><label for="cc4">Backup configuration effectué avant intervention</label></div>
+      <div class="chk-item"><input type="checkbox" id="cc5"><label for="cc5">N2 disponible durant l'intervention</label></div>
+      <div class="chk-item"><input type="checkbox" id="cc6"><label for="cc6">Tests post-changement définis</label></div>
+      <div class="chk-item"><input type="checkbox" id="cc7"><label for="cc7">Approbation du Superviseur NOC obtenue</label></div>
+      <div class="chk-item"><input type="checkbox" id="cc8"><label for="cc8">CMDB mise à jour après changement</label></div>
+    </div>
+  </div>
+  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-chg')">Annuler</button><button class="btn btn-v" onclick="saveChg()">💾 Enregistrer</button></div>
+  </div>
+</div>
+
+<!-- Modale Agent -->
+<div class="overlay" id="mo-agent">
+  <div class="modal"><div class="modal-hdr"><span class="modal-title">👤 Ajouter / Modifier Agent</span><button class="modal-close" onclick="closeModal('mo-agent')">✕</button></div>
+  <div class="modal-body">
+    <div class="frow"><div class="fgrp"><label>Nom complet *</label><input type="text" id="ag-nom"></div><div class="fgrp"><label>Niveau</label><select id="ag-niveau"><option>N1 — Analyste</option><option>N2 — Analyste Senior</option><option>N3 — Expert</option><option>Superviseur NOC</option><option>Ingénieur Automatisation</option><option>Analyste SOC</option><option>Directeur NOC/SOC</option></select></div></div>
+    <div class="frow"><div class="fgrp"><label>Email</label><input type="email" id="ag-email"></div><div class="fgrp"><label>Téléphone</label><input type="text" id="ag-tel"></div></div>
+    <div class="frow"><div class="fgrp"><label>Shift / Planning</label><select id="ag-shift"><option>Matin (7h-15h)</option><option>Après-midi (15h-23h)</option><option>Nuit (23h-7h)</option><option>Journée (8h-17h)</option><option>Astreinte</option></select></div><div class="fgrp"><label>Statut</label><select id="ag-statut"><option>Actif</option><option>En congé</option><option>En formation</option><option>Inactif</option></select></div></div>
+    <div class="fgrp"><label>Spécialités / Compétences</label><input type="text" id="ag-skills" placeholder="Ex: SolarWinds, VoIP, Firewall, Python..."></div>
+    <div class="fgrp"><label>Notes</label><textarea id="ag-notes" rows="2"></textarea></div>
+    <input type="hidden" id="ag-id">
+  </div>
+  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-agent')">Annuler</button><button class="btn btn-v" onclick="saveAgent()">💾 Enregistrer</button></div>
+  </div>
+</div>
+
+<!-- Modale Document -->
+<div class="overlay" id="mo-doc">
+  <div class="modal"><div class="modal-hdr"><span class="modal-title">📁 Ajouter Document</span><button class="modal-close" onclick="closeModal('mo-doc')">✕</button></div>
+  <div class="modal-body">
+    <div class="fgrp"><label>Titre du document *</label><input type="text" id="doc-titre"></div>
+    <div class="frow"><div class="fgrp"><label>Catégorie</label><select id="doc-cat"><option>Procédure NOC</option><option>Runbook</option><option>SLA / Contrat</option><option>Rapport d'incident</option><option>Compte-rendu</option><option>Formation</option><option>Architecture réseau</option><option>Autre</option></select></div><div class="fgrp"><label>Version</label><input type="text" id="doc-ver" placeholder="v1.0"></div></div>
+    <div class="fgrp"><label>Description</label><textarea id="doc-desc" rows="2"></textarea></div>
+    <div class="fgrp"><label>Fichier (upload)</label>
+      <div class="drop-zone" onclick="document.getElementById('doc-file').click()" ondragover="event.preventDefault()" ondrop="handleDrop(event,'doc')">
+        <div>📎 Cliquer ou glisser-déposer</div><p id="doc-file-nm">Aucun fichier</p>
+      </div>
+      <input type="file" id="doc-file" style="display:none" onchange="document.getElementById('doc-file-nm').textContent=this.files[0]?.name||'Aucun fichier'">
+    </div>
+    <input type="hidden" id="doc-id">
+  </div>
+  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-doc')">Annuler</button><button class="btn btn-v" onclick="saveDoc()">💾 Enregistrer dans Firebase</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let DB = {
+  reunions:[], cr:[], plans:[], incidents:[], changements:[], agents:[], docs:[]
+};
+let _cr_files = [];
+let _activeFilters = {};
+
+// ═══════════════════════════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════════════════════════
+function tick(){
+  const now = new Date();
+  document.getElementById('t-clock').textContent =
+    now.toLocaleDateString('fr-FR',{weekday:'short',day:'2-digit',month:'short'}) + ' ' +
+    now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(tick,1000); tick();
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════
+function nav(el){
+  document.querySelectorAll('.si').forEach(s=>s.classList.remove('on'));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById('page-'+el.dataset.page).classList.add('on');
+}
+
+// ═══════════════════════════════════════════════════════════
+// TABS
+// ═══════════════════════════════════════════════════════════
+function swTab(el, panelId){
+  const parent = el.closest('.page') || document.body;
+  parent.querySelectorAll('.tab').forEach(t=>t.classList.remove('on'));
+  parent.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('on'));
+  el.classList.add('on');
+  document.getElementById(panelId).classList.add('on');
+}
+
+// ═══════════════════════════════════════════════════════════
+// MODALES
+// ═══════════════════════════════════════════════════════════
+function openModal(id){
+  document.getElementById(id).classList.add('on');
+  // Init datetime-local fields with now
+  const dtFields = document.querySelectorAll('#'+id+' input[type=datetime-local]');
+  dtFields.forEach(f=>{ if(!f.value) f.value = new Date().toISOString().slice(0,16); });
+  const dFields = document.querySelectorAll('#'+id+' input[type=date]');
+  dFields.forEach(f=>{ if(!f.value) f.value = new Date().toISOString().slice(0,10); });
+}
+function closeModal(id){
+  document.getElementById(id).classList.remove('on');
+}
+// Close on overlay click
+document.querySelectorAll('.overlay').forEach(o=>{
+  o.addEventListener('click',e=>{ if(e.target===o) closeModal(o.id); });
+});
+
+// ═══════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════
+function toast(msg,type='ok'){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className=`show ${type}`;
+  setTimeout(()=>t.classList.remove('show'),3500);
+}
+
+// ═══════════════════════════════════════════════════════════
+// FIREBASE UTILS
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('fbReady',()=>{
+  document.getElementById('fb-dot').className='ok';
+  document.getElementById('fb-lbl').textContent='Firebase OK';
+  loadAll();
+});
+
+async function fbSave(colName, data){
+  return await window._add(window._col(window._db, colName), {...data, createdAt: new Date().toISOString()});
+}
+async function fbUpdate(colName, id, data){
+  return await window._upd(window._doc(window._db, colName, id), {...data, updatedAt: new Date().toISOString()});
+}
+async function fbDelete(colName, id){
+  return await window._del(window._doc(window._db, colName, id));
+}
+async function fbLoad(colName){
+  try{
+    const snap = await window._gets(window._q(window._col(window._db,colName), window._ord('createdAt','desc')));
+    return snap.docs.map(d=>({id:d.id,...d.data()}));
+  }catch(e){ return []; }
+}
+
+async function loadAll(){
+  const dot = document.getElementById('fb-dot');
+  dot.className='load';
+  try{
+    const [r,c,p,inc,chg,ag,docs] = await Promise.all([
+      fbLoad('noc_reunions'), fbLoad('noc_cr'), fbLoad('noc_actions'),
+      fbLoad('noc_incidents'), fbLoad('noc_chg'), fbLoad('noc_agents'), fbLoad('noc_docs')
+    ]);
+    DB.reunions=r; DB.cr=c; DB.plans=p; DB.incidents=inc;
+    DB.changements=chg; DB.agents=ag; DB.docs=docs;
+    dot.className='ok';
+    renderAll();
+    toast('Données chargées depuis Firebase','ok');
+  }catch(e){
+    dot.className='err';
+    toast('Erreur chargement Firebase: '+e.message,'err');
+  }
+}
+
+function renderAll(){
+  updateBadges();
+  renderDashboard();
+  renderReunions();
+  renderCR();
+  renderPlans();
+  renderIncidents();
+  renderChg();
+  renderAgents();
+  renderDocs();
+}
+
+// ═══════════════════════════════════════════════════════════
+// BADGES
+// ═══════════════════════════════════════════════════════════
+function updateBadges(){
+  const set = (id,n) => { const el=document.getElementById(id); if(el){el.textContent=n;el.style.display=n>0?'':'none';} };
+  set('b-reunions', DB.reunions.length);
+  set('b-cr', DB.cr.length);
+  set('b-plans', DB.plans.filter(p=>p.statut!='done').length);
+  set('b-incidents', DB.incidents.filter(i=>i.statut==='ouvert'||i.statut==='en_cours').length);
+  set('b-chg', DB.changements.filter(c=>c.statut==='Planifié'||c.statut==='Approuvé').length);
+  set('b-agents', DB.agents.length);
+  set('b-docs', DB.docs.length);
+}
+
+// ═══════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════
+function renderDashboard(){
+  const openInc = DB.incidents.filter(i=>i.statut==='ouvert'||i.statut==='en_cours');
+  const p1 = openInc.filter(i=>i.priorite==='P1 - Critique');
+  const p2 = openInc.filter(i=>i.priorite==='P2 - Majeur');
+  const resolved = DB.incidents.filter(i=>i.statut==='resolu');
+  const now = Date.now();
+  const mttrValues = resolved.filter(i=>i.debut&&i.fin).map(i=>{
+    const h = (new Date(i.fin)-new Date(i.debut))/3600000;
+    return h;
+  });
+  const mttr = mttrValues.length ? (mttrValues.reduce((a,b)=>a+b,0)/mttrValues.length).toFixed(1) : '—';
+  const late = DB.plans.filter(p=>p.statut!='done'&&p.echeance&&new Date(p.echeance)<new Date());
+
+  document.getElementById('k-p1').textContent = p1.length;
+  document.getElementById('k-p2').textContent = p2.length;
+  document.getElementById('k-mttr').textContent = mttr;
+  document.getElementById('k-res').textContent = resolved.length;
+  document.getElementById('k-plans').textContent = DB.plans.filter(p=>p.statut==='en_cours').length;
+  document.getElementById('k-late').textContent = late.length;
+
+  // Incidents récents
+  const di = document.getElementById('dash-incidents');
+  const recent = DB.incidents.slice(0,8);
+  di.innerHTML = recent.length ? recent.map(i=>`
+    <tr>
+      <td><span style="font-family:var(--mono);font-size:10.5px">${i.ref||i.id.slice(-6)}</span></td>
+      <td><b>${i.client||'—'}</b></td>
+      <td><span style="font-size:11px;color:var(--n3)">${i.type||'—'}</span></td>
+      <td>${prioBadge(i.priorite)}</td>
+      <td>${statutBadge(i.statut)}</td>
+      <td style="font-family:var(--mono);font-size:10.5px">${fmtDate(i.debut)}</td>
+      <td style="font-family:var(--mono);font-size:10.5px">${calcMTTR(i.debut,i.fin)}</td>
+      <td><button class="btn btn-sm btn-out" onclick="deleteItem('noc_incidents','${i.id}','incidents')">🗑</button></td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty">Aucun incident enregistré</td></tr>';
+
+  // Actions en retard
+  const dl = document.getElementById('dash-late');
+  dl.innerHTML = late.length ? late.map(a=>`
+    <tr>
+      <td><b>${a.titre||'—'}</b></td>
+      <td>${a.responsable||'—'}</td>
+      <td style="color:var(--r);font-weight:700">${fmtDate(a.echeance)}</td>
+      <td><span style="font-size:11px;color:var(--n3)">${a.source||'—'}</span></td>
+    </tr>`).join('') : '<tr><td colspan="4" class="empty">Aucune action en retard ✓</td></tr>';
+
+  // Prochaines réunions
+  const dr = document.getElementById('dash-reunions');
+  const upcoming = DB.reunions.filter(r=>r.date>=new Date().toISOString().slice(0,10)).slice(0,5);
+  dr.innerHTML = upcoming.length ? upcoming.map(r=>`
+    <tr>
+      <td style="font-family:var(--mono);font-size:11px">${r.date||'—'} ${r.heure||''}</td>
+      <td><b>${r.type||'—'}</b></td>
+      <td style="font-size:11.5px">${r.participants||'—'}</td>
+      <td style="font-size:11.5px">${r.lieu||'—'}</td>
+    </tr>`).join('') : '<tr><td colspan="4" class="empty">Aucune réunion planifiée</td></tr>';
+}
+
+// ═══════════════════════════════════════════════════════════
+// RÉUNIONS
+// ═══════════════════════════════════════════════════════════
+function renderReunions(){
+  const tb = document.getElementById('tbl-reunions');
+  tb.innerHTML = DB.reunions.length ? DB.reunions.map(r=>`
+    <tr>
+      <td style="font-family:var(--mono);font-size:11px;font-weight:700">${r.date||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px">${r.heure||'—'}</td>
+      <td><b>${r.type||'—'}</b></td>
+      <td style="font-size:11.5px">${r.participants||'—'}</td>
+      <td style="font-size:11.5px">${r.lieu||'—'}</td>
+      <td>${statutBadge(r.statut)}</td>
+      <td>${DB.cr.some(c=>c.titre&&c.titre.includes(r.type))?'<span class="bp bp-ok">CR</span>':'<span style="font-size:10px;color:var(--n4)">Non</span>'}</td>
+      <td style="display:flex;gap:4px">
+        <button class="btn btn-sm btn-out" onclick="openModal('mo-cr');document.getElementById('cr-titre').value='CR — ${(r.type||'').replace(/'/g,'')}'">📝 CR</button>
+        <button class="btn btn-sm btn-out" onclick="deleteItem('noc_reunions','${r.id}','reunions')">🗑</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty"><div class="empty-ico">📅</div><div class="empty-txt">Aucune réunion enregistrée</div></td></tr>';
+}
+
+async function saveReunion(){
+  const data = {
+    date: v('r-date'), heure: v('r-heure'), type: v('r-type'),
+    statut: v('r-statut'), participants: v('r-participants'),
+    lieu: v('r-lieu'), odj: v('r-odj'), notes: v('r-notes')
+  };
+  if(!data.date||!data.heure) return toast('Date et heure requis','err');
+  try{
+    const ref = await fbSave('noc_reunions', data);
+    DB.reunions.unshift({id:ref.id,...data});
+    toast('Réunion enregistrée ✓','ok');
+    closeModal('mo-reunion');
+    renderAll();
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CR
+// ═══════════════════════════════════════════════════════════
+function renderCR(){
+  const tb = document.getElementById('tbl-cr');
+  tb.innerHTML = DB.cr.length ? DB.cr.map(c=>`
+    <tr>
+      <td style="font-family:var(--mono);font-size:11px">${c.date||'—'}</td>
+      <td><b>${c.titre||'—'}</b></td>
+      <td>${c.auteur||'—'}</td>
+      <td style="font-size:11.5px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.points||'—'}</td>
+      <td style="font-size:11.5px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.actions||'—'}</td>
+      <td>${(c.files||[]).length>0?`<span class="bp bp-ok">${c.files.length} fichier(s)</span>`:'<span style="font-size:10px;color:var(--n4)">—</span>'}</td>
+      <td><button class="btn btn-sm btn-out" onclick="deleteItem('noc_cr','${c.id}','cr')">🗑</button></td>
+    </tr>`).join('') : '<tr><td colspan="7" class="empty"><div class="empty-ico">📝</div><div class="empty-txt">Aucun compte-rendu</div></td></tr>';
+}
+
+async function saveCR(){
+  const data = {
+    date: v('cr-date'), auteur: v('cr-auteur'), titre: v('cr-titre'),
+    participants: v('cr-participants'), odj: v('cr-odj'),
+    points: v('cr-points'), actions: v('cr-actions'), next: v('cr-next'),
+    files: []
+  };
+  if(!data.titre) return toast('Titre requis','err');
+  try{
+    // Upload files if any
+    if(_cr_files.length > 0){
+      for(const f of _cr_files){
+        if(f.size < 1048576){
+          const b64 = await toBase64(f);
+          data.files.push({name:f.name,size:f.size,data:b64});
+        }else{
+          // Firebase Storage upload
+          const sRef = window._ref(window._st, `noc_cr/${Date.now()}_${f.name}`);
+          await new Promise((res,rej)=>{
+            const task = window._upb(sRef, f);
+            task.on('state_changed',null,rej,()=>window._url(sRef).then(url=>{
+              data.files.push({name:f.name,size:f.size,url});
+              res();
+            }));
+          });
+        }
+      }
+    }
+    const ref = await fbSave('noc_cr', data);
+    DB.cr.unshift({id:ref.id,...data});
+    _cr_files = [];
+    document.getElementById('cr-file-list').textContent = 'Aucun fichier sélectionné';
+    toast('Compte-rendu enregistré ✓','ok');
+    closeModal('mo-cr');
+    renderAll();
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PLANS D'ACTION
+// ═══════════════════════════════════════════════════════════
+function renderPlans(filter='all'){
+  let data = DB.plans;
+  const now = new Date();
+  if(filter==='en_cours') data=data.filter(p=>p.statut==='en_cours');
+  else if(filter==='late') data=data.filter(p=>p.statut!='done'&&p.echeance&&new Date(p.echeance)<now);
+  else if(filter==='done') data=data.filter(p=>p.statut==='done');
+  const tb = document.getElementById('tbl-plans');
+  const late = p => p.statut!='done' && p.echeance && new Date(p.echeance)<now;
+  tb.innerHTML = data.length ? data.map(p=>`
+    <tr>
+      <td><b>${p.titre||'—'}</b></td>
+      <td>${p.responsable||'—'}</td>
+      <td style="font-size:11.5px;color:var(--n3)">${p.source||'—'}</td>
+      <td><span class="bp ${p.priorite==='Haute'?'bp-p1':p.priorite==='Moyenne'?'bp-p2':'bp-p3'}">${p.priorite||'—'}</span></td>
+      <td style="font-family:var(--mono);font-size:10.5px;${late(p)?'color:var(--r);font-weight:700':''}">${p.echeance||'—'}</td>
+      <td>${statutBadge(p.statut)}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="width:80px;height:8px;background:var(--n5);border-radius:4px;overflow:hidden">
+            <div style="width:${p.avancement||0}%;height:100%;background:var(--g);border-radius:4px"></div>
+          </div>
+          <span style="font-family:var(--mono);font-size:10px">${p.avancement||0}%</span>
+        </div>
+      </td>
+      <td style="display:flex;gap:4px">
+        <button class="btn btn-sm btn-out" onclick="markDone('${p.id}')">✓</button>
+        <button class="btn btn-sm btn-out" onclick="deleteItem('noc_actions','${p.id}','plans')">🗑</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty"><div class="empty-ico">📋</div><div class="empty-txt">Aucune action</div></td></tr>';
+}
+
+function filterActions(f){ renderPlans(f); }
+
+async function saveAction(){
+  const data = {
+    titre: v('ac-titre'), responsable: v('ac-resp'), echeance: v('ac-date'),
+    priorite: v('ac-prio'), statut: v('ac-statut'), source: v('ac-source'),
+    avancement: v('ac-avc'), notes: v('ac-notes')
+  };
+  if(!data.titre) return toast('Titre requis','err');
+  try{
+    const ref = await fbSave('noc_actions', data);
+    DB.plans.unshift({id:ref.id,...data});
+    toast('Action enregistrée ✓','ok');
+    closeModal('mo-action');
+    renderAll();
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+async function markDone(id){
+  try{
+    await fbUpdate('noc_actions', id, {statut:'done', avancement:'100'});
+    const p = DB.plans.find(x=>x.id===id);
+    if(p){ p.statut='done'; p.avancement='100'; }
+    renderAll();
+    toast('Action marquée terminée ✓','ok');
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// INCIDENTS
+// ═══════════════════════════════════════════════════════════
+function renderIncidents(filter='all'){
+  let data = DB.incidents;
+  if(filter==='P1') data=data.filter(i=>i.priorite==='P1 - Critique');
+  else if(filter==='P2') data=data.filter(i=>i.priorite==='P2 - Majeur');
+  else if(filter==='open') data=data.filter(i=>i.statut==='ouvert'||i.statut==='en_cours');
+  else if(filter==='done') data=data.filter(i=>i.statut==='resolu'||i.statut==='ferme');
+  const tb = document.getElementById('tbl-incidents');
+  tb.innerHTML = data.length ? data.map(i=>`
+    <tr>
+      <td><span style="font-family:var(--mono);font-size:10px">${i.ref||i.id.slice(-6)}</span></td>
+      <td style="font-family:var(--mono);font-size:10.5px">${fmtDate(i.debut)}</td>
+      <td><b>${i.client||'—'}</b></td>
+      <td style="font-size:11.5px">${i.type||'—'}</td>
+      <td>${prioBadge(i.priorite)}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px">${i.description||'—'}</td>
+      <td>${statutBadge(i.statut)}</td>
+      <td style="font-family:var(--mono);font-size:10.5px">${calcMTTR(i.debut,i.fin)}</td>
+      <td style="display:flex;gap:4px">
+        ${i.statut!=='resolu'?`<button class="btn btn-sm btn-g" onclick="resolveInc('${i.id}')">✓ Résoudre</button>`:''}
+        <button class="btn btn-sm btn-out" onclick="deleteItem('noc_incidents','${i.id}','incidents')">🗑</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="9" class="empty"><div class="empty-ico">🚨</div><div class="empty-txt">Aucun incident</div></td></tr>';
+}
+
+function filterInc(f){ renderIncidents(f); }
+
+async function saveIncident(){
+  const ref = v('inc-ref') || 'INC-'+Date.now().toString().slice(-6);
+  const data = {
+    ref, debut: v('inc-debut'), fin: v('inc-fin'),
+    client: v('inc-client'), priorite: v('inc-prio'),
+    type: v('inc-type'), statut: v('inc-statut'),
+    description: v('inc-desc'), cause: v('inc-cause'),
+    actions: v('inc-actions'), analyste: v('inc-n1')
+  };
+  if(!data.client||!data.description) return toast('Client et description requis','err');
+  try{
+    const r = await fbSave('noc_incidents', data);
+    DB.incidents.unshift({id:r.id,...data});
+    toast(`Incident ${ref} enregistré ✓`,'ok');
+    closeModal('mo-incident');
+    renderAll();
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+async function resolveInc(id){
+  const now = new Date().toISOString().slice(0,16);
+  try{
+    await fbUpdate('noc_incidents',id,{statut:'resolu',fin:now});
+    const inc = DB.incidents.find(x=>x.id===id);
+    if(inc){ inc.statut='resolu'; inc.fin=now; }
+    renderAll();
+    toast('Incident résolu ✓','ok');
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHANGEMENTS RFC
+// ═══════════════════════════════════════════════════════════
+function renderChg(){
+  const tb = document.getElementById('tbl-chg');
+  tb.innerHTML = DB.changements.length ? DB.changements.map(c=>`
+    <tr>
+      <td style="font-family:var(--mono);font-size:10.5px">${c.ref||'—'}</td>
+      <td><b>${c.titre||'—'}</b></td>
+      <td><span class="bp bp-p3">${c.type||'—'}</span></td>
+      <td style="font-family:var(--mono);font-size:10.5px">${fmtDate(c.date)}</td>
+      <td>${c.demandeur||'—'}</td>
+      <td><span class="seuil-badge ${c.risque==='Élevé'||c.risque==='Critique'?'seuil-eleve':c.risque==='Moyen'?'seuil-moyen':''}">${c.risque||'—'}</span></td>
+      <td>${statutBadge(c.statut)}</td>
+      <td><button class="btn btn-sm btn-out" onclick="deleteItem('noc_chg','${c.id}','changements')">🗑</button></td>
+    </tr>`).join('') : '<tr><td colspan="8" class="empty"><div class="empty-ico">🔧</div><div class="empty-txt">Aucun RFC</div></td></tr>';
+}
+
+async function saveChg(){
+  const ref = v('chg-ref') || 'RFC-'+Date.now().toString().slice(-6);
+  const data = {
+    ref, date: v('chg-date'), titre: v('chg-titre'),
+    type: v('chg-type'), risque: v('chg-risque'),
+    demandeur: v('chg-demandeur'), description: v('chg-desc'),
+    rollback: v('chg-rollback'), statut: v('chg-statut')
+  };
+  if(!data.titre) return toast('Titre requis','err');
+  try{
+    const r = await fbSave('noc_chg', data);
+    DB.changements.unshift({id:r.id,...data});
+    toast(`RFC ${ref} enregistré ✓`,'ok');
+    closeModal('mo-chg');
+    renderAll();
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// AGENTS
+// ═══════════════════════════════════════════════════════════
+const AG_COLORS = ['#E05A00','#1B4F72','#1A6B3C','#5B2C8D','#B07700','#B22222'];
+function renderAgents(){
+  const grid = document.getElementById('agent-grid');
+  if(!DB.agents.length){
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="empty-ico">👥</div><div class="empty-txt">Aucun agent enregistré</div></div>';
+    return;
+  }
+  grid.innerHTML = DB.agents.map((a,i)=>{
+    const initials = (a.nom||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+    const color = AG_COLORS[i%AG_COLORS.length];
+    const isActive = a.statut==='Actif';
+    return `<div class="agent-card">
+      <div class="agent-av" style="background:${color}">${initials}</div>
+      <div style="flex:1">
+        <div class="agent-name">${a.nom||'—'}</div>
+        <div class="agent-role">${a.niveau||'—'}</div>
+        ${a.shift?`<div style="font-size:10.5px;color:var(--n4);margin-top:2px">🕐 ${a.shift}</div>`:''}
+        ${a.skills?`<div style="font-size:10.5px;color:var(--b);margin-top:3px">${a.skills}</div>`:''}
+        <div class="agent-actions">
+          <span class="seuil-badge ${isActive?'seuil-moyen':'seuil-eleve'}" style="${isActive?'background:var(--gl);color:var(--g)':''}">${a.statut||'—'}</span>
+          <button class="btn btn-sm btn-out" onclick="deleteItem('noc_agents','${a.id}','agents')">🗑</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function saveAgent(){
+  const data = {
+    nom: v('ag-nom'), niveau: v('ag-niveau'), email: v('ag-email'),
+    tel: v('ag-tel'), shift: v('ag-shift'), statut: v('ag-statut'),
+    skills: v('ag-skills'), notes: v('ag-notes')
+  };
+  if(!data.nom) return toast('Nom requis','err');
+  try{
+    const r = await fbSave('noc_agents', data);
+    DB.agents.unshift({id:r.id,...data});
+    toast('Agent enregistré ✓','ok');
+    closeModal('mo-agent');
+    renderAll();
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// DOCUMENTS
+// ═══════════════════════════════════════════════════════════
+const FI={'pdf':'📄','docx':'📝','xlsx':'📊','pptx':'📑','png':'🖼️','jpg':'🖼️','zip':'📦',DEFAULT:'📎'};
+function renderDocs(){
+  const grid = document.getElementById('doc-grid');
+  if(!DB.docs.length){
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="empty-ico">📁</div><div class="empty-txt">Aucun document archivé</div></div>';
+    return;
+  }
+  grid.innerHTML = DB.docs.map(d=>{
+    const ext=(d.titre||'').split('.').pop().toLowerCase();
+    const ico = FI[ext]||FI.DEFAULT;
+    return `<div class="doc-card" onclick="dlDoc('${d.id}')">
+      <div class="doc-ico">${ico}</div>
+      <div>
+        <div class="doc-name">${d.titre||'—'}</div>
+        <div class="doc-meta">${d.categorie||'—'} · v${d.version||'1.0'}</div>
+        ${d.description?`<div style="font-size:11px;color:var(--n3);margin-top:4px">${d.description}</div>`:''}
+        <div style="display:flex;gap:5px;margin-top:8px">
+          ${d.file?'<span class="bp bp-ok">Fichier ✓</span>':'<span style="font-size:10px;color:var(--n4)">Pas de fichier</span>'}
+          <button class="btn btn-sm btn-out" onclick="event.stopPropagation();deleteItem('noc_docs','${d.id}','docs')" style="padding:1px 7px">🗑</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function dlDoc(id){
+  const d = DB.docs.find(x=>x.id===id);
+  if(!d) return;
+  if(d.file && d.file.url){
+    const a=document.createElement('a');a.href=d.file.url;a.download=d.titre;a.target='_blank';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+  }else if(d.file && d.file.data){
+    const b=atob(d.file.data),u=new Uint8Array(b.length);
+    for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);
+    const blob=new Blob([u]);
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=d.titre;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+  }else{ toast('Aucun fichier attaché','err'); }
+}
+
+async function saveDoc(){
+  const file = document.getElementById('doc-file').files[0];
+  const data = {
+    titre: v('doc-titre'), categorie: v('doc-cat'),
+    version: v('doc-ver')||'1.0', description: v('doc-desc'),
+    file: null
+  };
+  if(!data.titre) return toast('Titre requis','err');
+  try{
+    if(file){
+      if(file.size < 1048576){
+        const b64 = await toBase64(file);
+        data.file = {name:file.name, size:file.size, data:b64};
+      }else{
+        const sRef = window._ref(window._st,`noc_docs/${Date.now()}_${file.name}`);
+        await new Promise((res,rej)=>{
+          const task=window._upb(sRef,file);
+          task.on('state_changed',null,rej,()=>window._url(sRef).then(url=>{
+            data.file={name:file.name,size:file.size,url};res();
+          }));
+        });
+      }
+    }
+    const r = await fbSave('noc_docs', data);
+    DB.docs.unshift({id:r.id,...data});
+    toast('Document enregistré ✓','ok');
+    closeModal('mo-doc');
+    renderAll();
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// DELETE GÉNÉRIQUE
+// ═══════════════════════════════════════════════════════════
+async function deleteItem(col, id, key){
+  if(!confirm('Supprimer cet élément ?')) return;
+  try{
+    await fbDelete(col, id);
+    DB[key] = DB[key].filter(x=>x.id!==id);
+    renderAll();
+    toast('Supprimé ✓','ok');
+  }catch(e){ toast('Erreur suppression: '+e.message,'err'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// FICHIERS
+// ═══════════════════════════════════════════════════════════
+function handleFiles(input, ctx){
+  if(ctx==='cr'){
+    _cr_files = Array.from(input.files);
+    document.getElementById('cr-file-list').textContent = _cr_files.map(f=>f.name).join(', ');
+  }
+}
+function handleDrop(event, ctx){
+  event.preventDefault();
+  document.getElementById(ctx+'-drop')?.classList.remove('drag');
+  const dt = event.dataTransfer;
+  if(ctx==='cr'){
+    _cr_files = Array.from(dt.files);
+    document.getElementById('cr-file-list').textContent = _cr_files.map(f=>f.name).join(', ');
+  }
+}
+function toBase64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(r.result.split(',')[1]);
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// FICHES ACCORDÉON
+// ═══════════════════════════════════════════════════════════
+function toggleFiche(hdr){
+  hdr.classList.toggle('open');
+  const body = hdr.nextElementSibling;
+  body.classList.toggle('open');
+}
+
+// ═══════════════════════════════════════════════════════════
+// TEMPLATES COPY
+// ═══════════════════════════════════════════════════════════
+function copyTpl(id){
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.value).then(()=>toast('Copié dans le presse-papier ✓','ok'));
+}
+function updateTpls(){
+  const client = document.getElementById('tpl-client').value || '[NOM CLIENT]';
+  const ticket = document.getElementById('tpl-ticket').value || '[TICKET-XXXXX]';
+  ['c01-text','c02-text','c03-text','c04-text','coci-text','cvps-text','csim-text'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.value = el.value.replace(/\[NOM CLIENT\]/g, client).replace(/\[TICKET-XXXXX\]/g, ticket);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// EXPORT JSON
+// ═══════════════════════════════════════════════════════════
+function exportAll(){
+  const blob = new Blob([JSON.stringify(DB,null,2)],{type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url;a.download=`noc_pilot_export_${new Date().toISOString().slice(0,10)}.json`;a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),3000);
+  toast('Export JSON téléchargé ✓','ok');
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════
+function v(id){ return (document.getElementById(id)?.value||'').trim(); }
+function fmtDate(d){
+  if(!d) return '—';
+  try{ return new Date(d).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+  catch(e){ return d; }
+}
+function calcMTTR(debut,fin){
+  if(!debut||!fin) return '—';
+  const h = ((new Date(fin)-new Date(debut))/3600000);
+  if(h<0) return '—';
+  return h<1 ? Math.round(h*60)+'min' : h.toFixed(1)+'h';
+}
+function prioBadge(p){
+  if(!p) return '<span class="bp">—</span>';
+  if(p.includes('P1')) return '<span class="bp bp-p1">P1</span>';
+  if(p.includes('P2')) return '<span class="bp bp-p2">P2</span>';
+  if(p.includes('P3')) return '<span class="bp bp-p3">P3</span>';
+  return `<span class="bp">${p}</span>`;
+}
+function statutBadge(s){
+  const m={'ouvert':'bp-open','en_cours':'bp-prog','resolu':'bp-done','ferme':'bp-ok',
+           'Planifiée':'bp-p3','En cours':'bp-prog','Terminée':'bp-done','Annulée':'bp-late',
+           'done':'bp-done','a_faire':'bp-open','bloquee':'bp-late','Planifié':'bp-p3',
+           'Approuvé':'bp-ok','Actif':'bp-ok','En congé':'bp-p2'};
+  const cls = m[s]||'bp-p3';
+  const lbl = {'a_faire':'À faire','en_cours':'En cours','done':'Terminé','ouvert':'Ouvert','resolu':'Résolu','ferme':'Fermé','bloquee':'Bloquée'}[s]||s;
+  return `<span class="bp ${cls}">${lbl||'—'}</span>`;
+}
+</script>
+</body>
+</html>
