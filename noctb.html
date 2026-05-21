@@ -357,6 +357,54 @@ tbody td{padding:9px 12px;font-size:12.5px;vertical-align:middle}
   </div>
 </div>
 
+<!-- ── MODAL LOGIN ── -->
+<div id="login-overlay" style="
+  display:none;position:fixed;inset:0;z-index:9999;
+  background:rgba(0,0,0,.55);backdrop-filter:blur(4px);
+  align-items:center;justify-content:center;
+">
+  <div style="
+    background:white;border-radius:10px;width:360px;
+    box-shadow:0 24px 64px rgba(0,0,0,.3);overflow:hidden;
+  ">
+    <!-- En-tête -->
+    <div style="background:linear-gradient(135deg,#E05A00,#B84A00);padding:20px 24px;text-align:center">
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:800;color:white;letter-spacing:1px">NOC B2B — Accès Sécurisé</div>
+      <div style="font-size:11px;color:rgba(255,255,255,.7);margin-top:4px;font-family:'JetBrains Mono',monospace;letter-spacing:1px">OCI · ORANGE CI</div>
+    </div>
+    <!-- Corps -->
+    <div style="padding:28px 24px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#6B6B6B;margin-bottom:6px">Mot de passe</div>
+      <div style="position:relative">
+        <input id="login-pwd" type="password" placeholder="Entrez votre mot de passe…"
+          style="width:100%;border:2px solid #E0E0E0;border-radius:6px;padding:11px 44px 11px 14px;font-size:14px;font-family:'Barlow',sans-serif;outline:none;box-sizing:border-box;transition:border-color .2s"
+          onfocus="this.style.borderColor='#E05A00'"
+          onblur="this.style.borderColor='#E0E0E0'"
+          onkeydown="if(event.key==='Enter') doLogin()">
+        <span onclick="togglePwd()" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:16px;color:#B0B0B0" title="Afficher/masquer">👁</span>
+      </div>
+      <div id="login-error" style="display:none;margin-top:10px;background:#FBEAEA;border:1px solid #E53935;border-radius:4px;padding:8px 12px;font-size:12px;color:#C62828;font-weight:600">
+        ❌ Mot de passe incorrect. Réessayez.
+      </div>
+      <div style="margin-top:14px;padding:10px 12px;background:#F8F8F8;border-radius:6px;font-size:11px;color:#6B6B6B;line-height:1.6">
+        <b style="color:#1A1A1A">Niveaux d'accès :</b><br>
+        🟠 <b>visiteur</b> — Lecture seule<br>
+        🔴 <b>adminddms</b> — Accès complet
+      </div>
+      <button onclick="doLogin()" style="
+        margin-top:18px;width:100%;
+        background:linear-gradient(135deg,#E05A00,#B84A00);
+        color:white;border:none;border-radius:6px;
+        padding:13px;font-size:15px;font-weight:700;
+        font-family:'Barlow Condensed',sans-serif;letter-spacing:1px;text-transform:uppercase;
+        cursor:pointer;transition:opacity .2s
+      " onmouseover="this.style.opacity='.88'" onmouseout="this.style.opacity='1'">
+        ⟶ Entrer
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
 // Horloge splash
 (function tickSplash(){
@@ -368,10 +416,89 @@ tbody td{padding:9px 12px;font-size:12.5px;vertical-align:middle}
   setTimeout(tickSplash, 1000);
 })();
 
+// Rôle courant : 'admin' ou 'visitor'
+let APP_ROLE = null;
+
 function enterApp(){
+  // Afficher la modale de login
+  const ov = document.getElementById('login-overlay');
+  ov.style.display = 'flex';
+  setTimeout(()=>{ const i=document.getElementById('login-pwd'); if(i) i.focus(); }, 100);
+}
+
+function togglePwd(){
+  const i = document.getElementById('login-pwd');
+  i.type = i.type === 'password' ? 'text' : 'password';
+}
+
+function doLogin(){
+  const pwd = document.getElementById('login-pwd').value.trim();
+  const err = document.getElementById('login-error');
+  if(pwd === 'adminddms'){
+    APP_ROLE = 'admin';
+    applyRole();
+    hideSplash();
+  } else if(pwd === 'visiteur'){
+    APP_ROLE = 'visitor';
+    applyRole();
+    hideSplash();
+  } else {
+    err.style.display = 'block';
+    const i = document.getElementById('login-pwd');
+    i.style.borderColor = '#E53935';
+    i.value = '';
+    setTimeout(()=>{ i.focus(); }, 50);
+  }
+}
+
+function hideSplash(){
+  document.getElementById('login-overlay').style.display = 'none';
+  document.getElementById('login-pwd').value = '';
+  document.getElementById('login-error').style.display = 'none';
   const s = document.getElementById('splash');
   s.style.opacity = '0';
   setTimeout(()=>{ s.style.display='none'; }, 600);
+}
+
+function applyRole(){
+  if(APP_ROLE === 'visitor'){
+    // Désactiver tous les boutons d'ajout/modification/suppression
+    document.querySelectorAll(
+      'button.btn-v, button.btn-g, button[onclick*="openModal"], button[onclick*="save"], button[onclick*="delete"], button[onclick*="Delete"], button[onclick*="markDone"], button[onclick*="resolveInc"], button[onclick*="criseOpenForm"], button[onclick*="criseSave"], button[onclick*="criseAddLog"], button[onclick*="criseSetStatut"], button[onclick*="criseDelete"], button[onclick*="kbOpenModal"], button[onclick*="kbSave"], button[onclick*="kbDeleteById"], button[onclick*="kbEditById"]'
+    ).forEach(btn => {
+      btn.disabled = true;
+      btn.title = '🔒 Accès lecture seule — mot de passe admin requis';
+      btn.style.opacity = '.35';
+      btn.style.cursor = 'not-allowed';
+    });
+    // Désactiver les cellules éditables inline
+    document.querySelectorAll('.ec-cell, .sv[data-key], .sw-edit, .cl-edit, .sim-edit').forEach(el => {
+      el.ondblclick = null;
+      el.title = '🔒 Lecture seule';
+      el.style.cursor = 'default';
+    });
+    // Désactiver les inputs et selects dans les pages dynamiques
+    document.querySelectorAll('#main input, #main select, #main textarea').forEach(el => {
+      el.disabled = true;
+    });
+    // Badge visiteur dans la topbar
+    const top = document.getElementById('top');
+    if(top){
+      const badge = document.createElement('span');
+      badge.innerHTML = '👁 LECTURE SEULE';
+      badge.style.cssText = 'background:#FEF0E6;color:#E05A00;border:1px solid #E05A00;border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:var(--mono)';
+      top.appendChild(badge);
+    }
+  } else {
+    // Admin — badge dans la topbar
+    const top = document.getElementById('top');
+    if(top){
+      const badge = document.createElement('span');
+      badge.innerHTML = '🔑 ADMIN';
+      badge.style.cssText = 'background:var(--gl,#E8F5EE);color:var(--g,#2E7D32);border:1px solid var(--g,#2E7D32);border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:var(--mono)';
+      top.appendChild(badge);
+    }
+  }
 }
 </script>
 
