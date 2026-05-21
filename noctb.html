@@ -400,6 +400,8 @@ function enterApp(){
   <div class="sg">Pilotage</div>
   <div class="si on" data-page="cr" onclick="nav(this)"><span class="si-ico">📝</span>Comptes-Rendus<span class="si-badge" id="b-cr">0</span></div>
   <div class="si" data-page="plans" onclick="nav(this)"><span class="si-ico">📋</span>Plans d'Action<span class="si-badge" id="b-plans">0</span></div>
+  <div class="si" data-page="crises" onclick="nav(this)"><span class="si-ico">🚨</span>Gestion de Crises<span class="si-badge" id="b-crises">0</span></div>
+  <div class="si" data-page="rapports" onclick="nav(this)"><span class="si-ico">📊</span>Rapports<span class="si-badge" id="b-rapports">0</span></div>
 
   <div class="sg">Opérations</div>
 
@@ -414,12 +416,12 @@ function enterApp(){
   <div class="si" data-page="rapport-incident" onclick="nav(this)"><span class="si-ico">🚨</span>Rapport d'incident</div>
   <div class="si" data-page="contacts" onclick="nav(this)"><span class="si-ico">📋</span>Contact client</div>
   <div class="si" data-page="architectures" onclick="nav(this)"><span class="si-ico">🗂️</span>Architecture</div>
+  <div class="si" data-page="kb" onclick="nav(this)"><span class="si-ico">🧠</span>Base de Connaissance</div>
 
   <div class="sg">Stratégie & Gov.</div>
   <div class="si" data-page="roadmap" onclick="nav(this)"><span class="si-ico">🗺️</span>Roadmap 4 Phases</div>
   <div class="si" data-page="gouvernance" onclick="nav(this)"><span class="si-ico">⚖️</span>Gouvernance & SLA</div>
   <div class="si" data-page="equipe" onclick="nav(this)"><span class="si-ico">👥</span>Équipe NOC<span class="si-badge" id="b-agents">0</span></div>
-  <div class="si" data-page="docs" onclick="nav(this)"><span class="si-ico">📁</span>Documents<span class="si-badge" id="b-docs">0</span></div>
 </div>
 
 <!-- MAIN -->
@@ -1458,6 +1460,421 @@ setTimeout(renderContacts,100);
 </div>
 
 
+<!-- ═══════════════════════════════════════════════════════ PAGE: BASE DE CONNAISSANCE -->
+<div class="page" id="page-kb">
+<div class="ph">
+  <div><div class="ph-title">🧠 Base de Connaissance NOC</div><div class="ph-sub">Incidents types, procédures de résolution &amp; bonnes pratiques</div></div>
+  <div class="ph-sp"></div>
+  <input type="text" id="kb-search" placeholder="🔍 Rechercher une fiche…"
+    style="border:1px solid var(--n5);border-radius:3px;padding:6px 12px;font-size:12px;width:230px;font-family:var(--body)"
+    oninput="kbRender()">
+  <select id="kb-cat-filter" onchange="kbRender()"
+    style="border:1px solid var(--n5);border-radius:3px;padding:6px 10px;font-size:12px;font-family:var(--body)">
+    <option value="">Toutes catégories</option>
+    <option>Réseau WAN</option>
+    <option>Supervision</option>
+    <option>Firewall / VPN</option>
+    <option>VoIP / QoS</option>
+    <option>Serveurs / VM</option>
+    <option>Wi-Fi</option>
+    <option>Stockage</option>
+    <option>Sécurité</option>
+    <option>Processus NOC</option>
+  </select>
+  <button class="btn btn-v btn-sm" onclick="kbOpenModal()">＋ Nouvelle fiche</button>
+</div>
+
+<style>
+.kb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;padding:16px}
+.kb-card{background:white;border:1px solid var(--n5);border-radius:6px;overflow:hidden;transition:.15s;cursor:pointer}
+.kb-card:hover{box-shadow:var(--sdm);border-color:var(--v)}
+.kb-stripe{height:4px}
+.kb-body{padding:14px}
+.kb-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}
+.kb-title{font-family:var(--cond);font-size:15px;font-weight:700;color:var(--n1);line-height:1.3}
+.kb-cat{font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0}
+.kb-symptomes{font-size:11.5px;color:var(--n3);line-height:1.5;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.kb-tags{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px}
+.kb-tag{font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px;background:var(--n6);color:var(--n3)}
+.kb-meta{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--n4)}
+.kb-sev{padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700}
+.kb-footer{padding:8px 14px;background:var(--n7);border-top:1px solid var(--n5);display:flex;gap:6px;align-items:center}
+/* Modal */
+#mo-kb.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:600;display:none;align-items:center;justify-content:center}
+#mo-kb.overlay.on{display:flex}
+#mo-kb .mbox{background:white;border-radius:6px;width:700px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+#mo-kb .mhdr{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--n5)}
+#mo-kb .mhdr-acc{width:4px;height:24px;background:var(--v);border-radius:2px;flex-shrink:0}
+#mo-kb .mhdr-title{font-family:var(--cond);font-size:18px;font-weight:700}
+#mo-kb .mclose{margin-left:auto;background:none;border:none;font-size:18px;cursor:pointer;color:var(--n4);padding:4px 8px;border-radius:3px}
+#mo-kb .mclose:hover{background:var(--rl);color:var(--r)}
+#mo-kb .mbody{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:10px}
+#mo-kb .mfooter{padding:12px 18px;border-top:1px solid var(--n5);display:flex;justify-content:flex-end;gap:8px}
+#mo-kb .rg2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+#mo-kb .rg3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+#mo-kb .kf{display:flex;flex-direction:column;gap:4px}
+#mo-kb .kf label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--n3)}
+#mo-kb .kf input,#mo-kb .kf select,#mo-kb .kf textarea{border:1px solid var(--n5);border-radius:3px;padding:7px 10px;font-size:12.5px;font-family:var(--body);background:white;width:100%}
+#mo-kb .kf input:focus,#mo-kb .kf select:focus,#mo-kb .kf textarea:focus{outline:none;border-color:var(--v)}
+#mo-kb .kf textarea{resize:vertical;min-height:80px}
+#mo-kb .step-list{display:flex;flex-direction:column;gap:6px}
+#mo-kb .step-item{display:flex;align-items:flex-start;gap:8px}
+#mo-kb .step-num{width:22px;height:22px;border-radius:50%;background:var(--v);color:white;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:6px}
+#mo-kb .step-inp{flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 10px;font-size:12px;font-family:var(--body)}
+#mo-kb .step-inp:focus{outline:none;border-color:var(--v)}
+#mo-kb .step-rm{background:none;border:none;color:var(--r);cursor:pointer;font-size:16px;padding:2px 6px;margin-top:2px}
+#mo-kb .add-step-btn{background:none;border:1px dashed var(--n4);color:var(--n3);padding:5px 14px;border-radius:3px;cursor:pointer;font-size:11px;margin-top:4px;font-family:var(--body)}
+#mo-kb .add-step-btn:hover{border-color:var(--v);color:var(--v)}
+/* Détail */
+#mo-kb-detail.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:600;display:none;align-items:center;justify-content:center}
+#mo-kb-detail.overlay.on{display:flex}
+#mo-kb-detail .mbox{background:white;border-radius:6px;width:760px;max-width:96vw;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+#mo-kb-detail .det-body{flex:1;overflow-y:auto;padding:20px}
+#mo-kb-detail .det-sec{margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--n5)}
+#mo-kb-detail .det-sec:last-child{border:none;margin-bottom:0}
+#mo-kb-detail .det-sec-title{font-family:var(--cond);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n3);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+#mo-kb-detail .det-step{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--n5)}
+#mo-kb-detail .det-step:last-child{border:none}
+#mo-kb-detail .det-step-n{width:26px;height:26px;border-radius:50%;background:var(--v);color:white;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+#mo-kb-detail .det-step-txt{font-size:13px;line-height:1.5;padding-top:4px}
+.kb-empty{text-align:center;padding:60px 20px;color:var(--n4)}
+.kb-empty-ico{font-size:48px;margin-bottom:12px}
+.kb-empty-txt{font-size:14px;font-weight:600;color:var(--n2);margin-bottom:6px}
+.kb-empty-sub{font-size:12px;line-height:1.5;max-width:380px;margin:0 auto 16px}
+</style>
+
+<div id="kb-content">
+  <div class="kb-grid" id="kb-grid"></div>
+</div>
+
+<!-- MODAL AJOUT/ÉDITION -->
+<div class="overlay" id="mo-kb">
+  <div class="mbox">
+    <div class="mhdr">
+      <div class="mhdr-acc"></div>
+      <div class="mhdr-title" id="kb-modal-title">Nouvelle fiche</div>
+      <button class="mclose" onclick="kbCloseModal()">✕</button>
+    </div>
+    <div class="mbody">
+      <div class="rg2">
+        <div class="kf" style="grid-column:1/-1"><label>Titre de l'incident *</label><input type="text" id="kb-titre" placeholder="Ex : Lien WAN en flapping intermittent…"></div>
+      </div>
+      <div class="rg3">
+        <div class="kf"><label>Catégorie</label>
+          <select id="kb-cat">
+            <option>Réseau WAN</option><option>Supervision</option><option>Firewall / VPN</option>
+            <option>VoIP / QoS</option><option>Serveurs / VM</option><option>Wi-Fi</option>
+            <option>Stockage</option><option>Sécurité</option><option>Processus NOC</option>
+          </select>
+        </div>
+        <div class="kf"><label>Sévérité</label>
+          <select id="kb-sev">
+            <option value="Critique">🔴 Critique</option>
+            <option value="Majeur">🟠 Majeur</option>
+            <option value="Mineur" selected>🟡 Mineur</option>
+            <option value="Info">🔵 Info</option>
+          </select>
+        </div>
+        <div class="kf"><label>Durée résolution moy.</label><input type="text" id="kb-duree" placeholder="Ex : 30min, 2h…"></div>
+      </div>
+      <div class="kf"><label>Symptômes / Description</label><textarea id="kb-symptomes" placeholder="Décrire les symptômes observés, les alarmes SolarWinds associées…"></textarea></div>
+      <div class="kf"><label>Cause(s) fréquente(s)</label><textarea id="kb-causes" placeholder="Causes racines les plus souvent identifiées…"></textarea></div>
+      <div class="kf">
+        <label>Étapes de résolution</label>
+        <div class="step-list" id="kb-steps-list"></div>
+        <button class="add-step-btn" onclick="kbAddStep()">+ Ajouter une étape</button>
+      </div>
+      <div class="kf"><label>Escalade recommandée</label><textarea id="kb-escalade" rows="2" placeholder="Conditions d'escalade, contacts, délai…"></textarea></div>
+      <div class="kf"><label>Mesures préventives</label><textarea id="kb-preventif" rows="2" placeholder="Actions pour éviter la récurrence…"></textarea></div>
+      <div class="kf"><label>Tags <span style="font-weight:400;color:var(--n4)">(séparés par virgule)</span></label><input type="text" id="kb-tags" placeholder="VPN, BGP, Orange CI, flapping…"></div>
+    </div>
+    <div class="mfooter">
+      <button class="btn btn-out" onclick="kbCloseModal()">Annuler</button>
+      <button class="btn btn-v" onclick="kbSave()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL DÉTAIL -->
+<div class="overlay" id="mo-kb-detail">
+  <div class="mbox">
+    <div class="mhdr">
+      <div class="mhdr-acc"></div>
+      <div style="flex:1">
+        <div class="mhdr-title" id="kb-det-title">—</div>
+        <div style="font-size:10px;color:var(--n3);margin-top:2px" id="kb-det-sub">—</div>
+      </div>
+      <div style="display:flex;gap:6px;margin-right:8px">
+        <button class="btn btn-out btn-sm" onclick="kbEditCurrent()">✏️ Modifier</button>
+        <button class="btn btn-sm" style="background:var(--rl);color:var(--r)" onclick="kbDeleteCurrent()">🗑</button>
+      </div>
+      <button class="mclose" onclick="kbCloseDetail()">✕</button>
+    </div>
+    <div class="det-body" id="kb-det-body"></div>
+  </div>
+</div>
+
+<script>
+const KB_LS = 'noc_kb_v1';
+let kbData = [], kbEditingId = null, kbDetailId = null;
+
+// ── Données initiales (fiches types NOC)
+const KB_INIT = [
+  {id:'kb-01', titre:'Lien WAN flapping / instabilité', cat:'Réseau WAN', sev:'Critique', duree:'45min',
+   symptomes:'Interface WAN monte/descend en boucle. Alarmes SolarWinds répétées "Node Up/Down". Latence anormale entre les polls.',
+   causes:'Problème physique (câble, SFP défectueux). Instabilité BGP. Saturation lien. Défaut équipement CPE ou PE opérateur.',
+   steps:['Vérifier les alarmes SolarWinds (NPM → Node Down / Interface Down)','Pinger le CE et le PE opérateur depuis le NOC','Vérifier les logs interface : show interface GigX/X | include error|flap','Contrôler les statistiques d\'erreurs CRC, input/output errors','Contacter l\'opérateur tiers (Orange CI / MTN / Moov) avec le n° de lien','Si matériel : programmer remplacement SFP ou câble avec l\'ingénieur terrain','Ouvrir un ticket de maintenance préventive si récurrence'],
+   escalade:'Escalader au N2 si non résolu en 30min. Notifier le client si interruption > 15min.',
+   preventif:'Activer le suivi de flapping dans NPM. Planifier remplacement préventif SFP >3 ans.',
+   tags:['BGP','WAN','flapping','SFP','NPM'], createdAt: Date.now()},
+
+  {id:'kb-02', titre:'VPN IPSec tunnel down', cat:'Firewall / VPN', sev:'Critique', duree:'30min',
+   symptomes:'Tunnel IPSec indisponible. Clients distants sans accès. Alarme NPM "VPN Tunnel Down". Trafic chiffré absent.',
+   causes:'Expiration des clés IKE/IPSec. Changement IP publique d\'un pair. Défaillance firewall. Politique IKE désynchronisée. Panne lien Internet.',
+   steps:['Vérifier l\'état du tunnel : show crypto ipsec sa (Cisco) ou diagnose vpn tunnel list (Fortinet)','Contrôler les logs IKE Phase 1 et Phase 2','Tester la connectivité IP vers l\'IP publique du pair distant','Vérifier que les policies IKE (chiffrement, hash, DH group) sont identiques des 2 côtés','Forcer le re-établissement : clear crypto ipsec sa peer <IP>','Si échec : redémarrer le service VPN ou le firewall (en dernier recours planifié)','Vérifier les certificats / PSK si authentification par cert'],
+   escalade:'N2 Firewall si phase 1 échoue. Contacter le vendor si firmware suspecté.',
+   preventif:'Surveiller l\'expiration des certificats VPN. Documenter les configs IKE des deux pairs.',
+   tags:['VPN','IPSec','IKE','Firewall','Tunnel'], createdAt: Date.now()-1000},
+
+  {id:'kb-03', titre:'Dégradation qualité voix / MOS bas', cat:'VoIP / QoS', sev:'Majeur', duree:'1h',
+   symptomes:'Plaintes clients pour qualité voix : coupures, écho, délai. MOS < 3.5 dans SolarWinds VoIP Analyzer. Jitter > 50ms détecté.',
+   causes:'Saturation lien WAN (QoS non appliquée). Jitter élevé sur le réseau. Perte de paquets > 1%. Trunk SIP surchargé. Problème codec.',
+   steps:['Vérifier le MOS et le jitter dans SolarWinds VoIP & QoS Analyzer','Contrôler l\'utilisation du lien WAN (priorité au trafic voix)','Vérifier les politiques QoS sur les équipements : show policy-map interface','Analyser la saturation des trunks SIP (canaux disponibles vs. utilisés)','Capturer le trafic RTP si possible : wireshark / tcpdump sur le SBC','Appliquer ou corriger le marquage DSCP EF (46) pour la voix','Réduire ou redistribuer la charge des trunks si saturés'],
+   escalade:'Escalader à l\'ingénieur VoIP si MOS reste < 3.5 après QoS corrigée.',
+   preventif:'Activer des seuils d\'alerte MOS dans SolarWinds. Réserver au moins 20% de BW pour la voix.',
+   tags:['VoIP','MOS','Jitter','QoS','SIP','RTP'], createdAt: Date.now()-2000},
+
+  {id:'kb-04', titre:'Node SolarWinds inaccessible (SNMP timeout)', cat:'Supervision', sev:'Majeur', duree:'20min',
+   symptomes:'Équipement marqué "Down" dans NPM mais physiquement opérationnel. Pas de réponse SNMP. Alerte Node Down reçue.',
+   causes:'ACL bloquant le trafic SNMP (UDP 161). Communauté SNMP modifiée. Agent SNMP bloqué. IP de gestion changée. Problème réseau vers le segment de management.',
+   steps:['Vérifier si le nœud répond au ping depuis le serveur SolarWinds','Tester SNMP manuellement : snmpget -v2c -c <community> <IP> sysDescr.0','Vérifier les ACL sur l\'équipement : show ip access-lists','Contrôler la configuration SNMP : show snmp community','Vérifier si l\'IP Polling SolarWinds est bien autorisée','Relancer l\'agent SNMP si nécessaire','Mettre à jour la communauté dans NPM si changée côté équipement'],
+   escalade:'Si accès management impossible : escalader à l\'équipe On-site pour accès console.',
+   preventif:'Documenter toutes les communautés SNMP. Gérer via NCM les templates de config.',
+   tags:['SNMP','NPM','SolarWinds','Node Down','Polling'], createdAt: Date.now()-3000},
+
+  {id:'kb-05', titre:'Saturation CPU routeur / switch', cat:'Réseau WAN', sev:'Majeur', duree:'1h',
+   symptomes:'CPU > 80% sur équipement réseau. Ralentissements, perte de paquets, timeouts. Alarme NPM CPU élevé.',
+   causes:'Attaque DDoS ou boucle réseau. Processus de routage anormal (BGP convergence). Trop de connexions simultanées. Log/debug activé par erreur. Firmware instable.',
+   steps:['Identifier les processus consommateurs : show processes cpu sorted','Vérifier s\'il y a une boucle STP : show spanning-tree','Contrôler les sessions BGP/OSPF : show ip bgp summary','Désactiver tout debug actif : undebug all','Vérifier les connexions entrantes anormales (DDoS)','Appliquer un rate-limit si attaque détectée','Planifier un reload en maintenance si CPU > 90% prolongé'],
+   escalade:'N2 réseau si le CPU ne redescend pas sous 70% en 30min.',
+   preventif:'Activer les seuils CPU dans NPM (W:70% C:90%). Activer la protection contre les boucles STP.',
+   tags:['CPU','Routeur','Switch','DDoS','STP','BGP'], createdAt: Date.now()-4000},
+
+  {id:'kb-06', titre:'Perte de connectivité Internet client', cat:'Réseau WAN', sev:'Critique', duree:'1h30',
+   symptomes:'Client sans accès Internet. Lien WAN up mais trafic bloqué. NAT/PAT défaillant ou route par défaut absente.',
+   causes:'Route par défaut manquante. NAT/PAT mal configuré. BGP avec l\'opérateur down. Filtrage IP opérateur. Quota de bande passante atteint.',
+   steps:['Vérifier la route par défaut : show ip route 0.0.0.0','Tester la connectivité vers le prochain saut (PE opérateur)','Vérifier la session BGP avec l\'opérateur : show ip bgp neighbors','Contrôler les NAT translations : show ip nat translations','Tester un traceroute vers 8.8.8.8 depuis le CE client','Contacter l\'opérateur si le PE est inaccessible','Vérifier les ACL de sortie et les politiques de filtrage'],
+   escalade:'Escalader à l\'opérateur si le PE ne répond pas. Notifier le client après 15min d\'interruption.',
+   preventif:'Surveiller les sessions BGP avec SolarWinds. Mettre en place un lien backup (4G/VSAT).',
+   tags:['Internet','BGP','NAT','Route','Opérateur'], createdAt: Date.now()-5000},
+
+  {id:'kb-07', titre:'AP Wi-Fi down / clients déconnectés', cat:'Wi-Fi', sev:'Mineur', duree:'30min',
+   symptomes:'Un ou plusieurs APs signalés down dans NPM. Clients sans Wi-Fi dans une zone. RSSI faible détecté.',
+   causes:'Perte alimentation PoE. Contrôleur Wi-Fi unreachable. Firmware AP corrompu. Canal saturé (interférences). Câble réseau défaillant.',
+   steps:['Vérifier l\'état du port PoE sur le switch : show power inline interface GigX/X','Pinger l\'AP depuis le contrôleur Wi-Fi','Vérifier l\'état sur le contrôleur (Cisco WLC / Aruba / Ruckus)','Tenter un reboot de l\'AP depuis le contrôleur','Vérifier les logs RF : interférences, changement de canal','Intervention terrain si reboot infructueux (câble, alimentation)'],
+   escalade:'Escalader si zone critique (salle de réunion, datacenter). Intervention terrain dans les 2h.',
+   preventif:'Surveiller le RSSI et le taux de déconnexion dans NPM. Remplacer les APs > 5 ans.',
+   tags:['Wi-Fi','AP','PoE','Contrôleur','RSSI'], createdAt: Date.now()-6000},
+
+  {id:'kb-08', titre:'Serveur inaccessible (ping KO)', cat:'Serveurs / VM', sev:'Critique', duree:'45min',
+   symptomes:'Serveur ne répond plus au ping. Services applicatifs down. Alarme NPM Node Down + SAM services KO.',
+   causes:'OS bloqué / kernel panic. Ressources épuisées (CPU/RAM/disque). Réseau de management coupé. Firewall bloquant ICMP. Panne hardware.',
+   steps:['Tenter un ping et un traceroute depuis plusieurs sources','Vérifier l\'état dans vCenter/Hyper-V si VM','Tenter une connexion SSH/RDP','Vérifier la console iDRAC/iLO/IPMI pour l\'état hardware','Si VM suspendue : reprendre ou redémarrer via hyperviseur','Vérifier les logs système (Event Viewer / /var/log/syslog)','Escalader si hardware défaillant (crash disque, RAID dégradé)'],
+   escalade:'N2 système si inaccessible après tentative de redémarrage. Astreinte si serveur de production.',
+   preventif:'Activer la supervision IPMI dans NPM. Mettre en place des alertes disque (SMART).',
+   tags:['Serveur','VM','Ping','IPMI','iDRAC','vCenter'], createdAt: Date.now()-7000},
+
+  {id:'kb-09', titre:'Procédure d\'astreinte NOC — Incident P1', cat:'Processus NOC', sev:'Critique', duree:'Variable',
+   symptomes:'Incident de niveau P1 : service client totalement interrompu, impact multi-sites ou client stratégique.',
+   causes:'N/A — Fiche de procédure',
+   steps:['Qualifier l\'incident : client, service, périmètre, heure de début','Ouvrir un ticket dans le système de ticketing avec priorité P1','Notifier le manager d\'astreinte immédiatement (SMS + appel)','Envoyer un 1er mail d\'information au client dans les 15min','Suivre la procédure technique correspondante à l\'incident','Mettre à jour le ticket toutes les 30min','Envoyer un mail de résolution avec compte-rendu au client','Rédiger le rapport d\'incident post-mortem dans les 24h'],
+   escalade:'Manager → Directeur technique si non résolu en 2h.',
+   preventif:'Maintenir le registre des astreintes à jour. Former les agents NOC aux procédures P1.',
+   tags:['P1','Astreinte','Procédure','Escalade','Processus'], createdAt: Date.now()-8000},
+
+  {id:'kb-10', titre:'Saturation bande passante WAN', cat:'Réseau WAN', sev:'Majeur', duree:'1h',
+   symptomes:'Utilisation BW > 80%. Ralentissements applicatifs. Latence accrue. Trafic vidéo/sauvegarde dominant.',
+   causes:'Sauvegarde non planifiée en heures ouvrables. Trafic non prioritaire (YouTube, mises à jour). Attaque ou exfiltration de données. Croissance trafic non anticipée.',
+   steps:['Identifier le trafic dominant : NPM → Network Bandwidth Analyzer','Vérifier NetFlow / sFlow sur l\'interface saturée','Identifier les flux anormaux (IP source/destination, protocole)','Appliquer ou renforcer les politiques QoS','Si sauvegarde : reporter en heures creuses','Si trafic suspect : bloquer le flux et enquêter','Recommander une augmentation de BW si tendance prolongée'],
+   escalade:'Contacter l\'opérateur si besoin d\'augmentation de bande passante en urgence.',
+   preventif:'Planifier les sauvegardes hors heures de pointe. Déployer du rate-limiting par type de trafic.',
+   tags:['Bande passante','WAN','QoS','NetFlow','Saturation'], createdAt: Date.now()-9000},
+];
+
+(function kbInit(){
+  try{ kbData = JSON.parse(localStorage.getItem(KB_LS)) || null; }catch(e){ kbData = null; }
+  if(!kbData){ kbData = KB_INIT; kbPersist(); }
+  kbRender();
+  kbInitSteps();
+})();
+
+function kbPersist(){ localStorage.setItem(KB_LS, JSON.stringify(kbData)); }
+
+// ── Couleurs par catégorie
+const KB_COLORS = {
+  'Réseau WAN'     :{c:'var(--b)',bg:'var(--bl)'},
+  'Supervision'    :{c:'var(--v)',bg:'var(--vl)'},
+  'Firewall / VPN' :{c:'var(--r)',bg:'var(--rl)'},
+  'VoIP / QoS'     :{c:'#7B1FA2',bg:'#F3E5F5'},
+  'Serveurs / VM'  :{c:'#1565C0',bg:'#E3F2FD'},
+  'Wi-Fi'          :{c:'var(--g)',bg:'var(--gl)'},
+  'Stockage'       :{c:'#546E7A',bg:'#ECEFF1'},
+  'Sécurité'       :{c:'var(--r)',bg:'var(--rl)'},
+  'Processus NOC'  :{c:'var(--a)',bg:'var(--al)'},
+};
+const SEV_COLORS = {
+  'Critique':{c:'var(--r)',bg:'var(--rl)'},
+  'Majeur'  :{c:'var(--a)',bg:'var(--al)'},
+  'Mineur'  :{c:'#CA8A04',bg:'#FEF9C3'},
+  'Info'    :{c:'var(--b)',bg:'var(--bl)'},
+};
+
+function kbGetColor(cat){ return KB_COLORS[cat] || {c:'var(--n3)',bg:'var(--n6)'}; }
+function kbGetSev(sev)  { return SEV_COLORS[sev] || {c:'var(--n3)',bg:'var(--n6)'}; }
+
+function kbRender(){
+  const q   = (document.getElementById('kb-search')?.value || '').toLowerCase();
+  const cat = document.getElementById('kb-cat-filter')?.value || '';
+  let data  = kbData.filter(k =>
+    (!cat || k.cat === cat) &&
+    (!q   || (k.titre+k.symptomes+(k.tags||[]).join(' ')).toLowerCase().includes(q))
+  );
+  const grid = document.getElementById('kb-grid');
+  if(!grid) return;
+  if(!data.length){
+    grid.innerHTML = `<div class="kb-empty" style="grid-column:1/-1">
+      <div class="kb-empty-ico">🧠</div>
+      <div class="kb-empty-txt">Aucune fiche trouvée</div>
+      <div class="kb-empty-sub">Modifiez les filtres ou ajoutez une nouvelle fiche.</div>
+    </div>`;
+    return;
+  }
+  const col = k => kbGetColor(k.cat), sev = k => kbGetSev(k.sev);
+  grid.innerHTML = data.map(k => `
+    <div class="kb-card" onclick="kbOpenDetail('${k.id}')">
+      <div class="kb-stripe" style="background:${col(k).c}"></div>
+      <div class="kb-body">
+        <div class="kb-top">
+          <div class="kb-title">${k.titre}</div>
+          <span class="kb-cat" style="background:${col(k).bg};color:${col(k).c}">${k.cat}</span>
+        </div>
+        <div class="kb-symptomes">${k.symptomes || '—'}</div>
+        <div class="kb-tags">${(k.tags||[]).map(t=>`<span class="kb-tag">${t}</span>`).join('')}</div>
+        <div class="kb-meta">
+          <span class="kb-sev" style="background:${sev(k).bg};color:${sev(k).c}">${k.sev}</span>
+          ${k.duree ? `<span>⏱ ${k.duree}</span>` : ''}
+          <span>${(k.steps||[]).length} étapes</span>
+        </div>
+      </div>
+      <div class="kb-footer">
+        <button class="btn btn-sm btn-out" onclick="event.stopPropagation();kbEditById('${k.id}')">✏️ Modifier</button>
+        <button class="btn btn-sm btn-out" onclick="event.stopPropagation();kbDeleteById('${k.id}')" style="color:var(--r)">🗑</button>
+        <span style="margin-left:auto;font-size:10px;color:var(--n4)">
+          ${k.createdAt ? new Date(k.createdAt).toLocaleDateString('fr-FR') : ''}
+        </span>
+      </div>
+    </div>`).join('');
+}
+
+// ── Étapes
+function kbInitSteps(vals=[]){
+  const list = document.getElementById('kb-steps-list'); if(!list) return;
+  list.innerHTML = '';
+  const init = vals.length ? vals : ['Vérifier les alarmes SolarWinds','Analyser les logs équipement',''];
+  init.forEach((v,i) => kbAddStep(v,i+1));
+}
+function kbAddStep(val='', n=null){
+  const list = document.getElementById('kb-steps-list'); if(!list) return;
+  const idx  = list.children.length + 1;
+  const num  = n || idx;
+  const div  = document.createElement('div'); div.className = 'step-item';
+  div.innerHTML = `<div class="step-num">${num}</div>
+    <input type="text" class="step-inp" placeholder="Étape ${num}…" value="${val.replace(/"/g,'&quot;')}">
+    <button class="step-rm" onclick="this.closest('.step-item').remove();kbReindexSteps()">×</button>`;
+  list.appendChild(div);
+}
+function kbReindexSteps(){
+  document.querySelectorAll('#kb-steps-list .step-num').forEach((el,i)=>el.textContent=i+1);
+}
+function kbGetSteps(){
+  return [...document.querySelectorAll('#kb-steps-list .step-inp')].map(i=>i.value.trim()).filter(Boolean);
+}
+
+// ── CRUD
+function kbOpenModal(){ kbEditingId=null; document.getElementById('kb-modal-title').textContent='Nouvelle fiche'; kbClearForm(); kbInitSteps(); document.getElementById('mo-kb').classList.add('on'); }
+function kbCloseModal(){ document.getElementById('mo-kb').classList.remove('on'); }
+function kbClearForm(){
+  ['kb-titre','kb-symptomes','kb-causes','kb-escalade','kb-preventif','kb-tags','kb-duree'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  const s=document.getElementById('kb-sev'); if(s) s.value='Mineur';
+  const c=document.getElementById('kb-cat'); if(c) c.value='Réseau WAN';
+}
+function kbEditById(id){
+  kbEditingId=id; const k=kbData.find(x=>x.id===id); if(!k) return;
+  document.getElementById('kb-modal-title').textContent='Modifier — '+k.titre;
+  document.getElementById('kb-titre').value=k.titre||''
+  document.getElementById('kb-cat').value=k.cat||'Réseau WAN';
+  document.getElementById('kb-sev').value=k.sev||'Mineur';
+  document.getElementById('kb-duree').value=k.duree||''
+  document.getElementById('kb-symptomes').value=k.symptomes||''
+  document.getElementById('kb-causes').value=k.causes||''
+  document.getElementById('kb-escalade').value=k.escalade||''
+  document.getElementById('kb-preventif').value=k.preventif||''
+  document.getElementById('kb-tags').value=(k.tags||[]).join(', ');
+  kbInitSteps(k.steps||[]);
+  document.getElementById('mo-kb').classList.add('on');
+}
+function kbSave(){
+  const titre=document.getElementById('kb-titre').value.trim();
+  if(!titre){toast('Titre requis','err');return;}
+  const entry={
+    id: kbEditingId || 'kb-'+Date.now(),
+    titre, cat:document.getElementById('kb-cat').value,
+    sev:document.getElementById('kb-sev').value,
+    duree:document.getElementById('kb-duree').value.trim(),
+    symptomes:document.getElementById('kb-symptomes').value.trim(),
+    causes:document.getElementById('kb-causes').value.trim(),
+    steps:kbGetSteps(),
+    escalade:document.getElementById('kb-escalade').value.trim(),
+    preventif:document.getElementById('kb-preventif').value.trim(),
+    tags:document.getElementById('kb-tags').value.split(',').map(t=>t.trim()).filter(Boolean),
+    createdAt: kbEditingId ? (kbData.find(x=>x.id===kbEditingId)?.createdAt||Date.now()) : Date.now(),
+    updatedAt: Date.now()
+  };
+  if(kbEditingId){ const i=kbData.findIndex(x=>x.id===kbEditingId); if(i>=0) kbData[i]=entry; }
+  else kbData.unshift(entry);
+  kbPersist(); kbCloseModal(); kbRender(); toast('Fiche enregistrée ✓','ok');
+}
+function kbDeleteById(id){
+  if(!confirm('Supprimer cette fiche ?')) return;
+  kbData=kbData.filter(k=>k.id!==id); kbPersist(); kbRender(); toast('Fiche supprimée','ok');
+  if(kbDetailId===id) kbCloseDetail();
+}
+function kbDeleteCurrent(){ if(kbDetailId) kbDeleteById(kbDetailId); }
+function kbEditCurrent(){ if(kbDetailId){kbCloseDetail();kbEditById(kbDetailId);} }
+
+// ── Détail
+function kbOpenDetail(id){
+  kbDetailId=id; const k=kbData.find(x=>x.id===id); if(!k) return;
+  const col=kbGetColor(k.cat), sev=kbGetSev(k.sev);
+  document.getElementById('kb-det-title').textContent=k.titre;
+  document.getElementById('kb-det-sub').innerHTML=
+    `<span style="background:${col.bg};color:${col.c};padding:1px 8px;border-radius:10px;font-weight:700;font-size:10px">${k.cat}</span>
+     &nbsp;<span style="background:${sev.bg};color:${sev.c};padding:1px 8px;border-radius:10px;font-weight:700;font-size:10px">${k.sev}</span>
+     ${k.duree ? `&nbsp;⏱ ${k.duree}` : ''}`;
+  let html='';
+  if(k.symptomes) html+=`<div class="det-sec"><div class="det-sec-title">🔍 Symptômes observés</div><p style="font-size:13px;line-height:1.6;margin:0">${k.symptomes}</p></div>`;
+  if(k.causes)    html+=`<div class="det-sec"><div class="det-sec-title">⚠️ Causes fréquentes</div><p style="font-size:13px;line-height:1.6;margin:0">${k.causes}</p></div>`;
+  if((k.steps||[]).length) html+=`<div class="det-sec"><div class="det-sec-title">🔧 Étapes de résolution (${k.steps.length})</div>${k.steps.map((s,i)=>`<div class="det-step"><div class="det-step-n">${i+1}</div><div class="det-step-txt">${s}</div></div>`).join('')}</div>`;
+  if(k.escalade)  html+=`<div class="det-sec"><div class="det-sec-title">📞 Escalade recommandée</div><p style="font-size:13px;line-height:1.6;margin:0">${k.escalade}</p></div>`;
+  if(k.preventif) html+=`<div class="det-sec"><div class="det-sec-title">🛡️ Mesures préventives</div><p style="font-size:13px;line-height:1.6;margin:0">${k.preventif}</p></div>`;
+  if((k.tags||[]).length) html+=`<div class="det-sec"><div class="det-sec-title">🏷️ Tags</div><div style="display:flex;gap:6px;flex-wrap:wrap">${k.tags.map(t=>`<span style="background:var(--n6);color:var(--n2);border:1px solid var(--n5);padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600">${t}</span>`).join('')}</div></div>`;
+  document.getElementById('kb-det-body').innerHTML=html;
+  document.getElementById('mo-kb-detail').classList.add('on');
+}
+function kbCloseDetail(){ document.getElementById('mo-kb-detail').classList.remove('on'); kbDetailId=null; }
+</script>
+</div>
+
 <!-- ═══════════════════════════════════════════════════════ PAGE: ROADMAP -->
 <div class="page" id="page-roadmap">
   <div class="ph"><div><div class="ph-title">🗺️ Roadmap NOC Transformation</div><div class="ph-sub">4 Phases · 18 Mois · Réactif → Autonome</div></div></div>
@@ -1661,14 +2078,407 @@ setTimeout(renderContacts,100);
   <div class="agent-grid" id="agent-grid"></div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════ PAGE: DOCUMENTS -->
-<div class="page" id="page-docs">
-  <div class="ph">
-    <div><div class="ph-title">📁 Bibliothèque Documents</div><div class="ph-sub">Archives & documentation NOC</div></div>
-    <div class="t-sp"></div>
-    <button class="btn btn-v" onclick="openModal('mo-doc')">+ Ajouter document</button>
+<!-- ═══════════════════════════════════════════════════════ PAGE: GESTION DE CRISES -->
+<div class="page" id="page-crises">
+<div class="ph">
+  <div><div class="ph-title">🚨 Gestion de Crises</div><div class="ph-sub">Suivi en temps réel des cellules de crise NOC — Firebase</div></div>
+  <div class="ph-sp"></div>
+  <select id="crise-filter" onchange="renderCrises()"
+    style="border:1px solid var(--n5);border-radius:3px;padding:6px 10px;font-size:12px;font-family:var(--body)">
+    <option value="">Toutes</option>
+    <option value="active">En cours</option>
+    <option value="resolue">Résolues</option>
+    <option value="cloturee">Clôturées</option>
+  </select>
+  <button class="btn btn-v" onclick="openModal('mo-crise')">+ Déclarer une crise</button>
+</div>
+
+<style>
+.crise-card{background:white;border:1px solid var(--n5);border-radius:6px;margin-bottom:14px;overflow:hidden}
+.crise-hdr{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--n5)}
+.crise-hdr-left{flex:1}
+.crise-title{font-family:var(--cond);font-size:16px;font-weight:700}
+.crise-meta{font-size:11px;color:var(--n3);margin-top:2px}
+.crise-niv{padding:3px 12px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap}
+.crise-stat{padding:3px 12px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;margin-left:6px}
+.crise-body{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--n5)}
+.crise-col{padding:12px 16px;border-right:1px solid var(--n5)}
+.crise-col:last-child{border-right:none}
+.crise-col-title{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n3);margin-bottom:8px}
+.crise-log{display:flex;flex-direction:column;gap:5px;max-height:140px;overflow-y:auto}
+.crise-log-item{display:flex;gap:8px;align-items:flex-start;padding:5px 8px;background:var(--n7);border-radius:3px;font-size:11.5px}
+.crise-log-time{font-family:var(--mono);font-size:9px;color:var(--n4);white-space:nowrap;padding-top:2px}
+.crise-actions-row{display:flex;gap:8px;padding:10px 16px;align-items:center;flex-wrap:wrap}
+.crise-add-log{flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 10px;font-size:12px;font-family:var(--body)}
+.crise-add-log:focus{outline:none;border-color:var(--v)}
+.crise-empty{text-align:center;padding:50px 20px;color:var(--n4)}
+</style>
+
+<div id="crises-container" style="padding:16px"></div>
+
+<!-- MODAL DÉCLARATION CRISE -->
+<div class="overlay" id="mo-crise" style="display:none;align-items:center;justify-content:center">
+  <div class="modal" style="width:580px">
+    <div class="modal-hdr"><span class="modal-title">🚨 Déclarer une crise</span><button class="modal-close" onclick="closeModal('mo-crise')">✕</button></div>
+    <div class="modal-body">
+      <div class="fgrp"><label>Titre de la crise *</label><input id="cr-titre-crise" type="text" placeholder="Ex : Coupure totale NOC Orange CI zone Abidjan…"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div class="fgrp"><label>Niveau</label>
+          <select id="cr-niveau">
+            <option value="P1">🔴 P1 — Critique</option>
+            <option value="P2">🟠 P2 — Majeur</option>
+            <option value="P3">🟡 P3 — Mineur</option>
+          </select>
+        </div>
+        <div class="fgrp"><label>Client(s) impacté(s)</label><input id="cr-client-crise" type="text" placeholder="Tous / Canal+ / …"></div>
+        <div class="fgrp"><label>Service impacté</label><input id="cr-service-crise" type="text" placeholder="WAN / VPN / VoIP…"></div>
+      </div>
+      <div class="fgrp"><label>Description initiale</label><textarea id="cr-desc-crise" rows="3" placeholder="Symptômes, périmètre, premières observations…"></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="fgrp"><label>Responsable cellule de crise</label><input id="cr-resp-crise" type="text" placeholder="Nom Prénom"></div>
+        <div class="fgrp"><label>Date / Heure début</label><input id="cr-debut-crise" type="datetime-local"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-out" onclick="closeModal('mo-crise')">Annuler</button>
+      <button class="btn btn-v" onclick="saveCrise()">🚨 Déclarer</button>
+    </div>
   </div>
-  <div id="doc-grid" class="doc-grid"></div>
+</div>
+
+<script>
+const NIV_C = {P1:{c:'var(--r)',bg:'var(--rl)',l:'P1 — Critique'},P2:{c:'var(--a)',bg:'var(--al)',l:'P2 — Majeur'},P3:{c:'#CA8A04',bg:'#FEF9C3',l:'P3 — Mineur'}};
+const STAT_C = {active:{c:'var(--r)',bg:'var(--rl)',l:'🔴 En cours'},resolue:{c:'var(--a)',bg:'var(--al)',l:'🟠 Résolue'},cloturee:{c:'var(--g)',bg:'var(--gl)',l:'✅ Clôturée'}};
+
+async function saveCrise(){
+  const titre=document.getElementById('cr-titre-crise').value.trim();
+  if(!titre){toast('Titre requis','err');return;}
+  const debut=document.getElementById('cr-debut-crise').value||new Date().toISOString().slice(0,16);
+  const data={
+    titre, niveau:document.getElementById('cr-niveau').value,
+    client:document.getElementById('cr-client-crise').value.trim(),
+    service:document.getElementById('cr-service-crise').value.trim(),
+    description:document.getElementById('cr-desc-crise').value.trim(),
+    responsable:document.getElementById('cr-resp-crise').value.trim(),
+    debut, statut:'active',
+    logs:[{ts:debut,msg:'🚨 Crise déclarée — '+document.getElementById('cr-desc-crise').value.trim()}],
+    createdAt:Date.now()
+  };
+  try{
+    const r=await fbSave('noc_crises',data);
+    DB.crises=(DB.crises||[]);DB.crises.unshift({id:r.id,...data});
+    updateBadge('b-crises', DB.crises.filter(c=>c.statut==='active').length);
+    toast('Crise déclarée ✓','ok'); closeModal('mo-crise'); renderCrises();
+  }catch(e){toast('Erreur: '+e.message,'err');}
+}
+
+async function addCriseLog(id){
+  const inp=document.getElementById('crise-log-inp-'+id);
+  if(!inp||!inp.value.trim())return;
+  const msg=inp.value.trim();
+  const ts=new Date().toISOString().slice(0,16);
+  const crise=(DB.crises||[]).find(c=>c.id===id);
+  if(!crise)return;
+  crise.logs=crise.logs||[];
+  crise.logs.push({ts,msg});
+  try{
+    await fbUpdate('noc_crises',id,{logs:crise.logs});
+    inp.value=''; renderCrises(); toast('Log ajouté ✓','ok');
+  }catch(e){toast('Erreur: '+e.message,'err');}
+}
+
+async function updateCriseStatut(id,statut){
+  const crise=(DB.crises||[]).find(c=>c.id===id);
+  if(!crise)return;
+  crise.statut=statut;
+  if(statut==='resolue'||statut==='cloturee') crise.fin=new Date().toISOString().slice(0,16);
+  try{
+    await fbUpdate('noc_crises',id,{statut,fin:crise.fin||''});
+    updateBadge('b-crises',(DB.crises||[]).filter(c=>c.statut==='active').length);
+    renderCrises(); toast('Statut mis à jour ✓','ok');
+  }catch(e){toast('Erreur: '+e.message,'err');}
+}
+
+async function deleteCrise(id){
+  if(!confirm('Supprimer cette crise ?'))return;
+  try{
+    await fbDel('noc_crises',id);
+    DB.crises=(DB.crises||[]).filter(c=>c.id!==id);
+    updateBadge('b-crises',(DB.crises||[]).filter(c=>c.statut==='active').length);
+    renderCrises(); toast('Crise supprimée','ok');
+  }catch(e){toast('Erreur: '+e.message,'err');}
+}
+
+function renderCrises(){
+  const f=document.getElementById('crise-filter')?.value||'';
+  let data=(DB.crises||[]);
+  if(f) data=data.filter(c=>c.statut===f);
+  const cont=document.getElementById('crises-container');
+  if(!cont)return;
+  if(!data.length){
+    cont.innerHTML=`<div class="crise-empty"><div style="font-size:48px">🟢</div><div style="font-family:var(--cond);font-size:18px;font-weight:700;color:var(--n2);margin:10px 0">Aucune crise en cours</div><div style="font-size:12px;color:var(--n4)">Le NOC est opérationnel. Déclarez une crise si un incident majeur se produit.</div></div>`;
+    return;
+  }
+  cont.innerHTML=data.map(c=>{
+    const niv=NIV_C[c.niveau]||NIV_C.P2;
+    const stat=STAT_C[c.statut]||STAT_C.active;
+    const dur=c.debut?(() => {const s=(c.fin?new Date(c.fin):new Date())-new Date(c.debut);const h=Math.floor(s/3600000),m=Math.floor((s%3600000)/60000);return h>0?h+'h'+String(m).padStart(2,'0')+'m':m+'min';})():'—';
+    const logs=(c.logs||[]).slice().reverse().slice(0,5);
+    return `<div class="crise-card">
+      <div class="crise-hdr">
+        <div class="crise-hdr-left">
+          <div class="crise-title">${c.titre}</div>
+          <div class="crise-meta">
+            ${c.client?'👥 '+c.client+' &nbsp;·&nbsp; ':''}
+            ${c.service?'🔌 '+c.service+' &nbsp;·&nbsp; ':''}
+            ${c.responsable?'👤 '+c.responsable+' &nbsp;·&nbsp; ':''}
+            🕐 Début : ${c.debut||'—'} &nbsp;·&nbsp; Durée : <b>${dur}</b>
+          </div>
+        </div>
+        <span class="crise-niv" style="background:${niv.bg};color:${niv.c}">${niv.l}</span>
+        <span class="crise-stat" style="background:${stat.bg};color:${stat.c}">${stat.l}</span>
+        <button class="btn btn-sm btn-out" onclick="deleteCrise('${c.id}')">🗑</button>
+      </div>
+      <div class="crise-body">
+        <div class="crise-col">
+          <div class="crise-col-title">Description</div>
+          <p style="font-size:12.5px;line-height:1.5;margin:0;color:var(--n2)">${c.description||'—'}</p>
+        </div>
+        <div class="crise-col">
+          <div class="crise-col-title">Journal de crise (${(c.logs||[]).length} entrées)</div>
+          <div class="crise-log">
+            ${logs.length ? logs.map(l=>`<div class="crise-log-item"><span class="crise-log-time">${l.ts||''}</span><span>${l.msg||''}</span></div>`).join('') : '<div style="font-size:11px;color:var(--n4)">Aucune entrée</div>'}
+          </div>
+        </div>
+      </div>
+      <div class="crise-actions-row">
+        <input type="text" class="crise-add-log" id="crise-log-inp-${c.id}" placeholder="Ajouter une entrée au journal…"
+          onkeydown="if(event.key==='Enter') addCriseLog('${c.id}')">
+        <button class="btn btn-sm btn-v" onclick="addCriseLog('${c.id}')">+ Log</button>
+        <div style="margin-left:auto;display:flex;gap:6px">
+          ${c.statut==='active'?`<button class="btn btn-sm" style="background:var(--al);color:var(--a)" onclick="updateCriseStatut('${c.id}','resolue')">✓ Résoudre</button>`:''}
+          ${c.statut!=='cloturee'?`<button class="btn btn-sm" style="background:var(--gl);color:var(--g)" onclick="updateCriseStatut('${c.id}','cloturee')">✅ Clôturer</button>`:''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.addEventListener('fbReady', async ()=>{
+  try{
+    const snap=await window._gets(window._col(window._db,'noc_crises'));
+    DB.crises=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    updateBadge('b-crises',DB.crises.filter(c=>c.statut==='active').length);
+    renderCrises();
+  }catch(e){console.warn('crises:',e);}
+});
+</script>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: RAPPORTS -->
+<div class="page" id="page-rapports">
+<div class="ph">
+  <div><div class="ph-title">📊 Rapports</div><div class="ph-sub">Stockage des rapports par client — Firebase</div></div>
+  <div class="ph-sp"></div>
+  <input type="text" id="rpt-search" placeholder="🔍 Client, type, période…"
+    style="border:1px solid var(--n5);border-radius:3px;padding:6px 12px;font-size:12px;width:220px;font-family:var(--body)"
+    oninput="renderRapports()">
+  <select id="rpt-type-filter" onchange="renderRapports()"
+    style="border:1px solid var(--n5);border-radius:3px;padding:6px 10px;font-size:12px;font-family:var(--body)">
+    <option value="">Tous types</option>
+    <option>Rapport d'incident</option>
+    <option>Rapport mensuel</option>
+    <option>Rapport SLA</option>
+    <option>Rapport d'audit</option>
+    <option>Post-mortem</option>
+    <option>Rapport de crise</option>
+  </select>
+  <button class="btn btn-v" onclick="openModal('mo-rapport')">+ Ajouter rapport</button>
+</div>
+
+<style>
+.rpt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:16px}
+.rpt-card{background:white;border:1px solid var(--n5);border-radius:6px;overflow:hidden;transition:.15s}
+.rpt-card:hover{box-shadow:var(--sdm);border-color:var(--v)}
+.rpt-stripe{height:4px}
+.rpt-body{padding:14px}
+.rpt-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px}
+.rpt-client{font-family:var(--cond);font-size:15px;font-weight:700}
+.rpt-type{font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px}
+.rpt-titre{font-size:12.5px;color:var(--n2);margin-bottom:6px;font-weight:600}
+.rpt-desc{font-size:11.5px;color:var(--n3);line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.rpt-meta{display:flex;align-items:center;gap:10px;font-size:10px;color:var(--n4)}
+.rpt-foot{padding:8px 14px;background:var(--n7);border-top:1px solid var(--n5);display:flex;gap:6px;align-items:center}
+</style>
+
+<div class="rpt-grid" id="rpt-grid"></div>
+
+<!-- MODAL RAPPORT -->
+<div class="overlay" id="mo-rapport" style="display:none;align-items:center;justify-content:center">
+  <div class="modal" style="width:560px">
+    <div class="modal-hdr"><span class="modal-title" id="rpt-modal-title">Nouveau rapport</span><button class="modal-close" onclick="closeModal('mo-rapport')">✕</button></div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="fgrp"><label>Client *</label><input id="rpt-client" type="text" placeholder="Ex : ECOBANK, CNPS…"></div>
+        <div class="fgrp"><label>Type de rapport *</label>
+          <select id="rpt-type">
+            <option>Rapport d'incident</option><option>Rapport mensuel</option>
+            <option>Rapport SLA</option><option>Rapport d'audit</option>
+            <option>Post-mortem</option><option>Rapport de crise</option>
+          </select>
+        </div>
+      </div>
+      <div class="fgrp"><label>Titre du rapport</label><input id="rpt-titre" type="text" placeholder="Ex : Post-mortem coupure WAN — Mars 2025…"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="fgrp"><label>Période couverte</label><input id="rpt-periode" type="text" placeholder="Ex : Mars 2025 / Q1 2025…"></div>
+        <div class="fgrp"><label>Date du rapport</label><input id="rpt-date" type="date"></div>
+      </div>
+      <div class="fgrp"><label>Résumé / Observations</label><textarea id="rpt-resume" rows="3" placeholder="Résumé exécutif, points clés…"></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="fgrp"><label>Rédigé par</label><input id="rpt-auteur" type="text" placeholder="Nom Prénom"></div>
+        <div class="fgrp"><label>Statut</label>
+          <select id="rpt-statut">
+            <option value="Brouillon">📝 Brouillon</option>
+            <option value="Validé">✅ Validé</option>
+            <option value="Envoyé">📤 Envoyé au client</option>
+          </select>
+        </div>
+      </div>
+      <div class="fgrp"><label>Fichier joint (lien ou référence)</label><input id="rpt-fichier" type="text" placeholder="URL, chemin SharePoint, nom fichier…"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-out" onclick="closeModal('mo-rapport')">Annuler</button>
+      <button class="btn btn-v" onclick="saveRapport()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const RPT_COLORS={
+  'Rapport d\'incident':{c:'var(--r)',bg:'var(--rl)'},
+  'Rapport mensuel'    :{c:'var(--b)',bg:'var(--bl)'},
+  'Rapport SLA'        :{c:'var(--g)',bg:'var(--gl)'},
+  'Rapport d\'audit'   :{c:'var(--v)',bg:'var(--vl)'},
+  'Post-mortem'        :{c:'#7B1FA2',bg:'#F3E5F5'},
+  'Rapport de crise'   :{c:'var(--a)',bg:'var(--al)'},
+};
+const RPT_STAT_C={
+  'Brouillon':{c:'var(--n3)',bg:'var(--n6)'},
+  'Validé'   :{c:'var(--g)',bg:'var(--gl)'},
+  'Envoyé'   :{c:'var(--b)',bg:'var(--bl)'},
+};
+let rptEditingId=null;
+
+async function saveRapport(){
+  const client=document.getElementById('rpt-client').value.trim();
+  if(!client){toast('Client requis','err');return;}
+  const data={
+    client, type:document.getElementById('rpt-type').value,
+    titre:document.getElementById('rpt-titre').value.trim(),
+    periode:document.getElementById('rpt-periode').value.trim(),
+    date:document.getElementById('rpt-date').value,
+    resume:document.getElementById('rpt-resume').value.trim(),
+    auteur:document.getElementById('rpt-auteur').value.trim(),
+    statut:document.getElementById('rpt-statut').value,
+    fichier:document.getElementById('rpt-fichier').value.trim(),
+    createdAt:Date.now()
+  };
+  try{
+    if(rptEditingId){
+      await fbUpdate('noc_rapports',rptEditingId,data);
+      const idx=(DB.rapports||[]).findIndex(r=>r.id===rptEditingId);
+      if(idx>=0) DB.rapports[idx]={id:rptEditingId,...data};
+      toast('Rapport modifié ✓','ok');
+    }else{
+      const r=await fbSave('noc_rapports',data);
+      DB.rapports=(DB.rapports||[]);
+      DB.rapports.unshift({id:r.id,...data});
+      toast('Rapport enregistré ✓','ok');
+    }
+    updateBadge('b-rapports',(DB.rapports||[]).length);
+    rptEditingId=null; closeModal('mo-rapport'); renderRapports();
+  }catch(e){toast('Erreur: '+e.message,'err');}
+}
+
+function rptEditById(id){
+  rptEditingId=id;
+  const r=(DB.rapports||[]).find(x=>x.id===id);if(!r)return;
+  document.getElementById('rpt-modal-title').textContent='Modifier — '+r.client;
+  document.getElementById('rpt-client').value=r.client||'';
+  document.getElementById('rpt-type').value=r.type||'Rapport d\'incident';
+  document.getElementById('rpt-titre').value=r.titre||'';
+  document.getElementById('rpt-periode').value=r.periode||'';
+  document.getElementById('rpt-date').value=r.date||'';
+  document.getElementById('rpt-resume').value=r.resume||'';
+  document.getElementById('rpt-auteur').value=r.auteur||'';
+  document.getElementById('rpt-statut').value=r.statut||'Brouillon';
+  document.getElementById('rpt-fichier').value=r.fichier||'';
+  document.getElementById('mo-rapport').style.display='flex';
+}
+
+async function deleteRapport(id){
+  if(!confirm('Supprimer ce rapport ?'))return;
+  try{
+    await fbDel('noc_rapports',id);
+    DB.rapports=(DB.rapports||[]).filter(r=>r.id!==id);
+    updateBadge('b-rapports',(DB.rapports||[]).length);
+    renderRapports(); toast('Rapport supprimé','ok');
+  }catch(e){toast('Erreur: '+e.message,'err');}
+}
+
+function renderRapports(){
+  const q=(document.getElementById('rpt-search')?.value||'').toLowerCase();
+  const t=document.getElementById('rpt-type-filter')?.value||'';
+  let data=(DB.rapports||[]).filter(r=>
+    (!t||r.type===t)&&
+    (!q||(r.client+r.titre+r.type+r.periode).toLowerCase().includes(q))
+  );
+  const grid=document.getElementById('rpt-grid');if(!grid)return;
+  if(!data.length){
+    grid.innerHTML=`<div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--n4)">
+      <div style="font-size:48px">📊</div>
+      <div style="font-family:var(--cond);font-size:18px;font-weight:700;color:var(--n2);margin:10px 0">Aucun rapport</div>
+      <div style="font-size:12px">Ajoutez le premier rapport client.</div>
+    </div>`;
+    return;
+  }
+  grid.innerHTML=data.map(r=>{
+    const col=RPT_COLORS[r.type]||{c:'var(--n3)',bg:'var(--n6)'};
+    const sc=RPT_STAT_C[r.statut]||RPT_STAT_C['Brouillon'];
+    return`<div class="rpt-card">
+      <div class="rpt-stripe" style="background:${col.c}"></div>
+      <div class="rpt-body">
+        <div class="rpt-top">
+          <div class="rpt-client">${r.client}</div>
+          <span class="rpt-type" style="background:${col.bg};color:${col.c}">${r.type}</span>
+        </div>
+        ${r.titre?`<div class="rpt-titre">${r.titre}</div>`:''}
+        ${r.resume?`<div class="rpt-desc">${r.resume}</div>`:''}
+        <div class="rpt-meta">
+          ${r.periode?`<span>📅 ${r.periode}</span>`:''}
+          ${r.auteur?`<span>✍️ ${r.auteur}</span>`:''}
+          <span class="bp" style="background:${sc.bg};color:${sc.c};padding:1px 7px;border-radius:10px;font-size:9px;font-weight:700">${r.statut||'Brouillon'}</span>
+        </div>
+      </div>
+      <div class="rpt-foot">
+        ${r.fichier?`<a href="${r.fichier}" target="_blank" class="btn btn-sm btn-out">📎 Fichier</a>`:''}
+        <button class="btn btn-sm btn-out" onclick="rptEditById('${r.id}')">✏️</button>
+        <button class="btn btn-sm btn-out" onclick="deleteRapport('${r.id}')" style="color:var(--r)">🗑</button>
+        <span style="margin-left:auto;font-size:10px;color:var(--n4)">${r.date||''}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.addEventListener('fbReady', async ()=>{
+  try{
+    const snap=await window._gets(window._col(window._db,'noc_rapports'));
+    DB.rapports=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+    updateBadge('b-rapports',DB.rapports.length);
+    renderRapports();
+  }catch(e){console.warn('rapports:',e);}
+});
+</script>
 </div>
 
 </div><!-- /main -->
@@ -1940,7 +2750,8 @@ function renderAll(){
   renderIncidents();
   renderChg();
   renderAgents();
-  renderDocs();
+  renderCrises();
+  renderRapports();
 }
 
 // ═══════════════════════════════════════════════════════════
