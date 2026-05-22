@@ -2458,7 +2458,30 @@ async function deleteContact(id){
   </div>
 </div>
 
-<!-- Modale Document -->
+<!-- MODALE DÉTAIL AGENT -->
+<div class="overlay" id="mo-agent-detail">
+  <div class="modal" style="width:400px">
+    <div class="modal-hdr">
+      <span class="modal-title">👤 Fiche agent</span>
+      <button class="modal-close" onclick="closeModal('mo-agent-detail')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;align-items:center;gap:16px;padding-bottom:16px;border-bottom:1px solid var(--n5);margin-bottom:12px">
+        <div id="ag-det-av" style="width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:white;flex-shrink:0"></div>
+        <div>
+          <div id="ag-det-nom" style="font-family:var(--cond);font-size:20px;font-weight:700;color:var(--n1)"></div>
+          <div id="ag-det-niveau" style="font-size:12px;color:var(--n3);margin-top:2px"></div>
+          <span id="ag-det-statut" style="margin-top:5px;display:inline-block"></span>
+        </div>
+      </div>
+      <div id="ag-det-rows"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-out" onclick="closeModal('mo-agent-detail')">Fermer</button>
+      <button class="btn btn-v" id="ag-det-edit">✏️ Modifier</button>
+    </div>
+  </div>
+</div>
 <div class="overlay" id="mo-doc">
   <div class="modal"><div class="modal-hdr"><span class="modal-title">📁 Ajouter Document</span><button class="modal-close" onclick="closeModal('mo-doc')">✕</button></div>
   <div class="modal-body">
@@ -2982,20 +3005,70 @@ function renderAgents(){
     const initials = (a.nom||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
     const color = AG_COLORS[i%AG_COLORS.length];
     const isActive = a.statut==='Actif';
-    return `<div class="agent-card">
+    return `<div class="agent-card" onclick="openAgentDetail('${a.id}')" style="cursor:pointer;transition:.15s" onmouseover="this.style.boxShadow='var(--sdm)';this.style.borderColor='var(--v)'" onmouseout="this.style.boxShadow='';this.style.borderColor='var(--n5)'">
       <div class="agent-av" style="background:${color}">${initials}</div>
       <div style="flex:1">
-        <div class="agent-name ec-cell" data-db="agents" data-id="${a.id}" data-field="nom" ondblclick="startEdit(this)" title="Double-clic pour éditer">${a.nom||'—'}</div>
-        <div class="agent-role ec-cell" data-db="agents" data-id="${a.id}" data-field="niveau" ondblclick="startEdit(this)" title="Double-clic pour éditer">${a.niveau||'—'}</div>
-        <div class="ec-cell" style="font-size:10.5px;color:var(--n4);margin-top:2px" data-db="agents" data-id="${a.id}" data-field="shift" ondblclick="startEdit(this)" title="Double-clic pour éditer">🕐 ${a.shift||'—'}</div>
-        <div class="ec-cell" style="font-size:10.5px;color:var(--b);margin-top:3px" data-db="agents" data-id="${a.id}" data-field="skills" ondblclick="startEdit(this)" title="Double-clic pour éditer">${a.skills||'—'}</div>
+        <div class="agent-name">${a.nom||'—'}</div>
+        <div class="agent-role">${a.niveau||'—'}</div>
+        <div style="font-size:10.5px;color:var(--n4);margin-top:2px">🕐 ${a.shift||'—'}</div>
+        <div style="font-size:10.5px;color:var(--b);margin-top:3px">${a.skills||'—'}</div>
         <div class="agent-actions">
-          <span class="ec-cell seuil-badge ${isActive?'seuil-moyen':'seuil-eleve'}" style="${isActive?'background:var(--gl);color:var(--g)':''}" data-db="agents" data-id="${a.id}" data-field="statut" ondblclick="startEdit(this)" title="Double-clic pour éditer">${a.statut||'—'}</span>
-          <button class="btn btn-sm btn-out" onclick="deleteItem('noc_agents','${a.id}','agents')">🗑</button>
+          <span class="seuil-badge ${isActive?'seuil-moyen':'seuil-eleve'}" style="${isActive?'background:var(--gl);color:var(--g)':''}">${a.statut||'—'}</span>
+          <button class="btn btn-sm btn-out" onclick="event.stopPropagation();deleteItem('noc_agents','${a.id}','agents')">🗑</button>
         </div>
       </div>
     </div>`;
   }).join('');
+}
+
+function openAgentDetail(id){
+  const a = DB.agents.find(x=>x.id===id); if(!a) return;
+  const i = DB.agents.indexOf(a);
+  const color = AG_COLORS[i%AG_COLORS.length];
+  const initials = (a.nom||'?').split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase();
+  const isActive = a.statut==='Actif';
+
+  document.getElementById('ag-det-av').textContent = initials;
+  document.getElementById('ag-det-av').style.background = color;
+  document.getElementById('ag-det-nom').textContent = a.nom||'—';
+  document.getElementById('ag-det-niveau').textContent = a.niveau||'—';
+  document.getElementById('ag-det-statut').textContent = a.statut||'—';
+  document.getElementById('ag-det-statut').style.cssText = isActive
+    ? 'background:var(--gl);color:var(--g);padding:2px 10px;border-radius:10px;font-size:11px;font-weight:700'
+    : 'background:var(--al);color:var(--a);padding:2px 10px;border-radius:10px;font-size:11px;font-weight:700';
+
+  const rows = [
+    {l:'Email',v:a.email||'—', ico:'📧'},
+    {l:'Téléphone',v:a.tel||'—', ico:'📞'},
+    {l:'Shift',v:a.shift||'—', ico:'🕐'},
+    {l:'Compétences',v:a.skills||'—', ico:'⚙️'},
+    {l:'Notes',v:a.notes||'—', ico:'📝'},
+  ];
+  document.getElementById('ag-det-rows').innerHTML = rows.map(r=>`
+    <div style="display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--n5);align-items:flex-start">
+      <span style="font-size:15px;flex-shrink:0;width:22px;text-align:center">${r.ico}</span>
+      <div>
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--n3)">${r.l}</div>
+        <div style="font-size:13px;color:var(--n1);margin-top:2px">${r.v}</div>
+      </div>
+    </div>`).join('');
+
+  // Bouton modifier
+  document.getElementById('ag-det-edit').onclick = () => {
+    closeModal('mo-agent-detail');
+    // Pré-remplir le formulaire d'édition
+    document.getElementById('ag-nom').value=a.nom||'';
+    document.getElementById('ag-niveau').value=a.niveau||'';
+    document.getElementById('ag-email').value=a.email||'';
+    document.getElementById('ag-tel').value=a.tel||'';
+    document.getElementById('ag-shift').value=a.shift||'';
+    document.getElementById('ag-statut').value=a.statut||'Actif';
+    document.getElementById('ag-skills').value=a.skills||'';
+    document.getElementById('ag-notes').value=a.notes||'';
+    openModal('mo-agent');
+  };
+
+  openModal('mo-agent-detail');
 }
 
 async function saveAgent(){
