@@ -41,7 +41,6 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
 
 window._saveStatut = async function(id, val) {
   if(!id) return;
-  // Remplacer les caracteres interdits dans les cles Firebase
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   try {
     await set(ref(db, "statuts_dossiers/" + safeKey), val);
@@ -54,6 +53,42 @@ window._saveStatut = async function(id, val) {
 window._getStatut = function(id) {
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   return window._statuts[safeKey] || "";
+};
+
+// Valeurs de la liste deroulante
+window._statutOptions = [
+  "Autorisation mairie",
+  "Autorisation client",
+  "Autorisation DDPE",
+  "Local en chantier",
+  "Appro"
+];
+
+// Charger les options custom depuis Firebase
+onValue(ref(db, "statut_options"), (snapshot) => {
+  const data = snapshot.val();
+  if(data && Array.isArray(data)){
+    // Fusionner sans doublons
+    data.forEach(v => {
+      if(!window._statutOptions.includes(v)) window._statutOptions.push(v);
+    });
+  }
+  // Mettre a jour tous les datalists
+  document.querySelectorAll("#statut-datalist").forEach(dl => {
+    dl.innerHTML = window._statutOptions.map(o => `<option value="${o}">`).join("");
+  });
+});
+
+window._saveOption = async function(val) {
+  if(!val || window._statutOptions.includes(val)) return;
+  window._statutOptions.push(val);
+  // Sauvegarder seulement les options custom (au-dela des 5 de base)
+  const custom = window._statutOptions.slice(5);
+  try {
+    await set(ref(db, "statut_options"), custom);
+  } catch(e) {
+    console.error("Erreur save option:", e);
+  }
 };
 </script>
 
@@ -173,21 +208,35 @@ function makeStatutInput(id){
  const val = window._getStatut ? window._getStatut(id) : "";
  const safeId = id.replace(/"/g,"&quot;");
  const safeVal = val.replace(/"/g,"&quot;");
- return `<input class="statut-input" data-id="${safeId}" maxlength="20" value="${safeVal}" placeholder="Statut..."/>`;
+ return `<input class="statut-input" data-id="${safeId}" maxlength="50" value="${safeVal}" placeholder="Statut..." list="statut-datalist"/>`;
+}
+
+function ensureDatalist(){
+ if(!document.getElementById("statut-datalist")){
+  const dl = document.createElement("datalist");
+  dl.id = "statut-datalist";
+  if(window._statutOptions){
+   dl.innerHTML = window._statutOptions.map(o=>`<option value="${o}">`).join("");
+  }
+  document.body.appendChild(dl);
+ }
 }
 
 function attachStatutListeners(){
+ ensureDatalist();
  document.querySelectorAll(".statut-input").forEach(inp=>{
   const clone=inp.cloneNode(true);
   inp.parentNode.replaceChild(clone,inp);
  });
  document.querySelectorAll(".statut-input").forEach(inp=>{
-  inp.addEventListener("input", async function(){
-   if(this.value.length>20) this.value=this.value.slice(0,20);
+  inp.addEventListener("change", async function(){
    const id=this.dataset.id;
-   const val=this.value;
+   const val=this.value.slice(0,50);
+   this.value=val;
    if(window._saveStatut){
     await window._saveStatut(id,val);
+    // Si c'est une nouvelle valeur, l'ajouter a la liste
+    if(window._saveOption) window._saveOption(val);
     this.classList.add("saved");
     setTimeout(()=>this.classList.remove("saved"),1000);
    }
@@ -290,7 +339,10 @@ document.getElementById("btnSaveAll").onclick=()=>{
  inputs.forEach(inp=>{
   const id=inp.dataset.id;
   const val=inp.value;
-  if(id && window._saveStatut) window._saveStatut(id,val);
+  if(id && window._saveStatut){
+   window._saveStatut(id,val);
+   if(val && window._saveOption) window._saveOption(val);
+  }
  });
  btn.textContent="✅ Enregistré";
  setTimeout(()=>btn.textContent="💾 Enregistrer statuts",2000);
