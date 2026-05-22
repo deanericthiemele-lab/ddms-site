@@ -79,6 +79,11 @@ onValue(ref(db, "statut_options"), (snapshot) => {
   });
 });
 
+// Expose db refs for deleteOption
+window._db_ref = ref;
+window._db_set = set;
+window._db = db;
+
 window._saveOption = async function(val) {
   if(!val || window._statutOptions.includes(val)) return;
   window._statutOptions.push(val);
@@ -133,6 +138,7 @@ td.num{text-align:right}
   <input type="file" id="fileInput" accept=".xlsx,.xls"/>
   <button id="btnExport">Exporter</button>
   <button id="btnSaveAll">💾 Enregistrer statuts</button>
+  <button id="btnGererListe">⚙️ Gérer la liste</button>
 </div>
 
 <!-- Liste deroulante statuts -->
@@ -175,6 +181,25 @@ td.num{text-align:right}
      <th>SUPPORT</th><th>ADR. GEO</th>
    </tr></thead>
    <tbody></tbody>
+  </table>
+ </div>
+</div>
+
+<!-- Popup gestion liste statuts -->
+<div class="popup" id="popupGererListe">
+ <div class="popup-content" style="width:450px;max-height:70vh;">
+  <div class="popup-header">
+   <h2>Gérer la liste des statuts</h2>
+   <span class="close" onclick="document.getElementById('popupGererListe').style.display='none'">✕</span>
+  </div>
+  <div style="margin-bottom:10px;display:flex;gap:8px;">
+   <input type="text" id="newOptionInput" placeholder="Nouvelle valeur..." maxlength="50"
+    style="flex:1;padding:6px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;"/>
+   <button id="btnAddOption" style="background:#2563eb;color:white;">+ Ajouter</button>
+  </div>
+  <table style="width:100%;" id="tableOptions">
+   <thead><tr><th>Valeur</th><th style="width:80px;">Action</th></tr></thead>
+   <tbody id="tbodyOptions"></tbody>
   </table>
  </div>
 </div>
@@ -234,13 +259,20 @@ function attachStatutListeners(){
   inp.parentNode.replaceChild(clone,inp);
  });
  document.querySelectorAll(".statut-input").forEach(inp=>{
+  inp.addEventListener("focus", function(){
+   this._prevVal = this.value;
+   this.value = "";
+  });
+  inp.addEventListener("blur", function(){
+   if(this.value === "") this.value = this._prevVal || "";
+  });
   inp.addEventListener("change", async function(){
    const id=this.dataset.id;
    const val=this.value.slice(0,50);
    this.value=val;
+   this._prevVal=val;
    if(window._saveStatut){
     await window._saveStatut(id,val);
-    // Si c'est une nouvelle valeur, l'ajouter a la liste
     if(window._saveOption) window._saveOption(val);
     this.classList.add("saved");
     setTimeout(()=>this.classList.remove("saved"),1000);
@@ -336,6 +368,52 @@ document.getElementById("fileInput").addEventListener("change",e=>{
  };
  reader.readAsArrayBuffer(file);
 });
+
+document.getElementById("btnGererListe").onclick=()=>{
+ renderOptionsList();
+ document.getElementById("popupGererListe").style.display="flex";
+};
+
+function renderOptionsList(){
+ const tbody=document.getElementById("tbodyOptions");
+ tbody.innerHTML="";
+ (window._statutOptions||[]).forEach((opt,i)=>{
+  const isDefault = i < 5;
+  tbody.innerHTML+=`<tr>
+   <td>${opt}</td>
+   <td>${isDefault
+    ? '<span style="color:#aaa;font-size:12px;">défaut</span>'
+    : `<button onclick="deleteOption('${opt.replace(/'/g,"\'")}') " style="background:#ef4444;color:white;padding:3px 8px;border-radius:4px;border:none;cursor:pointer;">🗑 Suppr.</button>`
+   }</td>
+  </tr>`;
+ });
+}
+
+window.deleteOption = async function(val){
+ if(!window._statutOptions) return;
+ window._statutOptions = window._statutOptions.filter(o=>o!==val);
+ const custom = window._statutOptions.slice(5);
+ if(window._db_ref && window._db_set){
+  await window._db_set(window._db_ref(window._db, "statut_options"), custom);
+ }
+ // Mettre a jour le datalist
+ const dl=document.getElementById("statut-datalist");
+ if(dl) dl.innerHTML=window._statutOptions.map(o=>`<option value="${o}">`).join("");
+ renderOptionsList();
+};
+
+document.getElementById("btnAddOption").onclick=async()=>{
+ const input=document.getElementById("newOptionInput");
+ const val=input.value.trim();
+ if(!val){alert("Entrez une valeur.");return;}
+ if(window._saveOption){
+  await window._saveOption(val);
+  const dl=document.getElementById("statut-datalist");
+  if(dl) dl.innerHTML=window._statutOptions.map(o=>`<option value="${o}">`).join("");
+  input.value="";
+  renderOptionsList();
+ }
+};
 
 document.getElementById("btnSaveAll").onclick=()=>{
  const inputs=document.querySelectorAll(".statut-input");
