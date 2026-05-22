@@ -6,60 +6,54 @@
 <title>Suivi des Dossiers</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-<!-- Firebase SDK -->
+<!-- Firebase Realtime Database -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, doc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getDatabase, ref, get, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBcXkL5jdFj9TDsKAhIXds_bl82v24U5xw",
   authDomain: "production-c3930.firebaseapp.com",
   projectId: "production-c3930",
+  databaseURL: "https://production-c3930-default-rtdb.firebaseio.com",
   storageBucket: "production-c3930.firebasestorage.app",
   messagingSenderId: "69326528736",
   appId: "1:69326528736:web:b8c1fa13421728ddc73885"
 };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const db = getDatabase(app);
 
 window._statuts = {};
-window._statutsLoaded = false;
 
-// Ecoute les changements en temps reel
-onSnapshot(collection(db, "statuts_dossiers"), (snapshot) => {
-  snapshot.forEach(d => {
-    window._statuts[d.id] = d.data().statut || "";
+// Charger tous les statuts et ecouter les changements
+onValue(ref(db, "statuts_dossiers"), (snapshot) => {
+  const data = snapshot.val() || {};
+  window._statuts = data;
+  // Mettre a jour les champs visibles
+  document.querySelectorAll(".statut-input").forEach(inp => {
+    const id = inp.dataset.id;
+    if(id && data[id] !== undefined && document.activeElement !== inp){
+      inp.value = data[id];
+    }
   });
-
-  if(!window._statutsLoaded){
-    // Premier appel : Firebase a repondu, on peut remplir le tableau
-    window._statutsLoaded = true;
-    // Remplir les champs deja affiches
-    document.querySelectorAll(".statut-input").forEach(inp => {
-      const id = inp.dataset.id;
-      if(id && window._statuts[id]){
-        inp.value = window._statuts[id];
-      }
-    });
-  } else {
-    // Mises a jour temps reel
-    document.querySelectorAll(".statut-input").forEach(inp => {
-      const id = inp.dataset.id;
-      if(id && window._statuts[id] !== undefined && document.activeElement !== inp){
-        inp.value = window._statuts[id];
-      }
-    });
-  }
 });
 
 window._saveStatut = async function(id, val) {
   if(!id) return;
+  // Remplacer les caracteres interdits dans les cles Firebase
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   try {
-    await setDoc(doc(db, "statuts_dossiers", id), { statut: val });
+    await set(ref(db, "statuts_dossiers/" + safeKey), val);
+    window._statuts[safeKey] = val;
   } catch(e) {
     console.error("Erreur Firebase:", e);
   }
+};
+
+window._getStatut = function(id) {
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  return window._statuts[safeKey] || "";
 };
 </script>
 
@@ -176,9 +170,9 @@ function dedupeById(rows){
 }
 
 function makeStatutInput(id){
- const val=(window._statuts&&window._statuts[id])?window._statuts[id]:"";
- const safeId=id.replace(/"/g,"&quot;");
- const safeVal=val.replace(/"/g,"&quot;");
+ const val = window._getStatut ? window._getStatut(id) : "";
+ const safeId = id.replace(/"/g,"&quot;");
+ const safeVal = val.replace(/"/g,"&quot;");
  return `<input class="statut-input" data-id="${safeId}" maxlength="20" value="${safeVal}" placeholder="Statut..."/>`;
 }
 
@@ -188,13 +182,12 @@ function attachStatutListeners(){
   inp.parentNode.replaceChild(clone,inp);
  });
  document.querySelectorAll(".statut-input").forEach(inp=>{
-  inp.addEventListener("input",async function(){
+  inp.addEventListener("input", async function(){
    if(this.value.length>20) this.value=this.value.slice(0,20);
    const id=this.dataset.id;
    const val=this.value;
    if(window._saveStatut){
     await window._saveStatut(id,val);
-    window._statuts[id]=val;
     this.classList.add("saved");
     setTimeout(()=>this.classList.remove("saved"),1000);
    }
@@ -290,6 +283,19 @@ document.getElementById("fileInput").addEventListener("change",e=>{
  reader.readAsArrayBuffer(file);
 });
 
+document.getElementById("btnSaveAll").onclick=()=>{
+ const inputs=document.querySelectorAll(".statut-input");
+ if(inputs.length===0){alert("Aucun dossier chargé.");return;}
+ const btn=document.getElementById("btnSaveAll");
+ inputs.forEach(inp=>{
+  const id=inp.dataset.id;
+  const val=inp.value;
+  if(id && window._saveStatut) window._saveStatut(id,val);
+ });
+ btn.textContent="✅ Enregistré";
+ setTimeout(()=>btn.textContent="💾 Enregistrer statuts",2000);
+};
+
 document.getElementById("btnNettoyage").onclick=()=>{
  dossiersNettoyage=[];
  dossiersGlobal.forEach(r=>{
@@ -322,22 +328,6 @@ function closeNettoyage(){
  document.getElementById("popupNettoyage").style.display="none";
 }
 
-document.getElementById("btnSaveAll").onclick=()=>{
- const inputs=document.querySelectorAll(".statut-input");
- if(inputs.length===0){alert("Aucun dossier chargé.");return;}
- const btn=document.getElementById("btnSaveAll");
- inputs.forEach(inp=>{
-  const id=inp.dataset.id;
-  const val=inp.value;
-  if(id && window._saveStatut){
-   window._saveStatut(id,val);
-   window._statuts[id]=val;
-  }
- });
- btn.textContent="✅ Enregistré";
- setTimeout(()=>btn.textContent="💾 Enregistrer statuts",2000);
-};
-
 document.getElementById("btnExport").onclick=()=>{
  const q=document.getElementById("searchInput").value.toLowerCase();
  let dataExport=[];
@@ -350,7 +340,7 @@ document.getElementById("btnExport").onclick=()=>{
     "DATE CREATION DOSSIER":formatDate(r["DATE CREATION DOSSIER"]),
     "DURÉE (j)":daysBetween(r["DATE CREATION DOSSIER"]),
     "ETAPE":r["ETAPE"]||"",
-    "STATUT":(window._statuts&&window._statuts[id])?window._statuts[id]:"",
+    "STATUT":window._getStatut ? window._getStatut(id) : "",
     "CLIENT":r["CLIENT"]||"",
     "TYPE ABONNEMENT":r["TYPE ABONNEMENT"]||"",
     "SUPPORT":r["SUPPORT"]||"",
