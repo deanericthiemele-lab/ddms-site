@@ -4,34 +4,64 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Suivi des Dossiers</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-document.getElementById("btnExport").onclick = () => {
-  const q = document.getElementById("searchInput").value.toLowerCase();
-  let dataExport = [];
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
-  dossiersGlobal.forEach(r=>{
-    const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]).toLowerCase();
-    if(!q || txt.includes(q)){
-      dataExport.push({
-        "ID DOSSIER": r["ID DOSSIER"]||"",
-        "DATE CREATION DOSSIER": formatDate(r["DATE CREATION DOSSIER"]),
-        "DURÉE (j)": daysBetween(r["DATE CREATION DOSSIER"]),
-        "ETAPE": r["ETAPE"]||"",
-        "CLIENT": r["CLIENT"]||"",
-        "TYPE ABONNEMENT": r["TYPE ABONNEMENT"]||"",
-        "SUPPORT": r["SUPPORT"]||"",
-        "ADR. GEO": r["ADR. GEO"]||""
-      });
-    }
-  });
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-  const ws = XLSX.utils.json_to_sheet(dataExport);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Export");
-  XLSX.writeFile(wb, "export_dossiers.xlsx");
+const firebaseConfig = {
+  apiKey: "AIzaSyBcXkL5jdFj9TDsKAhIXds_bl82v24U5xw",
+  authDomain: "production-c3930.firebaseapp.com",
+  projectId: "production-c3930",
+  storageBucket: "production-c3930.firebasestorage.app",
+  messagingSenderId: "69326528736",
+  appId: "1:69326528736:web:b8c1fa13421728ddc73885"
 };
 
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// Expose globally
+window._db = db;
+window._doc = doc;
+window._getDoc = getDoc;
+window._setDoc = setDoc;
+window._onSnapshot = onSnapshot;
+window._collection = collection;
+window._firebaseReady = true;
+
+// Load all statuts at startup and watch for changes
+window._statuts = {};
+
+const colRef = collection(db, "statuts_dossiers");
+onSnapshot(colRef, (snapshot) => {
+  snapshot.forEach(d => {
+    window._statuts[d.id] = d.data().statut || "";
+  });
+  // Refresh inputs in table if already rendered
+  document.querySelectorAll(".statut-input").forEach(inp => {
+    const id = inp.dataset.id;
+    if(id && window._statuts[id] !== undefined){
+      // Only update if not currently focused (avoid overwriting user typing)
+      if(document.activeElement !== inp){
+        inp.value = window._statuts[id];
+      }
+    }
+  });
+});
+
+window._saveStatut = async function(id, val) {
+  if(!id) return;
+  try {
+    await setDoc(doc(db, "statuts_dossiers", id), { statut: val });
+  } catch(e) {
+    console.error("Erreur Firebase:", e);
+  }
+};
 </script>
+
 <style>
 body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
 button{background:#d3d3d3;border:none;padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer;margin-right:6px}
@@ -39,11 +69,29 @@ button:hover{filter:brightness(.95)}
 h1{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:16px;font-weight:bold;margin-bottom:6px}
 .subresume{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:15px;font-weight:bold;margin-bottom:10px}
 .search-zone{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.search-zone input{padding:6px 8px;border:1px solid #aaa;border-radius:6px;width:280px}
+.search-zone input[type="text"]{padding:6px 8px;border:1px solid #aaa;border-radius:6px;width:280px}
 table{border-collapse:collapse;width:100%;margin-top:10px}
 th,td{border:1px solid #ccc;padding:6px}
 th{background:#eee}
 td.num{text-align:right}
+.statut-input{
+  width:160px;
+  padding:4px 6px;
+  border:1px solid #bbb;
+  border-radius:4px;
+  font-size:13px;
+  background:#fffde7;
+  transition: border-color 0.2s;
+}
+.statut-input:focus{
+  outline:none;
+  border-color:#f59e0b;
+  background:#fff8e1;
+}
+.statut-input.saved{
+  border-color:#22c55e;
+  background:#f0fdf4;
+}
 .popup{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:none;align-items:center;justify-content:center;z-index:1000}
 .popup-content{background:#fff;border-radius:8px;padding:15px;width:1100px;max-height:85vh;overflow:auto}
 .popup-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
@@ -62,7 +110,7 @@ td.num{text-align:right}
 <div class="subresume" id="subresume">LS : 0 | LSI : 0 | Numérique : 0</div>
 
 <div class="search-zone">
-  <input id="searchInput" placeholder="Rechercher ID, client ou type abonnement"/>
+  <input type="text" id="searchInput" placeholder="Rechercher ID, client ou type abonnement"/>
   <input type="file" id="fileInput" accept=".xlsx,.xls"/>
   <button id="btnExport">Exporter</button>
 </div>
@@ -74,6 +122,7 @@ td.num{text-align:right}
 <th>DATE CREATION DOSSIER</th>
 <th>DURÉE (j)</th>
 <th>ETAPE</th>
+<th>STATUT</th>
 <th>CLIENT</th>
 <th>TYPE ABONNEMENT</th>
 <th>SUPPORT</th>
@@ -99,7 +148,7 @@ td.num{text-align:right}
      <th>ETAPE</th>
      <th>CLIENT</th>
      <th>TYPE ABONNEMENT</th>
-<th>SUPPORT</th>
+     <th>SUPPORT</th>
      <th>ADR. GEO</th>
     </tr>
    </thead>
@@ -144,17 +193,54 @@ function dedupeById(rows){
  return Array.from(map.values());
 }
 
+function makeStatutInput(id){
+ const val = (window._statuts && window._statuts[id]) ? window._statuts[id] : "";
+ const safeId = id.replace(/"/g,"&quot;");
+ return `<input
+   class="statut-input"
+   data-id="${safeId}"
+   maxlength="20"
+   value="${val.replace(/"/g,"&quot;")}"
+   placeholder="Statut..."
+   title="Max 20 caractères"
+ />`;
+}
+
+function attachStatutListeners(){
+ document.querySelectorAll(".statut-input").forEach(inp => {
+  // Remove old listeners by cloning
+  const clone = inp.cloneNode(true);
+  inp.parentNode.replaceChild(clone, inp);
+ });
+ document.querySelectorAll(".statut-input").forEach(inp => {
+  let timer = null;
+  inp.addEventListener("input", function(){
+   if(this.value.length > 20) this.value = this.value.slice(0,20);
+   const id = this.dataset.id;
+   const val = this.value;
+   // Debounce 800ms
+   clearTimeout(timer);
+   timer = setTimeout(async () => {
+    if(window._saveStatut){
+     await window._saveStatut(id, val);
+     window._statuts[id] = val;
+     this.classList.add("saved");
+     setTimeout(()=>this.classList.remove("saved"), 1500);
+    }
+   }, 800);
+  });
+ });
+}
+
 async function loadPipe(){
  for(const f of pipeFiles){
   try{
    const r = await fetch(f + "?v=" + Date.now());
    if(!r.ok) continue;
-
    const b = await r.arrayBuffer();
    const wb = XLSX.read(b,{type:"array"});
    const ws = wb.Sheets[wb.SheetNames[0]];
    const raw = XLSX.utils.sheet_to_json(ws,{raw:true});
-
    dossiersGlobal = dedupeById(raw);
    renderMain();
    return;
@@ -165,7 +251,6 @@ loadPipe();
 
 function renderMain(){
  document.getElementById("resume").textContent="Dossiers : "+dossiersGlobal.length;
-
  let ls=0,lsi=0,num=0;
  dossiersGlobal.forEach(r=>{
   const t=(r["TYPE ABONNEMENT"]||"").toUpperCase();
@@ -179,18 +264,21 @@ function renderMain(){
  const tbody=document.querySelector("#tableDossiers tbody");
  tbody.innerHTML="";
  dossiersGlobal.forEach(r=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
   tbody.innerHTML+=`
    <tr>
     <td>${r["ID DOSSIER"]||""}</td>
     <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
     <td class="num">${daysBetween(r["DATE CREATION DOSSIER"])}</td>
     <td>${r["ETAPE"]||""}</td>
+    <td>${makeStatutInput(id)}</td>
     <td>${r["CLIENT"]||""}</td>
     <td>${r["TYPE ABONNEMENT"]||""}</td>
     <td>${r["SUPPORT"]||""}</td>
     <td>${r["ADR. GEO"]||""}</td>
    </tr>`;
  });
+ attachStatutListeners();
 }
 
 document.getElementById("searchInput").addEventListener("keyup",()=>{
@@ -198,38 +286,38 @@ document.getElementById("searchInput").addEventListener("keyup",()=>{
  const tbody=document.querySelector("#tableDossiers tbody");
  tbody.innerHTML="";
  let cpt=0;
-
  dossiersGlobal.forEach(r=>{
   const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]).toLowerCase();
   if(txt.includes(q)){
    cpt++;
+   const id = (r["ID DOSSIER"]||"").toString().trim();
    tbody.innerHTML+=`
     <tr>
      <td>${r["ID DOSSIER"]||""}</td>
      <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
      <td class="num">${daysBetween(r["DATE CREATION DOSSIER"])}</td>
      <td>${r["ETAPE"]||""}</td>
+     <td>${makeStatutInput(id)}</td>
      <td>${r["CLIENT"]||""}</td>
      <td>${r["TYPE ABONNEMENT"]||""}</td>
-    <td>${r["SUPPORT"]||""}</td>
+     <td>${r["SUPPORT"]||""}</td>
      <td>${r["ADR. GEO"]||""}</td>
     </tr>`;
   }
  });
  document.getElementById("resume").textContent="Dossiers : "+cpt;
+ attachStatutListeners();
 });
 
 document.getElementById("fileInput").addEventListener("change", e=>{
  const file = e.target.files[0];
  if(!file) return;
-
  const reader = new FileReader();
  reader.onload = evt=>{
   const data = evt.target.result;
   const wb = XLSX.read(data,{type:"array"});
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw = XLSX.utils.sheet_to_json(ws,{raw:true});
-
   dossiersGlobal = dedupeById(raw);
   renderMain();
  };
@@ -243,7 +331,6 @@ document.getElementById("btnNettoyage").onclick=()=>{
   const de=daysBetween(r["DATE CREATION TACHE"]);
   if(dg>=45 && de>=14) dossiersNettoyage.push({r,dg,de});
  });
-
  const tbody=document.querySelector("#tableNettoyage tbody");
  tbody.innerHTML="";
  dossiersNettoyage.forEach(o=>{
@@ -261,7 +348,6 @@ document.getElementById("btnNettoyage").onclick=()=>{
     <td>${r["ADR. GEO"]||""}</td>
    </tr>`;
  });
-
  document.getElementById("popupNettoyageTitle").textContent =
   "Dossiers à geler ("+dossiersNettoyage.length+") – ≥45 jrs + ≥14 jrs";
  document.getElementById("popupNettoyage").style.display="flex";
@@ -274,15 +360,16 @@ function closeNettoyage(){
 document.getElementById("btnExport").onclick = () => {
   const q = document.getElementById("searchInput").value.toLowerCase();
   let dataExport = [];
-
   dossiersGlobal.forEach(r=>{
     const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]).toLowerCase();
     if(!q || txt.includes(q)){
+      const id = (r["ID DOSSIER"]||"").toString().trim();
       dataExport.push({
         "ID DOSSIER": r["ID DOSSIER"]||"",
         "DATE CREATION DOSSIER": formatDate(r["DATE CREATION DOSSIER"]),
         "DURÉE (j)": daysBetween(r["DATE CREATION DOSSIER"]),
         "ETAPE": r["ETAPE"]||"",
+        "STATUT": (window._statuts && window._statuts[id]) ? window._statuts[id] : "",
         "CLIENT": r["CLIENT"]||"",
         "TYPE ABONNEMENT": r["TYPE ABONNEMENT"]||"",
         "SUPPORT": r["SUPPORT"]||"",
@@ -290,13 +377,11 @@ document.getElementById("btnExport").onclick = () => {
       });
     }
   });
-
   const ws = XLSX.utils.json_to_sheet(dataExport);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Export");
   XLSX.writeFile(wb, "export_dossiers.xlsx");
 };
-
 </script>
 
 </body>
