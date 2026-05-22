@@ -34,22 +34,28 @@ window._firebaseReady = true;
 
 // Load all statuts at startup and watch for changes
 window._statuts = {};
+window._firebaseReady = false;
 
 const colRef = collection(db, "statuts_dossiers");
 onSnapshot(colRef, (snapshot) => {
   snapshot.forEach(d => {
     window._statuts[d.id] = d.data().statut || "";
   });
-  // Refresh inputs in table if already rendered
-  document.querySelectorAll(".statut-input").forEach(inp => {
-    const id = inp.dataset.id;
-    if(id && window._statuts[id] !== undefined){
-      // Only update if not currently focused (avoid overwriting user typing)
-      if(document.activeElement !== inp){
-        inp.value = window._statuts[id];
+  if(!window._firebaseReady){
+    window._firebaseReady = true;
+    // Premier appel Firebase : si les dossiers sont deja charges, re-render
+    if(window._renderMain) window._renderMain();
+  } else {
+    // Temps reel : mettre a jour les champs visibles
+    document.querySelectorAll(".statut-input").forEach(inp => {
+      const id = inp.dataset.id;
+      if(id && window._statuts[id] !== undefined){
+        if(document.activeElement !== inp){
+          inp.value = window._statuts[id];
+        }
       }
-    }
-  });
+    });
+  }
 });
 
 window._saveStatut = async function(id, val) {
@@ -229,6 +235,9 @@ function attachStatutListeners(){
  });
 }
 
+// Expose renderMain so Firebase module can call it
+window._renderMain = function(){ renderMain(); };
+
 async function loadPipe(){
  for(const f of pipeFiles){
   try{
@@ -239,7 +248,8 @@ async function loadPipe(){
    const ws = wb.Sheets[wb.SheetNames[0]];
    const raw = XLSX.utils.sheet_to_json(ws,{raw:true});
    dossiersGlobal = dedupeById(raw);
-   renderMain();
+   // Render seulement si Firebase a deja repondu, sinon Firebase declenchera le render
+   if(window._firebaseReady) renderMain();
    return;
   }catch(e){}
  }
@@ -316,7 +326,7 @@ document.getElementById("fileInput").addEventListener("change", e=>{
   const ws = wb.Sheets[wb.SheetNames[0]];
   const raw = XLSX.utils.sheet_to_json(ws,{raw:true});
   dossiersGlobal = dedupeById(raw);
-  renderMain();
+  renderMain(); // Fichier charge manuellement, Firebase deja pret
  };
  reader.readAsArrayBuffer(file);
 });
