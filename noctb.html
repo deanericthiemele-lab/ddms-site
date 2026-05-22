@@ -2360,7 +2360,21 @@ async function deleteContact(id){
   <div class="modal-body">
     <div class="frow"><div class="fgrp"><label>Date de la réunion *</label><input type="date" id="cr-date"></div><div class="fgrp"><label>Rédigé par *</label><input type="text" id="cr-auteur" placeholder="Prénom NOM"></div></div>
     <div class="fgrp"><label>Intitulé de la réunion *</label><input type="text" id="cr-titre" placeholder="Ex: Réunion hebdo NOC - Semaine 21"></div>
-    <div class="fgrp"><label>Participants</label><input type="text" id="cr-participants"></div>
+    <div class="fgrp">
+      <label>Participants</label>
+      <div id="cr-participants-box" style="border:1px solid var(--n5);border-radius:3px;padding:10px 12px;background:#fff;display:flex;flex-direction:column;gap:6px;">
+        <div class="chk-item"><input type="checkbox" id="crp-0" value="Dean COFFI"><label for="crp-0">Dean COFFI</label></div>
+        <div class="chk-item"><input type="checkbox" id="crp-1" value="TOURE Karamoko"><label for="crp-1">TOURE Karamoko</label></div>
+        <div class="chk-item"><input type="checkbox" id="crp-2" value="Freddy N'guessan"><label for="crp-2">Freddy N'guessan</label></div>
+        <div class="chk-item"><input type="checkbox" id="crp-3" value="ASSEMIEN Anotchi"><label for="crp-3">ASSEMIEN Anotchi</label></div>
+        <div id="cr-extra-participants"></div>
+        <div style="display:flex;gap:7px;margin-top:4px;border-top:1px solid var(--n5);padding-top:8px;">
+          <input type="text" id="cr-new-participant" placeholder="Ajouter un participant…" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 9px;font-size:12.5px;" onkeydown="if(event.key==='Enter'){event.preventDefault();crAddParticipant();}">
+          <button type="button" class="btn btn-out btn-sm" onclick="crAddParticipant()" style="flex-shrink:0;">+ Ajouter</button>
+        </div>
+      </div>
+      <input type="hidden" id="cr-participants">
+    </div>
     <div class="fgrp"><label>Ordre du jour</label><textarea id="cr-odj" rows="3"></textarea></div>
     <div class="fgrp"><label>Points discutés / Résumé *</label><textarea id="cr-points" rows="5" placeholder="Résumé des échanges, décisions, constats..."></textarea></div>
     <div class="fgrp"><label>Actions décidées</label><textarea id="cr-actions" rows="4" placeholder="Liste des actions — Qui fait quoi avant quand..."></textarea></div>
@@ -2372,7 +2386,7 @@ async function deleteContact(id){
       <input type="file" id="cr-file" multiple style="display:none" onchange="handleFiles(this,'cr')">
     </div>
   </div>
-  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-cr')">Annuler</button><button class="btn btn-v" onclick="saveCR()">💾 Enregistrer dans Firebase</button></div>
+  <div class="modal-foot"><button class="btn btn-out" onclick="closeModal('mo-cr');resetCRParticipants()">Annuler</button><button class="btn btn-v" onclick="saveCR()">💾 Enregistrer dans Firebase</button></div>
   </div>
 </div>
 
@@ -2795,10 +2809,51 @@ function renderCR(){
     </tr>`).join('') : '<tr><td colspan="7" class="empty"><div class="empty-ico">📝</div><div class="empty-txt">Aucun compte-rendu</div></td></tr>';
 }
 
+// ── Participants CR : helpers ──────────────────────────────
+let crExtraParticipants = [];
+
+function crAddParticipant(){
+  const inp = document.getElementById('cr-new-participant');
+  const name = inp.value.trim();
+  if(!name) return;
+  if(crExtraParticipants.includes(name)) { inp.value=''; return; }
+  crExtraParticipants.push(name);
+  _renderCRExtra();
+  inp.value = '';
+}
+
+function _renderCRExtra(){
+  const box = document.getElementById('cr-extra-participants');
+  if(!box) return;
+  box.innerHTML = crExtraParticipants.map((n,i)=>`
+    <div class="chk-item" id="crp-extra-${i}">
+      <input type="checkbox" id="crp-ex-${i}" value="${n}" checked>
+      <label for="crp-ex-${i}">${n}</label>
+      <button type="button" onclick="crRemoveExtra(${i})" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--r);font-size:12px;padding:0 2px;" title="Retirer">✕</button>
+    </div>`).join('');
+}
+
+function crRemoveExtra(i){
+  crExtraParticipants.splice(i,1);
+  _renderCRExtra();
+}
+
+function getCRParticipants(){
+  const checked = [...document.querySelectorAll('#cr-participants-box input[type=checkbox]:checked')];
+  return checked.map(c=>c.value).join(', ');
+}
+
+function resetCRParticipants(){
+  document.querySelectorAll('#cr-participants-box input[type=checkbox]').forEach(c=>c.checked=false);
+  crExtraParticipants=[];
+  _renderCRExtra();
+}
+// ──────────────────────────────────────────────────────────
+
 async function saveCR(){
   const data = {
     date: v('cr-date'), auteur: v('cr-auteur'), titre: v('cr-titre'),
-    participants: v('cr-participants'), odj: v('cr-odj'),
+    participants: getCRParticipants(), odj: v('cr-odj'),
     points: v('cr-points'), actions: v('cr-actions'), next: v('cr-next'),
     files: []
   };
@@ -2829,6 +2884,7 @@ async function saveCR(){
     document.getElementById('cr-file-list').textContent = 'Aucun fichier sélectionné';
     toast('Compte-rendu enregistré ✓','ok');
     closeModal('mo-cr');
+    resetCRParticipants();
     renderAll();
   }catch(e){ toast('Erreur: '+e.message,'err'); }
 }
