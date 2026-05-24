@@ -2,12 +2,35 @@
 
 <html lang="fr">
 <head>
+<script>
+// ===== GLOBAL FIX PARSE DATE =====
+function parseDate(val) {
+  if (!val) return null;
+  if (typeof val === "number") {
+    return new Date(Math.round((val - 25569) * 86400 * 1000));
+  }
+  if (typeof val === "string") {
+    val = val.trim();
+    let match = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (match) {
+      return new Date(match[3], match[2]-1, match[1]);
+    }
+    match = val.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      return new Date(val);
+    }
+  }
+  const d = new Date(val);
+  return isNaN(d) ? null : d;
+}
+</script>
 <meta charset="utf-8"/>
 <title>
    Analyse des incidents
   </title>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js">
-   function mettreAJourTitreIncidentsRepetitifs() {
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+function mettreAJourTitreIncidentsRepetitifs() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
   const total = tableauActuel.filter(item => (item.mois[moisActuel] || 0) >= 2).length;
@@ -292,353 +315,53 @@ document.addEventListener("DOMContentLoaded", function() {
     btnExport.addEventListener("click", exporterZoneExcel);
   }
 });
-  </script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js">
-   function mettreAJourTitreIncidentsRepetitifs() {
-  const aujourdHui = new Date();
-  const moisActuel = aujourdHui.getMonth() + 1;
-  const total = tableauActuel.filter(item => (item.mois[moisActuel] || 0) >= 2).length;
-  const titre = document.getElementById("titre-incidents-repetitifs");
-  if (titre) titre.textContent = `🔁 Incidents répétitifs - Mois en cours : ${total}`;
-}
-  
-function afficherGraphiqueIncidentsND2() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const labels = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const valeurs = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  if (window.incidentND2Chart) window.incidentND2Chart.destroy();
-
-  window.incidentND2Chart = new Chart(document.getElementById('incident-nd2-graph'), {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Incidents ND ≥ 2',
-        data: valeurs,
-        backgroundColor: '#ff7043',
-        borderColor: '#ff7043',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      devicePixelRatio: 2,
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top'
-        }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-function exporterIncidentsND2ParMois() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const mois = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const incidents = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  const rows = mois.map((moisNom, i) => ({
-    Mois: moisNom,
-    "Incidents ND ≥ 2": incidents[i]
-  }));
-
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
-  XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
-}
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-  </script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js">
-   function mettreAJourTitreIncidentsRepetitifs() {
-  const aujourdHui = new Date();
-  const moisActuel = aujourdHui.getMonth() + 1;
-  const total = tableauActuel.filter(item => (item.mois[moisActuel] || 0) >= 2).length;
-  const titre = document.getElementById("titre-incidents-repetitifs");
-  if (titre) titre.textContent = `🔁 Incidents répétitifs - Mois en cours : ${total}`;
-}
-  
-function afficherGraphiqueIncidentsND2() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const labels = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const valeurs = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  if (window.incidentND2Chart) window.incidentND2Chart.destroy();
-
-  window.incidentND2Chart = new Chart(document.getElementById('incident-nd2-graph'), {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Incidents ND ≥ 2',
-        data: valeurs,
-        backgroundColor: '#ff7043',
-        borderColor: '#ff7043',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      devicePixelRatio: 2,
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top'
-        }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-function exporterIncidentsND2ParMois() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const mois = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const incidents = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  const rows = mois.map((moisNom, i) => ({
-    Mois: moisNom,
-    "Incidents ND ≥ 2": incidents[i]
-  }));
-
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
-  XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
-}
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-  </script>
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <style>
+   /* ===== PALETTE PROFESSIONNELLE ===== */
+    :root {
+      --bleu-principal: #546e7a;
+      --bleu-secondaire: #78909c;
+      --bleu-clair: #eceff1;
+      --gris-fonce: #546e7a;
+      --gris-moyen: #546e7a;
+      --gris-clair: #eceff1;
+      --gris-border: #b0bec5;
+      --rouge-alerte: #b71c1c;
+      --rouge-fond: #fdf0f0;
+      --vert-ok: #1b5e20;
+      --vert-fond: #f1f8f2;
+      --vert-border: #4caf82;
+      --orange-warn: #e65100;
+      --blanc: #ffffff;
+      --fond-page: #ffffff;
+    }
    .hide-resiliation { display: none !important; }
-    body { font-family: Arial; padding: 20px; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; background: #ffffff; color: #263238; }
     input, button { padding: 8px; margin: 5px; }
     table { border-collapse: collapse; margin-top: 20px; width: 100%; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-    th { background: #f2f2f2; }
-    tr.critique { background-color: #ffc0cb; color: black; font-weight: bold; }
+    th, td { border: 1px solid var(--gris-border); padding: 8px; text-align: center; }
+    th { background: #546e7a; color: var(--blanc); font-weight: 600; letter-spacing: 0.3px; }
+    tr.critique { background-color: #ffeaea; color: var(--rouge-alerte); font-weight: bold; }
 
 tr.site-critique {
-  background-color: yellow;
-  color: black;
+  background-color: #fff8e1;
+  color: #5d4037;
   font-weight: bold;
 }
 
 /* Site critique + ND>=2 : texte rouge, fond jaune, priorité sur le rose */
 tr.site-critique-critique {
-  background-color: yellow !important;
-  color: red;
+  background-color: #fff8e1 !important;
+  color: var(--rouge-alerte);
   font-weight: bold;
 }
 
 /* Override si les deux classes coexistent (.critique mettait un fond rose) */
 tr.critique.site-critique,
 tr.critique.site-critique-critique {
-  background-color: yellow !important;
+  background-color: #fff8e1 !important;
 }
     td.causes-col, td.localisation-col, td.nd-col, td.raison-col {
       max-width: 120px;
@@ -696,7 +419,7 @@ tr.critique.site-critique-critique {
       cursor: pointer;
       padding: 6px 10px 6px 0;
       font-size: 11px;
-      color: #0d47a1;
+      color: #546e7a;
       border-radius: 6px;
       margin-bottom: 3px;
       transition: background .12s;
@@ -704,23 +427,23 @@ tr.critique.site-critique-critique {
     }
     .ndcritique-item.selected,
     .ndcritique-item:hover {
-      background: #e3f2fd;
+      background: var(--bleu-clair);
       font-weight: bold;
     }
     .graph-flex > * { margin-bottom: 8px; }
     .summary-flex > * { margin-bottom: 8px; }
     #resume-causes-localisations {
       font-size: 13px;
-      color: #313131;
+      color: var(--gris-fonce);
     }
     #resume-causes-localisations h3 {
       font-size: 1.07em;
-      color: #005f87;
+      color: #546e7a;
       margin: 0.3em 0 0.1em 0;
       font-weight: bold;
     }
-    #retour-principal { display: none; background: #e0e0e0; color: #222; margin-bottom: 20px; }
-    #top20-indicateur { display: none; color: #d17600; font-weight: bold; font-size: 18px; margin-bottom: 10px;}
+    #retour-principal { display: none; background: var(--gris-clair); color: #263238; margin-bottom: 20px; }
+    #top20-indicateur { display: none; color: var(--orange-warn); font-weight: bold; font-size: 18px; margin-bottom: 10px;}
     @media (max-width: 1100px) {
       .main-flex { flex-direction: column; align-items: stretch; }
       .column, .summary-flex, .graph-flex { min-width: 0; max-width: 100%; }
@@ -730,15 +453,15 @@ tr.critique.site-critique-critique {
   
     .clignote {
       animation: clignoteur 1.5s infinite;
-      border: 2px solid red;
+      border: 2px solid var(--rouge-alerte);
       padding: 8px;
-      background-color: #fff6f6;
+      background-color: var(--rouge-fond);
       margin-bottom: 20px;
     }
     @keyframes clignoteur {
-      0% { box-shadow: 0 0 3px red; }
-      50% { box-shadow: 0 0 12px red; }
-      100% { box-shadow: 0 0 3px red; }
+      0% { box-shadow: 0 0 3px #b71c1c55; }
+      50% { box-shadow: 0 0 10px #b71c1c88; }
+      100% { box-shadow: 0 0 3px #b71c1c55; }
     }
   
 /* Bouton flottant 2025 */
@@ -760,6 +483,21 @@ tr.critique.site-critique-critique {
   opacity: 0.85;
 }
 
+
+    /* Style global boutons */
+    button:not([style]) {
+      background: #546e7a;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    /* Dropdown sobre */
+    .dropbtn { background-color: #546e7a !important; }
+    .dropdown-content { background: var(--blanc); border: 1px solid var(--gris-border); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    .dropdown-content button { color: var(--gris-fonce) !important; background: none !important; }
+    .dropdown-content button:hover { background: var(--bleu-clair) !important; color: #546e7a !important; }
 </style>
 <script>
    // --- Regroupement intelligent des clients ---
@@ -1002,7 +740,7 @@ document.addEventListener("DOMContentLoaded", function() {
 <button onclick="afficherTop20Synthese()">
       🏆 Top 20 Synthèse
      </button>
-<button onclick="filtrerSitesCritiques()" style="background-color: yellow; color: black">
+<button onclick="filtrerSitesCritiques()" style="background-color: #fff8e1; color: #5d4037;">
       🚨 Sites Critiques
      </button>
 </div>
@@ -1839,166 +1577,7 @@ document.addEventListener("DOMContentLoaded", function() {
   </button>
 <div id="resultat">
 </div>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0">
-   function mettreAJourTitreIncidentsRepetitifs() {
-  const aujourdHui = new Date();
-  const moisActuel = aujourdHui.getMonth() + 1;
-  const total = tableauActuel.filter(item => (item.mois[moisActuel] || 0) >= 2).length;
-  const titre = document.getElementById("titre-incidents-repetitifs");
-  if (titre) titre.textContent = `🔁 Incidents répétitifs - Mois en cours : ${total}`;
-}
-  
-function afficherGraphiqueIncidentsND2() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const labels = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const valeurs = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  if (window.incidentND2Chart) window.incidentND2Chart.destroy();
-
-  window.incidentND2Chart = new Chart(document.getElementById('incident-nd2-graph'), {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Incidents ND ≥ 2',
-        data: valeurs,
-        backgroundColor: '#ff7043',
-        borderColor: '#ff7043',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      devicePixelRatio: 2,
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top'
-        }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-function exporterIncidentsND2ParMois() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const mois = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const incidents = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  const rows = mois.map((moisNom, i) => ({
-    Mois: moisNom,
-    "Incidents ND ≥ 2": incidents[i]
-  }));
-
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
-  XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
-}
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-  </script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
 <script>
    // --- CONFIG TOP 20 ---
 const TOP20_GROUPES = [
@@ -2246,7 +1825,7 @@ function afficherNDPresentsTousLesMois() {
     html += `<td style='border:1px solid #ccc;padding:6px;font-weight:bold;'>${item.total || 0}</td>`;
     for (let m = 1; m <= moisActuel; m++) {
       const val = (item.mois && item.mois[m]) ? item.mois[m] : 0;
-      const style = val >= seuilRecurrence ? "background:yellow;font-weight:bold;" : "";
+      const style = val >= seuilRecurrence ? "background:#fff8e1;font-weight:bold;" : "";
       html += `<td style='border:1px solid #ccc;padding:6px;${style}'>${val}</td>`;
     }
     html += "</tr>";
@@ -4536,8 +4115,9 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 });
   </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-   function afficherGraphiqueIncidentsND2() {
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+function afficherGraphiqueIncidentsND2() {
   const parMois = {};
   tableauActuel.forEach(item => {
     Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
@@ -4687,7 +4267,7 @@ document.addEventListener("DOMContentLoaded", function() {
     btnExport.addEventListener("click", exporterZoneExcel);
   }
 });
-  </script>
+</script>
 <script>
    function exporterExcelNDMoisParMois() {
   if (!tableauActuel || !tableauActuel.length) return;
@@ -5666,8 +5246,9 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 });
   </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
-   document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
 
 function exporterZoneExcel() {
   if (!tableauActuel || !tableauActuel.length) return;
@@ -5747,89 +5328,8 @@ document.addEventListener("DOMContentLoaded", function() {
     btnExport.addEventListener("click", exporterZoneExcel);
   }
 });
-  </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js">
-   document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-  </script>
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 <script>
    function ouvrirFenetreRapport() {
   const client = prompt("Entrez le nom du client pour le rapport M-1 :");
@@ -7046,88 +6546,7 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 });
   </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
-   document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-  </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
    document.getElementById('excelFile').addEventListener('change', function (e) {
     const file = e.target.files[0];
@@ -8794,7 +8213,7 @@ function afficherNDCompletsMensuels() {
       html += `<td style='border:1px solid #ccc;padding:6px;font-weight:bold;'>${item.total || 0}</td>`;
       for (let m = 1; m <= moisActuel; m++) {
         const val = (item.mois && item.mois[m]) ? item.mois[m] : 0;
-        const style = val >= 1 ? "background:yellow;font-weight:bold;" : "";
+        const style = val >= 1 ? "background:#fff8e1;font-weight:bold;" : "";
         html += `<td style='border:1px solid #ccc;padding:6px;${style}'>${val}</td>`;
       }
       html += "</tr>";
