@@ -492,7 +492,7 @@ function applyRole(){
   } else if(APP_ROLE === 'admin'){
     // Admin (adminddms) : tout sauf supprimer — masquer les 🗑
     document.querySelectorAll(
-      'button[onclick*="deleteItem"],button[onclick*="deleteContact"],button[onclick*="criseDelete"]'
+      'button[onclick*="deleteItem"],button[onclick*="deleteContact"],button[onclick*="criseDelete"],button[onclick*="psiDelete"]'
     ).forEach(btn=>{
       btn.style.display='none';
     });
@@ -566,6 +566,7 @@ function applyRole(){
   <div class="si" data-page="rapport-incident" onclick="nav(this)"><span class="si-ico">🚨</span>Template Rapport d'incident</div>
   <div class="si" data-page="contacts" onclick="nav(this)"><span class="si-ico">📋</span>Contact client</div>
   <div class="si" data-page="architectures" onclick="nav(this)"><span class="si-ico">🗂️</span>Architecture</div>
+  <div class="si" data-page="point-situation" onclick="nav(this)"><span class="si-ico">📌</span>Point de situation Incident<span class="si-badge" id="b-psi">0</span></div>
 
   <div class="sg">Stratégie & Gov.</div>
   <div class="si" data-page="roadmap" onclick="nav(this)"><span class="si-ico">🗺️</span>Roadmap</div>
@@ -1802,9 +1803,321 @@ async function deleteContact(id){
   <div id="doc-grid" class="doc-grid"></div>
 </div>
 
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: POINT DE SITUATION INCIDENT -->
+<div class="page" id="page-point-situation">
+  <div class="ph">
+    <div>
+      <div class="ph-title">📌 Point de situation Incident</div>
+      <div class="ph-sub">Notes de situation — Incidents réseau clients</div>
+    </div>
+    <div class="t-sp"></div>
+    <a href="noctb.html" class="btn btn-out btn-sm" style="text-decoration:none;gap:5px;">🏠 Retour Accueil</a>
+    <button class="btn btn-v" onclick="psiOpenModal()">+ Nouvelle note</button>
+  </div>
+
+  <!-- KPI Bar -->
+  <div class="kgrid" style="margin-bottom:18px">
+    <div class="kcard info"><div class="kcard-v" id="psi-kpi-total">0</div><div class="kcard-l">Total notes</div><div class="kcard-bar"><div class="kcard-fill" id="psi-bar-total" style="width:100%"></div></div></div>
+    <div class="kcard crit"><div class="kcard-v" id="psi-kpi-ouvert">0</div><div class="kcard-l">En cours</div><div class="kcard-bar"><div class="kcard-fill" id="psi-bar-ouvert" style="width:0%"></div></div></div>
+    <div class="kcard ok"><div class="kcard-v" id="psi-kpi-resolu">0</div><div class="kcard-l">Résolus</div><div class="kcard-bar"><div class="kcard-fill" id="psi-bar-resolu" style="width:0%"></div></div></div>
+    <div class="kcard warn"><div class="kcard-v" id="psi-kpi-suivi">0</div><div class="kcard-l">En suivi</div><div class="kcard-bar"><div class="kcard-fill" id="psi-bar-suivi" style="width:0%"></div></div></div>
+  </div>
+
+  <!-- Filtres -->
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+    <input type="text" id="psi-search" placeholder="🔍 Rechercher client, zone, référence…" style="border:1px solid var(--n5);border-radius:3px;padding:7px 12px;font-size:12.5px;width:280px;" oninput="psiRender()">
+    <select id="psi-filter-statut" onchange="psiRender()" style="border:1px solid var(--n5);border-radius:3px;padding:7px 10px;font-size:12.5px;">
+      <option value="">Tous les statuts</option>
+      <option value="En cours">En cours</option>
+      <option value="En suivi">En suivi</option>
+      <option value="Résolu">Résolu</option>
+      <option value="Fermé">Fermé</option>
+    </select>
+    <div class="t-sp"></div>
+    <span style="font-size:11px;color:var(--n4);font-family:var(--mono)" id="psi-count-lbl">— notes</span>
+  </div>
+
+  <!-- Table liste -->
+  <div class="tbl-wrap" id="psi-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Référence</th>
+          <th>Zone / Client</th>
+          <th>Date</th>
+          <th>Statut</th>
+          <th>Liens concernés</th>
+          <th>Rédacteur</th>
+          <th style="text-align:center">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="tbl-psi"></tbody>
+    </table>
+  </div>
+</div>
+
 </div><!-- /main -->
 </div><!-- /wrap -->
 
+
+<!-- ═══════════════════════════════════════════════════════ MODALES PSI -->
+
+<!-- Modale Créer / Éditer Note de situation -->
+<div class="overlay" id="mo-psi">
+  <div class="modal" style="width:860px;max-width:98vw">
+    <div class="modal-hdr">
+      <span class="modal-title" id="mo-psi-title">📌 Nouvelle note de situation</span>
+      <button class="modal-close" onclick="closeModal('mo-psi')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0">
+
+      <!-- En-tête document style Word -->
+      <div style="background:linear-gradient(135deg,#1B4F72,#2E7D8C);padding:18px 24px;display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-family:var(--cond);font-size:22px;font-weight:800;color:#fff;letter-spacing:.5px">NOTE DE SITUATION</div>
+          <div style="font-size:11px;color:rgba(255,255,255,.65);font-family:var(--mono);margin-top:3px;letter-spacing:1px">INTERNE — CONFIDENTIEL</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--mono);font-size:10px;color:rgba(255,255,255,.5)">Réf. / Zone</div>
+          <input id="psi-ref" type="text" placeholder="NOTE-XXXX — ZONE TIASSALE" style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:3px;padding:5px 10px;font-size:12px;color:#fff;font-family:var(--mono);text-align:right;width:260px;" >
+        </div>
+      </div>
+
+      <div style="padding:22px 24px;display:flex;flex-direction:column;gap:0">
+
+        <!-- Titre Zone -->
+        <div class="fgrp">
+          <label>Zone / Titre</label>
+          <input id="psi-titre" type="text" placeholder="Ex: Zone de Tiassalé — Incidents Réseau 2025-2026">
+        </div>
+
+        <!-- Meta ligne -->
+        <div class="frow3">
+          <div class="fgrp"><label>Date du document</label><input id="psi-date" type="date"></div>
+          <div class="fgrp"><label>Statut</label>
+            <select id="psi-statut">
+              <option>En cours</option><option>En suivi</option><option>Résolu</option><option>Fermé</option>
+            </select>
+          </div>
+          <div class="fgrp"><label>Rédacteur / Entité</label><input id="psi-redacteur" type="text" placeholder="Ex: DOBB — Dean COFFI"></div>
+        </div>
+
+        <!-- ── Section 1 : Objet plainte ── -->
+        <div class="sec-t" style="margin-top:4px">1. Objet de la plainte client</div>
+
+        <div class="fgrp">
+          <label>Donneur d'alerte / Client</label>
+          <input id="psi-donneur" type="text" placeholder="Ex: Le Directeur Général de SCB a transmis à notre Direction Générale…">
+        </div>
+        <div class="fgrp">
+          <label>Description de la plainte</label>
+          <textarea id="psi-plainte" rows="4" placeholder="Décrivez les indisponibilités, l'impact sur les opérations, le contexte de la plainte…"></textarea>
+        </div>
+
+        <!-- Points clés plainte -->
+        <div class="fgrp">
+          <label>Points clés de la plainte</label>
+          <div id="psi-pts-box" style="border:1px solid var(--n5);border-radius:3px;background:#fff;padding:10px 12px;display:flex;flex-direction:column;gap:6px">
+            <div id="psi-pts-list"></div>
+            <div style="display:flex;gap:7px;border-top:1px solid var(--n5);padding-top:8px;margin-top:2px">
+              <input type="text" id="psi-new-pt" placeholder="Ajouter un point clé…" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 9px;font-size:12.5px" onkeydown="if(event.key==='Enter'){event.preventDefault();psiAddPt();}">
+              <button type="button" class="btn btn-out btn-sm" onclick="psiAddPt()">+ Ajouter</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Section 2 : Référence des liens ── -->
+        <div class="sec-t">2. Référence des liens</div>
+        <div style="border:1px solid var(--n5);border-radius:4px;overflow:hidden;margin-bottom:14px">
+          <table style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr style="background:var(--n6)">
+                <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Site</th>
+                <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Référence</th>
+                <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Type de lien</th>
+                <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Débit</th>
+                <th style="padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);text-align:center">—</th>
+              </tr>
+            </thead>
+            <tbody id="psi-liens-body">
+            </tbody>
+          </table>
+          <div style="padding:8px 10px;border-top:1px solid var(--n5);display:flex;gap:6px;background:#fafafa">
+            <input type="text" id="psi-lien-site" placeholder="Site (ex: Spadi)" style="flex:1.2;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <input type="text" id="psi-lien-ref" placeholder="Référence (ex: SYTHD200278)" style="flex:1.5;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px;font-family:var(--mono)">
+            <input type="text" id="psi-lien-type" placeholder="Type (ex: FH)" style="flex:0.7;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <input type="text" id="psi-lien-debit" placeholder="Débit (ex: 40 Mbps)" style="flex:0.8;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <button class="btn btn-sm btn-out" onclick="psiAddLien()">+ Lien</button>
+          </div>
+        </div>
+
+        <!-- ── Section 3 : Historique des signalisations ── -->
+        <div class="sec-t">2. Historique des signalisations</div>
+        <div class="frow">
+          <div class="fgrp">
+            <label>Historique 2025</label>
+            <textarea id="psi-histo-2025" rows="5" placeholder="Lister les incidents et signalisations de 2025…"></textarea>
+          </div>
+          <div class="fgrp">
+            <label>Historique 2026</label>
+            <textarea id="psi-histo-2026" rows="5" placeholder="Lister les incidents et signalisations de 2026…"></textarea>
+          </div>
+        </div>
+
+        <!-- ── Section 4 : Chronogramme ── -->
+        <div class="sec-t">3. Chronogramme des incidents selon le client</div>
+
+        <!-- Phase 2025 -->
+        <div style="margin-bottom:12px">
+          <div style="font-family:var(--cond);font-size:13px;font-weight:700;color:var(--b);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+            <span style="width:10px;height:10px;border-radius:50%;background:var(--b);flex-shrink:0"></span> Phase 2025 — Fragilité du réseau
+          </div>
+          <div style="border:1px solid var(--n5);border-radius:4px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:var(--n6)">
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);width:30%">Période</th>
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Événement</th>
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);text-align:center;width:50px">—</th>
+              </tr></thead>
+              <tbody id="psi-chrono-2025"></tbody>
+            </table>
+            <div style="padding:7px 10px;border-top:1px solid var(--n5);display:flex;gap:6px;background:#fafafa">
+              <input type="text" id="psi-c25-per" placeholder="Période (ex: Été 2025)" style="flex:0.8;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+              <input type="text" id="psi-c25-evt" placeholder="Événement…" style="flex:2;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+              <button class="btn btn-sm btn-out" onclick="psiAddChrono('2025')">+ Ajouter</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Phase 2026 -->
+        <div style="margin-bottom:12px">
+          <div style="font-family:var(--cond);font-size:13px;font-weight:700;color:var(--r);margin-bottom:8px;display:flex;align-items:center;gap:8px">
+            <span style="width:10px;height:10px;border-radius:50%;background:var(--r);flex-shrink:0"></span> Phase 2026 — Crise persistante
+          </div>
+          <div style="border:1px solid var(--n5);border-radius:4px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:var(--n6)">
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);width:30%">Période</th>
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Événement</th>
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);text-align:center;width:50px">—</th>
+              </tr></thead>
+              <tbody id="psi-chrono-2026"></tbody>
+            </table>
+            <div style="padding:7px 10px;border-top:1px solid var(--n5);display:flex;gap:6px;background:#fafafa">
+              <input type="text" id="psi-c26-per" placeholder="Période (ex: Mi-avril 2026)" style="flex:0.8;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+              <input type="text" id="psi-c26-evt" placeholder="Événement…" style="flex:2;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+              <button class="btn btn-sm btn-out" onclick="psiAddChrono('2026')">+ Ajouter</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Section 5 : Actions réalisées ── -->
+        <div class="sec-t">4. Actions réalisées</div>
+        <div class="fgrp">
+          <label>Contexte / Rappel</label>
+          <textarea id="psi-actions-ctx" rows="3" placeholder="Ex: Le client nous avait informé il y a 2 mois du problème lié à la coupure systématique des 3 liens…"></textarea>
+        </div>
+        <div style="border:1px solid var(--n5);border-radius:4px;overflow:hidden;margin-bottom:14px">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--n6)">
+              <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);width:18%">Période</th>
+              <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Événement / Action</th>
+              <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Problématique traitée</th>
+              <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);text-align:center;width:50px">—</th>
+            </tr></thead>
+            <tbody id="psi-actions-body"></tbody>
+          </table>
+          <div style="padding:8px 10px;border-top:1px solid var(--n5);display:flex;gap:6px;background:#fafafa">
+            <input type="text" id="psi-act-per" placeholder="Période (ex: 7 Mai)" style="flex:0.7;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <input type="text" id="psi-act-evt" placeholder="Événement / Action…" style="flex:1.5;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <input type="text" id="psi-act-pb" placeholder="Problématique traitée…" style="flex:1.5;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <button class="btn btn-sm btn-out" onclick="psiAddAction()">+ Ajouter</button>
+          </div>
+        </div>
+
+        <!-- Recommandation -->
+        <div class="fgrp">
+          <label>Recommandation</label>
+          <textarea id="psi-recommandation" rows="4" placeholder="Saisir les recommandations techniques et stratégiques…"></textarea>
+        </div>
+
+        <!-- ── Section 6 : Plan d'action ── -->
+        <div class="sec-t">5. Plan d'action et mesures de remédiation</div>
+        <div style="border:1px solid var(--n5);border-radius:4px;overflow:hidden;margin-bottom:14px">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:var(--n6)">
+              <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Action</th>
+              <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Responsable</th>
+              <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);width:110px">Échéance</th>
+              <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);text-align:center;width:50px">—</th>
+            </tr></thead>
+            <tbody id="psi-plan-body"></tbody>
+          </table>
+          <div style="padding:8px 10px;border-top:1px solid var(--n5);display:flex;gap:6px;background:#fafafa">
+            <input type="text" id="psi-plan-act" placeholder="Action à réaliser…" style="flex:2;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <input type="text" id="psi-plan-resp" placeholder="Responsable" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <input type="text" id="psi-plan-ech" placeholder="Échéance (ex: J+1)" style="flex:0.6;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+            <button class="btn btn-sm btn-out" onclick="psiAddPlan()">+ Ajouter</button>
+          </div>
+        </div>
+
+        <!-- Tableau problème/solution -->
+        <div class="fgrp">
+          <label>Étude — Problèmes identifiés / Solutions</label>
+          <div style="border:1px solid var(--n5);border-radius:4px;overflow:hidden">
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr style="background:var(--n6)">
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Problème identifié</th>
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5)">Solution</th>
+                <th style="padding:7px 10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);border-bottom:1px solid var(--n5);text-align:center;width:50px">—</th>
+              </tr></thead>
+              <tbody id="psi-etude-body"></tbody>
+            </table>
+            <div style="padding:8px 10px;border-top:1px solid var(--n5);display:flex;gap:6px;background:#fafafa">
+              <input type="text" id="psi-etude-pb" placeholder="Problème identifié…" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+              <input type="text" id="psi-etude-sol" placeholder="Solution proposée…" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:12px">
+              <button class="btn btn-sm btn-out" onclick="psiAddEtude()">+ Ajouter</button>
+            </div>
+          </div>
+        </div>
+
+        <input type="hidden" id="psi-edit-id">
+      </div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-out" onclick="psiExportPDF()" style="gap:5px">📄 Exporter PDF</button>
+        <button class="btn btn-out" onclick="psiExportWord()" style="gap:5px">📝 Exporter Word</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-out" onclick="closeModal('mo-psi')">Annuler</button>
+        <button class="btn btn-v" onclick="psiSave()">💾 Enregistrer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modale Voir Note de situation -->
+<div class="overlay" id="mo-psi-view">
+  <div class="modal" style="width:880px;max-width:98vw" id="psi-view-modal-inner">
+    <div class="modal-hdr">
+      <span class="modal-title">📌 Note de situation</span>
+      <button class="modal-close" onclick="closeModal('mo-psi-view')">✕</button>
+    </div>
+    <div class="modal-body" id="psi-view-body" style="font-size:13px;line-height:1.7"></div>
+    <div class="modal-foot" style="justify-content:space-between">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-out" onclick="psiExportPDFFromView()" style="gap:5px">📄 Exporter PDF</button>
+        <button class="btn btn-out" onclick="psiExportWordFromView()" style="gap:5px">📝 Exporter Word</button>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-out" id="psi-view-edit-btn">✏️ Éditer</button>
+        <button class="btn btn-out" onclick="closeModal('mo-psi-view')">Fermer</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════ MODALES -->
 
@@ -2088,7 +2401,7 @@ async function deleteContact(id){
 // STATE
 // ═══════════════════════════════════════════════════════════
 let DB = {
-  reunions:[], cr:[], plans:[], incidents:[], changements:[], agents:[], docs:[], crises:[]
+  reunions:[], cr:[], plans:[], incidents:[], changements:[], agents:[], docs:[], crises:[], psi:[]
 };
 let _cr_files = [];
 let _activeFilters = {};
@@ -2182,13 +2495,13 @@ async function loadAll(){
   const dot = document.getElementById('fb-dot');
   dot.className='load';
   try{
-    const [r,c,p,inc,chg,ag,docs,crises] = await Promise.all([
+    const [r,c,p,inc,chg,ag,docs,crises,psi] = await Promise.all([
       fbLoad('noc_reunions'), fbLoad('noc_cr'), fbLoad('noc_actions'),
       fbLoad('noc_incidents'), fbLoad('noc_chg'), fbLoad('noc_agents'), fbLoad('noc_docs'),
-      fbLoad('noc_crises')
+      fbLoad('noc_crises'), fbLoad('noc_psi')
     ]);
     DB.reunions=r; DB.cr=c; DB.plans=p; DB.incidents=inc;
-    DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises;
+    DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi;
     dot.className='ok';
     renderAll();
     toast('Données chargées depuis Firebase','ok');
@@ -2275,6 +2588,7 @@ function renderAll(){
   renderChg();
   renderAgents();
   renderDocs();
+  psiRender();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2289,6 +2603,7 @@ function updateBadges(){
   set('b-incidents', DB.incidents.filter(i=>i.statut==='ouvert'||i.statut==='en_cours').length);
   set('b-agents', DB.agents.length);
   set('b-docs', DB.docs.length);
+  set('b-psi', (DB.psi||[]).length);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3111,8 +3426,470 @@ async function deleteItem(col, id, key){
 }
 
 // ═══════════════════════════════════════════════════════════
-// FICHIERS
+// POINT DE SITUATION INCIDENT (PSI)
 // ═══════════════════════════════════════════════════════════
+
+// Stockage temporaire des tableaux en cours d'édition
+let _psi_pts = [];         // Points clés plainte
+let _psi_liens = [];       // Liens concernés
+let _psi_chrono25 = [];    // Chronogramme 2025
+let _psi_chrono26 = [];    // Chronogramme 2026
+let _psi_actions = [];     // Actions réalisées
+let _psi_plan = [];        // Plan d'action
+let _psi_etude = [];       // Problèmes / Solutions
+let _psi_view_current = null; // Note actuellement en vue
+
+// ── Rendu de la liste ──
+function psiRender() {
+  const tb = document.getElementById('tbl-psi');
+  if (!tb) return;
+  const search = (document.getElementById('psi-search')?.value || '').toLowerCase();
+  const filtStatut = document.getElementById('psi-filter-statut')?.value || '';
+  let items = (DB.psi || []).filter(n => {
+    const txt = ((n.ref||'')+(n.titre||'')+(n.redacteur||'')+(n.liens||[]).map(l=>l.site+l.ref).join('')).toLowerCase();
+    const matchSearch = !search || txt.includes(search);
+    const matchStatut = !filtStatut || n.statut === filtStatut;
+    return matchSearch && matchStatut;
+  });
+  document.getElementById('psi-count-lbl').textContent = items.length + ' note' + (items.length>1?'s':'');
+
+  // KPIs
+  const all = DB.psi || [];
+  const enCours = all.filter(n=>n.statut==='En cours').length;
+  const resolu = all.filter(n=>n.statut==='Résolu'||n.statut==='Fermé').length;
+  const suivi = all.filter(n=>n.statut==='En suivi').length;
+  document.getElementById('psi-kpi-total').textContent = all.length;
+  document.getElementById('psi-kpi-ouvert').textContent = enCours;
+  document.getElementById('psi-kpi-resolu').textContent = resolu;
+  document.getElementById('psi-kpi-suivi').textContent = suivi;
+  const t = all.length || 1;
+  document.getElementById('psi-bar-total').style.width = '100%';
+  document.getElementById('psi-bar-ouvert').style.width = Math.round(enCours/t*100)+'%';
+  document.getElementById('psi-bar-resolu').style.width = Math.round(resolu/t*100)+'%';
+  document.getElementById('psi-bar-suivi').style.width = Math.round(suivi/t*100)+'%';
+
+  // Badge sidebar
+  const badge = document.getElementById('b-psi');
+  if (badge) badge.textContent = all.length;
+
+  if (!items.length) {
+    tb.innerHTML = `<tr><td colspan="7" class="empty"><div class="empty-ico">📌</div><div class="empty-txt">Aucune note de situation</div></td></tr>`;
+    return;
+  }
+
+  const statutColor = {
+    'En cours': 'bp-open', 'En suivi': 'bp-p2',
+    'Résolu': 'bp-done', 'Fermé': 'bp-ok'
+  };
+  tb.innerHTML = items.map(n => {
+    const liens = (n.liens||[]).map(l=>`<span style="font-family:var(--mono);font-size:10px;background:var(--bl);color:var(--b);padding:1px 6px;border-radius:2px;margin-right:3px">${l.site||'—'}</span>`).join('');
+    const canDel = APP_ROLE === 'superadmin';
+    return `<tr>
+      <td style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--v)">${n.ref||'—'}</td>
+      <td><div style="font-weight:700;font-size:12.5px">${n.titre||'—'}</div></td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--n3)">${n.date||'—'}</td>
+      <td><span class="bp ${statutColor[n.statut]||'bp-p3'}">${n.statut||'—'}</span></td>
+      <td>${liens||'<span style="color:var(--n4);font-size:11px">—</span>'}</td>
+      <td style="font-size:12px;color:var(--n3)">${n.redacteur||'—'}</td>
+      <td>
+        <div style="display:flex;gap:4px;justify-content:center;flex-wrap:nowrap">
+          <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="psiView('${n.id}')">👁 Voir</button>
+          <button class="btn btn-sm btn-out" onclick="psiEdit('${n.id}')">✏️</button>
+          ${canDel ? `<button class="btn btn-sm btn-r" onclick="psiDelete('${n.id}')">🗑</button>` : ''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Ouvrir modale création ──
+function psiOpenModal() {
+  _psi_pts = [];
+  _psi_liens = [];
+  _psi_chrono25 = [];
+  _psi_chrono26 = [];
+  _psi_actions = [];
+  _psi_plan = [];
+  _psi_etude = [];
+  document.getElementById('psi-edit-id').value = '';
+  document.getElementById('mo-psi-title').textContent = '📌 Nouvelle note de situation';
+  ['psi-ref','psi-titre','psi-date','psi-redacteur','psi-donneur','psi-plainte','psi-histo-2025','psi-histo-2026','psi-actions-ctx','psi-recommandation'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('psi-statut').value = 'En cours';
+  document.getElementById('psi-date').value = new Date().toISOString().slice(0,10);
+  psiRefreshPts(); psiRefreshLiens(); psiRefreshChrono('2025'); psiRefreshChrono('2026'); psiRefreshActions(); psiRefreshPlan(); psiRefreshEtude();
+  openModal('mo-psi');
+}
+
+// ── Points clés ──
+function psiAddPt() {
+  const inp = document.getElementById('psi-new-pt');
+  const val = inp.value.trim();
+  if (!val) return;
+  _psi_pts.push(val);
+  inp.value = '';
+  psiRefreshPts();
+}
+function psiRefreshPts() {
+  const box = document.getElementById('psi-pts-list');
+  if (!box) return;
+  box.innerHTML = _psi_pts.map((pt,i) => `
+    <div style="display:flex;align-items:center;gap:7px;padding:5px 0;border-bottom:1px solid var(--n5)">
+      <span style="width:6px;height:6px;border-radius:50%;background:var(--v);flex-shrink:0"></span>
+      <span style="flex:1;font-size:12.5px">${pt}</span>
+      <button type="button" onclick="_psi_pts.splice(${i},1);psiRefreshPts()" style="background:none;border:none;cursor:pointer;color:var(--n4);font-size:14px;padding:0 2px">✕</button>
+    </div>`).join('');
+}
+
+// ── Liens ──
+function psiAddLien() {
+  const site = document.getElementById('psi-lien-site').value.trim();
+  const ref = document.getElementById('psi-lien-ref').value.trim();
+  const type = document.getElementById('psi-lien-type').value.trim();
+  const debit = document.getElementById('psi-lien-debit').value.trim();
+  if (!site && !ref) return;
+  _psi_liens.push({site, ref, type, debit});
+  ['psi-lien-site','psi-lien-ref','psi-lien-type','psi-lien-debit'].forEach(id => document.getElementById(id).value='');
+  psiRefreshLiens();
+}
+function psiRefreshLiens() {
+  const tb = document.getElementById('psi-liens-body');
+  if (!tb) return;
+  tb.innerHTML = _psi_liens.length ? _psi_liens.map((l,i)=>`
+    <tr style="border-bottom:1px solid var(--n5)">
+      <td style="padding:7px 10px;font-size:12.5px;font-weight:600">${l.site||'—'}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);font-size:11px">${l.ref||'—'}</td>
+      <td style="padding:7px 10px;font-size:12px">${l.type||'—'}</td>
+      <td style="padding:7px 10px;font-size:12px">${l.debit||'—'}</td>
+      <td style="padding:7px 4px;text-align:center"><button onclick="_psi_liens.splice(${i},1);psiRefreshLiens()" style="background:none;border:none;cursor:pointer;color:var(--n4);font-size:13px">✕</button></td>
+    </tr>`).join('') : `<tr><td colspan="5" style="padding:10px;text-align:center;font-size:12px;color:var(--n4)">Aucun lien ajouté</td></tr>`;
+}
+
+// ── Chronogramme ──
+function psiAddChrono(year) {
+  const per = document.getElementById(`psi-c${year.slice(-2)}-per`).value.trim();
+  const evt = document.getElementById(`psi-c${year.slice(-2)}-evt`).value.trim();
+  if (!per && !evt) return;
+  if (year==='2025') _psi_chrono25.push({per,evt});
+  else _psi_chrono26.push({per,evt});
+  document.getElementById(`psi-c${year.slice(-2)}-per`).value='';
+  document.getElementById(`psi-c${year.slice(-2)}-evt`).value='';
+  psiRefreshChrono(year);
+}
+function psiRefreshChrono(year) {
+  const tb = document.getElementById(`psi-chrono-${year}`);
+  if (!tb) return;
+  const arr = year==='2025' ? _psi_chrono25 : _psi_chrono26;
+  tb.innerHTML = arr.length ? arr.map((r,i)=>`
+    <tr style="border-bottom:1px solid var(--n5)">
+      <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--n2)">${r.per||'—'}</td>
+      <td style="padding:7px 10px;font-size:12.5px">${r.evt||'—'}</td>
+      <td style="padding:7px 4px;text-align:center"><button onclick="${year==='2025'?'_psi_chrono25':'_psi_chrono26'}.splice(${i},1);psiRefreshChrono('${year}')" style="background:none;border:none;cursor:pointer;color:var(--n4);font-size:13px">✕</button></td>
+    </tr>`).join('') : `<tr><td colspan="3" style="padding:8px;text-align:center;font-size:12px;color:var(--n4)">Aucune entrée</td></tr>`;
+}
+
+// ── Actions réalisées ──
+function psiAddAction() {
+  const per = document.getElementById('psi-act-per').value.trim();
+  const evt = document.getElementById('psi-act-evt').value.trim();
+  const pb = document.getElementById('psi-act-pb').value.trim();
+  if (!per && !evt) return;
+  _psi_actions.push({per, evt, pb});
+  ['psi-act-per','psi-act-evt','psi-act-pb'].forEach(id=>document.getElementById(id).value='');
+  psiRefreshActions();
+}
+function psiRefreshActions() {
+  const tb = document.getElementById('psi-actions-body');
+  if (!tb) return;
+  tb.innerHTML = _psi_actions.length ? _psi_actions.map((r,i)=>`
+    <tr style="border-bottom:1px solid var(--n5)">
+      <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;font-weight:700">${r.per||'—'}</td>
+      <td style="padding:7px 10px;font-size:12px">${r.evt||'—'}</td>
+      <td style="padding:7px 10px;font-size:12px;color:var(--n3)">${r.pb||'—'}</td>
+      <td style="padding:7px 4px;text-align:center"><button onclick="_psi_actions.splice(${i},1);psiRefreshActions()" style="background:none;border:none;cursor:pointer;color:var(--n4);font-size:13px">✕</button></td>
+    </tr>`).join('') : `<tr><td colspan="4" style="padding:8px;text-align:center;font-size:12px;color:var(--n4)">Aucune action</td></tr>`;
+}
+
+// ── Plan d'action ──
+function psiAddPlan() {
+  const act = document.getElementById('psi-plan-act').value.trim();
+  const resp = document.getElementById('psi-plan-resp').value.trim();
+  const ech = document.getElementById('psi-plan-ech').value.trim();
+  if (!act) return;
+  _psi_plan.push({act, resp, ech});
+  ['psi-plan-act','psi-plan-resp','psi-plan-ech'].forEach(id=>document.getElementById(id).value='');
+  psiRefreshPlan();
+}
+function psiRefreshPlan() {
+  const tb = document.getElementById('psi-plan-body');
+  if (!tb) return;
+  tb.innerHTML = _psi_plan.length ? _psi_plan.map((r,i)=>`
+    <tr style="border-bottom:1px solid var(--n5)">
+      <td style="padding:7px 10px;font-size:12.5px">${r.act||'—'}</td>
+      <td style="padding:7px 10px;font-size:12px;color:var(--n2)">${r.resp||'—'}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);font-size:11px;font-weight:700;color:var(--b)">${r.ech||'—'}</td>
+      <td style="padding:7px 4px;text-align:center"><button onclick="_psi_plan.splice(${i},1);psiRefreshPlan()" style="background:none;border:none;cursor:pointer;color:var(--n4);font-size:13px">✕</button></td>
+    </tr>`).join('') : `<tr><td colspan="4" style="padding:8px;text-align:center;font-size:12px;color:var(--n4)">Aucune action planifiée</td></tr>`;
+}
+
+// ── Étude problèmes/solutions ──
+function psiAddEtude() {
+  const pb = document.getElementById('psi-etude-pb').value.trim();
+  const sol = document.getElementById('psi-etude-sol').value.trim();
+  if (!pb) return;
+  _psi_etude.push({pb, sol});
+  ['psi-etude-pb','psi-etude-sol'].forEach(id=>document.getElementById(id).value='');
+  psiRefreshEtude();
+}
+function psiRefreshEtude() {
+  const tb = document.getElementById('psi-etude-body');
+  if (!tb) return;
+  tb.innerHTML = _psi_etude.length ? _psi_etude.map((r,i)=>`
+    <tr style="border-bottom:1px solid var(--n5)">
+      <td style="padding:7px 10px;font-size:12px">${r.pb||'—'}</td>
+      <td style="padding:7px 10px;font-size:12px;color:${r.sol?'var(--g)':'var(--n4)'}">${r.sol||'À compléter'}</td>
+      <td style="padding:7px 4px;text-align:center"><button onclick="_psi_etude.splice(${i},1);psiRefreshEtude()" style="background:none;border:none;cursor:pointer;color:var(--n4);font-size:13px">✕</button></td>
+    </tr>`).join('') : `<tr><td colspan="3" style="padding:8px;text-align:center;font-size:12px;color:var(--n4)">Aucun problème identifié</td></tr>`;
+}
+
+// ── Sauvegarder ──
+async function psiSave() {
+  const ref = document.getElementById('psi-ref').value.trim() || 'NOTE-' + Date.now().toString().slice(-6);
+  const titre = document.getElementById('psi-titre').value.trim();
+  if (!titre) return toast('Le titre / zone est requis', 'err');
+  const data = {
+    ref, titre,
+    date: document.getElementById('psi-date').value,
+    statut: document.getElementById('psi-statut').value,
+    redacteur: document.getElementById('psi-redacteur').value.trim(),
+    donneur: document.getElementById('psi-donneur').value.trim(),
+    plainte: document.getElementById('psi-plainte').value.trim(),
+    pts: [..._psi_pts],
+    liens: [..._psi_liens],
+    histo2025: document.getElementById('psi-histo-2025').value.trim(),
+    histo2026: document.getElementById('psi-histo-2026').value.trim(),
+    chrono25: [..._psi_chrono25],
+    chrono26: [..._psi_chrono26],
+    actionsCtx: document.getElementById('psi-actions-ctx').value.trim(),
+    actions: [..._psi_actions],
+    recommandation: document.getElementById('psi-recommandation').value.trim(),
+    plan: [..._psi_plan],
+    etude: [..._psi_etude],
+    createdAt: new Date().toISOString()
+  };
+  const editId = document.getElementById('psi-edit-id').value;
+  try {
+    if (editId) {
+      await fbUpdate('noc_psi', editId, data);
+      const rec = (DB.psi||[]).find(x=>x.id===editId);
+      if (rec) Object.assign(rec, data);
+      toast('Note mise à jour ✓', 'ok');
+    } else {
+      const r = await fbSave('noc_psi', data);
+      if (!DB.psi) DB.psi = [];
+      DB.psi.unshift({id: r.id, ...data});
+      toast(`Note ${ref} enregistrée ✓`, 'ok');
+    }
+    closeModal('mo-psi');
+    psiRender();
+  } catch(e) { toast('Erreur: ' + e.message, 'err'); }
+}
+
+// ── Éditer ──
+function psiEdit(id) {
+  const n = (DB.psi||[]).find(x=>x.id===id); if (!n) return;
+  _psi_pts = [...(n.pts||[])];
+  _psi_liens = [...(n.liens||[])];
+  _psi_chrono25 = [...(n.chrono25||[])];
+  _psi_chrono26 = [...(n.chrono26||[])];
+  _psi_actions = [...(n.actions||[])];
+  _psi_plan = [...(n.plan||[])];
+  _psi_etude = [...(n.etude||[])];
+  document.getElementById('psi-edit-id').value = id;
+  document.getElementById('mo-psi-title').textContent = '✏️ Éditer note de situation';
+  document.getElementById('psi-ref').value = n.ref||'';
+  document.getElementById('psi-titre').value = n.titre||'';
+  document.getElementById('psi-date').value = n.date||'';
+  document.getElementById('psi-statut').value = n.statut||'En cours';
+  document.getElementById('psi-redacteur').value = n.redacteur||'';
+  document.getElementById('psi-donneur').value = n.donneur||'';
+  document.getElementById('psi-plainte').value = n.plainte||'';
+  document.getElementById('psi-histo-2025').value = n.histo2025||'';
+  document.getElementById('psi-histo-2026').value = n.histo2026||'';
+  document.getElementById('psi-actions-ctx').value = n.actionsCtx||'';
+  document.getElementById('psi-recommandation').value = n.recommandation||'';
+  psiRefreshPts(); psiRefreshLiens(); psiRefreshChrono('2025'); psiRefreshChrono('2026'); psiRefreshActions(); psiRefreshPlan(); psiRefreshEtude();
+  openModal('mo-psi');
+}
+
+// ── Voir ──
+function psiView(id) {
+  const n = (DB.psi||[]).find(x=>x.id===id); if (!n) return;
+  _psi_view_current = n;
+  const statutColor = {'En cours':'var(--r)','En suivi':'var(--a)','Résolu':'var(--g)','Fermé':'var(--n3)'};
+  const sc = statutColor[n.statut]||'var(--n3)';
+
+  const tblRow = (cells, bg='') => `<tr style="border-bottom:1px solid #e0e0e0;${bg?'background:'+bg:''}">` + cells.map(c=>`<td style="padding:8px 12px;font-size:12.5px;vertical-align:top;line-height:1.5">${c}</td>`).join('') + `</tr>`;
+  const tblHead = (cols, bg='#f0f4f8') => `<tr style="background:${bg}">` + cols.map(c=>`<th style="padding:8px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#666;text-align:left;border-bottom:1px solid #d0d0d0">${c}</th>`).join('') + `</tr>`;
+
+  document.getElementById('psi-view-body').innerHTML = `
+  <div style="font-family:'Barlow',sans-serif">
+
+    <!-- En-tête officiel -->
+    <div style="background:linear-gradient(135deg,#1B4F72,#2E7D8C);padding:20px 24px;margin:-20px -20px 20px;display:flex;justify-content:space-between;align-items:flex-start;border-radius:5px 5px 0 0">
+      <div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:26px;font-weight:800;color:#fff;letter-spacing:.5px">NOTE DE SITUATION</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(255,255,255,.6);margin-top:3px;letter-spacing:1px">INTERNE — CONFIDENTIEL</div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700;color:rgba(255,255,255,.85);margin-top:8px">${n.titre||'—'}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:#fff;background:rgba(255,255,255,.12);padding:5px 12px;border-radius:3px">${n.ref||'—'}</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,.5);margin-top:5px">${n.date||'—'}</div>
+        <div style="margin-top:6px;display:inline-block;background:${sc};color:#fff;padding:3px 10px;border-radius:2px;font-size:11px;font-weight:700">${n.statut||'—'}</div>
+      </div>
+    </div>
+
+    <!-- Section 1 : Objet plainte -->
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:#1B4F72;border-bottom:2px solid #1B4F72;padding-bottom:5px;margin-bottom:12px">1. Objet de la plainte client</div>
+    ${n.donneur ? `<p style="margin-bottom:10px;font-size:13px">${n.donneur}</p>` : ''}
+    ${n.plainte ? `<p style="font-size:12.5px;line-height:1.6;margin-bottom:12px;white-space:pre-wrap">${n.plainte}</p>` : ''}
+    ${(n.pts||[]).length ? `
+    <div style="border:1px solid #d0dce8;border-radius:4px;padding:14px 16px;background:#f5f8fc;margin-bottom:14px">
+      <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#555;margin-bottom:8px">Points clés de la plainte :</div>
+      ${(n.pts||[]).map(pt=>`<div style="display:flex;gap:8px;padding:4px 0;font-size:12.5px"><span style="color:#1B4F72;flex-shrink:0">▸</span>${pt}</div>`).join('')}
+    </div>` : ''}
+
+    <!-- Section 2 : Liens -->
+    ${(n.liens||[]).length ? `
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:#1B4F72;border-bottom:2px solid #1B4F72;padding-bottom:5px;margin-bottom:12px">Référence des liens</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;border:1px solid #d0d0d0;border-radius:4px;overflow:hidden">
+      <thead>${tblHead(['Site','Référence','Type de lien','Débit'])}</thead>
+      <tbody>${(n.liens||[]).map((l,i)=>tblRow([`<b>${l.site||'—'}</b>`,`<span style="font-family:'JetBrains Mono',monospace;font-size:11px">${l.ref||'—'}</span>`,l.type||'—',l.debit||'—'],i%2?'#fafafa':'')).join('')}</tbody>
+    </table>` : ''}
+
+    <!-- Section 3 : Historique -->
+    ${(n.histo2025||n.histo2026) ? `
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:#1B4F72;border-bottom:2px solid #1B4F72;padding-bottom:5px;margin-bottom:12px">2. Historique des signalisations</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+      ${n.histo2025 ? `<div style="border:1px solid #d0d0d0;border-radius:4px;padding:12px;background:#fafafa"><div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px">2025</div><p style="font-size:12.5px;white-space:pre-wrap;line-height:1.6">${n.histo2025}</p></div>` : ''}
+      ${n.histo2026 ? `<div style="border:1px solid #d0d0d0;border-radius:4px;padding:12px;background:#fafafa"><div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px">2026</div><p style="font-size:12.5px;white-space:pre-wrap;line-height:1.6">${n.histo2026}</p></div>` : ''}
+    </div>` : ''}
+
+    <!-- Section 4 : Chronogramme -->
+    ${((n.chrono25||[]).length||(n.chrono26||[]).length) ? `
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:#1B4F72;border-bottom:2px solid #1B4F72;padding-bottom:5px;margin-bottom:12px">3. Chronogramme des incidents selon le client</div>
+    ${(n.chrono25||[]).length ? `
+    <div style="margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:#1B4F72;margin-bottom:7px;display:flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:50%;background:#1B4F72;flex-shrink:0"></span> Phase 2025 — Fragilité du réseau</div>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #d0d0d0;border-radius:4px;overflow:hidden">
+        <thead>${tblHead(['Période','Événement'])}</thead>
+        <tbody>${(n.chrono25||[]).map((r,i)=>tblRow([`<b style="font-family:'JetBrains Mono',monospace;font-size:11px">${r.per||'—'}</b>`,r.evt||'—'],i%2?'#fafafa':'')).join('')}</tbody>
+      </table>
+    </div>` : ''}
+    ${(n.chrono26||[]).length ? `
+    <div style="margin-bottom:16px">
+      <div style="font-size:13px;font-weight:700;color:#B22222;margin-bottom:7px;display:flex;align-items:center;gap:7px"><span style="width:9px;height:9px;border-radius:50%;background:#B22222;flex-shrink:0"></span> Phase 2026 — Crise persistante</div>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #d0d0d0;border-radius:4px;overflow:hidden">
+        <thead>${tblHead(['Période','Événement'])}</thead>
+        <tbody>${(n.chrono26||[]).map((r,i)=>tblRow([`<b style="font-family:'JetBrains Mono',monospace;font-size:11px">${r.per||'—'}</b>`,r.evt||'—'],i%2?'#fafafa':'')).join('')}</tbody>
+      </table>
+    </div>` : ''}` : ''}
+
+    <!-- Section 5 : Actions réalisées -->
+    ${(n.actions||[]).length||n.actionsCtx ? `
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:#1B4F72;border-bottom:2px solid #1B4F72;padding-bottom:5px;margin-bottom:12px">4. Actions réalisées</div>
+    ${n.actionsCtx ? `<p style="font-size:12.5px;margin-bottom:12px;line-height:1.6">${n.actionsCtx}</p>` : ''}
+    ${(n.actions||[]).length ? `
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;border:1px solid #d0d0d0;border-radius:4px;overflow:hidden">
+      <thead>${tblHead(['Période','Événement / Action','Problématique traitée'])}</thead>
+      <tbody>${(n.actions||[]).map((r,i)=>tblRow([`<b style="font-family:'JetBrains Mono',monospace;font-size:11px">${r.per||'—'}</b>`,r.evt||'—',r.pb||'—'],i%2?'#fafafa':'')).join('')}</tbody>
+    </table>` : ''}` : ''}
+
+    ${n.recommandation ? `
+    <div style="border-left:4px solid #1A6B3C;background:#e8f5ee;border-radius:4px;padding:13px 16px;margin-bottom:16px">
+      <div style="font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#1A6B3C;margin-bottom:6px">Recommandation :</div>
+      <p style="font-size:12.5px;line-height:1.6;color:#0d4426;white-space:pre-wrap">${n.recommandation}</p>
+    </div>` : ''}
+
+    <!-- Section 6 : Plan d'action -->
+    ${(n.plan||[]).length ? `
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:#1B4F72;border-bottom:2px solid #1B4F72;padding-bottom:5px;margin-bottom:12px">5. Plan d'action et mesures de remédiation</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;border:1px solid #d0d0d0;border-radius:4px;overflow:hidden">
+      <thead>${tblHead(['Action','Responsable','Échéance'])}</thead>
+      <tbody>${(n.plan||[]).map((r,i)=>tblRow([r.act||'—',r.resp||'—',`<b style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#1B4F72">${r.ech||'—'}</b>`],i%2?'#fafafa':'')).join('')}</tbody>
+    </table>` : ''}
+
+    <!-- Étude problèmes/solutions -->
+    ${(n.etude||[]).length ? `
+    <div style="font-size:13px;font-weight:700;color:#1B4F72;margin-bottom:8px">L'étude portera sur les éléments ci-dessous :</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:16px;border:1px solid #d0d0d0;border-radius:4px;overflow:hidden">
+      <thead>${tblHead(['Problème identifié','Solution'])}</thead>
+      <tbody>${(n.etude||[]).map((r,i)=>tblRow([r.pb||'—',r.sol||`<span style="color:#aaa;font-style:italic">À compléter</span>`],i%2?'#fafafa':'')).join('')}</tbody>
+    </table>` : ''}
+
+    <!-- Pied de page -->
+    <div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;display:flex;justify-content:space-between;align-items:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:#aaa">
+      <span>${n.redacteur||'DOBB'} — ${n.date||'—'}</span>
+      <span>Page 1</span>
+    </div>
+  </div>`;
+
+  document.getElementById('psi-view-edit-btn').onclick = () => { closeModal('mo-psi-view'); psiEdit(id); };
+  openModal('mo-psi-view');
+}
+
+// ── Supprimer ──
+async function psiDelete(id) {
+  if (APP_ROLE !== 'superadmin') { toast('🔒 Suppression réservée au Super Admin', 'err'); return; }
+  if (!confirm('Supprimer cette note de situation ?')) return;
+  try {
+    await fbDelete('noc_psi', id);
+    DB.psi = (DB.psi||[]).filter(x=>x.id!==id);
+    psiRender();
+    toast('Note supprimée ✓', 'ok');
+  } catch(e) { toast('Erreur: '+e.message, 'err'); }
+}
+
+// ── Export PDF ──
+function psiExportPDFFromView() {
+  const body = document.getElementById('psi-view-body');
+  if (!body) return;
+  const win = window.open('', '_blank');
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Note de Situation</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>body{font-family:'Barlow',sans-serif;font-size:13px;color:#1a1a1a;padding:20px 30px;max-width:900px;margin:0 auto}@media print{body{padding:0}}</style>
+  </head><body>${body.innerHTML}<script>window.onload=()=>{window.print();}<\/script></body></html>`);
+  win.document.close();
+}
+function psiExportPDF() {
+  // Sauvegarder d'abord, puis ouvrir vue et exporter
+  toast('Sauvegardez d\'abord la note, puis utilisez "Voir" → "Exporter PDF"', 'info');
+}
+
+// ── Export Word (HTML-based .doc) ──
+function psiExportWordFromView() {
+  const n = _psi_view_current; if (!n) return;
+  const body = document.getElementById('psi-view-body')?.innerHTML || '';
+  const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
+  <head><meta charset="UTF-8">
+  <style>body{font-family:Arial,sans-serif;font-size:12pt}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px 10px}</style>
+  </head><body>${body}</body></html>`;
+  const blob = new Blob([html], {type: 'application/msword'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Note_Situation_${(n.ref||'export').replace(/[^a-zA-Z0-9_-]/g,'_')}.doc`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+  toast('Export Word téléchargé ✓', 'ok');
+}
+function psiExportWord() {
+  toast('Sauvegardez d\'abord la note, puis utilisez "Voir" → "Exporter Word"', 'info');
+}
+
+
 function handleFiles(input, ctx){
   if(ctx==='cr'){
     _cr_files = Array.from(input.files);
