@@ -318,7 +318,7 @@ document.addEventListener("DOMContentLoaded", function() {
 }
   </style>
  </head>
-<body>
+ <body>
   <input accept=".xlsx,.xls,.csv" id="fileInput" type="file" style="display:none"/>
   <a href="index.html">
    <button style="background-color:#546e7a;color:white;border:none;border-radius:4px;padding:6px 12px;cursor:pointer;">
@@ -1596,169 +1596,8 @@ function exporterIncidentsND2ParMois() {
   </div>
   <div id="resultat">
   </div>
-
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
-<script>
-function mettreAJourTitreIncidentsRepetitifs() {
-  const aujourdHui = new Date();
-  const moisActuel = aujourdHui.getMonth() + 1;
-  const total = tableauActuel.filter(item => (item.mois[moisActuel] || 0) >= 2).length;
-  const titre = document.getElementById("titre-incidents-repetitifs");
-  if (titre) titre.textContent = `🔁 Incidents répétitifs - Mois en cours : ${total}`;
-}
   
-function afficherGraphiqueIncidentsND2() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const labels = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const valeurs = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  if (window.incidentND2Chart) window.incidentND2Chart.destroy();
-
-  window.incidentND2Chart = new Chart(document.getElementById('incident-nd2-graph'), {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Incidents ND ≥ 2',
-        data: valeurs,
-        backgroundColor: '#ff7043',
-        borderColor: '#ff7043',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      devicePixelRatio: 2,
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top'
-        }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-function exporterIncidentsND2ParMois() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const mois = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const incidents = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  const rows = mois.map((moisNom, i) => ({
-    Mois: moisNom,
-    "Incidents ND ≥ 2": incidents[i]
-  }));
-
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
-  XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
-}
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-</script>
-<script>
+  <script>
    // --- CONFIG TOP 20 ---
 const TOP20_GROUPES = [
   "NSIA","USA","LONACI","FRANCE","BNI","BOA","SIB","BAD",
@@ -1789,11 +1628,15 @@ let filtreDateActive = false;
 let clientCritiqueSelectionne = null;
 
 // Remplir les dates par défaut (aujourd'hui)
-window.onload = function() {
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById("date-debut").value = today;
-  document.getElementById("date-fin").value = today;
-}
+document.addEventListener("DOMContentLoaded", function() {
+  document.getElementById("date-debut").value = "";
+  document.getElementById("date-fin").value = "";
+});
+// pageshow couvre aussi F5 et retour cache navigateur
+window.addEventListener("pageshow", function() {
+  document.getElementById("date-debut").value = "";
+  document.getElementById("date-fin").value = "";
+});
 
 function setChartContainerVisibility(show) {
   document.getElementById('chart-container').classList.toggle("hidden", !show);
@@ -1806,7 +1649,7 @@ function trouverColonne(nomsPossibles, obj) {
   );
 }
 
-document.getElementById('input-excel').addEventListener('change', (e) => {
+document.getElementById('fileInput').addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = (event) => {
     const data = new Uint8Array(event.target.result);
@@ -1817,6 +1660,18 @@ document.getElementById('input-excel').addEventListener('change', (e) => {
   };
   reader.readAsArrayBuffer(e.target.files[0]);
 });
+
+function updateLastLoad(fmt) {
+  if(!fmt) return;
+  const el = document.getElementById('last-load-datetime');
+  const info = document.getElementById('last-load-info');
+  if(el) el.textContent = fmt;
+  if(info) info.style.display = 'inline';
+  const elTop = document.getElementById('last-load-datetime-top');
+  const infoTop = document.getElementById('last-load-info-top');
+  if(elTop) elTop.textContent = fmt;
+  if(infoTop) infoTop.style.display = 'inline';
+}
 
 function analyser() {
   clientCritiqueSelectionne = null;
@@ -1829,6 +1684,7 @@ function analyser() {
   const colonneDateFinTMC = trouverColonne(["DATE FIN TMC", "Date fin", "DATE FIN"], firstRow) || "DATE FIN TMC";
   const colonneDateCreation = trouverColonne(["DATE DE CRÉATION", "Date de création", "DATE CREATION"], firstRow) || "DATE DE CRÉATION";
   colonneDateCreationAuto = colonneDateCreation;
+  const colonneDateCorrection = trouverColonne(["DATE CORRECTION", "Date correction", "DATE DE CORRECTION", "Date de correction", "CORRECTION"], firstRow) || null;
 
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -1848,6 +1704,7 @@ function analyser() {
     const cause = ligne[colonneCause] || "Non renseignée";
     const dateFinTMC = ligne[colonneDateFinTMC] || "";
     const rawDate = ligne[colonneDateCreation];
+    const rawDateCorrection = colonneDateCorrection ? ligne[colonneDateCorrection] : null;
 
     let mois = 0, annee = anneeActuelle;
     let dateCreationValide = null;
@@ -1871,6 +1728,18 @@ function analyser() {
 
     if (!nd) return;
 
+    // Parser la date de correction
+    let dateCorrectionValide = null;
+    if (rawDateCorrection) {
+      if (typeof rawDateCorrection === 'number') {
+        const parsed = XLSX.SSF.parse_date_code(rawDateCorrection);
+        if (parsed && parsed.m) dateCorrectionValide = new Date(parsed.y, parsed.m - 1, parsed.d || 1);
+      } else {
+        const d = new Date(rawDateCorrection);
+        if (!isNaN(d)) dateCorrectionValide = d;
+      }
+    }
+
     if (!compteur[nd]) {
       compteur[nd] = {
         raison: raison,
@@ -1879,8 +1748,14 @@ function analyser() {
         mois: {},
         critiques: false,
         causes: [],
-        datesCreation: []
+        datesCreation: [],
+        dateCorrection: null
       };
+    }
+
+    // Prendre la date de correction la plus récente trouvée pour ce ND
+    if (dateCorrectionValide && (!compteur[nd].dateCorrection || dateCorrectionValide > compteur[nd].dateCorrection)) {
+      compteur[nd].dateCorrection = dateCorrectionValide;
     }
 
     compteur[nd].total++;
@@ -1898,7 +1773,7 @@ function analyser() {
   tableauGlobal = Object.entries(compteur).map(([nd, infos]) => {
     const total2Mois = (infos.mois[moisActuel] || 0) + (infos.mois[moisPrecedent] || 0);
     if (total2Mois >= 2) infos.critiques = true;
-    return { nd, localisation: infos.localisation, ...infos };
+    return { nd, localisation: infos.localisation, dateCorrection: infos.dateCorrection || null, ...infos };
   }).sort((a, b) => b.total - a.total);
 
   modeTop20 = false;
@@ -1939,25 +1814,24 @@ function setVueAffichage() {
   document.querySelector('h2').textContent = "Analyse des incidents";
   afficherTableau(tableauActuel);
   afficherStats(tableauActuel);
-  afficherGraphiqueIncidentsND2();
-  afficherGraphiqueFusionne();
+  afficherGraphiqueIncidentsND2(tableauActuel);
+  afficherGraphiqueFusionne(tableauActuel);
   if (filtreDateActive) {
     setChartContainerVisibility(false);
   } else {
     setChartContainerVisibility(true);
     afficherGraphique(tableauActuel);
   }
-  afficherBarCritiquesPourSelection(tableauActuel); // dynamique selon filtre
+  afficherBarCritiquesPourSelection(tableauActuel);
   afficherNDCritiquesParClient();
   document.getElementById("info-resultats").textContent = `👥 Total : ${tableauActuel.length} ND analysés | Total lignes : ${donneesExcel.length}`;
   const accueilSpan = document.getElementById("total-lignes-accueil");
   if (accueilSpan) accueilSpan.textContent = `Total lignes : ${donneesExcel.length}`;
   document.getElementById("recherche").value = "";
   document.getElementById("resume-douleurs").innerHTML = "";
-  afficherGraphiqueNDRécurrents();
-  afficherGraphiqueNDparMois();
-  afficherGraphiqueFusionND();
-  // Ajout des valeurs sous les cases vertes
+  afficherGraphiqueNDRécurrents(tableauActuel);
+  afficherGraphiqueNDparMois(tableauActuel);
+  afficherGraphiqueFusionND(tableauActuel);
   (function () {
     const aujourdHui = new Date();
     const moisActuel = aujourdHui.getMonth() + 1;
@@ -1976,7 +1850,6 @@ function setVueAffichage() {
     document.getElementById("valeurs-nd-mois-courant").textContent = `✅ ${ndMoisCourant.length} ND concernés`;
     document.getElementById("valeurs-nd-annuel").textContent = `✅ ${ndAnnuel.length} ND concernés`;
   })();
-
 }
 
 
@@ -2005,7 +1878,7 @@ function afficherNDPresentsTousLesMois() {
     html += `<td style='border:1px solid #ccc;padding:6px;font-weight:bold;'>${item.total || 0}</td>`;
     for (let m = 1; m <= moisActuel; m++) {
       const val = (item.mois && item.mois[m]) ? item.mois[m] : 0;
-      const style = val >= seuilRecurrence ? "background:#fff8e1;font-weight:bold;" : "";
+      const style = val >= seuilRecurrence ? "background:#dbeafe;font-weight:bold;" : "";
       html += `<td style='border:1px solid #ccc;padding:6px;${style}'>${val}</td>`;
     }
     html += "</tr>";
@@ -2037,7 +1910,7 @@ function afficherVueGlobale() {
 
 function afficherTableau(data) {
   const moisActuel = new Date().getMonth() + 1;
-  let html = '<table><thead><tr><th>ND</th><th>Raison sociale</th><th>Localisation</th><th>Cause réelle</th>';
+  let html = '<table><thead><tr><th>ND</th><th>Raison sociale</th><th>Localisation</th><th>Total sig.</th>';
   for (let i = 1; i <= moisActuel; i++) {
     html += `<th>${moisNoms[i]}</th>`;
   }
@@ -2046,6 +1919,7 @@ function afficherTableau(data) {
   if (clientCritiqueSelectionne) {
     toDisplay = data.filter(item => item.critiques && canonicalClient(item.raison) === canonicalClient(clientCritiqueSelectionne));
   }
+  donneesAffichees = toDisplay;
   toDisplay.forEach(item => {
     const estSiteCritique = ND_CRITIQUES_LIST.includes(item.nd);
     const classes = [];
@@ -2054,8 +1928,58 @@ function afficherTableau(data) {
     if (item.critiques && estSiteCritique) classes.push('site-critique-critique');
     html += `<tr class='${classes.join(" ")}'>`;
     html += `<td class='nd-col'>${item.nd}</td><td class='raison-col'>${item.raison}</td><td class='localisation-col'>${item.localisation || 'Inconnue'}</td><td>${item.total}</td>`;
+
+    // Date de correction depuis reference.xlsx (PLAN_RESILIENCE_DATES)
+    const nd_upper = (item.nd || '').trim().toUpperCase();
+    const dateCorr = (typeof PLAN_RESILIENCE_DATES !== 'undefined' && PLAN_RESILIENCE_DATES[nd_upper]) || null;
+    const moisCorrection = dateCorr ? dateCorr.getMonth() + 1 : null;
+    const anneeCorrection = dateCorr ? dateCorr.getFullYear() : null;
+    const dateCorrecFmt = dateCorr
+      ? String(dateCorr.getDate()).padStart(2,'0') + '/' +
+        String(dateCorr.getMonth()+1).padStart(2,'0') + '/' +
+        dateCorr.getFullYear()
+      : null;
+
     for (let i = 1; i <= moisActuel; i++) {
-      html += `<td>${item.mois[i] || 0}</td>`;
+      const val = item.mois[i] || 0;
+      const anneeEnCours = new Date().getFullYear();
+
+      if (moisCorrection && anneeCorrection === anneeEnCours && dateCorrecFmt) {
+
+        if (i === moisCorrection) {
+          // Chercher les rechutes dans ce même mois (incidents après la date exacte de correction)
+          const rechutesMemeMois = (item.datesCreation || [])
+            .filter(d => d.getMonth() + 1 === i && d.getFullYear() === anneeEnCours && d > dateCorr)
+            .map(d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear())
+            .sort();
+
+          if (rechutesMemeMois.length > 0) {
+            // Il y a des rechutes dans le mois → orange
+            const tooltipRechutes = '\n⚠️ Rechutes : ' + rechutesMemeMois.join(', ');
+            html += `<td style="background:#e65100;color:#fff;font-weight:bold;cursor:default;" title="✅ Correction : ${dateCorrecFmt}${tooltipRechutes}">${val}</td>`;
+          } else {
+            // Aucune rechute → vert pur
+            html += `<td style="background:#1b5e20;color:#fff;font-weight:bold;cursor:default;" title="✅ Date correction : ${dateCorrecFmt}">${val}</td>`;
+          }
+        }
+        else if (i > moisCorrection && val > 0) {
+          // Mois APRÈS la correction avec incidents → orange
+          const rechuteDates = (item.datesCreation || [])
+            .filter(d => d.getMonth() + 1 === i && d.getFullYear() === anneeEnCours && d > dateCorr)
+            .map(d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear())
+            .sort();
+          const tooltipDates = rechuteDates.length > 0
+            ? '\nRechutes : ' + rechuteDates.join(', ')
+            : '';
+          html += `<td style="background:#e65100;color:#fff;font-weight:bold;cursor:default;" title="⚠️ Rechute après correction du ${dateCorrecFmt}${tooltipDates}">${val}</td>`;
+        }
+        else {
+          html += `<td>${val}</td>`;
+        }
+
+      } else {
+        html += `<td>${val}</td>`;
+      }
     }
     html += `<td class="causes-col">${[...new Set(item.causes)].join('<br>')}</td>`;
     html += '</tr>';
@@ -2237,8 +2161,8 @@ function afficherBarCritiquesPourSelection(dataSelection) {
       datasets: [{
         label: 'Top 5 des Incidents répétitifs par zone sur les 2 derniers mois',
         data: values,
-        backgroundColor: "#FF9800",
-        borderColor: "#FF9800",
+        backgroundColor: "orange",
+        borderColor: "orange",
         borderWidth: 1
       }]
     },
@@ -2311,8 +2235,8 @@ function afficherBarCritiques() {
       datasets: [{
         label: 'Top 5 des Incidents répétitifs par zone sur les 2 derniers mois',
         data: values,
-        backgroundColor: "#FF9800",
-        borderColor: "#FF9800",
+        backgroundColor: "orange",
+        borderColor: "orange",
         borderWidth: 1
       }]
     },
@@ -2345,9 +2269,8 @@ function filtrerParDate() {
 function resetDates() {
   clientCritiqueSelectionne = null;
   filtreDateActive = false;
-  const today = new Date().toISOString().slice(0, 10);
-  document.getElementById("date-debut").value = today;
-  document.getElementById("date-fin").value = today;
+  document.getElementById("date-debut").value = "";
+  document.getElementById("date-fin").value = "";
   document.getElementById("recherche").value = "";
   filtrerTableau();
 }
@@ -2358,6 +2281,19 @@ function filtrerTableau() {
   let tableauSource = filtreDateActive ? appliquerFiltreDate(tableauActuel) : [...tableauActuel];
   let filtres = [];
 
+  // Mise à jour label export dynamique
+  function majLabelExport() {
+    const lbl = document.getElementById('export-label');
+    if (!lbl) return;
+    const f = document.getElementById('recherche') ? document.getElementById('recherche').value.trim() : '';
+    const d1 = document.getElementById('date-debut') ? document.getElementById('date-debut').value : '';
+    const d2 = document.getElementById('date-fin') ? document.getElementById('date-fin').value : '';
+    const parts = [];
+    if (f) parts.push('🔍 ' + f);
+    if (d1 || d2) parts.push('📅 ' + (d1 || '…') + ' → ' + (d2 || '…'));
+    lbl.textContent = parts.length ? '(' + parts.join(' · ') + ')' : '';
+  }
+
   if (clientCritiqueSelectionne) {
     filtres = tableauSource.filter(item => item.critiques && canonicalClient(item.raison) === canonicalClient(clientCritiqueSelectionne));
     afficherTableau(filtres);
@@ -2365,10 +2301,14 @@ function filtrerTableau() {
     afficherBarCritiquesPourSelection(filtres);
     afficherNDCritiquesParClient();
     afficherStats(filtres);
-    afficherGraphiqueFusionne();
+    afficherGraphiqueFusionne(filtres);
+    afficherGraphiqueFusionND(filtres);
+    afficherGraphiqueNDRécurrents(filtres);
+    afficherGraphiqueNDparMois(filtres);
     mettreAJourCasesVertes(filtres);
     document.getElementById("resume-douleurs").innerHTML = "";
     document.getElementById("info-resultats").textContent = `ND critiques pour ${clientCritiqueSelectionne} : ${filtres.length}`;
+    majLabelExport();
     return;
   }
 
@@ -2377,12 +2317,16 @@ function filtrerTableau() {
     afficherTableau(filtres);
     afficherStats(filtres);
     afficherGraphique(filtres);
-    afficherGraphiqueFusionne();
+    afficherGraphiqueFusionne(filtres);
+    afficherGraphiqueFusionND(filtres);
+    afficherGraphiqueNDRécurrents(filtres);
+    afficherGraphiqueNDparMois(filtres);
     afficherBarCritiquesPourSelection(filtres);
     afficherNDCritiquesParClient();
     mettreAJourCasesVertes(filtres);
     document.getElementById("resume-douleurs").innerHTML = "";
     document.getElementById("info-resultats").textContent = `Résultats : ${filtres.length} ND affichés sur ${tableauActuel.length}`;
+    majLabelExport();
     return;
   }
 
@@ -2399,13 +2343,17 @@ function filtrerTableau() {
 
   afficherTableau(filtres);
   afficherGraphique(filtres);
-  afficherGraphiqueFusionne();
+  afficherGraphiqueFusionne(filtres);
+  afficherGraphiqueFusionND(filtres);
+  afficherGraphiqueNDRécurrents(filtres);
+  afficherGraphiqueNDparMois(filtres);
   afficherBarCritiquesPourSelection(filtres);
   afficherNDCritiquesParClient();
   afficherStats(filtres);
   afficherResumeClient(filtres);
   mettreAJourCasesVertes(filtres);
   document.getElementById("info-resultats").textContent = `Résultats : ${filtres.length} ND affichés sur ${tableauActuel.length}`;
+  majLabelExport();
 }
 
 function exporterCritiques() {
@@ -2549,89 +2497,8 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    const fileKey = "uploadedExcel";
 
     function saveFileToMemory(inputId) {
@@ -2663,40 +2530,47 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     }
 
-    window.onload = function () {
+    document.addEventListener("DOMContentLoaded", function() {
         restoreExcelToDownload();
         const savedImage = localStorage.getItem('backgroundImage');
         if (savedImage) {
             const bgImg = document.getElementById('backgroundImage');
             if (bgImg) bgImg.src = savedImage;
         }
-    };
+    });
+
+// Variable globale alimentée à chaque filtrage
+let donneesAffichees = [];
 
 function exporterTableauComplet() {
-  if (typeof XLSX === "undefined") {
-    alert("La bibliothèque XLSX n'est pas chargée.");
-    return;
-  }
-
-  const moisActuel = new Date().getMonth() + 1;
-  const lignes = tableauActuel.map(item => {
-    const ligne = {
+  if (typeof XLSX === 'undefined') { alert('XLSX non chargé'); return; }
+  var data = (typeof donneesAffichees !== 'undefined' && donneesAffichees.length)
+    ? donneesAffichees
+    : (typeof tableauActuel !== 'undefined' ? tableauActuel : []);
+  if (!data.length) { alert('Aucune donnée. Chargez un fichier.'); return; }
+  var moisActuel = new Date().getMonth() + 1;
+  var lignes = data.map(function(item) {
+    var ligne = {
       ND: item.nd,
-      "Raison sociale": item.raison,
-      "Localisation": item.localisation || "Inconnue",
+      'Raison sociale': item.raison,
+      'Localisation': item.localisation || 'Inconnue',
       Total: item.total,
-      "Causes 2 derniers mois": [...new Set(item.causes)].join(" | ")
+      'Causes 2 derniers mois': Array.from(new Set(item.causes || [])).join(' | ')
     };
-    for (let i = 1; i <= moisActuel; i++) {
-      ligne[moisNoms[i]] = item.mois[i] || 0;
+    for (var i = 1; i <= moisActuel; i++) {
+      ligne[moisNoms[i]] = (item.mois && item.mois[i]) ? item.mois[i] : 0;
     }
     return ligne;
   });
-
-  const ws = XLSX.utils.json_to_sheet(lignes);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Tableau incidents");
-  XLSX.writeFile(wb, modeTop20 ? "Top20_Incidents_Complet.xlsx" : "Tableau_Incidents_Complet.xlsx");
+  var ws = XLSX.utils.json_to_sheet(lignes);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Tableau incidents');
+  var rechEl = document.getElementById('recherche');
+  var filtre = rechEl ? rechEl.value.trim() : '';
+  var nom = filtre
+    ? 'Incidents_' + filtre.replace(/[^a-zA-Z0-9]/g,'_') + '.xlsx'
+    : (typeof modeTop20 !== 'undefined' && modeTop20 ? 'Top20_Incidents.xlsx' : 'Tableau_Incidents.xlsx');
+  XLSX.writeFile(wb, nom);
 }
   
 function afficherGraphiqueIncidentsND2() {
@@ -2768,89 +2642,8 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    const ND_CRITIQUES_LIST = ['SYTHD170255', 'BUVPN180062', 'VPNLL130252', 'BUVPN140276', 'BUVPN140147', 'BUVPN140148', 'BUVPN140167', 'VPNLL140059', 'BUVPN150375', 'BUVPN160199', 'BUVPN190195', 'BUVPN190201', 'BUVPN130003', 'BUVPN140168', 'BUVPN180214', 'VPNLL110050', 'VPNLL140068', 'BUVPN140430', 'BUVPN210171', 'VPNLL090060', 'BUVPN200212', 'BUVPN210226', 'BUVPN190039', 'BUVPN190196', 'VPNLL090176', 'BUVPN140231', 'BUVPN140279', 'BUVPN200239', 'BUVPN220165', 'BUVPN190040', 'VPNLL110001', 'BUVPN220150', 'BUVPN220180', 'SYTHD200276', 'SYTHD200228', 'BUVPN200213', 'SYTHD170243', 'SYTHD170242', 'SYTHD170114', 'SYTHD120029', 'VPNLL120160', 'BUVPN190115', 'BUVPN200029', 'SYTHD170256', 'BUVPN150175', 'BUVPN180063', 'SYTHD220087', 'BUVPN210255', 'BUVPN190113', 'BUVPN200316', 'BUVPN210005', 'BUVPN150080', 'SYTHD160144', 'BUVPN160189', 'BUVPN210084', 'SYTHD220076', 'SYTHD190129', 'SYTHD150075', 'SYTHD160104', 'SYTHD200132', 'SYTHD200131', 'SYTHD200105', 'SYTHD200104', 'SYTHD200130', 'SYTHD200109', 'SYTHD200110', 'SYTHD200111', 'SYTHD200123', 'SYTHD200108', 'SYTHD200106', 'SYTHD200126', 'SYTHD200128', 'SYTHD200129', 'BUVPN220268', 'BUVPN150302', 'VPNLL080150', 'BUVPN170143', 'BUVPN150343', 'BUVPN150680', 'BUVPN140444', 'BUVPN150189', 'SYTHD160199', 'SYTHD220172', 'BUSAT211104', 'BUVPN170124', 'VPNLL120106', 'BUVPN170098', 'BUVPN150105', 'BUVPN140278', 'SYTHD040179', 'SYTHD200264', 'BUVPN150267', 'VPNLL220014', 'BUVPN170207', 'VPNLL220020', 'VPNLL050214', 'VPNLL050188', 'BUVPN160215', 'BUVPN200251', 'VPNLL060014', 'BUVPN210082', 'BUVPN220013', 'VPNLL050112', 'VPNLL220031', 'BUVPN170137', 'VPNLL220024', 'VPNLL150141', 'VPNLL050113', 'BUVPN220024', 'VPNLL050190', 'VPNLL050179', 'VPNLL050180', 'VPNLL050181', 'VPNLL220011', 'VPNLL050189', 'BUVPN220259', 'BUVPN200284', 'VPNLL050192', 'VPNLL130076', 'VPNLL060001', 'VPNLL120150', 'VPNLL070010', 'VPNLL060005', 'VPNLL060006', 'BUVPN220189', 'VPNLL060009', 'VPNLL060011', 'BUVPN210183', 'BUVPN200111', 'VPNLL130143', 'VPNLL060054', 'VPNLL220022', 'VPNLL060017', 'VPNLL160065', 'VPNLL220038', 'BUVPN180061', 'VPNLL060088', '2721574825', 'VPNLL220040', 'VPNLL060036', 'VPNLL060224', 'VPNLL050191', 'VPNLL080013', 'VPNLL080014', 'VPNLL220019', 'VPNLL080029', 'VPNLL080093', 'VPNLL080094', 'VPNLL080095', 'VPNLL080096', 'VPNLL080098', 'VPNLL060003', 'VPNLL090027', 'VPNLL100096', 'VPNLL100142', 'VPNLL060137', 'VPNLL110055', 'VPNLL110058', 'VPNLL110066', 'VPNLL120010', 'VPNLL120101', 'VPNLL220026', 'VPNLL120119', 'VPNLL060004', 'VPNLL120320', 'VPNLL050177', 'VPNLL150089', 'BUVPN180161', 'VPNLL100052', 'VPNLL160072', 'VPNLL170017', 'SYTHD190245', 'VPNLL220012', 'VPNLL220016', 'VPNLL220018', 'VPNLL220021', 'VPNLL120111', 'VPNLL220025', 'VPNLL220037', 'VPNLL220028', 'VPNLL220032', 'VPNLL220033', 'VPNLL220036', 'VPNLL160066', 'VPNLL060023', 'VPNLL220039', 'VPNLL050178', 'VPNLL220041', 'VPNLL060012', 'SYTHD170144', 'BUVPN210087', 'BUVPN210088', 'VPNLL090001', 'VPNLL100158', 'SYTHD030098', 'SYTHD190278', 'VPNLL060050', 'VPNLL080097', 'VPNLL060016', 'VPNLL100218', 'VPNLL130015', 'VPNLL060008', 'VPNLL080025', 'VPNLL140134', 'VPNLL060102', 'VPNLL220015', 'VPNLL060200', 'BUVPN190084', 'VPNLL220029', 'VPNLL220043', 'VPNLL220035', 'VPNLL060015', 'VPNLL230014', 'BUVPN170229', 'BUVPN170244', 'BUVPN170224', 'BUVPN170282', 'BUVPN190054', 'BUVPN190055', 'BUVPN180056', 'BUVPN180057', 'BUVPN170240', 'BUVPN170243', '34704805', 'STYHD210130', 'STYHD210201', 'STYHD240131', 'BUVPN200217', 'BUVPN200232', 'BUVPN200221', 'BUVPN200220', 'BUVPN200259', 'BUVPN200219', 'SYTHD200115', '20236930', '20236940', 'VPNLL060013', 'BUVPN180033', 'BUVPN180182', 'BUVPN180183', 'BUVPN190176', 'BUVPN200289', 'BUVPN200311', 'BUVPN210091', 'VPNLL220023', 'VPNLL070185', 'VPNLL120244', 'SYTHD150031', 'SYTHD150032', 'SYTHD200095', 'SYTHD200093', 'BUVPN130002', 'BUVPN140211', 'BUVPN200230', 'BUVPN210149', 'BUVPN220116', 'SYTHD140303', 'SYTHD190006', 'SYTHD210182', 'VPNLL090098', 'VPNLL110014', 'VPNLL120079', 'VPNLL100114', 'VPNLL130306', 'VPNLL100108', 'VPNLL120261', 'VPNLL120339', 'VPNLL080163', 'VPNLL100132', 'VPNLL100081', 'VPNLL120082', 'VPNLL070609', 'SYTHD120096', 'VPNLL090096', 'VPNLL110024', 'VPNLL100102', 'VPNLL220049', 'VPNLL130060', 'BUVPN220026', 'VPNLL060103', 'BUVPN200137', '2720319200', 'BUVPN140336', 'BUVPN180136', 'SYTHD200101', 'SYTMD040423', 'VPNLL100089', 'VPNLL130041', 'VPNLL130100', 'VPNLL150043', '21372802', 'BUVPN140447', 'BUVPN150037', 'BUVPN150212', 'BUVPN150217', 'BUVPN150229', 'BUVPN150235', 'BUVPN150246', 'BUVPN150386', 'BUVPN150392', 'BUVPN220152', 'BUVPN190074', 'BUVPN220267', 'SYTHD200088', 'SYTMD090050', 'VPNLL070205', 'VPNLL120243', '2720201010', 'BUVPN140057', 'BUVPN140058', 'BUVPN140194', 'BUVPN140313', 'BUVPN140314', 'BUVPN150504', 'BUVPN160137', 'BUVPN170068', 'BUVPN180121', 'BUVPN180205', 'BUVPN190048', 'BUVPN200032', 'BUVPN200083', 'BUVPN220015', 'BUVPN220251', 'BUVPN220252', 'SYTHD170118', 'SYTHD170119', 'SYTHD170121', 'SYTHD170123', 'VPNLL120068', 'BUVPN200037', 'BUVPN200147', 'VPNLL100155', 'BUVPN200031', 'BUVPN220074', 'SYTHD210159', 'SYTHD120007', 'SYTHD200313', 'SYTHD200034', 'SYTHD140043', 'SYTHD190019', 'BUVPN220257', 'BUVPN200089', 'BUVPN200039', 'BUVPN220075', '2723530070', '2730688900', 'BUVPN200052', 'BUVPN200105', 'BUVPN180219', 'BUVPN180222', 'BUVPN160217', 'BUVPN170096', 'BUVPN170100', 'BUVPN180221', 'BUVPN200108', 'BUVPN210138', 'BUVPN210141', 'BUVPN210144', 'BUVPN210180', 'BUVPN220265', 'SYTHD180112', 'BUVPN180071', 'SYTHD210184', 'BUVPN180218', 'SYTHD170109', 'SYTHD120081', 'BUVPN180070', '2720225500', '2720252050', '2720330033', '2730640140', 'BUVPN150069', 'BUVPN150546', 'BUVPN150561', 'BUVPN150566', 'BUVPN150581', 'BUVPN150596', 'BUVPN150597', 'BUVPN150601', 'BUVPN150605', 'BUVPN150615', 'BUVPN150617', 'BUVPN150637', 'BUVPN150672', 'BUVPN150689', 'BUVPN150690', 'BUVPN150691', 'BUVPN160136', 'BUVPN190244', 'BUVPN190247', 'BUVPN190249', 'BUVPN190266', 'BUVPN220105', 'BUVPN220296', 'BUVPN230016', 'SYTHD170099', 'SYTHD170100', 'SYTHD170101', 'SYTHD170102', 'BUVPN150445', 'VPNLL150104', '2720257700', 'SYTHD230132', 'BUVPN220088', 'BUVPN220102', 'SYTHD210093', 'SYTHD210094', 'SYTHD210002', 'SYTHD21003'];
 
 // Active le filtre ND critiques
@@ -3027,89 +2820,8 @@ function exporterPlanning5Onglets() {
 
   XLSX.writeFile(wb, "Planning_ND_5onglets.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function exporterNDsDeuxMois() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -3210,89 +2922,8 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function exporterNDsAnnuelCritiques() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -3405,89 +3036,8 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    document.addEventListener("DOMContentLoaded", function () {
     const allDivs = document.querySelectorAll("div");
     allDivs.forEach(div => {
@@ -3570,89 +3120,8 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function afficherGraphiqueCumule(data) {
   const moisNoms = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"};
   const totalParMois = {};
@@ -3820,89 +3289,8 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function exporterGraphiqueCumule() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -4011,89 +3399,8 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function afficherGraphiqueNDsuperieur(data) {
   const parMoisND2 = {};
   data.forEach(d => {
@@ -4112,7 +3419,7 @@ document.addEventListener("DOMContentLoaded", function() {
       datasets: [{
         label: 'ND ≥ 2',
         data: values,
-        backgroundColor: '#66BB6A',
+        backgroundColor: '#66bb6a',
         borderColor: '#388E3C',
         borderWidth: 1
       }]
@@ -4213,242 +3520,9 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script>
-function afficherGraphiqueIncidentsND2() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const labels = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const valeurs = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  if (window.incidentND2Chart) window.incidentND2Chart.destroy();
-
-  window.incidentND2Chart = new Chart(document.getElementById('incident-nd2-graph'), {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: 'Incidents ND ≥ 2',
-        data: valeurs,
-        backgroundColor: '#ff7043',
-        borderColor: '#ff7043',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      devicePixelRatio: 2,
-      plugins: {
-        legend: { display: false },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top'
-        }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-function exporterIncidentsND2ParMois() {
-  const parMois = {};
-  tableauActuel.forEach(item => {
-    Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
-      if ((item.mois[mois] || 0) >= 2) {
-        parMois[mois] = (parMois[mois] || 0) + nbIncidents;
-      }
-    });
-  });
-
-  const mois = Object.keys(parMois).sort((a, b) => a - b).map(m => moisNoms[m]);
-  const incidents = Object.keys(parMois).sort((a, b) => a - b).map(m => parMois[m]);
-
-  const rows = mois.map((moisNom, i) => ({
-    Mois: moisNom,
-    "Incidents ND ≥ 2": incidents[i]
-  }));
-
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
-  XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
-}
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-</script>
-<script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script>
    function exporterExcelNDMoisParMois() {
   if (!tableauActuel || !tableauActuel.length) return;
 
@@ -4540,99 +3614,28 @@ function exporterIncidentsND2ParMois() {
   XLSX.utils.book_append_sheet(wb, ws, "Incidents ND≥2");
   XLSX.writeFile(wb, "Incidents_ND_superieur_egal_2.xlsx");
 }
-
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
-   function afficherGraphiqueFusionne() {
+  <script>
+   function afficherGraphiqueFusionne(dataParam) {
+  const src = dataParam || tableauActuel;
   const moisLabels = [];
   const signalisations = {};
   const ndSup2 = {};
   const ndTotal = {};
   const incidentsND2 = {};
 
-  tableauActuel.forEach(item => {
+  // Déterminer les mois à afficher selon le filtre de dates actif
+  const { debut, fin } = (typeof getPlageDate === 'function') ? getPlageDate() : { debut: null, fin: null };
+  const moisDebut = debut ? debut.getMonth() + 1 : null;
+  const moisFin = fin ? fin.getMonth() + 1 : null;
+
+  src.forEach(item => {
     Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
       const m = parseInt(mois);
+      // Si filtre date actif, ne garder que les mois dans la plage
+      if (moisDebut && moisFin && (m < moisDebut || m > moisFin)) return;
+      if (moisDebut && !moisFin && m < moisDebut) return;
+      if (!moisDebut && moisFin && m > moisFin) return;
       signalisations[m] = (signalisations[m] || 0) + nbIncidents;
       ndTotal[m] = (ndTotal[m] || 0) + (nbIncidents > 0 ? 1 : 0);
       if (nbIncidents >= 2) {
@@ -4700,88 +3703,8 @@ document.addEventListener("DOMContentLoaded", function() {
     plugins: [ChartDataLabels]
   });
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function ouvrirPlanningND() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -4799,88 +3722,8 @@ document.addEventListener("DOMContentLoaded", function() {
   sessionStorage.setItem("ndDeuxMois", JSON.stringify(ndDeuxMois));
   window.open("planning.html", "_blank");
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function ouvrirPlanningNDmoisCourant() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -4896,88 +3739,8 @@ document.addEventListener("DOMContentLoaded", function() {
   sessionStorage.setItem("ndDeuxMois", JSON.stringify(ndMoisCourant));
   window.open("planning_mois_courant.html", "_blank");
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function ouvrirPlanningNDannuel() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -4995,88 +3758,8 @@ document.addEventListener("DOMContentLoaded", function() {
   sessionStorage.setItem("ndDeuxMois", JSON.stringify(ndAnnuel));
   window.open("planning_annuel.html", "_blank");
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function exporterND2ParMoisAvecOnglets() {
   if (!tableauActuel || tableauActuel.length === 0) {
     alert("Aucune donnée à exporter.");
@@ -5113,204 +3796,44 @@ document.addEventListener("DOMContentLoaded", function() {
 
   XLSX.writeFile(wb, "ND_superieur_egal_2_par_mois_avec_onglets.xlsx");
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function ouvrirPlanningND2ParMois() {
   localStorage.setItem("tableauActuel", JSON.stringify(tableauActuel));
   window.location.href = "planning_nd2.html";
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<div id="popup-rapport" style="display:none; position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%);
+  <div id="popup-rapport" style="display:none; position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%);
 background: white; border: 2px solid #ccc; padding: 20px; z-index: 1000; border-radius: 8px;">
-<h3>
+   <h3>
     Générer un rapport
    </h3>
-<label>
+   <label>
     Client :
     <input id="rapport-client" type="text"/>
-</label>
-<br/>
-<br/>
-<label>
+   </label>
+   <br/>
+   <br/>
+   <label>
     Début :
     <input id="rapport-debut" type="date"/>
-</label>
-<br/>
-<br/>
-<label>
+   </label>
+   <br/>
+   <br/>
+   <label>
     Fin :
     <input id="rapport-fin" type="date"/>
-</label>
-<br/>
-<br/>
-<button onclick="genererRapportClient()">
+   </label>
+   <br/>
+   <br/>
+   <button onclick="genererRapportClient()">
     🟢 Générer
    </button>
-<button onclick="fermerFenetreRapport()">
+   <button onclick="fermerFenetreRapport()">
     ❌ Fermer
    </button>
-</div>
-<script>
+  </div>
+  <script>
    function ouvrirFenetreRapport() {
   document.getElementById("popup-rapport").style.display = "block";
 }
@@ -5345,172 +3868,10 @@ function genererRapportClient() {
   document.getElementById("resume-douleurs").innerHTML = résumé;
   afficherGraphiqueFusionne(dataFiltrée);
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script>
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
-<script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <script>
    function ouvrirFenetreRapport() {
   const client = prompt("Entrez le nom du client pour le rapport M-1 :");
   if (!client) return;
@@ -5613,88 +3974,8 @@ async function genererRapportPDF(clientNom) {
 
   doc.save(`rapport_complet_${clientNom}_${moisNoms[moisPrecedent]}.pdf`);
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function afficherClientSelectionne() {
   const client = prompt("Entrez le nom du client à afficher :");
   if (!client || !client.trim()) return;
@@ -5708,92 +3989,13 @@ document.addEventListener("DOMContentLoaded", function() {
   setVueAffichage();
   afficherNdRisque();
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
-   function afficherGraphiqueNDRécurrents() {
+  <script>
+   function afficherGraphiqueNDRécurrents(dataParam) {
+  const src = dataParam || tableauActuel;
   const ndRecurrents = {};
 
-  tableauActuel.forEach(item => {
+  src.forEach(item => {
     const moisActifs = Object.entries(item.mois).filter(([_, nb]) => nb > 0).map(([mois]) => parseInt(mois));
     if (moisActifs.length >= 2) {
       moisActifs.forEach(m => {
@@ -5815,7 +4017,7 @@ document.addEventListener("DOMContentLoaded", function() {
         label: 'ND récurrents',
         data: valeurs,
         backgroundColor: '#66bb6a',
-        borderColor: '#388e3c',
+        borderColor: '#66bb6a',
         borderWidth: 1
       }]
     },
@@ -5837,88 +4039,8 @@ document.addEventListener("DOMContentLoaded", function() {
     plugins: [ChartDataLabels]
   });
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function exporterRechutesMensuelles() {
   const workbook = XLSX.utils.book_new();
   const moisSuivant = m => parseInt(m) + 1;
@@ -5965,96 +4087,17 @@ document.addEventListener("DOMContentLoaded", function() {
 
   XLSX.writeFile(workbook, "ND_rechutes_par_mois.xlsx");
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
-   function afficherGraphiqueNDparMois() {
+  <script>
+   function afficherGraphiqueNDparMois(dataParam) {
+  const src = dataParam || tableauActuel;
   const ndCounts = {};
 
   for (let m = 1; m <= 11; m++) {
     const moisCle = moisNoms[m] + " ➜ " + moisNoms[m + 1];
     const setND = new Set();
 
-    tableauActuel.forEach(item => {
+    src.forEach(item => {
       if ((item.mois[m] || 0) > 0 && (item.mois[m + 1] || 0) > 0) {
         setND.add(item.nd);
       }
@@ -6076,7 +4119,7 @@ document.addEventListener("DOMContentLoaded", function() {
         label: 'ND présents deux mois consécutifs',
         data: valeurs,
         backgroundColor: '#66bb6a',
-        borderColor: '#2e7d32',
+        borderColor: '#66bb6a',
         borderWidth: 1
       }]
     },
@@ -6098,88 +4141,8 @@ document.addEventListener("DOMContentLoaded", function() {
     plugins: [ChartDataLabels]
   });
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    });
 
     dataVolume.push(totalIncidents);
@@ -6198,15 +4161,15 @@ document.addEventListener("DOMContentLoaded", function() {
         {
           label: 'Volume total incidents (ND concernés)',
           data: dataVolume,
-          backgroundColor: 'blue',
-          borderColor: 'blue',
+          backgroundColor: '#42a5f5',
+          borderColor: '#42a5f5',
           borderWidth: 1
         },
         {
           label: 'ND distincts présents sur 2 mois',
           data: dataDistincts,
-          backgroundColor: 'blue',
-          borderColor: 'blue',
+          backgroundColor: '#42a5f5',
+          borderColor: '#42a5f5',
           borderWidth: 1
         }
       ]
@@ -6239,8 +4202,8 @@ document.addEventListener("DOMContentLoaded", function() {
     window.graphiqueNDFusionne = new Chart(ctx, {
       type: 'bar',
       data: { labels: [], datasets: [
-        { label: 'Volume total incidents (ND concernés)', data: [], backgroundColor: 'blue', borderColor: 'blue', borderWidth: 1 },
-        { label: 'ND distincts présents sur 2 mois', data: [], backgroundColor: 'blue', borderColor: 'blue', borderWidth: 1 }
+        { label: 'Volume total incidents (ND concernés)', data: [], backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 },
+        { label: 'ND distincts présents sur 2 mois', data: [], backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
       ]},
       options: {
       devicePixelRatio: 2, plugins: { legend: { position: 'top' }, datalabels: { display: false }}, scales: { y: { beginAtZero: true }}},
@@ -6286,15 +4249,15 @@ document.addEventListener("DOMContentLoaded", function() {
         {
           label: 'Volume total incidents (ND concernés)',
           data: dataVolume,
-          backgroundColor: 'blue',
-          borderColor: 'blue',
+          backgroundColor: '#42a5f5',
+          borderColor: '#42a5f5',
           borderWidth: 1
         },
         {
           label: 'ND distincts présents sur 2 mois',
           data: dataDistincts,
-          backgroundColor: 'blue',
-          borderColor: 'blue',
+          backgroundColor: '#42a5f5',
+          borderColor: '#42a5f5',
           borderWidth: 1
         }
       ]
@@ -6341,15 +4304,15 @@ document.addEventListener("DOMContentLoaded", function() {
         {
           label: 'Volume total incidents (ND concernés)',
           data: dataVolume,
-          backgroundColor: 'blue',
-          borderColor: 'blue',
+          backgroundColor: '#42a5f5',
+          borderColor: '#42a5f5',
           borderWidth: 1
         },
         {
           label: 'ND distincts présents sur 2 mois',
           data: dataDistincts,
-          backgroundColor: 'blue',
-          borderColor: 'blue',
+          backgroundColor: '#42a5f5',
+          borderColor: '#42a5f5',
           borderWidth: 1
         }
       ]
@@ -6437,88 +4400,8 @@ document.addEventListener("DOMContentLoaded", function() {
     plugins: [ChartDataLabels]
   });
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function exporterGraphiqueFusionND() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -6547,88 +4430,8 @@ document.addEventListener("DOMContentLoaded", function() {
 
   XLSX.writeFile(wb, "ND_repetitifs_par_paires_de_mois.xlsx");
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    async function genererRapportWordClient() {
     const client = prompt("Nom du client ?");
     if (!client) return;
@@ -6645,89 +4448,9 @@ document.addEventListener("DOMContentLoaded", function() {
     const fichier = "rapport_word_periode_adaptee.docx";
     window.open(fichier, '_blank');
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script>
    document.getElementById('excelFile').addEventListener('change', function (e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -6772,88 +4495,8 @@ document.addEventListener("DOMContentLoaded", function() {
     };
     reader.readAsArrayBuffer(file);
 });
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    // Redéfinition finale. Source = tableauActuel issu de l'Excel chargé.
 
 
@@ -6905,12 +4548,12 @@ return;
         {
             label: 'ND total',
             data: dataNdTotal,
-            backgroundColor: 'green',
-            borderColor: 'green',
+            backgroundColor: '#66bb6a',
+            borderColor: '#66bb6a',
             borderWidth: 1
         },
-        { label: 'Volume incidents (ND présents 2 mois)', data: dataVolume, backgroundColor: 'red', borderColor: 'red', borderWidth: 1 },
-        { label: 'ND distincts présents 2 mois', data: dataDistincts, backgroundColor: 'blue', borderColor: 'blue', borderWidth: 1 }
+        { label: 'Volume incidents (ND présents 2 mois)', data: dataVolume, backgroundColor: '#ef5350', borderColor: '#ef5350', borderWidth: 1 },
+        { label: 'ND distincts présents 2 mois', data: dataDistincts, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
         ]
       },
       options: {
@@ -7025,12 +4668,12 @@ return;
         {
             label: 'ND total',
             data: dataNdTotal,
-            backgroundColor: 'green',
-            borderColor: 'green',
+            backgroundColor: '#66bb6a',
+            borderColor: '#66bb6a',
             borderWidth: 1
         },
-        { label: 'Volume incidents (ND présents 2 mois)', data: dataVolume, backgroundColor: 'red', borderColor: 'red', borderWidth: 1 },
-        { label: 'ND distincts présents 2 mois', data: dataDistincts, backgroundColor: 'blue', borderColor: 'blue', borderWidth: 1 }
+        { label: 'Volume incidents (ND présents 2 mois)', data: dataVolume, backgroundColor: '#ef5350', borderColor: '#ef5350', borderWidth: 1 },
+        { label: 'ND distincts présents 2 mois', data: dataDistincts, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
         ]
     },
     options: {
@@ -7088,8 +4731,8 @@ return;
     data: {
       labels,
       datasets: [
-        { label: 'Volume total incidents', data: dataVolume, backgroundColor: 'blue', borderColor: 'blue', borderWidth: 1 },
-        { label: 'ND distincts sur 2 mois', data: dataDistincts, backgroundColor: 'blue', borderColor: 'blue', borderWidth: 1 }
+        { label: 'Volume total incidents', data: dataVolume, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 },
+        { label: 'ND distincts sur 2 mois', data: dataDistincts, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
       ]
     },
     options: {
@@ -7110,127 +4753,69 @@ return;
     plugins: [ChartDataLabels]
   });
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
-   function afficherGraphiqueFusionND() {
-  if (!Array.isArray(tableauActuel) || tableauActuel.length === 0) {
+  <script>
+   function afficherGraphiqueFusionND(dataParam) {
+  const src = dataParam || tableauActuel;
+  if (!Array.isArray(src) || src.length === 0) {
     const c = document.getElementById('graphique-nd-fusionne');
     if (c && c.getContext) { const ctx = c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); }
     return;
   }
 
-  const labels = [];
-  const dataTotalAll = [];   // ORANGE: total incidents tous ND confondus (m1+m2)
-  const dataBleu = [];       // BLEU: volume incidents des ND présents sur 2 mois
-  const dataVert = [];       // VERT: ND distincts présents sur 2 mois
-  const dataNdTotal = [];    // VIOLET: ND ayant ≥1 incident sur la paire
+  // Déterminer les mois à afficher selon le filtre de dates
+  const { debut, fin } = (typeof getPlageDate === 'function') ? getPlageDate() : { debut: null, fin: null };
+  const filtreDateOn = debut || fin;
 
-  for (let m1 = 1; m1 <= 11; m1++) {
+  let moisAfficher; // liste des mois à inclure dans le graphe
+
+  if (!filtreDateOn) {
+    // Pas de filtre : toutes les paires Jan-Fév → Nov-Déc
+    moisAfficher = Array.from({length: 11}, (_, i) => i + 1); // [1..11]
+  } else {
+    // Avec filtre : les mois couverts par la plage
+    const m1 = debut ? debut.getMonth() + 1 : 1;
+    const m2 = fin   ? fin.getMonth()   + 1 : m1;
+    // Construire l'ensemble des mois dans la plage
+    const moisSet = new Set();
+    for (let m = m1; m <= m2; m++) moisSet.add(m);
+    // On veut les paires (mX, mX+1) où les deux mois sont dans la plage
+    // Si un seul mois sélectionné (ex Mai), on affiche la paire Avr-Mai et/ou Mai-Juin
+    moisAfficher = [];
+    for (let m = Math.max(1, m1 - 1); m <= Math.min(11, m2); m++) {
+      // Inclure la paire (m, m+1) si au moins un des deux est dans la plage
+      if (moisSet.has(m) || moisSet.has(m + 1)) {
+        moisAfficher.push(m);
+      }
+    }
+    if (moisAfficher.length === 0) moisAfficher = Array.from({length: 11}, (_, i) => i + 1);
+  }
+
+  const labels = [];
+  const dataTotalAll = [];
+  const dataBleu = [];
+  const dataVert = [];
+  const dataNdTotal = [];
+
+  moisAfficher.forEach(m1 => {
     const m2 = m1 + 1;
     labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
-    let ndUnion = 0;
-
-    let totalTous = 0;
-    let totalRecurrent = 0;
+    let ndUnion = 0, totalTous = 0, totalRecurrent = 0;
     const ndSet = new Set();
 
-    tableauActuel.forEach(item => {
+    src.forEach(item => {
       const a = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
       const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
-
-      totalTous += a + b;               // ORANGE
-      if ((a + b) > 0) ndUnion++;     // VIOLET
-      if (a > 0 && b > 0) {
-        totalRecurrent += a + b;        // BLEU
-        ndSet.add(item.nd);             // VERT
-      }
+      totalTous += a + b;
+      if ((a + b) > 0) ndUnion++;
+      if (a > 0 && b > 0) { totalRecurrent += a + b; ndSet.add(item.nd); }
     });
 
     dataTotalAll.push(totalTous);
     dataBleu.push(totalRecurrent);
     dataVert.push(ndSet.size);
     dataNdTotal.push(ndUnion);
-  }
+  });
 
   const el = document.getElementById('graphique-nd-fusionne');
   if (!el) return;
@@ -7245,12 +4830,12 @@ document.addEventListener("DOMContentLoaded", function() {
         {
             label: 'ND total',
             data: dataNdTotal,
-            backgroundColor: 'green',
-            borderColor: 'green',
+            backgroundColor: '#66bb6a',
+            borderColor: '#66bb6a',
             borderWidth: 1
         },
-        { label: 'Volume incidents (ND présents 2 mois)', data: dataBleu, backgroundColor: 'red', borderColor: 'red', borderWidth: 1 },
-        { label: 'ND distincts présents 2 mois', data: dataVert, backgroundColor: 'blue', borderColor: 'blue', borderWidth: 1 }
+        { label: 'Volume incidents (ND présents 2 mois)', data: dataBleu, backgroundColor: '#ef5350', borderColor: '#ef5350', borderWidth: 1 },
+        { label: 'ND distincts présents 2 mois', data: dataVert, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
         ]
     },
     options: {
@@ -7271,109 +4856,29 @@ document.addEventListener("DOMContentLoaded", function() {
     plugins: [ChartDataLabels]
   });
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<!-- Modal Top 20 Synthèse -->
-<div id="modal-top20-synthese" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:9999;">
-<div style="background:#fff; width:90%; max-width:900px; margin:60px auto; padding:16px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.2);">
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-<h3 style="margin:0;">
+  <!-- Modal Top 20 Synthèse -->
+  <div id="modal-top20-synthese" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:9999;">
+   <div style="background:#fff; width:90%; max-width:900px; margin:60px auto; padding:16px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.2);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+     <h3 style="margin:0;">
       🏆 Synthèse Top 20 par client
      </h3>
-<button onclick="fermerTop20Synthese()" style="background:#e0e0e0; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;">
+     <button onclick="fermerTop20Synthese()" style="background:#e0e0e0; border:none; padding:6px 10px; border-radius:4px; cursor:pointer;">
       ✖ Fermer
      </button>
-</div>
-<div id="period-top20-synthese" style="font-size:12px; color:#333; margin-bottom:6px;">
-</div>
-<div style="font-size:12px; color:#444; margin-bottom:8px;">
-<div>
-<strong>
+    </div>
+    <div id="period-top20-synthese" style="font-size:12px; color:#333; margin-bottom:6px;">
+    </div>
+    <div style="font-size:12px; color:#444; margin-bottom:8px;">
+     <div>
+      <strong>
        IR ≥ 2
       </strong>
       = nombre de ND avec ≥2 incidents sur la période.
      </div>
-<div>
-<strong>
+     <div>
+      <strong>
        Sites critiques
       </strong>
       = ND appartenant à
@@ -7382,8 +4887,8 @@ document.addEventListener("DOMContentLoaded", function() {
       </code>
       et ayant ≥1 incident sur la période.
      </div>
-<div>
-<strong>
+     <div>
+      <strong>
        Sites critiques IR
       </strong>
       = ND de
@@ -7392,44 +4897,44 @@ document.addEventListener("DOMContentLoaded", function() {
       </code>
       avec ≥2 incidents sur la période.
      </div>
-</div>
-<div style="max-height:65vh; overflow:auto; border:1px solid #ddd;">
-<table style="width:100%; border-collapse:collapse; font-size:13px;">
-<thead>
-<tr style="background:#f5f5f5;">
-<th style="border:1px solid #ddd; padding:6px; text-align:left;">
+    </div>
+    <div style="max-height:65vh; overflow:auto; border:1px solid #ddd;">
+     <table style="width:100%; border-collapse:collapse; font-size:13px;">
+      <thead>
+       <tr style="background:#f5f5f5;">
+        <th style="border:1px solid #ddd; padding:6px; text-align:left;">
          Client
         </th>
-<th style="border:1px solid #ddd; padding:6px;">
+        <th style="border:1px solid #ddd; padding:6px;">
          Incidents total
         </th>
-<th style="border:1px solid #ddd; padding:6px;">
+        <th style="border:1px solid #ddd; padding:6px;">
          IR ≥ 2
         </th>
-<th style="border:1px solid #ddd; padding:6px; text-align:left;">
+        <th style="border:1px solid #ddd; padding:6px; text-align:left;">
          ND IR ≥ 2
         </th>
-<th style="border:1px solid #ddd; padding:6px;">
+        <th style="border:1px solid #ddd; padding:6px;">
          Sites critiques
         </th>
-<th style="border:1px solid #ddd; padding:6px; text-align:left;">
+        <th style="border:1px solid #ddd; padding:6px; text-align:left;">
          ND Sites critiques
         </th>
-<th style="border:1px solid #ddd; padding:6px;">
+        <th style="border:1px solid #ddd; padding:6px;">
          Sites critiques IR
         </th>
-<th style="border:1px solid #ddd; padding:6px; text-align:left;">
+        <th style="border:1px solid #ddd; padding:6px; text-align:left;">
          ND Sites critiques IR
         </th>
-</tr>
-</thead>
-<tbody id="tbody-top20-synthese">
-</tbody>
-</table>
-</div>
-</div>
-</div>
-<script>
+       </tr>
+      </thead>
+      <tbody id="tbody-top20-synthese">
+      </tbody>
+     </table>
+    </div>
+   </div>
+  </div>
+  <script>
    function parseDateFR(s) {
   const m = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/.exec(s || "");
   if (!m) return null;
@@ -7563,91 +5068,23 @@ function fermerTop20Synthese() {
   const m = document.getElementById('modal-top20-synthese');
   if (m) m.style.display = 'none';
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    window.addEventListener('DOMContentLoaded', function () {
-    fetch('data.xlsx') // Fichier Excel dans le même dossier que le HTML
-        .then(res => res.arrayBuffer())
+    fetch('data.xlsx')
+        .then(res => {
+            // Lire la date via l'API GitHub
+            fetch('https://api.github.com/repos/deanericthiemele-lab/ddms-site/commits?path=data.xlsx&per_page=1')
+              .then(r2=>r2.json())
+              .then(commits=>{
+                if(commits && commits[0]){
+                  const d = new Date(commits[0].commit.committer.date);
+                  const fmt = d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' à ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+                  updateLastLoad(fmt);
+                }
+              }).catch(()=>{});
+            return res.arrayBuffer();
+        })
         .then(data => {
             const workbook = XLSX.read(new Uint8Array(data), { type: 'array' });
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -7656,123 +5093,40 @@ document.addEventListener("DOMContentLoaded", function() {
         })
         .catch(err => console.error('Erreur chargement fichier :', err));
 });
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<!-- ✅ Section Planning fusion (ajouté) -->
-<div id="planning-fusion-section" style="margin-top:20px; display:none;">
-<div style="display:flex;justify-content:space-between;align-items:center;">
-<h4 style="margin:0;color:#2e7d32;">
+  <!-- ✅ Section Planning fusion (ajouté) -->
+  <div id="planning-fusion-section" style="margin-top:20px; display:none;">
+   <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h4 style="margin:0;color:#546e7a;font-weight:700;">
      📅 Planning — Fusion des 3 fichiers
     </h4>
-<button id="btn-export">
-     📥 Exporter le tableau affiché vers Excel
-    </button>
-</div>
-<div id="planning-fusion-meta" style="font-size:12px;color:#555;margin-top:6px;">
-</div>
-<div style="max-height:420px;overflow:auto;margin-top:8px;">
-<table id="planning-fusion-table">
-<thead>
-<tr style="background:#f2f2f2;">
-<th>
+   </div>
+   <div id="planning-fusion-meta" style="font-size:12px;color:#555;margin-top:6px;">
+   </div>
+   <div style="max-height:420px;overflow:auto;margin-top:8px;">
+    <table id="planning-fusion-table">
+     <thead>
+      <tr style="background:#f2f2f2;">
+       <th>
         ND
        </th>
-<th>
+       <th>
         Client
        </th>
-<th>
+       <th>
         Nb Incidents
        </th>
-<th>
+       <th>
         Localisation
        </th>
-</tr>
-</thead>
-<tbody>
-</tbody>
-</table>
-</div>
-</div>
-<script>
+      </tr>
+     </thead>
+     <tbody>
+     </tbody>
+    </table>
+   </div>
+  </div>
+  <script>
    // ===== Planning fusion 3 fichiers (ajouté) =====
 (function() {
   function normaliserND(nd) {
@@ -7864,123 +5218,40 @@ document.addEventListener("DOMContentLoaded", function() {
     XLSX.writeFile(wb, "Planning_Fusion.xlsx");
   };
 })();
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<!-- ✅ Section Planning fusion (ajouté) -->
-<div id="planning-fusion-section" style="margin-top:20px; display:none;">
-<div style="display:flex;justify-content:space-between;align-items:center;">
-<h4 style="margin:0;color:#2e7d32;">
+  <!-- ✅ Section Planning fusion (ajouté) -->
+  <div id="planning-fusion-section" style="margin-top:20px; display:none;">
+   <div style="display:flex;justify-content:space-between;align-items:center;">
+    <h4 style="margin:0;color:#546e7a;font-weight:700;">
      📅 Planning — Fusion des 3 fichiers
     </h4>
-<button id="btn-export">
-     📥 Exporter le tableau affiché vers Excel
-    </button>
-</div>
-<div id="planning-fusion-meta" style="font-size:12px;color:#555;margin-top:6px;">
-</div>
-<div style="max-height:420px;overflow:auto;margin-top:8px;">
-<table id="planning-fusion-table">
-<thead>
-<tr style="background:#f2f2f2;">
-<th>
+   </div>
+   <div id="planning-fusion-meta" style="font-size:12px;color:#555;margin-top:6px;">
+   </div>
+   <div style="max-height:420px;overflow:auto;margin-top:8px;">
+    <table id="planning-fusion-table">
+     <thead>
+      <tr style="background:#f2f2f2;">
+       <th>
         ND
        </th>
-<th>
+       <th>
         Client
        </th>
-<th>
+       <th>
         Nb Incidents
        </th>
-<th>
+       <th>
         Localisation
        </th>
-</tr>
-</thead>
-<tbody>
-</tbody>
-</table>
-</div>
-</div>
-<script>
+      </tr>
+     </thead>
+     <tbody>
+     </tbody>
+    </table>
+   </div>
+  </div>
+  <script>
    // ===== Planning fusion 3 fichiers (ajouté) =====
 (function() {
   function normaliserND(nd) {
@@ -8072,88 +5343,8 @@ document.addEventListener("DOMContentLoaded", function() {
     XLSX.writeFile(wb, "Planning_Fusion.xlsx");
   };
 })();
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function ouvrirPlanningFusion() {
     // Récupérer les ND des 3 catégories déjà calculées
     const moisActuel = new Date().getMonth() + 1;
@@ -8190,8 +5381,8 @@ document.addEventListener("DOMContentLoaded", function() {
     let html = '<button onclick="afficherVueGlobale()" style="background:#ccc;padding:6px 10px;margin-bottom:10px;">⬅️ Retour à l\'analyse</button>';
     html += '<h3 style="color:red;">Planning – ND fusionné</h3>';
     html += '<div style="color:green;font-weight:bold;margin-bottom:10px;">✅ Total ND dans le planning : ' + fusion.length + '</div>';
-    html += '<button style="background-color:#4CAF50;color:white;padding:6px 10px;border:none;border-radius:4px;cursor:pointer;margin-right:10px;" onclick="sauvegarderPlanningFusion()">💾 Sauvegarder</button>';
-    html += '<button id="btn-export">📥 Exporter le tableau affiché vers Excel</button>';
+    html += '<button style="background-color:#546e7a;color:white;padding:6px 10px;border:none;border-radius:4px;cursor:pointer;margin-right:10px;" onclick="sauvegarderPlanningFusion()">💾 Sauvegarder</button>';
+    html += '';
     html += '<table style="border-collapse:collapse;width:100%;margin-top:10px;">';
     html += '<thead><tr style="background:#f2f2f2;"><th>ND</th><th>Client</th><th>Localisation</th><th>Commentaire</th><th>Date correction</th><th>Cause</th>';
     for (let i=1;i<=12;i++){ html += '<th>'+moisNoms[i]+'</th>'; }
@@ -8227,123 +5418,40 @@ function exporterPlanningFusion(){
     XLSX.utils.book_append_sheet(wb, ws, "Planning fusionné");
     XLSX.writeFile(wb, "Planning_fusionne.xlsx");
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<!-- Pop-up ND présents tous les mois -->
-<div id="modal-nd-mensuel" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;">
-<div style="background:white;padding:20px;margin:50px auto;max-width:95%;max-height:85%;overflow:auto;border-radius:8px;">
-<h3 style="margin-top:0;">
+  <!-- Pop-up ND présents tous les mois -->
+  <div id="modal-nd-mensuel" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;">
+   <div style="background:white;padding:20px;margin:50px auto;max-width:95%;max-height:85%;overflow:auto;border-radius:8px;">
+    <h3 style="margin-top:0;">
      ND présents tous les mois
     </h3>
-<div id="contenu-nd-mensuel">
-</div>
-<div style="margin-top:10px;text-align:right;">
-<button onclick="document.getElementById('modal-nd-mensuel').style.display='none'" style="padding:6px 12px;background:#d32f2f;color:white;border:none;border-radius:4px;cursor:pointer;">
+    <div id="contenu-nd-mensuel">
+    </div>
+    <div style="margin-top:10px;text-align:right;">
+     <button onclick="document.getElementById('modal-nd-mensuel').style.display='none'" style="padding:6px 12px;background:#d32f2f;color:white;border:none;border-radius:4px;cursor:pointer;">
       Fermer
      </button>
-</div>
-</div>
-</div>
-<!-- Modal ND présents tous les mois (YTD) -->
-<div id="modal-nd-complets" style="display:none; position: fixed; top: 0; left: 0; width:100%; height:100%; background: rgba(0,0,0,0.5); z-index: 9999;">
-<div style="background:#fff; width: 90%; max-width: 1100px; margin: 40px auto; padding: 14px; border-radius: 8px; position: relative;">
-<div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:8px;">
-<h3 id="titre-nd-complets" style="margin:0; color:#2e7d32;">
+    </div>
+   </div>
+  </div>
+  <!-- Modal ND présents tous les mois (YTD) -->
+  <div id="modal-nd-complets" style="display:none; position: fixed; top: 0; left: 0; width:100%; height:100%; background: rgba(0,0,0,0.5); z-index: 9999;">
+   <div style="background:#fff; width: 90%; max-width: 1100px; margin: 40px auto; padding: 14px; border-radius: 8px; position: relative;">
+    <div style="display:flex; justify-content: space-between; align-items:center; margin-bottom:8px;">
+     <h3 id="titre-nd-complets" style="margin:0;color:#546e7a;font-weight:700;">
       ND revenus tous les mois jusqu'au mois en cours
      </h3>
-<div>
-<button id="btn-export">
-       📥 Exporter le tableau affiché vers Excel
-      </button>
-<button onclick="document.getElementById('modal-nd-complets').style.display='none'" style="background:#e0e0e0;color:#222;border:none;border-radius:20px;padding:6px 12px;cursor:pointer;">
+     <div>
+      <button onclick="document.getElementById('modal-nd-complets').style.display='none'" style="background:#e0e0e0;color:#222;border:none;border-radius:20px;padding:6px 12px;cursor:pointer;">
        ✖ Fermer
       </button>
-</div>
-</div>
-<div id="contenu-nd-complets" style="max-height:70vh; overflow:auto;">
-</div>
-</div>
-</div>
-<script>
+     </div>
+    </div>
+    <div id="contenu-nd-complets" style="max-height:70vh; overflow:auto;">
+    </div>
+   </div>
+  </div>
+  <script>
    // Affiche les ND qui ont au moins 1 incident chaque mois de Janvier au mois en cours (YTD)
 
 function afficherNDCompletsMensuels() {
@@ -8393,7 +5501,7 @@ function afficherNDCompletsMensuels() {
       html += `<td style='border:1px solid #ccc;padding:6px;font-weight:bold;'>${item.total || 0}</td>`;
       for (let m = 1; m <= moisActuel; m++) {
         const val = (item.mois && item.mois[m]) ? item.mois[m] : 0;
-        const style = val >= 1 ? "background:#fff8e1;font-weight:bold;" : "";
+        const style = val >= 1 ? "background:#dbeafe;font-weight:bold;" : "";
         html += `<td style='border:1px solid #ccc;padding:6px;${style}'>${val}</td>`;
       }
       html += "</tr>";
@@ -8443,120 +5551,40 @@ function exporterNDCompletsMensuelsExcel() {
     alert("Erreur lors de l'export Excel.");
   }
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<div id="modal-nd-absents" style="display:none;position:fixed;top:10%;left:50%;transform:translateX(-50%);
+  <div id="modal-nd-absents" style="display:none;position:fixed;top:10%;left:50%;transform:translateX(-50%);
 background:white;border:2px solid #444;padding:20px;z-index:1000;max-height:70vh;overflow-y:auto;width:80%;">
-<h3>
+   <h3>
     ND absents M-1 et M-2, présents 1 fois en mois en cours
    </h3>
-<table style="border-collapse:collapse;width:100%;max-height:300px;overflow-y:auto;display:block;">
-<thead>
-<tr style="background:#f2f2f2;">
-<th>
+   <table style="border-collapse:collapse;width:100%;max-height:300px;overflow-y:auto;display:block;">
+    <thead>
+     <tr style="background:#f2f2f2;">
+      <th>
        ND
       </th>
-<th>
+      <th>
        Client
       </th>
-<th>
+      <th>
        Localisation
       </th>
-<th>
+      <th>
        Cause réelle
       </th>
-</tr>
-</thead>
-<tbody id="tbody-nd-absents">
-</tbody>
-</table>
-<button id="btn-export-absents" style="margin-top:10px;background:#4CAF50;color:white;padding:6px 12px;border:none;border-radius:4px;cursor:pointer;">
+     </tr>
+    </thead>
+    <tbody id="tbody-nd-absents">
+    </tbody>
+   </table>
+   <button id="btn-export-absents" style="margin-top:10px;background:#546e7a;color:white;padding:6px 12px;border:none;border-radius:4px;cursor:pointer;">
     📥 Exporter vers Excel
    </button>
-<button onclick="document.getElementById('modal-nd-absents').style.display='none'" style="margin-left:10px;">
+   <button onclick="document.getElementById('modal-nd-absents').style.display='none'" style="margin-left:10px;">
     Fermer
    </button>
-</div>
-<script>
+  </div>
+  <script>
    function afficherNDAbsentsM1M2() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -8603,87 +5631,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnExport = document.getElementById("btn-export-absents");
   if (btnExport) btnExport.addEventListener("click", exporterNDAbsentsM1M2);
 });
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<script>
+  <script>
    function exporterNouvellesSignalisations() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -8747,95 +5696,16 @@ document.addEventListener("DOMContentLoaded", function() {
 
   XLSX.writeFile(wb, "Nouvelles_signalisations.xlsx");
 }
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<!-- ✅ Bloc graphique CAUSE RÉELLE -->
-<div id="bloc-cause-reelle" style="display:none; margin-top:20px; background-color:#f0fff0; border:2px solid #4CAF50; padding:12px; border-radius:8px; max-width:700px;">
-<h4 style="margin:0; color:#2e7d32;">
+  <!-- ✅ Bloc graphique CAUSE RÉELLE -->
+  <div id="bloc-cause-reelle" style="display:none;margin-top:20px;background-color:#ffffff;border:1px solid #b0bec5;padding:14px;border-radius:8px;max-width:700px;">
+   <h4 style="margin:0;color:#546e7a;font-weight:700;">
     📊 Nouvelles signalisations (hors P1, P2, P3) regroupées par CAUSE RÉELLE
    </h4>
-<canvas height="300" id="graphique-cause-reelle">
-</canvas>
-</div>
-<script>
+   <canvas height="300" id="graphique-cause-reelle">
+   </canvas>
+  </div>
+  <script>
    function chargerParCauseReelle() {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
@@ -8949,140 +5819,49 @@ document.addEventListener("DOMContentLoaded", function() {
   XLSX.utils.book_append_sheet(wb, ws, "Causes");
   XLSX.writeFile(wb, "Nouvelles_Signalisations_par_Cause_Reelle.xlsx");
 }
-
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
   </script>
-<button onclick="exporterZoneExcel()">
-   📥 Exporter Excel
-  </button>
-<button onclick="fermerPopupZone()" style="background-color:#f44336;color:white;">
-   Fermer
-  </button>
-<button onclick="exporterZoneExcel()">
-   📥 Exporter Excel
-  </button>
-<button onclick="fermerPopupZone()" style="background-color:#f44336;color:white;">
-   Fermer
-  </button>
-<!-- Popup Zone -->
-<div id="popup-zone" style="display:none;position:fixed;top:10%;left:50%;transform:translateX(-50%);
- background:#fff;border:2px solid #4CAF50;padding:20px;z-index:9999;width:900px;max-height:70%;overflow:auto;">
-<div style="margin-bottom:15px; text-align:right;">
-<button onclick="exporterZoneExcel()">
+  <!-- Popup Zone -->
+  <div id="popup-zone" style="display:none;position:fixed;top:10%;left:50%;transform:translateX(-50%);
+ background:#fff;border:1px solid #b0bec5;padding:20px;z-index:9999;width:900px;max-height:70%;overflow:auto;box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+   <div style="margin-bottom:15px; text-align:right;">
+    <button onclick="exporterZoneExcel()">
      📥 Exporter Excel
     </button>
-<button onclick="fermerPopupZone()" style="background-color:#f44336;color:white;">
+    <button onclick="fermerPopupZone()" style="background-color:#546e7a;color:white;border:none;border-radius:4px;padding:6px 12px;cursor:pointer;">
      Fermer
     </button>
-</div>
-<h3>
+   </div>
+   <h3>
     📊 Signalisations par Zone
    </h3>
-<!-- Sélection de période -->
-<div style="margin-bottom:10px;">
-<label>
+   <!-- Sélection de période -->
+   <div style="margin-bottom:10px;">
+    <label>
      Date début :
     </label>
-<input id="zone-date-debut" style="margin:5px;" type="date"/>
-<br/>
-<label>
+    <input id="zone-date-debut" style="margin:5px;" type="date"/>
+    <br/>
+    <label>
      Date fin :
     </label>
-<input id="zone-date-fin" style="margin:5px;" type="date"/>
-<br/>
-<button onclick="afficherResultatsZone()" style="background-color:#2196F3;color:white;margin-top:5px;">
+    <input id="zone-date-fin" style="margin:5px;" type="date"/>
+    <br/>
+    <button onclick="afficherResultatsZone()" style="background-color:#546e7a;color:white;margin-top:5px;border:none;border-radius:4px;padding:6px 12px;cursor:pointer;">
      Afficher
     </button>
-</div>
-<hr/>
-<!-- Résultats -->
-<div id="table-zone">
-</div>
-<button onclick="exporterZoneExcel()">
+   </div>
+   <hr/>
+   <!-- Résultats -->
+   <div id="table-zone">
+   </div>
+   <button onclick="exporterZoneExcel()">
     📥 Exporter Excel
    </button>
-<button onclick="fermerPopupZone()" style="background-color:#f44336;color:white;">
+   <button onclick="fermerPopupZone()" style="background-color:#546e7a;color:white;border:none;border-radius:4px;padding:6px 12px;cursor:pointer;">
     Fermer
    </button>
-</div>
-<script>
+  </div>
+  <script>
    // Fonctions copiées depuis ingenierie2.html (blocs P1/P2/P3)
 function exporterIncidentsRepetitifs() {
   if (typeof XLSX === "undefined") {
@@ -9118,7 +5897,7 @@ function afficherNDCompletsMensuels() {
       return;
     }
   </script>
-<script>
+  <script>
    function exporterND_M1_M() {
   if (!tableauActuel || !tableauActuel.length) return;
 
@@ -9152,7 +5931,7 @@ function afficherNDCompletsMensuels() {
   XLSX.writeFile(wb, "ND_revenus_2_mois.xlsx");
 }
   </script>
-<script>
+  <script>
    function exporterIncidents2Mois() {
   if (!tableauActuel || !tableauActuel.length) return;
   const wb = XLSX.utils.book_new();
@@ -9175,7 +5954,7 @@ function afficherNDCompletsMensuels() {
   XLSX.writeFile(wb, 'Incidents_2Mois.xlsx');
 }
   </script>
-<script>
+  <script>
    function exporterIncidentsParMois() {
   if (!tableauActuel || !tableauActuel.length) return;
   const wb = XLSX.utils.book_new();
@@ -9197,160 +5976,119 @@ function afficherNDCompletsMensuels() {
   XLSX.writeFile(wb, 'Incidents_ParMois.xlsx');
 }
   </script>
-</body>
-<script>
-  function ouvrirPopupZone() {
-  // Réinitialise le popup
-  document.getElementById("table-zone").innerHTML = "";
-  const today = new Date().toISOString().slice(0,10);
-  document.getElementById("zone-date-debut").value = today;
-  document.getElementById("zone-date-fin").value = today;
-  document.getElementById("popup-zone").style.display = "block";
-}
+  <div id="popup-semaine" style="
+display:none;
+position:fixed;
+top:50%;
+left:50%;
+transform:translate(-50%,-50%);
+width:520px;
+background:white;
+border:1px solid #b0bec5;
+border-radius:8px;
+padding:15px;
+z-index:9999;
+box-shadow:0 5px 20px rgba(0,0,0,0.3);
+">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <b>
+     📊 Incidents par semaine
+    </b>
+    <button onclick="fermerPopupSemaine()" style="border:none;background:#e53935;color:white;padding:4px 8px;border-radius:4px;cursor:pointer">
+     X
+    </button>
+   </div>
+   <canvas height="150" id="graphique-semaine">
+   </canvas>
+  </div>
+  <script>
+   function afficherGraphiqueHebdo(){
 
-function afficherResultatsZone() {
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
+document.getElementById("popup-semaine").style.display="block";
 
-  const data = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
+const parSemaine = {};
+const parSemaineND2 = {};
 
-  // ✅ Regroupement intelligent
-  const zones = {};
-  let totalGlobal = 0;
-  data.forEach(item => {
-    let loc = item.localisation || "Inconnue";
+if(typeof tableauActuel === "undefined") return;
 
-    // Normalisation basique
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "") // accents
-             .replace(/[^a-z0-9 ]/g, " ") // caractères spéciaux
-             .replace(/\s+/g, " ") // espaces multiples
-             .trim();
+tableauActuel.forEach(item => {
 
-    // Regroupements par mot-clé
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
+ if(!item.datesCreation) return;
 
-    zones[loc] = (zones[loc] || 0) + item.total;
-    totalGlobal += item.total;
-  });
+ const compteurParSemaine = {};
 
-  const sorted = Object.entries(zones).sort((a,b)=>b[1]-a[1]);
+ item.datesCreation.forEach(date => {
 
-  // ✅ Total en haut (avant tableau)
-  let html = `<div style="margin-bottom:10px;font-weight:bold;font-size:14px;color:#2e7d32;">
-                🔢 Total signalisations sur la période : ${totalGlobal}
-              </div>`;
+   const d = new Date(date);
+   const semaine = Math.ceil(((d - new Date(d.getFullYear(),0,1)) / 86400000 + 1) / 7);
+   const key = "S"+semaine;
 
-  // ✅ Tableau avec largeur 50% / 50%
-  html += "<table style='border-collapse:collapse;width:100%;font-size:12px;text-align:center;'>";
-  html += "<thead><tr style='background:#f2f2f2;'><th style='width:50%;'>Localisation Client</th><th style='width:50%;'>Volume</th></tr></thead><tbody>";
-  sorted.forEach(([loc,vol])=>{
-    html += `<tr><td>${loc}</td><td>${vol}</td></tr>`;
-  });
-  html += "</tbody></table>";
+   parSemaine[key] = (parSemaine[key] || 0) + 1;
 
-  document.getElementById("table-zone").innerHTML = html;
-}
+   compteurParSemaine[key] = (compteurParSemaine[key] || 0) + 1;
 
-function fermerPopupZone() {
-  document.getElementById("popup-zone").style.display = "none";
-}
+ });
 
+ Object.entries(compteurParSemaine).forEach(([sem,nb])=>{
+   if(nb >= 2){
+     parSemaineND2[sem] = (parSemaineND2[sem] || 0) + nb;
+   }
+ });
 
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
 });
- </script>
-</html>
+
+const labels = Object.keys(parSemaine)
+.map(s => parseInt(s.replace('S','')))
+.sort((a,b)=>a-b)
+.map(s=>'S'+s);
+const valeurs = labels.map(l=>parSemaine[l]||0);
+const valeursND2 = labels.map(l=>parSemaineND2[l]||0);
+
+const ctx = document.getElementById("graphique-semaine").getContext("2d");
+
+if(window.chartSemaine) window.chartSemaine.destroy();
+
+window.chartSemaine = new Chart(ctx,{
+ type:"bar",
+ data:{
+  labels:labels,
+  datasets:[
+  {
+   label:"Incidents",
+   data:valeurs,
+   backgroundColor:"#42a5f5"
+  },
+  {
+   label:"Incidents ND ≥2",
+   data:valeursND2,
+   backgroundColor:"#e53935"
+  }
+ ]
+ },
+ options:{
+  plugins:{
+   datalabels:{
+    anchor:'end',
+    align:'top',
+    font:{weight:'bold'}
+   }
+  },
+  scales:{y:{beginAtZero:true}}
+ },
+ plugins:[ChartDataLabels]
+});
+
+}
+
+function fermerPopupSemaine(){
+document.getElementById("popup-semaine").style.display="none";
+}
+  </script>
+ 
 <script>
- function mettreAJourCasesVertes(data) {
+// FIX: Fonctions uniques
+
+function mettreAJourCasesVertes(data) {
   const aujourdHui = new Date();
   const moisActuel = aujourdHui.getMonth() + 1;
   const moisN1 = moisActuel === 1 ? 12 : moisActuel - 1;
@@ -9368,89 +6106,8 @@ document.addEventListener("DOMContentLoaded", function() {
   document.getElementById("valeurs-nd-mois-courant").textContent = `✅ ${ndMoisCourant.length} ND concernés`;
   document.getElementById("valeurs-nd-annuel").textContent = `✅ ${ndAnnuel.length} ND concernés`;
 }
-document.getElementById("btn-export").addEventListener("click", exporterTableauComplet);
 
-function exporterZoneExcel() {
-  if (!tableauActuel || !tableauActuel.length) return;
-
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
-
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
-  });
-
-  if (!dataFiltree.length) return;
-
-  const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
-}
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
-</script>
-<script>
- function exporterTableauParLocalisation() {
+function exporterTableauParLocalisation() {
   if (!donneesExcel || !donneesExcel.length) {
     alert("Aucune donnée à exporter !");
     return;
@@ -9500,85 +6157,48 @@ document.addEventListener("DOMContentLoaded", function() {
   XLSX.writeFile(wb, "ingenierie.xlsx");
 }
 
-// ⚡ Remplace l'export existant par celui-ci
-document.getElementById("btn-export").onclick = exporterTableauParLocalisation;
+</script>
 
-function exporterZoneExcel() {
+<script>
+// Alias export Excel pour ✅ ND concernés (P1 - 2 derniers mois)
+function exporterNDsDeuxMoisExcel() {
   if (!tableauActuel || !tableauActuel.length) return;
 
-  // Récupère les bornes de date depuis le popup
-  const d1 = document.getElementById("zone-date-debut").value;
-  const d2 = document.getElementById("zone-date-fin").value;
-  let debut = d1 ? new Date(d1+"T00:00:00") : null;
-  let fin = d2 ? new Date(d2+"T23:59:59") : null;
+  const aujourdHui = new Date();
+  const moisActuel = aujourdHui.getMonth() + 1;
 
-  // Filtrer selon la période
-  const dataFiltree = tableauActuel.filter(item => {
-    if (!item.datesCreation || !item.datesCreation.length) return false;
-    return item.datesCreation.some(dt => {
-      if (debut && dt < debut) return false;
-      if (fin && dt > fin) return false;
-      return true;
-    });
+  const ndAnnuel = tableauActuel.filter(item => {
+    let total = 0;
+    for (let i = 1; i <= moisActuel; i++) total += item.mois[i] || 0;
+    return total >= 7;
   });
 
-  if (!dataFiltree.length) return;
+  if (!ndAnnuel.length) { alert("Aucun ND trouvé avec ≥7 incidents YTD."); return; }
+
+  const rows = ndAnnuel.map(item => {
+    const totalYTD = Object.entries(item.mois)
+      .filter(([m]) => parseInt(m) <= moisActuel)
+      .reduce((s, [, v]) => s + (v || 0), 0);
+    const evaluation = totalYTD >= 13 ? "Critique" : "Instable";
+    const row = {
+      "ND": item.nd || "",
+      "Raison Sociale": item.raisonSociale || "",
+      "Localisation": item.localisation || "",
+      "Total YTD": totalYTD,
+      "Évaluation": evaluation
+    };
+    for (let m = 1; m <= moisActuel; m++) {
+      row[moisNoms[m]] = item.mois[m] || 0;
+    }
+    return row;
+  }).sort((a, b) => b["Total YTD"] - a["Total YTD"]);
 
   const wb = XLSX.utils.book_new();
-  const regroupement = {};
-
-  // Regrouper par zone
-  dataFiltree.forEach(item => {
-    let loc = item.localisation || "Inconnue";
-
-    // Normalisation zone
-    loc = loc.toLowerCase()
-             .normalize("NFD").replace(/[̀-ͯ]/g, "")
-             .replace(/[^a-z0-9 ]/g, " ")
-             .replace(/\s+/g, " ")
-             .trim();
-
-    if (loc.includes("cocody")) loc = "Cocody";
-    if (loc.includes("plateau")) loc = "Plateau";
-    if (loc.includes("yopougon")) loc = "Yopougon";
-    if (loc.includes("abobo")) loc = "Abobo";
-
-    if (!regroupement[loc]) regroupement[loc] = [];
-    regroupement[loc].push(item);
-  });
-
-  // Construire les onglets avec colonnes spécifiques
-  for (const [zone, data] of Object.entries(regroupement)) {
-    const parND = {};
-
-    data.forEach(d => {
-      const nd = d.nd || "ND Inconnu";
-      if (!parND[nd]) {
-        parND[nd] = {
-          "ND": nd,
-          "RAISON SOCIALE": d.raisonSociale || "",
-          "DATE DE SIGNALISATION": d.datesCreation ? d.datesCreation[0] : "",
-          "CAUSE RÉELLE": d.causeReelle || "",
-          "LOCALISATION CLIENT": zone,
-          "Volume (calculé)": 0
-        };
-      }
-      parND[nd]["Volume (calculé)"]++;
-    });
-
-    const tableauFinal = Object.values(parND);
-    const ws = XLSX.utils.json_to_sheet(tableauFinal);
-    XLSX.utils.book_append_sheet(wb, ws, zone.substring(0,31));
-  }
-
-  XLSX.writeFile(wb, "Signalisations_par_zone.xlsx");
+  const ws = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, "ND_Annuel_P3");
+  XLSX.writeFile(wb, "ND_Incidents_Annuel_P3.xlsx");
 }
-
-
-document.addEventListener("DOMContentLoaded", function() {
-  const btnExport = document.querySelector("#popup-zone button[onclick='exporterZoneExcel()']");
-  if (btnExport) {
-    btnExport.addEventListener("click", exporterZoneExcel);
-  }
-});
 </script>
+
+</body>
+</html>
