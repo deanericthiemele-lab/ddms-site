@@ -412,7 +412,7 @@ tbody td{padding:9px 12px;font-size:12.5px;vertical-align:middle}
   setTimeout(tickSplash, 1000);
 })();
 
-// Rôles : 'superadmin' (tout faire), 'admin' (sans suppression), 'visitor' (lecture seule)
+// Rôle courant : 'admin' ou 'visitor'
 let APP_ROLE = null;
 
 function enterApp(){
@@ -430,11 +430,7 @@ function togglePwd(){
 function doLogin(){
   const pwd = document.getElementById('login-pwd').value.trim();
   const err = document.getElementById('login-error');
-  if(pwd === 'adminn'){
-    APP_ROLE = 'superadmin';
-    applyRole();
-    hideSplash();
-  } else if(pwd === 'adminddms'){
+  if(pwd === 'adminddms'){
     APP_ROLE = 'admin';
     applyRole();
     hideSplash();
@@ -462,7 +458,7 @@ function hideSplash(){
 
 function applyRole(){
   if(APP_ROLE === 'visitor'){
-    // ── Visiteur : tout désactiver (lecture seule) ──────────
+    // Désactiver tous les boutons d'ajout/modification/suppression
     document.querySelectorAll(
       'button.btn-v, button.btn-g, button[onclick*="openModal"], button[onclick*="save"], button[onclick*="delete"], button[onclick*="Delete"], button[onclick*="markDone"], button[onclick*="resolveInc"], button[onclick*="criseOpenForm"], button[onclick*="criseSave"], button[onclick*="criseAddLog"], button[onclick*="criseSetStatut"], button[onclick*="criseDelete"], button[onclick*="kbOpenModal"], button[onclick*="kbSave"], button[onclick*="kbDeleteById"], button[onclick*="kbEditById"]'
     ).forEach(btn => {
@@ -471,14 +467,17 @@ function applyRole(){
       btn.style.opacity = '.35';
       btn.style.cursor = 'not-allowed';
     });
+    // Désactiver les cellules éditables inline
     document.querySelectorAll('.ec-cell, .sv[data-key], .sw-edit, .cl-edit, .sim-edit').forEach(el => {
       el.ondblclick = null;
       el.title = '🔒 Lecture seule';
       el.style.cursor = 'default';
     });
+    // Désactiver les inputs et selects dans les pages dynamiques
     document.querySelectorAll('#main input, #main select, #main textarea').forEach(el => {
       el.disabled = true;
     });
+    // Badge visiteur dans la topbar
     const top = document.getElementById('top');
     if(top){
       const badge = document.createElement('span');
@@ -486,35 +485,13 @@ function applyRole(){
       badge.style.cssText = 'background:#FEF0E6;color:#E05A00;border:1px solid #E05A00;border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:var(--mono)';
       top.appendChild(badge);
     }
-  } else if(APP_ROLE === 'admin'){
-    // ── Admin (adminddms) : peut créer/modifier, MAIS PAS SUPPRIMER ──
-    // Masquer tous les boutons de suppression
-    document.querySelectorAll(
-      'button[onclick*="deleteItem"], button[onclick*="deleteContact"], button[onclick*="criseDelete"], button[onclick*="kbDeleteById"]'
-    ).forEach(btn => {
-      btn.style.display = 'none';
-    });
-    // Désactiver aussi resetSeuils
-    document.querySelectorAll('button[onclick*="resetSeuils"]').forEach(btn => {
-      btn.disabled = true;
-      btn.title = '🔒 Suppression réservée au Super Admin';
-      btn.style.opacity = '.35';
-      btn.style.cursor = 'not-allowed';
-    });
+  } else {
+    // Admin — badge dans la topbar
     const top = document.getElementById('top');
     if(top){
       const badge = document.createElement('span');
       badge.innerHTML = '🔑 ADMIN';
       badge.style.cssText = 'background:var(--gl,#E8F5EE);color:var(--g,#2E7D32);border:1px solid var(--g,#2E7D32);border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:var(--mono)';
-      top.appendChild(badge);
-    }
-  } else if(APP_ROLE === 'superadmin'){
-    // ── Super Admin (adminn) : accès complet, suppression incluse ──
-    const top = document.getElementById('top');
-    if(top){
-      const badge = document.createElement('span');
-      badge.innerHTML = '👑 SUPER ADMIN';
-      badge.style.cssText = 'background:#1A1A1A;color:#FFD700;border:1px solid #FFD700;border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:var(--mono)';
       top.appendChild(badge);
     }
   }
@@ -958,7 +935,6 @@ async function criseSetStatut(id,statut){
 }
 
 async function criseDelete(id){
-  if(APP_ROLE !== 'superadmin'){ toast('🔒 Suppression réservée au Super Admin','err'); return; }
   if(!confirm('Supprimer cette crise ?'))return;
   try{
     await fbDelete('noc_crises',id);
@@ -1008,7 +984,7 @@ function renderCrises(){
         <span class="crise-pill" style="background:${niv.bg};color:${niv.c}">${niv.l}</span>
         <span class="crise-pill" style="background:${stat.bg};color:${stat.c};margin-left:6px">${stat.l}</span>
         <button class="btn btn-sm btn-out" onclick="criseOpenForm('${c.id}')" style="margin-left:8px">✏️</button>
-        ${delBtn("criseDelete('${c.id}')","color:var(--r);margin-left:4px")}
+        <button class="btn btn-sm btn-out" onclick="criseDelete('${c.id}')" style="color:var(--r);margin-left:4px">🗑</button>
       </div>
       <div class="crise-card-body">
         <div class="crise-col">
@@ -1240,7 +1216,6 @@ async function saveSeuil(key, val){
 }
 
 async function resetSeuils(){
-  if(APP_ROLE !== 'superadmin'){ toast('🔒 Réinitialisation réservée au Super Admin','err'); return; }
   if(!confirm('Remettre tous les seuils aux valeurs par défaut ?')) return;
   try{
     if(_seuilsDocId) await window._del(window._doc(window._db,SEUILS_COL,_seuilsDocId));
@@ -2164,7 +2139,7 @@ function renderContacts(){
   const q=(document.getElementById("contacts-search")?.value||"").toLowerCase();
   let data=(DB.contacts||[]);if(q)data=data.filter(c=>(c.client||"").toLowerCase().includes(q)||(c.mail||"").toLowerCase().includes(q)||(c.num||"").toLowerCase().includes(q));
   const tb=document.getElementById("tbl-contacts");if(!tb)return;
-  tb.innerHTML=data.length?data.map((c,i)=>`<tr><td style="font-family:var(--mono);font-size:10px;color:var(--n4)">${i+1}</td><td><b>${c.client||"—"}</b></td><td style="font-size:11.5px;color:var(--b)">${(c.mail||"—").split("/").map(m=>`<div>${m.trim()}</div>`).join("")}</td><td style="font-family:var(--mono);font-size:11.5px">${(c.num||"—").split("/").map(n=>`<div>${n.trim()}</div>`).join("")}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-out" onclick="editContact('${c.id}')">✏️</button>${delBtn("deleteContact('${c.id}')")}</td></tr>`).join(""):"<tr><td colspan=5 class=empty><div class=empty-ico>📋</div><div class=empty-txt>Aucun contact</div></td></tr>";
+  tb.innerHTML=data.length?data.map((c,i)=>`<tr><td style="font-family:var(--mono);font-size:10px;color:var(--n4)">${i+1}</td><td><b>${c.client||"—"}</b></td><td style="font-size:11.5px;color:var(--b)">${(c.mail||"—").split("/").map(m=>`<div>${m.trim()}</div>`).join("")}</td><td style="font-family:var(--mono);font-size:11.5px">${(c.num||"—").split("/").map(n=>`<div>${n.trim()}</div>`).join("")}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-out" onclick="editContact('${c.id}')">✏️</button><button class="btn btn-sm btn-out" onclick="deleteContact('${c.id}')">🗑</button></td></tr>`).join(""):"<tr><td colspan=5 class=empty><div class=empty-ico>📋</div><div class=empty-txt>Aucun contact</div></td></tr>";
 }
 function openContactModal(){ctEditingId=null;document.getElementById("ct-client").value="";document.getElementById("ct-mail").value="";document.getElementById("ct-num").value="";document.getElementById("contact-modal-title").textContent="Nouveau contact";document.getElementById("mo-contact").style.display="flex";}
 function closeContactModal(){document.getElementById("mo-contact").style.display="none";}
@@ -2186,7 +2161,6 @@ async function saveContact(){
 }
 function editContact(id){const c=(DB.contacts||[]).find(x=>x.id===id);if(!c)return;ctEditingId=id;document.getElementById("ct-client").value=c.client||"";document.getElementById("ct-mail").value=c.mail||"";document.getElementById("ct-num").value=c.num||"";document.getElementById("contact-modal-title").textContent="Modifier — "+c.client;document.getElementById("mo-contact").style.display="flex";}
 async function deleteContact(id){
-  if(APP_ROLE !== 'superadmin'){ toast('🔒 Suppression réservée au Super Admin','err'); return; }
   if(!confirm("Supprimer ce contact ?"))return;
   try{
     await fbDelete(CT_COL,id);
@@ -2896,18 +2870,6 @@ window.addEventListener('fbReady', async ()=>{
   }catch(e){ console.warn('swEdit load:', e); }
 });
 
-
-// ═══════════════════════════════════════════════════════════
-// HELPER — Affichage conditionnel bouton suppression
-// ═══════════════════════════════════════════════════════════
-function canDelete(){
-  return APP_ROLE === 'superadmin';
-}
-function delBtn(onclick, extra=''){
-  if(!canDelete()) return '';
-  return \`<button class="btn btn-sm btn-out" onclick="\${onclick}" style="color:var(--r)\${extra?';'+extra:''}">🗑</button>\`;
-}
-
 function renderAll(){
   updateBadges();
   renderDashboard();
@@ -2983,7 +2945,7 @@ function renderReunions(){
         <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="viewReunion('${r.id}')">👁</button>
         <button class="btn btn-sm btn-out" onclick="openEditReunion('${r.id}')">✏️</button>
         <button class="btn btn-sm btn-out" onclick="openModal('mo-cr');document.getElementById('cr-titre').value='CR — ${(r.type||'').replace(/'/g,'')}'">📝 CR</button>
-        ${delBtn("deleteItem('noc_reunions','${r.id}','reunions')")}
+        <button class="btn btn-sm btn-out" onclick="deleteItem('noc_reunions','${r.id}','reunions')">🗑</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty"><div class="empty-ico">📅</div><div class="empty-txt">Aucune réunion enregistrée</div></td></tr>';
 }
@@ -3076,7 +3038,7 @@ function renderCR(){
       <td style="display:flex;gap:4px;flex-wrap:nowrap">
         <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="viewCR('${c.id}')">👁 Voir</button>
         <button class="btn btn-sm btn-out" onclick="openEditCR('${c.id}')">✏️</button>
-        ${delBtn("deleteItem('noc_cr','${c.id}','cr')")}
+        <button class="btn btn-sm btn-out" onclick="deleteItem('noc_cr','${c.id}','cr')">🗑</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="7" class="empty"><div class="empty-ico">📝</div><div class="empty-txt">Aucun compte-rendu</div></td></tr>';
 }
@@ -3248,7 +3210,7 @@ function renderPlans(filter='all'){
         <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="viewPlan('${p.id}')">👁</button>
         <button class="btn btn-sm btn-out" onclick="openEditPlan('${p.id}')">✏️</button>
         <button class="btn btn-sm btn-out" onclick="markDone('${p.id}')">✓</button>
-        ${delBtn("deleteItem('noc_actions','${p.id}','plans')")}
+        <button class="btn btn-sm btn-out" onclick="deleteItem('noc_actions','${p.id}','plans')">🗑</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty"><div class="empty-ico">📋</div><div class="empty-txt">Aucune action</div></td></tr>';
 }
@@ -3368,7 +3330,7 @@ function renderIncidents(filter='all'){
         <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="viewIncident('${i.id}')">👁</button>
         <button class="btn btn-sm btn-out" onclick="openEditIncident('${i.id}')">✏️</button>
         ${i.statut!=='resolu'?`<button class="btn btn-sm btn-g" onclick="resolveInc('${i.id}')">✓</button>`:''}
-        ${delBtn("deleteItem('noc_incidents','${i.id}','incidents')")}
+        <button class="btn btn-sm btn-out" onclick="deleteItem('noc_incidents','${i.id}','incidents')">🗑</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="9" class="empty"><div class="empty-ico">🚨</div><div class="empty-txt">Aucun incident</div></td></tr>';
 }
@@ -3486,7 +3448,7 @@ function renderChg(){
       <td style="display:flex;gap:4px;flex-wrap:nowrap">
         <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="viewChg('${c.id}')">👁</button>
         <button class="btn btn-sm btn-out" onclick="openEditChg('${c.id}')">✏️</button>
-        ${delBtn("deleteItem('noc_chg','${c.id}','changements')")}
+        <button class="btn btn-sm btn-out" onclick="deleteItem('noc_chg','${c.id}','changements')">🗑</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="8" class="empty"><div class="empty-ico">🔧</div><div class="empty-txt">Aucun RFC</div></td></tr>';
 }
@@ -3590,7 +3552,7 @@ function renderAgents(){
         <div style="font-size:10.5px;color:var(--b);margin-top:3px">${a.skills||'—'}</div>
         <div class="agent-actions">
           <span class="seuil-badge ${isActive?'seuil-moyen':'seuil-eleve'}" style="${isActive?'background:var(--gl);color:var(--g)':''}">${a.statut||'—'}</span>
-          ${delBtn("event.stopPropagation();deleteItem('noc_agents','${a.id}','agents')")}
+          <button class="btn btn-sm btn-out" onclick="event.stopPropagation();deleteItem('noc_agents','${a.id}','agents')">🗑</button>
         </div>
       </div>
     </div>`;
@@ -3687,7 +3649,7 @@ function renderDocs(){
         <div class="ec-cell" style="font-size:11px;color:var(--n3);margin-top:4px" data-db="docs" data-id="${d.id}" data-field="description" ondblclick="event.stopPropagation();startEdit(this)" title="Double-clic pour éditer">${d.description||'—'}</div>
         <div style="display:flex;gap:5px;margin-top:8px">
           ${d.file?'<span class="bp bp-ok">Fichier ✓</span>':'<span style="font-size:10px;color:var(--n4)">Pas de fichier</span>'}
-          ${delBtn("event.stopPropagation();deleteItem('noc_docs','${d.id}','docs')","padding:1px 7px")}
+          <button class="btn btn-sm btn-out" onclick="event.stopPropagation();deleteItem('noc_docs','${d.id}','docs')" style="padding:1px 7px">🗑</button>
         </div>
       </div>
     </div>`;
@@ -3745,10 +3707,6 @@ async function saveDoc(){
 // DELETE GÉNÉRIQUE
 // ═══════════════════════════════════════════════════════════
 async function deleteItem(col, id, key){
-  if(APP_ROLE !== 'superadmin'){
-    toast('🔒 Suppression réservée au Super Admin','err');
-    return;
-  }
   if(!confirm('Supprimer cet élément ?')) return;
   try{
     await fbDelete(col, id);
