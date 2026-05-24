@@ -3944,13 +3944,11 @@ async function psiImportFile(input) {
   if (!file) return;
 
   const ext = file.name.split('.').pop().toLowerCase();
-  const allowed = ['pdf', 'doc', 'docx'];
-  if (!allowed.includes(ext)) {
+  if (!['pdf','doc','docx'].includes(ext)) {
     toast('Format non supporté — utilisez PDF ou Word (.docx)', 'err');
-    return;
+    input.value = ''; return;
   }
 
-  // Afficher barre de progression
   const bar  = document.getElementById('psi-import-bar');
   const msg  = document.getElementById('psi-import-msg');
   const prog = document.getElementById('psi-import-prog');
@@ -3961,168 +3959,149 @@ async function psiImportFile(input) {
   msg.textContent   = 'Lecture du fichier…';
 
   try {
-    // Lire le fichier en base64
-    const b64 = await new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload  = () => res(r.result.split(',')[1]);
-      r.onerror = rej;
-      r.readAsDataURL(file);
-    });
+    let texteExtrait = '';
 
-    prog.style.width = '30%';
-    msg.textContent  = 'Envoi à Claude pour analyse…';
+    if (ext === 'docx' || ext === 'doc') {
+      if (typeof mammoth === 'undefined') {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js';
+          s.onload = res; s.onerror = () => rej(new Error('Impossible de charger mammoth.js'));
+          document.head.appendChild(s);
+        });
+      }
+      prog.style.width = '30%'; msg.textContent = 'Extraction texte Word…';
+      const ab = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer: ab });
+      texteExtrait = result.value;
 
-    // Détecter le media_type
-    const isPdf  = ext === 'pdf';
-    const isDocx = ext === 'docx' || ext === 'doc';
-
-    // Construire le message selon le type
-    let userContent;
-    if (isPdf) {
-      userContent = [
-        {
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: b64 }
-        },
-        { type: 'text', text: PROMPT_PSI }
-      ];
-    } else {
-      // Pour docx : on passe en base64 document aussi
-      userContent = [
-        {
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            data: b64
-          }
-        },
-        { type: 'text', text: PROMPT_PSI }
-      ];
+    } else if (ext === 'pdf') {
+      if (typeof pdfjsLib === 'undefined') {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+          s.onload = () => {
+            pdfjsLib.GlobalWorkerOptions.workerSrc =
+              'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            res();
+          };
+          s.onerror = () => rej(new Error('Impossible de charger pdf.js'));
+          document.head.appendChild(s);
+        });
+      }
+      prog.style.width = '30%'; msg.textContent = 'Extraction texte PDF…';
+      const ab = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+      const pages = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const tc   = await page.getTextContent();
+        pages.push(tc.items.map(it => it.str).join(' '));
+      }
+      texteExtrait = pages.join('\n');
     }
 
-    prog.style.width = '55%';
-    msg.textContent  = 'Claude analyse le document…';
+    if (!texteExtrait.trim()) throw new Error('Aucun texte extrait du document');
+
+    prog.style.width = '55%'; msg.textContent = 'Claude analyse le document…';
+
+    const promptFinal = `Tu es un assistant d'extraction. Lis le document et retourne UNIQUEMENT un objet JSON valide (sans backticks, sans texte avant/après).
+Structure obligatoire :
+{"ref":null,"titre":null,"date":null,"statut":"En cours","redacteur":null,"donneur":null,"plainte":null,"pts":[],"liens":[],"histo2025":null,"histo2026":null,"chrono25":[],"chrono26":[],"actionsCtx":null,"actions":[],"recommandation":null,"plan":[],"etude":[]}
+- ref : référence du document
+- titre : zone/titre principal
+- date : format YYYY-MM-DD
+- statut : "En cours" | "En suivi" | "Résolu" | "Fermé"
+- redacteur : entité rédactrice
+- donneur : émetteur de la plainte
+- plainte : description complète
+- pts : tableau de strings (points clés)
+- liens : [{site, ref, type, debit}]
+- histo2025 / histo2026 : texte libre historique
+- chrono25 / chrono26 : [{per, evt}]
+- actionsCtx : intro actions
+- actions : [{per, evt, pb}]
+- recommandation : texte
+- plan : [{act, resp, ech}]
+- etude : [{pb, sol}]
+null si absent, [] si vide. UNIQUEMENT le JSON.
+
+---DOCUMENT---
+` + texteExtrait.slice(0, 14000);
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 4000,
-        messages: [{ role: 'user', content: userContent }]
+        messages: [{ role: 'user', content: promptFinal }]
       })
     });
 
-    prog.style.width = '80%';
-    msg.textContent  = 'Extraction des données…';
+    prog.style.width = '85%'; msg.textContent = 'Structuration des données…';
 
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message || 'Erreur API');
+    if (!response.ok) throw new Error((data.error && data.error.message) || 'Erreur API ' + response.status);
 
-    const raw = data.content.map(b => b.text || '').join('');
-    // Nettoyer les backticks éventuels
+    const raw   = (data.content || []).map(function(b){ return b.text || ''; }).join('');
     const clean = raw.replace(/```json|```/g, '').trim();
 
-    let parsed;
+    var parsed;
     try { parsed = JSON.parse(clean); }
-    catch(e) { throw new Error('Réponse IA non parsable — ' + e.message); }
+    catch(e) { throw new Error('JSON invalide : ' + e.message); }
 
-    prog.style.width = '100%';
-    msg.textContent  = '✅ Remplissage du formulaire…';
+    prog.style.width = '100%'; msg.textContent = '✅ Remplissage du formulaire…';
 
-    // ── Remplir tous les champs ──
-    psiOpenModal(); // réinitialise proprement
-
-    const s = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
-
-    s('psi-ref',        parsed.ref);
-    s('psi-titre',      parsed.titre);
-    s('psi-date',       parsed.date);
-    s('psi-redacteur',  parsed.redacteur);
-    s('psi-donneur',    parsed.donneur);
-    s('psi-plainte',    parsed.plainte);
-    s('psi-histo-2025', parsed.histo2025);
-    s('psi-histo-2026', parsed.histo2026);
-    s('psi-actions-ctx',parsed.actionsCtx);
+    // Remplir les champs
+    var s = function(id, val) {
+      var el = document.getElementById(id);
+      if (el && val != null && val !== '') el.value = val;
+    };
+    s('psi-ref',            parsed.ref);
+    s('psi-titre',          parsed.titre);
+    s('psi-date',           parsed.date);
+    s('psi-redacteur',      parsed.redacteur);
+    s('psi-donneur',        parsed.donneur);
+    s('psi-plainte',        parsed.plainte);
+    s('psi-histo-2025',     parsed.histo2025);
+    s('psi-histo-2026',     parsed.histo2026);
+    s('psi-actions-ctx',    parsed.actionsCtx);
     s('psi-recommandation', parsed.recommandation);
+    if (parsed.statut) {
+      var sel = document.getElementById('psi-statut');
+      if (sel) sel.value = parsed.statut;
+    }
+    _psi_pts      = Array.isArray(parsed.pts)      ? parsed.pts      : [];
+    _psi_liens    = Array.isArray(parsed.liens)     ? parsed.liens    : [];
+    _psi_chrono25 = Array.isArray(parsed.chrono25)  ? parsed.chrono25 : [];
+    _psi_chrono26 = Array.isArray(parsed.chrono26)  ? parsed.chrono26 : [];
+    _psi_actions  = Array.isArray(parsed.actions)   ? parsed.actions  : [];
+    _psi_plan     = Array.isArray(parsed.plan)      ? parsed.plan     : [];
+    _psi_etude    = Array.isArray(parsed.etude)     ? parsed.etude    : [];
 
-    if (parsed.statut) document.getElementById('psi-statut').value = parsed.statut;
+    psiRefreshPts(); psiRefreshLiens();
+    psiRefreshChrono('2025'); psiRefreshChrono('2026');
+    psiRefreshActions(); psiRefreshPlan(); psiRefreshEtude();
 
-    // Tableaux dynamiques
-    _psi_pts       = Array.isArray(parsed.pts)       ? parsed.pts       : [];
-    _psi_liens     = Array.isArray(parsed.liens)      ? parsed.liens     : [];
-    _psi_chrono25  = Array.isArray(parsed.chrono25)   ? parsed.chrono25  : [];
-    _psi_chrono26  = Array.isArray(parsed.chrono26)   ? parsed.chrono26  : [];
-    _psi_actions   = Array.isArray(parsed.actions)    ? parsed.actions   : [];
-    _psi_plan      = Array.isArray(parsed.plan)       ? parsed.plan      : [];
-    _psi_etude     = Array.isArray(parsed.etude)      ? parsed.etude     : [];
-
-    psiRefreshPts();
-    psiRefreshLiens();
-    psiRefreshChrono('2025');
-    psiRefreshChrono('2026');
-    psiRefreshActions();
-    psiRefreshPlan();
-    psiRefreshEtude();
-
-    // Masquer la barre après 1s
-    setTimeout(() => { bar.style.display = 'none'; prog.style.width = '0%'; }, 1200);
+    setTimeout(function(){ bar.style.display = 'none'; prog.style.width = '0%'; }, 1400);
     stat.textContent = '✅ ' + file.name;
-    toast('Document importé et formulaire rempli ✓', 'ok');
-
-    // Réouvrir la modale (psiOpenModal l'a peut-être fermée)
+    toast('Formulaire rempli automatiquement ✓', 'ok');
     openModal('mo-psi');
 
   } catch(err) {
     bar.style.display = 'none';
     prog.style.width  = '0%';
-    stat.textContent  = '❌ Erreur';
+    stat.textContent  = '❌ ' + String(err.message).slice(0, 55);
     toast('Erreur import : ' + err.message, 'err');
-    console.error(err);
+    console.error('PSI Import:', err);
   }
-
-  // Reset input pour permettre re-import du même fichier
   input.value = '';
 }
-
-// Prompt envoyé à Claude pour extraction structurée
-const PROMPT_PSI = `Tu es un assistant d'extraction de données. Analyse ce document (note de situation / rapport d'incident réseau) et retourne UNIQUEMENT un objet JSON valide, sans texte avant ni après, sans backticks, avec exactement cette structure :
-
-{
-  "ref": "référence du document (ex: NOTE-001 ou ZONE TIASSALE)",
-  "titre": "titre principal / zone concernée",
-  "date": "date au format YYYY-MM-DD (si trouvée, sinon null)",
-  "statut": "En cours | En suivi | Résolu | Fermé (déduis du contenu)",
-  "redacteur": "entité ou personne rédactrice (ex: DOBB — 24 mai 2026)",
-  "donneur": "phrase décrivant l'émetteur de la plainte/alerte",
-  "plainte": "description complète de la plainte / contexte de l'incident",
-  "pts": ["point clé 1", "point clé 2", "..."],
-  "liens": [
-    {"site": "nom du site", "ref": "référence lien", "type": "type (FH/VSAT/LTE/...)", "debit": "débit"}
-  ],
-  "histo2025": "historique des signalisations 2025 (texte libre)",
-  "histo2026": "historique des signalisations 2026 (texte libre)",
-  "chrono25": [
-    {"per": "période", "evt": "événement décrit"}
-  ],
-  "chrono26": [
-    {"per": "période", "evt": "événement décrit"}
-  ],
-  "actionsCtx": "contexte des actions réalisées (paragraphe introductif)",
-  "actions": [
-    {"per": "période/date", "evt": "action effectuée", "pb": "problématique traitée"}
-  ],
-  "recommandation": "texte de la recommandation",
-  "plan": [
-    {"act": "action planifiée", "resp": "responsable", "ech": "échéance"}
-  ],
-  "etude": [
-    {"pb": "problème identifié", "sol": "solution proposée (vide si non renseignée)"}
-  ]
-}
-
-Si un champ n'est pas présent dans le document, utilise null pour les chaînes et [] pour les tableaux. Ne génère QUE le JSON.`;
 
 function handleFiles(input, ctx){
   if(ctx==='cr'){
