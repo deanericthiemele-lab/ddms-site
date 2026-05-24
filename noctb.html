@@ -3483,7 +3483,8 @@ function psiRender() {
   };
   tb.innerHTML = items.map(n => {
     const liens = (n.liens||[]).map(l=>`<span style="font-family:var(--mono);font-size:10px;background:var(--bl);color:var(--b);padding:1px 6px;border-radius:2px;margin-right:3px">${l.site||'—'}</span>`).join('');
-    const canDel = APP_ROLE === 'superadmin';
+    const canDel  = APP_ROLE === 'superadmin';
+    const canEdit = APP_ROLE === 'superadmin' || APP_ROLE === 'admin';
     return `<tr>
       <td style="font-family:var(--mono);font-size:11px;font-weight:700;color:var(--v)">${n.ref||'—'}</td>
       <td><div style="font-weight:700;font-size:12.5px">${n.titre||'—'}</div></td>
@@ -3494,16 +3495,32 @@ function psiRender() {
       <td>
         <div style="display:flex;gap:4px;justify-content:center;flex-wrap:nowrap">
           <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="psiView('${n.id}')">👁 Voir</button>
-          <button class="btn btn-sm btn-out" onclick="psiEdit('${n.id}')">✏️</button>
-          ${canDel ? `<button class="btn btn-sm btn-r" onclick="psiDelete('${n.id}')">🗑</button>` : ''}
+          ${canEdit ? `<button class="btn btn-sm btn-out" onclick="psiEdit('${n.id}')">✏️</button>` : ''}
+          ${canDel  ? `<button class="btn btn-sm btn-r"   onclick="psiDelete('${n.id}')">🗑</button>` : ''}
         </div>
       </td>
     </tr>`;
   }).join('');
+
+  // Visiteur : désactiver le bouton "+ Nouvelle note"
+  const btnNew = document.querySelector('#page-point-situation .btn-v');
+  if (btnNew) {
+    if (APP_ROLE === 'visitor') {
+      btnNew.disabled = true;
+      btnNew.title = '🔒 Accès lecture seule';
+      btnNew.style.opacity = '.35';
+      btnNew.style.cursor = 'not-allowed';
+    } else {
+      btnNew.disabled = false;
+      btnNew.style.opacity = '';
+      btnNew.style.cursor = '';
+    }
+  }
 }
 
 // ── Ouvrir modale création ──
 function psiOpenModal() {
+  if (APP_ROLE === 'visitor') { toast('🔒 Accès lecture seule', 'err'); return; }
   _psi_pts = [];
   _psi_liens = [];
   _psi_chrono25 = [];
@@ -3699,6 +3716,7 @@ async function psiSave() {
 
 // ── Éditer ──
 function psiEdit(id) {
+  if (APP_ROLE === 'visitor') { toast('🔒 Accès lecture seule', 'err'); return; }
   const n = (DB.psi||[]).find(x=>x.id===id); if (!n) return;
   _psi_pts = [...(n.pts||[])];
   _psi_liens = [...(n.liens||[])];
@@ -3837,6 +3855,7 @@ function psiView(id) {
   </div>`;
 
   document.getElementById('psi-view-edit-btn').onclick = () => { closeModal('mo-psi-view'); psiEdit(id); };
+  document.getElementById('psi-view-edit-btn').style.display = (APP_ROLE === 'visitor') ? 'none' : '';
   openModal('mo-psi-view');
 }
 
