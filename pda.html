@@ -4,652 +4,121 @@
 <meta charset="utf-8"/>
 <title>PDA – Plan d'Actions</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-<!-- Firebase compat (fonctionne sans bundler) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
-<script>
-const firebaseConfig = {
-  apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
-  authDomain: "ddms-architectures.firebaseapp.com",
-  projectId: "ddms-architectures",
-  storageBucket: "ddms-architectures.firebasestorage.app",
-  messagingSenderId: "767552965189",
-  appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-
-
-
-// ─── STATE LOCAL ─────────────────────────────────────────────────────
-let comites   = [];
-let activeComite = '';
-let actions   = [];   // cache local
-let editingId = null; // Firestore doc id
-let sortCol   = 'date';
-let sortAsc   = true;
-let unsubActions = null;
-
-// ─── INDICATEUR SYNC ─────────────────────────────────────────────────
-function setSyncing(on) {
-  const el = document.getElementById('syncIndicator');
-  if (!el) return;
-  el.style.opacity = on ? '1' : '0';
-}
-
-// ─── COMITÉS (collection "pda_comites") ──────────────────────────────
-async function loadComites() {
-  try {
-    const snap = await db.collection('pda_comites').get();
-    comites = snap.docs.map(d => d.data().name).sort();
-    if (!comites.length) {
-      for (const name of ['Comité mensuel','Comité trimestriel','Comité de crise']) {
-        await db.collection('pda_comites').add({ name });
-        comites.push(name);
-      }
-    }
-  } catch(e) {
-    console.error('Firestore error:', e);
-    showError('Erreur Firebase : ' + e.message + '<br><small>Vérifiez les règles Firestore.</small>');
-    // fallback local pour pouvoir quand même utiliser la page
-    comites = ['Comité mensuel','Comité trimestriel','Comité de crise'];
-  }
-  activeComite = comites[0] || '';
-  renderComites();
-  subscribeActions();
-}
-
-function showError(msg) {
-  let el = document.getElementById('firebaseError');
-  if (!el) {
-    el = document.createElement('div');
-    el.id = 'firebaseError';
-    el.style.cssText = 'background:#ffebee;border:1px solid #ffcdd2;color:#c62828;padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:1rem;';
-    const wrap = document.querySelector('.page-wrap');
-    wrap.insertBefore(el, wrap.children[1]);
-  }
-  el.innerHTML = '⚠️ ' + msg;
-}
-
-async function addComite(name) {
-  await db.collection('pda_comites').add({ name });
-  comites.push(name);
-  comites.sort();
-  activeComite = name;
-  renderComites();
-  subscribeActions();
-}
-
-async function deleteComite(name) {
-  // supprimer le doc comité
-  const snap = await db.collection('pda_comites').get();
-  for (const d of snap.docs) { if (d.data().name === name) await d.ref.delete(); }
-  // supprimer les actions liées
-  const aSnap = await db.collection('pda_actions').where('comite','==',name).get();
-  for (const d of aSnap.docs) await d.ref.delete();
-  comites = comites.filter(c => c !== name);
-  if (activeComite === name) activeComite = comites[0] || '';
-  renderComites();
-  subscribeActions();
-}
-
-function renderComites() {
-  const container = document.getElementById('comiteChips');
-  container.innerHTML = '';
-  comites.forEach(c => {
-    const btn = document.createElement('button');
-    btn.className = 'chip' + (c === activeComite ? ' active' : '');
-    btn.textContent = c;
-    btn.addEventListener('click', () => { activeComite = c; renderComites(); subscribeActions(); });
-    btn.addEventListener('contextmenu', e => {
-      e.preventDefault();
-      if (confirm(`Supprimer le comité « ${c} » et toutes ses actions ?`)) deleteComite(c);
-    });
-    container.appendChild(btn);
-  });
-}
-
-// ─── ACTIONS (collection "pda_actions") ──────────────────────────────
-function subscribeActions() {
-  if (unsubActions) unsubActions();
-  setSyncing(true);
-  unsubActions = db.collection('pda_actions').where('comite','==',activeComite).onSnapshot(snap => {
-    actions = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
-    setSyncing(false);
-    renderTable();
-    renderStats();
-  }, err => {
-    console.error('onSnapshot error:', err);
-    setSyncing(false);
-    showError('Erreur lecture actions : ' + err.message);
-  });
-}
-
-async function saveAction(data) {
-  setSyncing(true);
-  try {
-    if (editingId) {
-      await db.collection('pda_actions').doc(editingId).update(data);
-    } else {
-      await db.collection('pda_actions').add({ ...data, comite: activeComite, createdAt: Date.now() });
-    }
-  } catch(e) {
-    console.error('saveAction error:', e);
-    alert('Erreur enregistrement : ' + e.message);
-  }
-  setSyncing(false);
-}
-
-async function removeAction(id) {
-  setSyncing(true);
-  await db.collection('pda_actions').doc(id).delete();
-  setSyncing(false);
-}
-
-// ─── STATS ────────────────────────────────────────────────────────────
-function renderStats() {
-  const all = actions;
-  const counts = { done:0, prog:0, late:0, pend:0, blocked:0 };
-  all.forEach(a => {
-    if (a.status==='Terminé') counts.done++;
-    else if (a.status==='En cours') counts.prog++;
-    else if (a.status==='En retard') counts.late++;
-    else if (a.status==='En attente') counts.pend++;
-    else if (a.status==='Bloqué') counts.blocked++;
-  });
-  const pct = all.length ? Math.round(counts.done / all.length * 100) : 0;
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('progressPct').textContent = pct + '%';
-  document.getElementById('progressLabel').textContent = `Avancement – ${activeComite}`;
-  document.getElementById('statsStrip').innerHTML = `
-    <div class="stat-pill sp-total"><span class="count">${all.length}</span> Total</div>
-    <div class="stat-pill sp-done"><span class="count">${counts.done}</span> Terminé</div>
-    <div class="stat-pill sp-prog"><span class="count">${counts.prog}</span> En cours</div>
-    <div class="stat-pill sp-late"><span class="count">${counts.late}</span> En retard</div>
-    <div class="stat-pill sp-pend"><span class="count">${counts.pend + counts.blocked}</span> En attente / Bloqué</div>
-  `;
-  const porteurs = [...new Set(all.map(a => a.porteur).filter(Boolean))].sort();
-  const sel = document.getElementById('filterPorteur');
-  const prev = sel.value;
-  sel.innerHTML = '<option value="">Tous les porteurs</option>';
-  porteurs.forEach(p => {
-    const o = document.createElement('option');
-    o.value = p; o.textContent = p;
-    if (p === prev) o.selected = true;
-    sel.appendChild(o);
-  });
-}
-
-// ─── TABLE ────────────────────────────────────────────────────────────
-function dateClass(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr), now = new Date(); now.setHours(0,0,0,0);
-  const diff = (d - now) / 86400000;
-  if (diff < 0) return 'date-overdue';
-  if (diff <= 7) return 'date-soon';
-  return 'date-ok';
-}
-function fmtDate(dateStr) {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' });
-}
-function statusClass(s) {
-  return { 'Terminé':'s-done','En cours':'s-prog','En retard':'s-late','En attente':'s-pend','Bloqué':'s-blocked' }[s] || 's-pend';
-}
-function initials(name) {
-  return name.trim().split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0,2);
-}
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function renderTable() {
-  const search = document.getElementById('searchInput').value.toLowerCase();
-  const filterS = document.getElementById('filterStatus').value;
-  const filterP = document.getElementById('filterPorteur').value;
-  let rows = actions.filter(a => {
-    const matchSearch = !search || (a.action||'').toLowerCase().includes(search) || (a.porteur||'').toLowerCase().includes(search) || (a.comment||'').toLowerCase().includes(search);
-    return matchSearch && (!filterS || a.status===filterS) && (!filterP || a.porteur===filterP);
-  });
-  rows.sort((a, b) => {
-    let va = a[sortCol]||'', vb = b[sortCol]||'';
-    if (sortCol==='date') { va=va||'9999'; vb=vb||'9999'; }
-    const cmp = va<vb ? -1 : va>vb ? 1 : 0;
-    return sortAsc ? cmp : -cmp;
-  });
-  const tbody = document.getElementById('actionsTbody');
-  if (!rows.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">Aucune action pour ce comité.<br>Cliquez sur <strong>+ Nouvelle action</strong> pour commencer.</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = rows.map(a => `
-    <tr>
-      <td class="td-action">
-        <div class="action-text">${esc(a.action)}</div>
-        ${a.objectif ? `<div class="action-meta">🎯 ${esc(a.objectif)}</div>` : ''}
-      </td>
-      <td class="date-cell ${dateClass(a.date)}">${fmtDate(a.date)}</td>
-      <td>${a.porteur ? `<span class="porteur-badge"><span class="porteur-avatar">${esc(initials(a.porteur))}</span>${esc(a.porteur)}</span>` : '<span style="color:#ccc">—</span>'}</td>
-      <td><span class="status-badge ${statusClass(a.status)}">${esc(a.status)}</span></td>
-      <td class="comment-cell">${a.comment ? esc(a.comment) : '<span style="color:#ccc">—</span>'}</td>
-      <td>
-        <div class="row-actions">
-          <button class="icon-btn" title="Modifier" onclick="window._editAction('${a._id}')">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
-          <button class="icon-btn del" title="Supprimer" onclick="window._deleteAction('${a._id}')">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-          </button>
-        </div>
-      </td>
-    </tr>
-  `).join('');
-}
-
-// expose pour les onclick inline
-window._editAction = (id) => {
-  const a = actions.find(x => x._id === id);
-  if (!a) return;
-  editingId = id;
-  document.getElementById('fAction').value   = a.action   || '';
-  document.getElementById('fObjectif').value = a.objectif || '';
-  document.getElementById('fDate').value     = a.date     || '';
-  document.getElementById('fPorteur').value  = a.porteur  || '';
-  document.getElementById('fStatus').value   = a.status   || 'En attente';
-  document.getElementById('fComment').value  = a.comment  || '';
-  // afficher la date actuelle dans le display verrouillé
-  if (a.date) {
-    const d = new Date(a.date);
-  }
-  openModal("Modifier l'action");
-};
-window._deleteAction = async (id) => {
-  if (!confirm('Supprimer cette action ?')) return;
-  await removeAction(id);
-};
-
-// ─── SORT ─────────────────────────────────────────────────────────────
-document.querySelectorAll('th.sortable').forEach(th => {
-  th.addEventListener('click', () => {
-    const col = th.dataset.col;
-    if (sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = true; }
-    renderTable();
-  });
-});
-
-// ─── MODAL ────────────────────────────────────────────────────────────
-function openModal(title) {
-  document.getElementById('modalTitleText').textContent = title;
-  document.getElementById('modalBackdrop').classList.add('open');
-}
-function closeModal() {
-  document.getElementById('modalBackdrop').classList.remove('open');
-  editingId = null;
-  ['fAction','fObjectif','fDate','fPorteur','fComment'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('fStatus').value = 'En attente';
-}
-
-document.getElementById('btnNewAction').addEventListener('click', () => { editingId = null; openModal('Nouvelle action'); });
-document.getElementById('btnCancel').addEventListener('click', closeModal);
-document.getElementById('modalBackdrop').addEventListener('click', e => { if (e.target === document.getElementById('modalBackdrop')) closeModal(); });
-document.getElementById('btnAddComite').addEventListener('click', async () => {
-  const name = prompt('Nom du nouveau comité :');
-  if (!name || !name.trim()) return;
-  if (comites.includes(name.trim())) { alert('Ce comité existe déjà.'); return; }
-  await addComite(name.trim());
-});
-
-document.getElementById('btnSave').addEventListener('click', async () => {
-  const action  = document.getElementById('fAction').value.trim();
-  const date    = document.getElementById('fDate').value;
-  const porteur = document.getElementById('fPorteur').value.trim();
-  if (!action) { alert('Le champ Action est requis.'); return; }
-  const data = {
-    action, date, porteur,
-    objectif: document.getElementById('fObjectif').value.trim(),
-    status:   document.getElementById('fStatus').value,
-    comment:  document.getElementById('fComment').value.trim(),
-  };
-  await saveAction(data);
-  closeModal();
-});
-
-// ─── SEARCH / FILTER ──────────────────────────────────────────────────
-document.getElementById('searchInput').addEventListener('input', renderTable);
-document.getElementById('filterStatus').addEventListener('change', renderTable);
-document.getElementById('filterPorteur').addEventListener('change', renderTable);
-
-// ─── EXPORT ───────────────────────────────────────────────────────────
-document.getElementById('btnExport').addEventListener('click', () => {
-  if (!actions.length) { alert('Aucune donnée à exporter.'); return; }
-  const rows = actions.map(a => ({ 'Comité':a.comite,'Action':a.action,'Objectif':a.objectif,'Date cible':a.date,'Porteur':a.porteur,'Statut':a.status,'Commentaire':a.comment }));
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'PDA');
-  XLSX.writeFile(wb, `PDA_${activeComite.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
-});
-
-// ─── INIT ─────────────────────────────────────────────────────────────
-loadComites().catch(e => console.error('Erreur init:', e));
-</script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
 :root {
-  --bg: #f4f6f9;
-  --surface: #ffffff;
-  --border: #dde2ea;
-  --border-hover: #b0bac8;
-  --text-primary: #111;
-  --text-secondary: #555;
-  --text-muted: #999;
-  --accent: #003366;
-  --accent-light: #E6F1FB;
-  --green: #2e7d32;
-  --green-bg: #e8f5e9;
-  --orange: #e65100;
-  --orange-bg: #fff3e0;
-  --red: #c62828;
-  --red-bg: #ffebee;
-  --blue: #185FA5;
-  --blue-bg: #E6F1FB;
-  --gray: #607d8b;
-  --gray-bg: #eceff1;
+  --bg: #f4f6f9; --surface: #ffffff; --border: #dde2ea; --border-hover: #b0bac8;
+  --text-primary: #111; --text-secondary: #555; --text-muted: #999;
+  --accent: #003366; --accent-light: #E6F1FB;
+  --green: #2e7d32; --green-bg: #e8f5e9;
+  --orange: #e65100; --orange-bg: #fff3e0;
+  --red: #c62828; --red-bg: #ffebee;
+  --blue: #185FA5; --blue-bg: #E6F1FB;
+  --gray: #607d8b; --gray-bg: #eceff1;
   --radius: 10px;
 }
-
-body {
-  font-family: 'DM Sans', Arial, sans-serif;
-  background: var(--bg);
-  min-height: 100vh;
-  color: var(--text-primary);
-  padding: 2rem 1rem;
-}
-
-/* ─── LAYOUT ─── */
+body { font-family: 'DM Sans', Arial, sans-serif; background: var(--bg); min-height: 100vh; color: var(--text-primary); padding: 2rem 1rem; }
 .page-wrap { max-width: 1200px; margin: 0 auto; }
-
-/* ─── HEADER ─── */
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 2rem;
-  padding-bottom: 1.25rem;
-  border-bottom: 1px solid var(--border);
-}
+.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); }
 .header-left { display: flex; align-items: center; gap: 14px; }
-.header-icon {
-  width: 40px; height: 40px;
-  background: var(--accent-light);
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-}
+.header-icon { width: 40px; height: 40px; background: var(--accent-light); border-radius: 10px; display: flex; align-items: center; justify-content: center; }
 .header-title { font-size: 15px; font-weight: 600; color: #111; letter-spacing: .04em; }
 .header-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-.back-btn {
-  font-size: 12px; font-weight: 600; color: var(--accent);
-  text-decoration: none; padding: 6px 14px;
-  border: 1px solid #b3c6de; border-radius: 20px;
-  background: #fff; transition: background .15s;
-  letter-spacing: .04em;
-}
+.back-btn { font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; padding: 6px 14px; border: 1px solid #b3c6de; border-radius: 20px; background: #fff; transition: background .15s; letter-spacing: .04em; }
 .back-btn:hover { background: var(--accent-light); }
-
-/* ─── COMITÉ SELECTOR ─── */
-.comite-bar {
-  display: flex; align-items: center; gap: 10px;
-  margin-bottom: 1.5rem; flex-wrap: wrap;
-}
+.error-banner { background: #ffebee; border: 1px solid #ffcdd2; color: #c62828; padding: 10px 14px; border-radius: 8px; font-size: 12px; margin-bottom: 1rem; display: none; }
+.comite-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 1.5rem; flex-wrap: wrap; }
 .comite-label { font-size: 12px; font-weight: 600; color: var(--text-secondary); letter-spacing: .05em; text-transform: uppercase; }
 .comite-chips { display: flex; gap: 8px; flex-wrap: wrap; }
-.chip {
-  font-size: 12px; font-weight: 500;
-  padding: 5px 14px; border-radius: 20px;
-  border: 1px solid var(--border); background: #fff;
-  color: var(--text-secondary); cursor: pointer;
-  transition: all .15s; white-space: nowrap;
-}
-.chip.active, .chip:hover {
-  background: var(--accent); color: #fff; border-color: var(--accent);
-}
-.chip-add {
-  font-size: 18px; line-height: 1;
-  padding: 3px 12px; border-radius: 20px;
-  border: 1px dashed #b0bac8; background: transparent;
-  color: var(--text-muted); cursor: pointer;
-  transition: all .15s;
-}
+.chip { font-size: 12px; font-weight: 500; padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border); background: #fff; color: var(--text-secondary); cursor: pointer; transition: all .15s; white-space: nowrap; }
+.chip.active, .chip:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chip-add { font-size: 18px; line-height: 1; padding: 3px 12px; border-radius: 20px; border: 1px dashed #b0bac8; background: transparent; color: var(--text-muted); cursor: pointer; transition: all .15s; }
 .chip-add:hover { border-color: var(--accent); color: var(--accent); }
-
-/* ─── TOOLBAR ─── */
-.toolbar {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 1rem; gap: 10px; flex-wrap: wrap;
-}
+.toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; gap: 10px; flex-wrap: wrap; }
 .toolbar-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.filter-select {
-  font-family: 'DM Sans', Arial, sans-serif;
-  font-size: 12px; font-weight: 500;
-  padding: 6px 10px; border-radius: 8px;
-  border: 1px solid var(--border); background: #fff;
-  color: var(--text-primary); cursor: pointer; outline: none;
-}
-.filter-select:focus { border-color: var(--accent); }
-
-.search-box {
-  display: flex; align-items: center; gap: 6px;
-  background: #fff; border: 1px solid var(--border);
-  border-radius: 8px; padding: 6px 10px;
-}
-.search-box input {
-  font-family: 'DM Sans', Arial, sans-serif;
-  font-size: 12px; border: none; outline: none;
-  background: transparent; width: 160px; color: var(--text-primary);
-}
-.search-box svg { color: var(--text-muted); flex-shrink: 0; }
-
-.btn-primary {
-  font-family: 'DM Sans', Arial, sans-serif;
-  font-size: 12px; font-weight: 600;
-  padding: 7px 16px; border-radius: 8px;
-  border: none; background: var(--accent); color: #fff;
-  cursor: pointer; transition: opacity .15s; letter-spacing: .03em;
-  display: flex; align-items: center; gap: 6px;
-}
+.filter-select { font-family: 'DM Sans', Arial, sans-serif; font-size: 12px; font-weight: 500; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--text-primary); cursor: pointer; outline: none; }
+.search-box { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.search-box input { font-family: 'DM Sans', Arial, sans-serif; font-size: 12px; border: none; outline: none; background: transparent; width: 160px; color: var(--text-primary); }
+.btn-primary { font-family: 'DM Sans', Arial, sans-serif; font-size: 12px; font-weight: 600; padding: 7px 16px; border-radius: 8px; border: none; background: var(--accent); color: #fff; cursor: pointer; transition: opacity .15s; letter-spacing: .03em; display: flex; align-items: center; gap: 6px; }
 .btn-primary:hover { opacity: .85; }
-.btn-secondary {
-  font-family: 'DM Sans', Arial, sans-serif;
-  font-size: 12px; font-weight: 500;
-  padding: 7px 14px; border-radius: 8px;
-  border: 1px solid var(--border); background: #fff; color: var(--text-primary);
-  cursor: pointer; transition: all .15s;
-  display: flex; align-items: center; gap: 6px;
-}
+.btn-secondary { font-family: 'DM Sans', Arial, sans-serif; font-size: 12px; font-weight: 500; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--text-primary); cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 6px; }
 .btn-secondary:hover { border-color: var(--border-hover); background: #f7f9fb; }
-
-/* ─── STATS STRIP ─── */
-.stats-strip {
-  display: flex; gap: 10px; margin-bottom: 1.25rem; flex-wrap: wrap;
-}
-.stat-pill {
-  display: flex; align-items: center; gap: 6px;
-  padding: 6px 14px; border-radius: 20px;
-  font-size: 12px; font-weight: 500;
-  border: 1px solid transparent;
-}
+.stats-strip { display: flex; gap: 10px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.stat-pill { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; border: 1px solid transparent; }
 .stat-pill .count { font-weight: 700; font-size: 13px; }
 .sp-total { background: #f0f2f5; color: #444; border-color: #dde2ea; }
 .sp-done  { background: var(--green-bg); color: var(--green); border-color: #c8e6c9; }
 .sp-prog  { background: var(--blue-bg); color: var(--blue); border-color: #bbdefb; }
 .sp-late  { background: var(--red-bg); color: var(--red); border-color: #ffcdd2; }
 .sp-pend  { background: var(--gray-bg); color: var(--gray); border-color: #cfd8dc; }
-
-/* ─── TABLE ─── */
-.table-wrap {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); overflow: hidden;
-}
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 table { width: 100%; border-collapse: collapse; }
 thead { background: #f7f9fb; }
-th {
-  text-align: left; font-size: 11px; font-weight: 600;
-  color: var(--text-muted); letter-spacing: .06em; text-transform: uppercase;
-  padding: 10px 14px; border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-th.sortable { cursor: pointer; user-select: none; }
-th.sortable:hover { color: var(--accent); }
-.sort-icon { margin-left: 4px; opacity: .5; }
-
+th { text-align: left; font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: .06em; text-transform: uppercase; padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+th:hover { color: var(--accent); }
 tbody tr { border-bottom: 1px solid #f0f2f5; transition: background .1s; }
 tbody tr:last-child { border-bottom: none; }
 tbody tr:hover { background: #fafbfd; }
-
 td { padding: 11px 14px; font-size: 13px; vertical-align: top; }
-
-/* action column */
 .td-action { max-width: 280px; }
 .action-text { font-weight: 500; color: #111; line-height: 1.4; }
 .action-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-
-/* date column */
 .date-cell { white-space: nowrap; font-size: 12px; }
 .date-overdue { color: var(--red); font-weight: 600; }
 .date-soon { color: var(--orange); font-weight: 600; }
 .date-ok { color: var(--text-secondary); }
-
-/* porteur */
-.porteur-badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 12px; font-weight: 500;
-  padding: 3px 9px; border-radius: 20px;
-  background: #f0f2f5; color: #444;
-  white-space: nowrap;
-}
-.porteur-avatar {
-  width: 18px; height: 18px; border-radius: 50%;
-  background: var(--accent); color: #fff;
-  font-size: 9px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center;
-}
-
-/* status badges */
-.status-badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 600;
-  padding: 3px 10px; border-radius: 20px;
-  white-space: nowrap; letter-spacing: .03em;
-}
-.status-badge::before {
-  content: ''; width: 6px; height: 6px; border-radius: 50%;
-}
-.s-done    { background: var(--green-bg); color: var(--green); }
-.s-done::before { background: var(--green); }
-.s-prog    { background: var(--blue-bg); color: var(--blue); }
-.s-prog::before { background: var(--blue); }
-.s-late    { background: var(--red-bg); color: var(--red); }
-.s-late::before { background: var(--red); }
-.s-pend    { background: var(--gray-bg); color: var(--gray); }
-.s-pend::before { background: var(--gray); }
-.s-blocked { background: var(--orange-bg); color: var(--orange); }
-.s-blocked::before { background: var(--orange); }
-
-/* comment */
-.comment-cell {
-  font-size: 12px; color: var(--text-secondary);
-  max-width: 200px; line-height: 1.4;
-}
-
-/* actions column */
+.porteur-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; padding: 3px 9px; border-radius: 20px; background: #f0f2f5; color: #444; white-space: nowrap; }
+.porteur-avatar { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; white-space: nowrap; letter-spacing: .03em; }
+.status-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
+.s-done { background: var(--green-bg); color: var(--green); } .s-done::before { background: var(--green); }
+.s-prog { background: var(--blue-bg); color: var(--blue); } .s-prog::before { background: var(--blue); }
+.s-late { background: var(--red-bg); color: var(--red); } .s-late::before { background: var(--red); }
+.s-pend { background: var(--gray-bg); color: var(--gray); } .s-pend::before { background: var(--gray); }
+.s-blocked { background: var(--orange-bg); color: var(--orange); } .s-blocked::before { background: var(--orange); }
+.comment-cell { font-size: 12px; color: var(--text-secondary); max-width: 200px; line-height: 1.4; }
 .row-actions { display: flex; gap: 4px; }
-.icon-btn {
-  width: 28px; height: 28px; border-radius: 6px;
-  border: 1px solid transparent; background: transparent;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: all .15s; color: var(--text-muted);
-}
+.icon-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid transparent; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s; color: var(--text-muted); }
 .icon-btn:hover { background: #f0f2f5; border-color: var(--border); color: #333; }
 .icon-btn.del:hover { background: var(--red-bg); border-color: #ffcdd2; color: var(--red); }
-
-/* empty state */
-.empty-row td {
-  text-align: center; padding: 3rem;
-  color: var(--text-muted); font-size: 13px;
-}
-
-/* ─── MODAL ─── */
-.modal-backdrop {
-  position: fixed; inset: 0;
-  background: rgba(0,0,0,.35);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 100; padding: 1rem;
-  opacity: 0; pointer-events: none; transition: opacity .2s;
-}
+.empty-row td { text-align: center; padding: 3rem; color: var(--text-muted); font-size: 13px; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; opacity: 0; pointer-events: none; transition: opacity .2s; }
 .modal-backdrop.open { opacity: 1; pointer-events: all; }
-.modal {
-  background: #fff; border-radius: 14px;
-  padding: 1.75rem; width: 100%; max-width: 560px;
-  box-shadow: 0 12px 40px rgba(0,0,0,.18);
-  transform: translateY(10px); transition: transform .2s;
-  max-height: 90vh; overflow-y: auto;
-}
+.modal { background: #fff; border-radius: 14px; padding: 1.75rem; width: 100%; max-width: 560px; box-shadow: 0 12px 40px rgba(0,0,0,.18); transform: translateY(10px); transition: transform .2s; max-height: 90vh; overflow-y: auto; }
 .modal-backdrop.open .modal { transform: translateY(0); }
-.modal-title {
-  font-size: 15px; font-weight: 600; color: #111;
-  margin-bottom: 1.25rem; display: flex; align-items: center; gap: 8px;
-}
+.modal-title { font-size: 15px; font-weight: 600; color: #111; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 8px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-field { display: flex; flex-direction: column; gap: 5px; }
 .form-field.full { grid-column: 1 / -1; }
 .form-label { font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: .05em; text-transform: uppercase; }
-.form-input, .form-select, .form-textarea {
-  font-family: 'DM Sans', Arial, sans-serif;
-  font-size: 13px; padding: 8px 10px;
-  border: 1px solid var(--border); border-radius: 8px;
-  color: var(--text-primary); background: #fff; outline: none;
-  transition: border-color .15s;
-}
+.form-input, .form-select, .form-textarea { font-family: 'DM Sans', Arial, sans-serif; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); background: #fff; outline: none; transition: border-color .15s; }
 .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--accent); }
 .form-textarea { resize: vertical; min-height: 70px; }
 .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 1.25rem; }
-.btn-cancel {
-  font-family: 'DM Sans', Arial, sans-serif;
-  font-size: 12px; font-weight: 500; padding: 7px 16px;
-  border-radius: 8px; border: 1px solid var(--border);
-  background: #fff; cursor: pointer; color: var(--text-primary);
-}
+.btn-cancel { font-family: 'DM Sans', Arial, sans-serif; font-size: 12px; font-weight: 500; padding: 7px 16px; border-radius: 8px; border: 1px solid var(--border); background: #fff; cursor: pointer; color: var(--text-primary); }
 .btn-cancel:hover { background: #f7f9fb; }
-
-/* ─── PROGRESS BAR ─── */
 .progress-wrap { margin-bottom: 1.25rem; }
 .progress-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
 .progress-bar { height: 4px; background: #e4e8ef; border-radius: 4px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width .4s; }
-
-/* ─── FOOTER ─── */
-.page-footer {
-  margin-top: 2rem; padding-top: 1.25rem;
-  border-top: 1px solid var(--border);
-  text-align: center;
-  font-size: 11px; color: var(--text-muted);
-}
+.page-footer { margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); text-align: center; font-size: 11px; color: var(--text-muted); }
 @keyframes spin { to { transform: rotate(360deg); } }
+.sync-dot { width:8px; height:8px; border-radius:50%; background:var(--blue); display:inline-block; animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 </style>
 </head>
 <body>
 <div class="page-wrap">
 
-  <!-- HEADER -->
   <div class="page-header">
     <div class="header-left">
       <div class="header-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#185FA5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-        </svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#185FA5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
       </div>
       <div>
         <div class="header-title">Plan d'Actions (PDA) – Comités</div>
@@ -657,22 +126,21 @@ td { padding: 11px 14px; font-size: 13px; vertical-align: top; }
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span id="syncIndicator" style="opacity:0;transition:opacity .3s;font-size:11px;color:#185FA5;display:flex;align-items:center;gap:4px;">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-        Sync…
+      <span id="syncIndicator" style="opacity:0;font-size:11px;color:#185FA5;display:flex;align-items:center;gap:5px;transition:opacity .3s;">
+        <span class="sync-dot"></span> Sync…
       </span>
       <a class="back-btn" href="index.html">← Accueil</a>
     </div>
   </div>
 
-  <!-- COMITÉ SELECTOR -->
+  <div id="errorBanner" class="error-banner"></div>
+
   <div class="comite-bar">
     <span class="comite-label">Comité :</span>
     <div class="comite-chips" id="comiteChips"></div>
     <button class="chip-add" id="btnAddComite" title="Nouveau comité">+</button>
   </div>
 
-  <!-- PROGRESS BAR -->
   <div class="progress-wrap">
     <div class="progress-label">
       <span id="progressLabel">Avancement</span>
@@ -681,10 +149,8 @@ td { padding: 11px 14px; font-size: 13px; vertical-align: top; }
     <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
   </div>
 
-  <!-- STATS -->
   <div class="stats-strip" id="statsStrip"></div>
 
-  <!-- TOOLBAR -->
   <div class="toolbar">
     <div class="toolbar-left">
       <div class="search-box">
@@ -715,15 +181,14 @@ td { padding: 11px 14px; font-size: 13px; vertical-align: top; }
     </div>
   </div>
 
-  <!-- TABLE -->
   <div class="table-wrap">
     <table>
       <thead>
         <tr>
-          <th class="sortable" data-col="action">Action <span class="sort-icon">↕</span></th>
-          <th class="sortable" data-col="date">Date cible <span class="sort-icon">↕</span></th>
-          <th class="sortable" data-col="porteur">Porteur <span class="sort-icon">↕</span></th>
-          <th class="sortable" data-col="status">Statut <span class="sort-icon">↕</span></th>
+          <th data-col="action">Action ↕</th>
+          <th data-col="date">Date cible ↕</th>
+          <th data-col="porteur">Porteur ↕</th>
+          <th data-col="status">Statut ↕</th>
           <th>Commentaire</th>
           <th style="width:72px;"></th>
         </tr>
@@ -735,7 +200,6 @@ td { padding: 11px 14px; font-size: 13px; vertical-align: top; }
   <div class="page-footer">Département Delivery et Management de Service</div>
 </div>
 
-<!-- MODAL FORM -->
 <div class="modal-backdrop" id="modalBackdrop">
   <div class="modal">
     <div class="modal-title">
@@ -752,7 +216,7 @@ td { padding: 11px 14px; font-size: 13px; vertical-align: top; }
         <input class="form-input" id="fObjectif" type="text" placeholder="Résultat attendu">
       </div>
       <div class="form-field">
-        <label class="form-label">Date de réalisation *</label>
+        <label class="form-label">Date de réalisation</label>
         <input class="form-input" id="fDate" type="date">
       </div>
       <div class="form-field">
@@ -781,6 +245,349 @@ td { padding: 11px 14px; font-size: 13px; vertical-align: top; }
   </div>
 </div>
 
+<script>
+// ── FIREBASE INIT ──────────────────────────────────────────────────────────
+firebase.initializeApp({
+  apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+  authDomain: "ddms-architectures.firebaseapp.com",
+  projectId: "ddms-architectures",
+  storageBucket: "ddms-architectures.firebasestorage.app",
+  messagingSenderId: "767552965189",
+  appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+});
+var db = firebase.firestore();
 
+// ── STATE ──────────────────────────────────────────────────────────────────
+var activeComite = '';
+var actions = [];
+var editingId = null;
+var sortCol = 'date';
+var sortAsc = true;
+var unsubActions = null;
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+function setSyncing(on) {
+  document.getElementById('syncIndicator').style.opacity = on ? '1' : '0';
+}
+
+function showError(msg) {
+  var el = document.getElementById('errorBanner');
+  el.innerHTML = '⚠️ ' + msg;
+  el.style.display = 'block';
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  var dt = new Date(d);
+  return dt.toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' });
+}
+
+function dateClass(d) {
+  if (!d) return '';
+  var dt = new Date(d), now = new Date(); now.setHours(0,0,0,0);
+  var diff = (dt - now) / 86400000;
+  return diff < 0 ? 'date-overdue' : diff <= 7 ? 'date-soon' : 'date-ok';
+}
+
+function statusClass(s) {
+  var m = { 'Terminé':'s-done','En cours':'s-prog','En retard':'s-late','En attente':'s-pend','Bloqué':'s-blocked' };
+  return m[s] || 's-pend';
+}
+
+function initials(name) {
+  return String(name).trim().split(/\s+/).map(function(w){ return w[0]; }).join('').toUpperCase().slice(0,2);
+}
+
+// ── COMITÉS ────────────────────────────────────────────────────────────────
+function loadComites() {
+  setSyncing(true);
+  db.collection('pda_comites').get().then(function(snap) {
+    var names = snap.docs.map(function(d){ return d.data().name; }).sort();
+    if (names.length === 0) {
+      // Créer comités par défaut
+      var defaults = ['Comité mensuel', 'Comité trimestriel', 'Comité de crise'];
+      var promises = defaults.map(function(name) {
+        return db.collection('pda_comites').add({ name: name });
+      });
+      Promise.all(promises).then(function() {
+        renderComites(defaults);
+        activeComite = defaults[0];
+        subscribeActions();
+        setSyncing(false);
+      }).catch(function(e) {
+        showError('Impossible de créer les comités : ' + e.message);
+        setSyncing(false);
+      });
+    } else {
+      renderComites(names);
+      activeComite = names[0];
+      subscribeActions();
+      setSyncing(false);
+    }
+  }).catch(function(e) {
+    showError('Erreur Firebase : ' + e.message + ' — Vérifiez les règles Firestore.');
+    setSyncing(false);
+    // Afficher quand même les comités en local
+    var defaults = ['Comité mensuel', 'Comité trimestriel', 'Comité de crise'];
+    renderComites(defaults);
+    activeComite = defaults[0];
+  });
+}
+
+function renderComites(names) {
+  var container = document.getElementById('comiteChips');
+  container.innerHTML = '';
+  names.forEach(function(c) {
+    var btn = document.createElement('button');
+    btn.className = 'chip' + (c === activeComite ? ' active' : '');
+    btn.textContent = c;
+    btn.onclick = function() {
+      activeComite = c;
+      renderComites(names);
+      subscribeActions();
+    };
+    btn.oncontextmenu = function(e) {
+      e.preventDefault();
+      if (confirm('Supprimer le comité « ' + c + ' » et toutes ses actions ?')) {
+        deleteComite(c, names);
+      }
+    };
+    container.appendChild(btn);
+  });
+}
+
+function deleteComite(name, names) {
+  db.collection('pda_comites').where('name','==',name).get().then(function(snap) {
+    snap.docs.forEach(function(d){ d.ref.delete(); });
+  });
+  db.collection('pda_actions').where('comite','==',name).get().then(function(snap) {
+    snap.docs.forEach(function(d){ d.ref.delete(); });
+  });
+  var newNames = names.filter(function(n){ return n !== name; });
+  activeComite = newNames[0] || '';
+  renderComites(newNames);
+  subscribeActions();
+}
+
+document.getElementById('btnAddComite').onclick = function() {
+  var name = prompt('Nom du nouveau comité :');
+  if (!name || !name.trim()) return;
+  db.collection('pda_comites').add({ name: name.trim() }).then(function() {
+    loadComites();
+  }).catch(function(e) {
+    showError('Erreur ajout comité : ' + e.message);
+  });
+};
+
+// ── ACTIONS ────────────────────────────────────────────────────────────────
+function subscribeActions() {
+  if (unsubActions) unsubActions();
+  if (!activeComite) { actions = []; renderTable(); renderStats([]); return; }
+  setSyncing(true);
+  unsubActions = db.collection('pda_actions')
+    .where('comite','==', activeComite)
+    .onSnapshot(function(snap) {
+      actions = snap.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); });
+      setSyncing(false);
+      renderTable();
+      renderStats(actions);
+    }, function(e) {
+      showError('Erreur lecture : ' + e.message);
+      setSyncing(false);
+    });
+}
+
+// ── STATS ──────────────────────────────────────────────────────────────────
+function renderStats(all) {
+  var done=0, prog=0, late=0, pend=0;
+  all.forEach(function(a) {
+    if (a.status==='Terminé') done++;
+    else if (a.status==='En cours') prog++;
+    else if (a.status==='En retard') late++;
+    else pend++;
+  });
+  var pct = all.length ? Math.round(done/all.length*100) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+  document.getElementById('progressLabel').textContent = 'Avancement – ' + (activeComite || '');
+  document.getElementById('statsStrip').innerHTML =
+    '<div class="stat-pill sp-total"><span class="count">'+all.length+'</span> Total</div>' +
+    '<div class="stat-pill sp-done"><span class="count">'+done+'</span> Terminé</div>' +
+    '<div class="stat-pill sp-prog"><span class="count">'+prog+'</span> En cours</div>' +
+    '<div class="stat-pill sp-late"><span class="count">'+late+'</span> En retard</div>' +
+    '<div class="stat-pill sp-pend"><span class="count">'+pend+'</span> En attente</div>';
+
+  // Porteurs
+  var porteurs = [];
+  all.forEach(function(a){ if (a.porteur && porteurs.indexOf(a.porteur)===-1) porteurs.push(a.porteur); });
+  porteurs.sort();
+  var sel = document.getElementById('filterPorteur');
+  var prev = sel.value;
+  sel.innerHTML = '<option value="">Tous les porteurs</option>';
+  porteurs.forEach(function(p) {
+    var o = document.createElement('option');
+    o.value = p; o.textContent = p;
+    if (p === prev) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+// ── TABLE ──────────────────────────────────────────────────────────────────
+function renderTable() {
+  var search = document.getElementById('searchInput').value.toLowerCase();
+  var fStatus = document.getElementById('filterStatus').value;
+  var fPorteur = document.getElementById('filterPorteur').value;
+
+  var rows = actions.filter(function(a) {
+    var ms = !search || (a.action||'').toLowerCase().indexOf(search)!==-1 || (a.porteur||'').toLowerCase().indexOf(search)!==-1;
+    return ms && (!fStatus || a.status===fStatus) && (!fPorteur || a.porteur===fPorteur);
+  });
+
+  rows.sort(function(a,b) {
+    var va = a[sortCol]||'', vb = b[sortCol]||'';
+    if (sortCol==='date'){ va=va||'9999'; vb=vb||'9999'; }
+    var c = va<vb?-1:va>vb?1:0;
+    return sortAsc?c:-c;
+  });
+
+  var tbody = document.getElementById('actionsTbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">Aucune action.<br>Cliquez sur <strong>+ Nouvelle action</strong> pour commencer.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(function(a) {
+    return '<tr>' +
+      '<td class="td-action"><div class="action-text">'+esc(a.action)+'</div>'+(a.objectif?'<div class="action-meta">🎯 '+esc(a.objectif)+'</div>':'')+'</td>' +
+      '<td class="date-cell '+dateClass(a.date)+'">'+fmtDate(a.date)+'</td>' +
+      '<td>'+(a.porteur?'<span class="porteur-badge"><span class="porteur-avatar">'+esc(initials(a.porteur))+'</span>'+esc(a.porteur)+'</span>':'<span style="color:#ccc">—</span>')+'</td>' +
+      '<td><span class="status-badge '+statusClass(a.status)+'">'+esc(a.status)+'</span></td>' +
+      '<td class="comment-cell">'+(a.comment?esc(a.comment):'<span style="color:#ccc">—</span>')+'</td>' +
+      '<td><div class="row-actions">' +
+        '<button class="icon-btn" onclick="openEdit(\''+a._id+'\')" title="Modifier"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>' +
+        '<button class="icon-btn del" onclick="deleteAction(\''+a._id+'\')" title="Supprimer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>' +
+      '</div></td>' +
+    '</tr>';
+  }).join('');
+}
+
+// ── SORT ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('th[data-col]').forEach(function(th) {
+  th.addEventListener('click', function() {
+    var col = this.dataset.col;
+    if (sortCol===col) sortAsc=!sortAsc; else { sortCol=col; sortAsc=true; }
+    renderTable();
+  });
+});
+
+// ── MODAL ──────────────────────────────────────────────────────────────────
+function openModal(title) {
+  document.getElementById('modalTitleText').textContent = title;
+  document.getElementById('modalBackdrop').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').classList.remove('open');
+  editingId = null;
+  document.getElementById('fAction').value = '';
+  document.getElementById('fObjectif').value = '';
+  document.getElementById('fDate').value = '';
+  document.getElementById('fPorteur').value = '';
+  document.getElementById('fStatus').value = 'En attente';
+  document.getElementById('fComment').value = '';
+}
+
+document.getElementById('btnNewAction').onclick = function() {
+  editingId = null;
+  openModal('Nouvelle action');
+};
+
+document.getElementById('btnCancel').onclick = closeModal;
+
+document.getElementById('modalBackdrop').onclick = function(e) {
+  if (e.target === this) closeModal();
+};
+
+function openEdit(id) {
+  var a = null;
+  for (var i=0; i<actions.length; i++) { if (actions[i]._id===id) { a=actions[i]; break; } }
+  if (!a) return;
+  editingId = id;
+  document.getElementById('fAction').value   = a.action   || '';
+  document.getElementById('fObjectif').value = a.objectif || '';
+  document.getElementById('fDate').value     = a.date     || '';
+  document.getElementById('fPorteur').value  = a.porteur  || '';
+  document.getElementById('fStatus').value   = a.status   || 'En attente';
+  document.getElementById('fComment').value  = a.comment  || '';
+  openModal('Modifier l\'action');
+}
+
+function deleteAction(id) {
+  if (!confirm('Supprimer cette action ?')) return;
+  setSyncing(true);
+  db.collection('pda_actions').doc(id).delete().then(function() {
+    setSyncing(false);
+  }).catch(function(e) {
+    showError('Erreur suppression : ' + e.message);
+    setSyncing(false);
+  });
+}
+
+document.getElementById('btnSave').onclick = function() {
+  var action  = document.getElementById('fAction').value.trim();
+  var porteur = document.getElementById('fPorteur').value.trim();
+  if (!action) { alert('Le champ Action est requis.'); return; }
+
+  var data = {
+    action:   action,
+    objectif: document.getElementById('fObjectif').value.trim(),
+    date:     document.getElementById('fDate').value,
+    porteur:  porteur,
+    status:   document.getElementById('fStatus').value,
+    comment:  document.getElementById('fComment').value.trim()
+  };
+
+  setSyncing(true);
+  var promise;
+  if (editingId) {
+    promise = db.collection('pda_actions').doc(editingId).update(data);
+  } else {
+    data.comite = activeComite;
+    data.createdAt = Date.now();
+    promise = db.collection('pda_actions').add(data);
+  }
+
+  promise.then(function() {
+    setSyncing(false);
+    closeModal();
+  }).catch(function(e) {
+    setSyncing(false);
+    showError('Erreur enregistrement : ' + e.message);
+  });
+};
+
+// ── SEARCH / FILTER ────────────────────────────────────────────────────────
+document.getElementById('searchInput').oninput = renderTable;
+document.getElementById('filterStatus').onchange = renderTable;
+document.getElementById('filterPorteur').onchange = renderTable;
+
+// ── EXPORT ─────────────────────────────────────────────────────────────────
+document.getElementById('btnExport').onclick = function() {
+  if (!actions.length) { alert('Aucune donnée à exporter.'); return; }
+  var rows = actions.map(function(a) {
+    return { 'Comité':a.comite,'Action':a.action,'Objectif':a.objectif,'Date':a.date,'Porteur':a.porteur,'Statut':a.status,'Commentaire':a.comment };
+  });
+  var ws = XLSX.utils.json_to_sheet(rows);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'PDA');
+  XLSX.writeFile(wb, 'PDA_' + activeComite.replace(/\s+/g,'_') + '_' + new Date().toISOString().slice(0,10) + '.xlsx');
+};
+
+// ── INIT ───────────────────────────────────────────────────────────────────
+loadComites();
+</script>
 </body>
 </html>
