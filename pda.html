@@ -39,18 +39,36 @@ function setSyncing(on) {
 
 // ─── COMITÉS (collection "pda_comites") ──────────────────────────────
 async function loadComites() {
-  const snap = await db.collection('pda_comites').get();
-  comites = snap.docs.map(d => d.data().name).sort();
-  if (!comites.length) {
-    // créer comités par défaut
-    for (const name of ['Comité mensuel','Comité trimestriel','Comité de crise']) {
-      await db.collection('pda_comites').add({ name });
-      comites.push(name);
+  try {
+    const snap = await db.collection('pda_comites').get();
+    comites = snap.docs.map(d => d.data().name).sort();
+    if (!comites.length) {
+      for (const name of ['Comité mensuel','Comité trimestriel','Comité de crise']) {
+        await db.collection('pda_comites').add({ name });
+        comites.push(name);
+      }
     }
+  } catch(e) {
+    console.error('Firestore error:', e);
+    showError('Erreur Firebase : ' + e.message + '<br><small>Vérifiez les règles Firestore.</small>');
+    // fallback local pour pouvoir quand même utiliser la page
+    comites = ['Comité mensuel','Comité trimestriel','Comité de crise'];
   }
   activeComite = comites[0] || '';
   renderComites();
   subscribeActions();
+}
+
+function showError(msg) {
+  let el = document.getElementById('firebaseError');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'firebaseError';
+    el.style.cssText = 'background:#ffebee;border:1px solid #ffcdd2;color:#c62828;padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:1rem;';
+    const wrap = document.querySelector('.page-wrap');
+    wrap.insertBefore(el, wrap.children[1]);
+  }
+  el.innerHTML = '⚠️ ' + msg;
 }
 
 async function addComite(name) {
@@ -100,15 +118,24 @@ function subscribeActions() {
     setSyncing(false);
     renderTable();
     renderStats();
+  }, err => {
+    console.error('onSnapshot error:', err);
+    setSyncing(false);
+    showError('Erreur lecture actions : ' + err.message);
   });
 }
 
 async function saveAction(data) {
   setSyncing(true);
-  if (editingId) {
-    await db.collection('pda_actions').doc(editingId).update(data);
-  } else {
-    await db.collection('pda_actions').add({ ...data, comite: activeComite, createdAt: Date.now() });
+  try {
+    if (editingId) {
+      await db.collection('pda_actions').doc(editingId).update(data);
+    } else {
+      await db.collection('pda_actions').add({ ...data, comite: activeComite, createdAt: Date.now() });
+    }
+  } catch(e) {
+    console.error('saveAction error:', e);
+    alert('Erreur enregistrement : ' + e.message);
   }
   setSyncing(false);
 }
