@@ -9,7 +9,6 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
@@ -22,7 +21,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
-const storage = getStorage(app);
 const COL = 'asm_clients';
 
 let clients = [];
@@ -54,15 +52,6 @@ async function fsSaveClient(c) {
   await setDoc(doc(db, COL, id), data);
 }
 async function fsDeleteClient(id) { await deleteDoc(doc(db, COL, id)); }
-
-// ── FIREBASE STORAGE UPLOAD ──
-async function uploadFile(file, clientId) {
-  const path = `asm_docs/${clientId}/${Date.now()}_${file.name}`;
-  const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file);
-  const url = await getDownloadURL(storageRef);
-  return { url, path };
-}
 
 // ── INIT ──
 async function init() {
@@ -311,21 +300,10 @@ window.saveDocument = async function() {
   const titre = document.getElementById('doc-titre').value.trim(); if (!titre) return;
   const existing = editState.documents!==null ? c.documents[editState.documents] : {};
 
-  let fileUrl = existing.fileUrl||'';
-  let fileName = existing.fileName||'';
-  let fileSize = existing.fileSize||0;
-
-  if (pendingFile) {
-    try {
-      toast('Upload du fichier…');
-      const result = await uploadFile(pendingFile.file, c.id);
-      fileUrl = result.url;
-      fileName = pendingFile.name;
-      fileSize = pendingFile.size;
-    } catch(e) {
-      toast('Erreur upload : '+e.message,'error'); return;
-    }
-  }
+  // Fichier : on garde juste les métadonnées (nom, taille) — pas d'upload Storage
+  const fileName = pendingFile ? pendingFile.name : (existing.fileName||'');
+  const fileSize = pendingFile ? pendingFile.size : (existing.fileSize||0);
+  const fileUrl  = existing.fileUrl||''; // conserve l'url si déjà présente
 
   const obj = {
     titre,
