@@ -531,19 +531,84 @@ function formatSize(b) {
 }
 
 
-// ── SUJETS SENSIBLES ──
+// ── SUJETS SENSIBLES (liste de notes) ──
+let editStateNote = null;
+
 function renderSensibles() {
   const c = getClient(); if (!c) return;
-  const ta = document.getElementById('sensibles-textarea');
-  if (ta) ta.value = c.sensibles || '';
-  const lbl = document.getElementById('sensibles-saved-at');
-  if (lbl) lbl.textContent = c.sensiblesSavedAt ? 'Sauvegardé le ' + formatDate(c.sensiblesSavedAt.split('T')[0]) : '';
+  const el = document.getElementById('sensibles-list');
+  const notes = c.notes || [];
+  if (!notes.length) { el.innerHTML = emptyState('Aucune note confidentielle'); return; }
+  el.innerHTML = [...notes].reverse().map((n, ri) => {
+    const i = notes.length - 1 - ri;
+    const niveauMap = { haute: { label:'🔴 Haute', cls:'tag-red' }, moyenne: { label:'🟡 Moyenne', cls:'tag-orange' }, faible: { label:'🟢 Faible', cls:'tag-green' } };
+    const niv = niveauMap[n.niveau] || niveauMap.moyenne;
+    return `<div class="card" style="border-left:3px solid ${n.niveau==='haute'?'var(--red)':n.niveau==='faible'?'var(--green)':'var(--orange)'}">
+      <div class="card-head">
+        <span class="card-title">${n.titre||'Sans titre'}</span>
+        <span class="card-date">${n.date?formatDate(n.date):''}</span>
+      </div>
+      <div class="card-body" style="white-space:pre-wrap;margin-top:6px;">${n.contenu||''}</div>
+      <div class="card-tags" style="margin-top:10px;">
+        <span class="tag ${niv.cls}">${niv.label}</span>
+        ${n.categorie?`<span class="tag tag-blue">${n.categorie}</span>`:''}
+      </div>
+      <div class="card-actions">
+        <button class="btn-sm-edit" onclick="editNote(${i})">✏️ Modifier</button>
+        <button class="btn-sm" onclick="deleteNote(${i})">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
 }
-window.saveSensibles = async function() {
+
+window.openAddNote = function() {
+  editStateNote = null;
+  document.getElementById('note-modal-title').innerHTML = 'Nouvelle note sensible <button class="modal-close" onclick="closeModal(\'modal-note\')">✕</button>';
+  document.getElementById('note-modal-btn').textContent = 'Enregistrer';
+  ['note-titre','note-contenu','note-categorie'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('note-date').value = new Date().toISOString().split('T')[0];
+  document.getElementById('note-niveau').value = 'moyenne';
+  document.getElementById('modal-note').style.display='flex';
+};
+
+window.editNote = function(i) {
+  const n = (getClient().notes||[])[i];
+  editStateNote = i;
+  document.getElementById('note-modal-title').innerHTML = 'Modifier la note <button class="modal-close" onclick="closeModal(\'modal-note\')">✕</button>';
+  document.getElementById('note-modal-btn').textContent = 'Enregistrer';
+  document.getElementById('note-titre').value    = n.titre||'';
+  document.getElementById('note-date').value     = n.date||'';
+  document.getElementById('note-niveau').value   = n.niveau||'moyenne';
+  document.getElementById('note-categorie').value= n.categorie||'';
+  document.getElementById('note-contenu').value  = n.contenu||'';
+  document.getElementById('modal-note').style.display='flex';
+};
+
+window.saveNote = async function() {
   const c = getClient(); if (!c) return;
-  c.sensibles = document.getElementById('sensibles-textarea').value;
-  c.sensiblesSavedAt = new Date().toISOString();
-  try { toast('Sauvegarde…'); await fsSaveClient(c); renderSensibles(); toast('Notes sauvegardées ✓','success'); }
+  const titre = document.getElementById('note-titre').value.trim(); if (!titre) return;
+  const obj = {
+    titre,
+    date:      document.getElementById('note-date').value,
+    niveau:    document.getElementById('note-niveau').value,
+    categorie: document.getElementById('note-categorie').value.trim(),
+    contenu:   document.getElementById('note-contenu').value.trim(),
+  };
+  if (!c.notes) c.notes = [];
+  if (editStateNote !== null) c.notes[editStateNote] = obj; else c.notes.push(obj);
+  try {
+    toast('Enregistrement…');
+    await fsSaveClient(c);
+    closeModal('modal-note');
+    renderSensibles();
+    toast('Note enregistrée ✓','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+window.deleteNote = async function(i) {
+  if (!confirm('Supprimer cette note ?')) return;
+  const c = getClient(); c.notes.splice(i,1);
+  try { await fsSaveClient(c); renderSensibles(); toast('Supprimé ✓','success'); }
   catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
@@ -840,19 +905,10 @@ init();
       <div class="tab-panel" id="panel-sensibles">
         <div class="section-header">
           <span class="section-title">🔒 Sujets sensibles</span>
-          <button class="btn-add" onclick="saveSensibles()">💾 Sauvegarder</button>
+          <button class="btn-add" onclick="openAddNote()">+ Ajouter une note</button>
         </div>
         <p style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:14px;">Notes confidentielles — non partagées dans les rapports standard</p>
-        <textarea id="sensibles-textarea"
-          placeholder="Notez ici les sujets sensibles, tensions, contextes politiques internes, informations confidentielles…"
-          style="width:100%;min-height:420px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);line-height:1.7;resize:vertical;outline:none;transition:border-color .2s;"
-          onfocus="this.style.borderColor='var(--accent)'"
-          onblur="this.style.borderColor='var(--border)'"
-        ></textarea>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
-          <span id="sensibles-saved-at" style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;"></span>
-          <button class="btn-primary" onclick="saveSensibles()" style="font-size:12px;padding:7px 16px;">💾 Sauvegarder</button>
-        </div>
+        <div id="sensibles-list"></div>
       </div>
 
       <!-- SITES EN SOUFFRANCE -->
@@ -1023,6 +1079,32 @@ init();
   </div>
 </div>
 
+
+<!-- MODAL NOTE SENSIBLE -->
+<div id="modal-note" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-note')">
+  <div class="modal">
+    <div class="modal-title" id="note-modal-title">Nouvelle note sensible <button class="modal-close" onclick="closeModal('modal-note')">✕</button></div>
+    <div class="field"><label>Titre *</label><input id="note-titre" placeholder="ex: Tension contractuelle, Litige en cours…"></div>
+    <div class="grid2">
+      <div class="field"><label>Date</label><input id="note-date" type="date"></div>
+      <div class="field"><label>Niveau de sensibilité</label>
+        <select id="note-niveau">
+          <option value="haute">🔴 Haute</option>
+          <option value="moyenne" selected>🟡 Moyenne</option>
+          <option value="faible">🟢 Faible</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Catégorie</label><input id="note-categorie" placeholder="ex: Contractuel, Politique, Financier…"></div>
+    <div class="field"><label>Contenu de la note</label>
+      <textarea id="note-contenu" placeholder="Décrivez le contexte, les enjeux, les personnes impliquées…" style="min-height:120px;"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-note')">Annuler</button>
+      <button class="btn-primary" id="note-modal-btn" onclick="saveNote()">Enregistrer</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL SITE EN SOUFFRANCE -->
 <div id="modal-souffrance" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-souffrance')">
