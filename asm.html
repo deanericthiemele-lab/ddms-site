@@ -6,23 +6,20 @@
 <title>ASM — Base de Connaissance Client</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
-
-const firebaseConfig = {
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
+<script>
+firebase.initializeApp({
   apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
   authDomain: "ddms-architectures.firebaseapp.com",
   projectId: "ddms-architectures",
   storageBucket: "ddms-architectures.firebasestorage.app",
   messagingSenderId: "767552965189",
   appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const storage = getStorage(app);
+});
+const db = firebase.firestore();
+const storage = firebase.storage();
 const COL = 'asm_clients';
 
 let clients = [];
@@ -46,21 +43,21 @@ function toast(msg, type='info') {
 
 // ── FIRESTORE ──
 async function fsGetAllClients() {
-  const snap = await getDocs(collection(db, COL));
+  const snap = await db.collection(COL).get();
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 async function fsSaveClient(c) {
   const { id, ...data } = c;
-  await setDoc(doc(db, COL, id), data);
+  await db.collection(COL).doc(id).set(data);
 }
-async function fsDeleteClient(id) { await deleteDoc(doc(db, COL, id)); }
+async function fsDeleteClient(id) { await db.collection(COL).doc(id).delete(); }
 
 // ── FIREBASE STORAGE UPLOAD avec progression ──
 function uploadFile(file, clientId) {
   return new Promise((resolve, reject) => {
     const path = `asm_docs/${clientId}/${Date.now()}_${file.name}`;
-    const storageRef = ref(storage, path);
-    const task = uploadBytesResumable(storageRef, file);
+    const storageRef = storage.ref(path);
+    const task = storageRef.put(file);
     task.on('state_changed',
       snapshot => {
         const pct = Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100);
@@ -68,7 +65,7 @@ function uploadFile(file, clientId) {
       },
       err => reject(err),
       async () => {
-        const url = await getDownloadURL(task.snapshot.ref);
+        const url = await task.snapshot.ref.getDownloadURL();
         resolve({ url, path });
       }
     );
