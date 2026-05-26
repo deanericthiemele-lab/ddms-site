@@ -159,7 +159,8 @@ function renderTaches() {
     if(!items.length) return;
     html+=`<div class="t-group"><div class="t-group-lbl" style="color:${gcol[grp]}">${gicon[grp]} ${grp} <span>(${items.length})</span></div>`;
     items.forEach(t=>{
-      const i=t._i, pc=PC[t.priorite]||'var(--text3)';
+      const i=t._i;
+      const statutCol={'À faire':'var(--text3)','En cours':'var(--accent)','Bloqué':'var(--red)','Terminé':'var(--green)'}[t.statut]||'var(--text3)';
       html+=`<div class="t-card ${t.statut==='Terminé'?'t-done':''}">
         <div class="t-head">
           <div class="t-chk ${t.statut==='Terminé'?'checked':''}" onclick="toggleTache(${i})"></div>
@@ -169,12 +170,12 @@ function renderTaches() {
             <button class="btn-icon del" onclick="deleteTache(${i})">✕</button>
           </div>
         </div>
-        ${t.description?`<div class="t-desc">${t.description}</div>`:''}
+        ${t.objectif?`<div class="t-objectif">🎯 ${t.objectif}</div>`:''}
         <div class="t-meta">
-          ${t.responsable?`<span class="t-badge acc">👤 ${t.responsable}</span>`:''}
           ${t.echeance?`<span class="t-badge">📅 ${formatDate(t.echeance)}</span>`:''}
-          ${t.priorite?`<span class="t-badge" style="color:${pc};background:${pc}18">● ${t.priorite}</span>`:''}
+          <span class="t-badge" style="color:${statutCol};background:${statutCol}18">${t.statut}</span>
         </div>
+        ${t.description?`<div class="t-desc">💬 ${t.description}</div>`:''}
       </div>`;
     });
     html+='</div>';
@@ -193,9 +194,8 @@ window.toggleTache=async function(i){
 window.editTache=function(i){
   const p=proj(); const t=p.taches[i]; editTacheIdx=i;
   document.getElementById('t-titre').value=t.titre||'';
-  document.getElementById('t-responsable').value=t.responsable||'';
+  document.getElementById('t-objectif').value=t.objectif||'';
   document.getElementById('t-echeance').value=t.echeance||'';
-  document.getElementById('t-priorite').value=t.priorite||'Moyenne';
   document.getElementById('t-statut').value=t.statut||'À faire';
   document.getElementById('t-desc').value=t.description||'';
   document.getElementById('tache-modal-title').innerHTML='Modifier la tâche <button class="modal-close" onclick="closeModal(\'modal-tache\')">✕</button>';
@@ -204,8 +204,7 @@ window.editTache=function(i){
 
 window.openAddTache=function(){
   editTacheIdx=null;
-  ['t-titre','t-responsable','t-echeance','t-desc'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('t-priorite').value='Moyenne';
+  ['t-titre','t-objectif','t-echeance','t-desc'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('t-statut').value='À faire';
   document.getElementById('tache-modal-title').innerHTML='Nouvelle tâche <button class="modal-close" onclick="closeModal(\'modal-tache\')">✕</button>';
   document.getElementById('modal-tache').style.display='flex';
@@ -214,7 +213,13 @@ window.openAddTache=function(){
 window.saveTache=async function(){
   const p=proj(); if(!p) return;
   const titre=document.getElementById('t-titre').value.trim(); if(!titre) return;
-  const obj={titre,responsable:document.getElementById('t-responsable').value,echeance:document.getElementById('t-echeance').value,priorite:document.getElementById('t-priorite').value,statut:document.getElementById('t-statut').value,description:document.getElementById('t-desc').value};
+  const obj={
+    titre,
+    objectif: document.getElementById('t-objectif').value,
+    echeance: document.getElementById('t-echeance').value,
+    statut:   document.getElementById('t-statut').value,
+    description: document.getElementById('t-desc').value
+  };
   if(!p.taches) p.taches=[];
   if(editTacheIdx!==null) p.taches[editTacheIdx]=obj; else p.taches.push(obj);
   try{ toast('Enregistrement…'); await fsSave(p); closeModal('modal-tache'); renderProjet(); toast('Tâche enregistrée ✓','success'); }
@@ -410,6 +415,7 @@ init();
   .btn-icon:hover{background:var(--surface2);}
   .btn-icon.del:hover{background:rgba(220,38,38,.08);}
   .t-desc{font-size:12px;color:var(--text2);margin:5px 0 3px 26px;line-height:1.5;}
+  .t-objectif{font-size:12px;color:var(--accent2);margin:5px 0 3px 26px;font-style:italic;}
   .t-meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px;margin-left:26px;}
   .t-badge{font-size:11px;font-family:'DM Mono',monospace;padding:2px 7px;border-radius:5px;background:var(--surface2);}
   .t-badge.acc{background:rgba(37,99,235,.08);color:var(--accent);}
@@ -544,20 +550,15 @@ init();
 <div id="modal-tache" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-tache')">
   <div class="modal modal-sm">
     <div class="modal-title" id="tache-modal-title">Nouvelle tâche <button class="modal-close" onclick="closeModal('modal-tache')">✕</button></div>
-    <div class="field"><label>Titre *</label><input id="t-titre" placeholder="ex: Rédiger le cahier des charges"></div>
+    <div class="field"><label>Nom de la tâche *</label><input id="t-titre" placeholder="ex: Rédiger le cahier des charges"></div>
+    <div class="field"><label>Objectif</label><input id="t-objectif" placeholder="ex: Définir le périmètre technique du projet"></div>
     <div class="grid2" style="margin-bottom:11px">
-      <div class="field"><label>Responsable</label><input id="t-responsable" placeholder="ex: Jean Dupont"></div>
-      <div class="field"><label>Échéance</label><input id="t-echeance" type="date"></div>
-    </div>
-    <div class="grid2" style="margin-bottom:11px">
-      <div class="field"><label>Priorité</label>
-        <select id="t-priorite"><option>Haute</option><option>Moyenne</option><option>Faible</option></select>
-      </div>
+      <div class="field"><label>Date d'exécution</label><input id="t-echeance" type="date"></div>
       <div class="field"><label>Statut</label>
         <select id="t-statut"><option>À faire</option><option>En cours</option><option>Terminé</option><option>Bloqué</option></select>
       </div>
     </div>
-    <div class="field"><label>Description</label><textarea id="t-desc" style="min-height:60px" placeholder="Détails…"></textarea></div>
+    <div class="field"><label>Commentaire</label><textarea id="t-desc" style="min-height:72px" placeholder="Notes, blocages, informations complémentaires…"></textarea></div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('modal-tache')">Annuler</button>
       <button class="btn-primary" onclick="saveTache()">Enregistrer</button>
