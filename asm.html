@@ -6,20 +6,23 @@
 <title>ASM — Base de Connaissance Client</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-storage-compat.js"></script>
-<script>
-firebase.initializeApp({
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+
+const firebaseConfig = {
   apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
   authDomain: "ddms-architectures.firebaseapp.com",
   projectId: "ddms-architectures",
   storageBucket: "ddms-architectures.firebasestorage.app",
   messagingSenderId: "767552965189",
   appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
-});
-const db = firebase.firestore();
-const storage = firebase.storage();
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const storage = getStorage(app);
 const COL = 'asm_clients';
 
 let clients = [];
@@ -43,21 +46,21 @@ function toast(msg, type='info') {
 
 // ── FIRESTORE ──
 async function fsGetAllClients() {
-  const snap = await db.collection(COL).get();
+  const snap = await getDocs(collection(db, COL));
   return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 async function fsSaveClient(c) {
   const { id, ...data } = c;
-  await db.collection(COL).doc(id).set(data);
+  await setDoc(doc(db, COL, id), data);
 }
-async function fsDeleteClient(id) { await db.collection(COL).doc(id).delete(); }
+async function fsDeleteClient(id) { await deleteDoc(doc(db, COL, id)); }
 
 // ── FIREBASE STORAGE UPLOAD avec progression ──
 function uploadFile(file, clientId) {
   return new Promise((resolve, reject) => {
     const path = `asm_docs/${clientId}/${Date.now()}_${file.name}`;
-    const storageRef = storage.ref(path);
-    const task = storageRef.put(file);
+    const storageRef = ref(storage, path);
+    const task = uploadBytesResumable(storageRef, file);
     task.on('state_changed',
       snapshot => {
         const pct = Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100);
@@ -65,7 +68,7 @@ function uploadFile(file, clientId) {
       },
       err => reject(err),
       async () => {
-        const url = await task.snapshot.ref.getDownloadURL();
+        const url = await getDownloadURL(task.snapshot.ref);
         resolve({ url, path });
       }
     );
@@ -529,8 +532,6 @@ function formatSize(b) {
 
 
 // ── SUJETS SENSIBLES ──
-let editStateSouffrance = null;
-
 function renderSensibles() {
   const c = getClient(); if (!c) return;
   const ta = document.getElementById('sensibles-textarea');
@@ -538,37 +539,37 @@ function renderSensibles() {
   const lbl = document.getElementById('sensibles-saved-at');
   if (lbl) lbl.textContent = c.sensiblesSavedAt ? 'Sauvegardé le ' + formatDate(c.sensiblesSavedAt.split('T')[0]) : '';
 }
-
 window.saveSensibles = async function() {
   const c = getClient(); if (!c) return;
   c.sensibles = document.getElementById('sensibles-textarea').value;
   c.sensiblesSavedAt = new Date().toISOString();
-  try {
-    toast('Sauvegarde…');
-    await fsSaveClient(c);
-    renderSensibles();
-    toast('Notes sauvegardées ✓', 'success');
-  } catch(e) { toast('Erreur : ' + e.message, 'error'); }
+  try { toast('Sauvegarde…'); await fsSaveClient(c); renderSensibles(); toast('Notes sauvegardées ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
 // ── SITES EN SOUFFRANCE ──
+let editStateSouffrance = null;
 function renderSouffrances() {
   const c = getClient(); if (!c) return;
-  const tbody = document.getElementById('souffrances-tbody');
-  if (!tbody) return;
+  const tbody = document.getElementById('souffrances-tbody'); if (!tbody) return;
   const list = c.souffrances || [];
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucun site en souffrance enregistré</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;">Aucun site enregistré</td></tr>';
     return;
   }
-  const statusMap = { critique: { label: '🔴 Critique', color: 'var(--red)', bg: 'rgba(220,38,38,.1)' }, tendu: { label: '🟡 Tendu', color: 'var(--orange)', bg: 'rgba(217,119,6,.1)' }, surveillance: { label: '🔵 Surveillance', color: 'var(--accent)', bg: 'rgba(37,99,235,.1)' }, resolu: { label: '🟢 Résolu', color: 'var(--green)', bg: 'rgba(22,163,74,.1)' } };
-  tbody.innerHTML = list.map((s, i) => {
+  const statusMap = {
+    critique:    { label:'🔴 Critique',    color:'var(--red)',    bg:'rgba(220,38,38,.1)' },
+    tendu:       { label:'🟡 Tendu',       color:'var(--orange)', bg:'rgba(217,119,6,.1)' },
+    surveillance:{ label:'🔵 Surveillance',color:'var(--accent)', bg:'rgba(37,99,235,.1)' },
+    resolu:      { label:'🟢 Résolu',      color:'var(--green)',  bg:'rgba(22,163,74,.1)'  }
+  };
+  tbody.innerHTML = list.map((s,i) => {
     const st = statusMap[s.statut] || statusMap.critique;
-    return `<tr style="border-bottom:1px solid var(--border);transition:background .1s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+    return `<tr style="border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <td style="padding:10px 14px;font-weight:500;font-size:13px;">${s.site||'—'}</td>
       <td style="padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);">${s.ref||'—'}</td>
       <td style="padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px;white-space:nowrap;">${s.date?formatDate(s.date):'—'}</td>
-      <td style="padding:10px 14px;font-size:12px;color:var(--text2);max-width:200px;">${s.problemes||'—'}</td>
+      <td style="padding:10px 14px;font-size:12px;color:var(--text2);max-width:180px;">${s.problemes||'—'}</td>
       <td style="padding:10px 14px;"><span style="padding:3px 10px;border-radius:20px;font-size:11px;font-family:'DM Mono',monospace;font-weight:600;background:${st.bg};color:${st.color};">${st.label}</span></td>
       <td style="padding:10px 14px;font-size:12px;color:var(--text2);max-width:180px;">${s.comment||'—'}</td>
       <td style="padding:10px 14px;">
@@ -580,59 +581,40 @@ function renderSouffrances() {
     </tr>`;
   }).join('');
 }
-
 window.openAddSouffrance = function() {
   editStateSouffrance = null;
-  document.getElementById('souffrance-modal-title').innerHTML = 'Nouveau site en souffrance <button class="modal-close" onclick="closeModal('modal-add-souffrance')">✕</button>';
-  document.getElementById('souffrance-modal-btn').textContent = 'Enregistrer';
-  ['sf-site','sf-ref','sf-problemes','sf-comment'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('sf-date').value = '';
-  document.getElementById('sf-statut').value = 'critique';
-  document.getElementById('modal-add-souffrance').style.display = 'flex';
+  document.getElementById('sf-modal-title').innerHTML = 'Nouveau site en souffrance <button class="modal-close" onclick="closeModal(\'modal-souffrance\')">✕</button>';
+  ['sf-site','sf-ref','sf-problemes','sf-comment'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('sf-date').value='';
+  document.getElementById('sf-statut').value='critique';
+  document.getElementById('modal-souffrance').style.display='flex';
 };
-
 window.editSouffrance = function(i) {
-  const c = getClient(); const s = (c.souffrances||[])[i];
+  const s = (getClient().souffrances||[])[i];
   editStateSouffrance = i;
-  document.getElementById('souffrance-modal-title').innerHTML = 'Modifier le site <button class="modal-close" onclick="closeModal('modal-add-souffrance')">✕</button>';
-  document.getElementById('sf-site').value = s.site||'';
-  document.getElementById('sf-ref').value = s.ref||'';
-  document.getElementById('sf-date').value = s.date||'';
-  document.getElementById('sf-statut').value = s.statut||'critique';
-  document.getElementById('sf-problemes').value = s.problemes||'';
-  document.getElementById('sf-comment').value = s.comment||'';
-  document.getElementById('modal-add-souffrance').style.display = 'flex';
+  document.getElementById('sf-modal-title').innerHTML = 'Modifier le site <button class="modal-close" onclick="closeModal(\'modal-souffrance\')">✕</button>';
+  document.getElementById('sf-site').value=s.site||'';
+  document.getElementById('sf-ref').value=s.ref||'';
+  document.getElementById('sf-date').value=s.date||'';
+  document.getElementById('sf-statut').value=s.statut||'critique';
+  document.getElementById('sf-problemes').value=s.problemes||'';
+  document.getElementById('sf-comment').value=s.comment||'';
+  document.getElementById('modal-souffrance').style.display='flex';
 };
-
 window.saveSouffrance = async function() {
   const c = getClient(); if (!c) return;
   const site = document.getElementById('sf-site').value.trim(); if (!site) return;
-  const obj = {
-    site,
-    ref: document.getElementById('sf-ref').value.trim(),
-    date: document.getElementById('sf-date').value,
-    statut: document.getElementById('sf-statut').value,
-    problemes: document.getElementById('sf-problemes').value.trim(),
-    comment: document.getElementById('sf-comment').value.trim(),
-  };
-  if (!c.souffrances) c.souffrances = [];
-  if (editStateSouffrance !== null) c.souffrances[editStateSouffrance] = obj;
-  else c.souffrances.push(obj);
-  try {
-    toast('Enregistrement…');
-    await fsSaveClient(c);
-    window.closeModal('modal-add-souffrance');
-    renderSouffrances();
-    toast('Site enregistré ✓', 'success');
-  } catch(e) { toast('Erreur : ' + e.message, 'error'); }
+  const obj = { site, ref:document.getElementById('sf-ref').value.trim(), date:document.getElementById('sf-date').value, statut:document.getElementById('sf-statut').value, problemes:document.getElementById('sf-problemes').value.trim(), comment:document.getElementById('sf-comment').value.trim() };
+  if (!c.souffrances) c.souffrances=[];
+  if (editStateSouffrance!==null) c.souffrances[editStateSouffrance]=obj; else c.souffrances.push(obj);
+  try { toast('Enregistrement…'); await fsSaveClient(c); closeModal('modal-souffrance'); renderSouffrances(); toast('Site enregistré ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
 };
-
 window.deleteSouffrance = async function(i) {
   if (!confirm('Supprimer ce site ?')) return;
-  const c = getClient(); if (!c) return;
-  c.souffrances.splice(i, 1);
-  try { await fsSaveClient(c); renderSouffrances(); toast('Supprimé ✓', 'success'); }
-  catch(e) { toast('Erreur : ' + e.message, 'error'); }
+  const c = getClient(); c.souffrances.splice(i,1);
+  try { await fsSaveClient(c); renderSouffrances(); toast('Supprimé ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
 init();
@@ -853,6 +835,52 @@ init();
         </div>
         <div id="opportunites-list"></div>
       </div>
+
+      <!-- SUJETS SENSIBLES -->
+      <div class="tab-panel" id="panel-sensibles">
+        <div class="section-header">
+          <span class="section-title">🔒 Sujets sensibles</span>
+          <button class="btn-add" onclick="saveSensibles()">💾 Sauvegarder</button>
+        </div>
+        <p style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:14px;">Notes confidentielles — non partagées dans les rapports standard</p>
+        <textarea id="sensibles-textarea"
+          placeholder="Notez ici les sujets sensibles, tensions, contextes politiques internes, informations confidentielles…"
+          style="width:100%;min-height:420px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);line-height:1.7;resize:vertical;outline:none;transition:border-color .2s;"
+          onfocus="this.style.borderColor='var(--accent)'"
+          onblur="this.style.borderColor='var(--border)'"
+        ></textarea>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+          <span id="sensibles-saved-at" style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;"></span>
+          <button class="btn-primary" onclick="saveSensibles()" style="font-size:12px;padding:7px 16px;">💾 Sauvegarder</button>
+        </div>
+      </div>
+
+      <!-- SITES EN SOUFFRANCE -->
+      <div class="tab-panel" id="panel-souffrances">
+        <div class="section-header">
+          <span class="section-title">⚠️ Sites en souffrance</span>
+          <button class="btn-add" onclick="openAddSouffrance()">+ Ajouter un site</button>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
+                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Site</th>
+                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Référence</th>
+                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Date</th>
+                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Problèmes récurrents</th>
+                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Statut</th>
+                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Commentaires</th>
+                <th style="width:72px;"></th>
+              </tr>
+            </thead>
+            <tbody id="souffrances-tbody">
+              <tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucun site enregistré</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -874,83 +902,6 @@ init();
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('modal-add-client')">Annuler</button>
       <button class="btn-primary" onclick="addClient()">Créer le client</button>
-
-      <!-- PANEL SUJETS SENSIBLES -->
-      <div class="tab-panel" id="panel-sensibles">
-        <div class="section-header">
-          <span class="section-title">🔒 Sujets sensibles</span>
-          <button class="btn-add" onclick="saveSensibles()">💾 Sauvegarder</button>
-        </div>
-        <p style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:14px;">Notes confidentielles — non partagées dans les rapports standard</p>
-        <textarea id="sensibles-textarea"
-          placeholder="Notez ici les sujets sensibles, tensions, contextes politiques internes, informations confidentielles…"
-          style="width:100%;min-height:420px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text);line-height:1.7;resize:vertical;outline:none;transition:border-color .2s;"
-          onfocus="this.style.borderColor='var(--accent)'"
-          onblur="this.style.borderColor='var(--border)'"
-        ></textarea>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
-          <span id="sensibles-saved-at" style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;"></span>
-          <button class="btn-primary" onclick="saveSensibles()" style="font-size:12px;padding:7px 16px;">💾 Sauvegarder</button>
-        </div>
-      </div>
-
-      <!-- PANEL SITES EN SOUFFRANCE -->
-      <div class="tab-panel" id="panel-souffrances">
-        <div class="section-header">
-          <span class="section-title">⚠️ Sites en souffrance</span>
-          <button class="btn-add" onclick="openAddSouffrance()">+ Ajouter un site</button>
-        </div>
-        <div id="souffrances-table-wrap" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
-          <table style="width:100%;border-collapse:collapse;" id="souffrances-table">
-            <thead>
-              <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
-                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);white-space:nowrap;">Site</th>
-                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);white-space:nowrap;">Référence</th>
-                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);white-space:nowrap;">Date</th>
-                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Problèmes récurrents</th>
-                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);white-space:nowrap;">Statut</th>
-                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Commentaires</th>
-                <th style="width:60px;"></th>
-              </tr>
-            </thead>
-            <tbody id="souffrances-tbody">
-              <tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucun site en souffrance enregistré</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- MODAL SITE EN SOUFFRANCE -->
-<div id="modal-add-souffrance" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-add-souffrance')">
-  <div class="modal">
-    <div class="modal-title" id="souffrance-modal-title">Site en souffrance <button class="modal-close" onclick="closeModal('modal-add-souffrance')">✕</button></div>
-    <div class="grid2">
-      <div class="field"><label>Site *</label><input id="sf-site" placeholder="ex: Site Plateau, BTS Adjamé…"></div>
-      <div class="field"><label>Référence</label><input id="sf-ref" placeholder="ex: LS-2024-001"></div>
-    </div>
-    <div class="grid2">
-      <div class="field"><label>Date de détection</label><input id="sf-date" type="date"></div>
-      <div class="field"><label>Statut</label>
-        <select id="sf-statut">
-          <option value="critique">🔴 Critique</option>
-          <option value="tendu">🟡 Tendu</option>
-          <option value="surveillance">🔵 Surveillance</option>
-          <option value="resolu">🟢 Résolu</option>
-        </select>
-      </div>
-    </div>
-    <div class="field"><label>Problèmes récurrents</label>
-      <textarea id="sf-problemes" placeholder="ex: Coupures fréquentes, dégradation débit, interférences…" style="min-height:80px;"></textarea>
-    </div>
-    <div class="field"><label>Commentaires</label>
-      <textarea id="sf-comment" placeholder="Actions en cours, responsable, délai prévu…" style="min-height:80px;"></textarea>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-add-souffrance')">Annuler</button>
-      <button class="btn-primary" id="souffrance-modal-btn" onclick="saveSouffrance()">Enregistrer</button>
     </div>
   </div>
 </div>
@@ -1068,6 +1019,35 @@ init();
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('modal-add-opportunite')">Annuler</button>
       <button class="btn-primary" id="opp-modal-btn" onclick="saveOpportunite()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- MODAL SITE EN SOUFFRANCE -->
+<div id="modal-souffrance" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-souffrance')">
+  <div class="modal">
+    <div class="modal-title" id="sf-modal-title">Nouveau site en souffrance <button class="modal-close" onclick="closeModal('modal-souffrance')">✕</button></div>
+    <div class="grid2">
+      <div class="field"><label>Site *</label><input id="sf-site" placeholder="ex: Site Plateau, BTS Adjamé…"></div>
+      <div class="field"><label>Référence</label><input id="sf-ref" placeholder="ex: LS-2024-001"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Date de détection</label><input id="sf-date" type="date"></div>
+      <div class="field"><label>Statut</label>
+        <select id="sf-statut">
+          <option value="critique">🔴 Critique</option>
+          <option value="tendu">🟡 Tendu</option>
+          <option value="surveillance">🔵 Surveillance</option>
+          <option value="resolu">🟢 Résolu</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Problèmes récurrents</label><textarea id="sf-problemes" placeholder="ex: Coupures fréquentes, dégradation débit…" style="min-height:80px;"></textarea></div>
+    <div class="field"><label>Commentaires</label><textarea id="sf-comment" placeholder="Actions en cours, responsable, délai prévu…" style="min-height:80px;"></textarea></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-souffrance')">Annuler</button>
+      <button class="btn-primary" onclick="saveSouffrance()">Enregistrer</button>
     </div>
   </div>
 </div>
