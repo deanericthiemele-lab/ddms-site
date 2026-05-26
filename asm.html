@@ -9,6 +9,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
@@ -21,6 +22,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 const COL = 'asm_clients';
 
 let clients = [];
@@ -52,6 +54,26 @@ async function fsSaveClient(c) {
   await setDoc(doc(db, COL, id), data);
 }
 async function fsDeleteClient(id) { await deleteDoc(doc(db, COL, id)); }
+
+// ── FIREBASE STORAGE UPLOAD avec progression ──
+function uploadFile(file, clientId) {
+  return new Promise((resolve, reject) => {
+    const path = `asm_docs/${clientId}/${Date.now()}_${file.name}`;
+    const storageRef = ref(storage, path);
+    const task = uploadBytesResumable(storageRef, file);
+    task.on('state_changed',
+      snapshot => {
+        const pct = Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100);
+        toast(`Upload… ${pct}%`);
+      },
+      err => reject(err),
+      async () => {
+        const url = await getDownloadURL(task.snapshot.ref);
+        resolve({ url, path });
+      }
+    );
+  });
+}
 
 // ── INIT ──
 async function init() {
@@ -300,28 +322,38 @@ window.saveDocument = async function() {
   const titre = document.getElementById('doc-titre').value.trim(); if (!titre) return;
   const existing = editState.documents!==null ? c.documents[editState.documents] : {};
 
-  // Fichier : on garde juste les métadonnées (nom, taille) — pas d'upload Storage
-  const fileName = pendingFile ? pendingFile.name : (existing.fileName||'');
-  const fileSize = pendingFile ? pendingFile.size : (existing.fileSize||0);
-  const fileUrl  = existing.fileUrl||''; // conserve l'url si déjà présente
+  let fileUrl  = existing.fileUrl  || '';
+  let fileName = existing.fileName || '';
+  let fileSize = existing.fileSize || 0;
+
+  if (pendingFile) {
+    try {
+      const result = await uploadFile(pendingFile.file, c.id);
+      fileUrl  = result.url;
+      fileName = pendingFile.name;
+      fileSize = pendingFile.size;
+    } catch(e) {
+      toast('Erreur upload : ' + e.message, 'error'); return;
+    }
+  }
 
   const obj = {
     titre,
-    date: document.getElementById('doc-date').value,
-    type: document.getElementById('doc-type').value,
+    date:    document.getElementById('doc-date').value,
+    type:    document.getElementById('doc-type').value,
     comment: document.getElementById('doc-comment').value,
     fileName, fileSize, fileUrl
   };
-  if (!c.documents) c.documents=[];
-  if (editState.documents!==null) c.documents[editState.documents]=obj;
+  if (!c.documents) c.documents = [];
+  if (editState.documents !== null) c.documents[editState.documents] = obj;
   else c.documents.push(obj);
   try {
     toast('Enregistrement…');
     await fsSaveClient(c);
     window.closeModal('modal-add-document');
     renderDocuments();
-    toast('Document enregistré ✓','success');
-  } catch(e) { toast('Erreur : '+e.message,'error'); }
+    toast('Document enregistré ✓', 'success');
+  } catch(e) { toast('Erreur : ' + e.message, 'error'); }
 };
 
 // ── OPPORTUNITÉS ──
