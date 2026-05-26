@@ -4,11 +4,10 @@
 <meta charset="utf-8"/>
 <title>PDA – Plan d'Actions</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
-<!-- Firebase -->
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, setDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
+<!-- Firebase compat (fonctionne sans bundler) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
 const firebaseConfig = {
   apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
   authDomain: "ddms-architectures.firebaseapp.com",
@@ -17,9 +16,8 @@ const firebaseConfig = {
   messagingSenderId: "767552965189",
   appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
 };
-
-const app = initializeApp(firebaseConfig);
-const db  = getFirestore(app);
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
 
 
@@ -41,12 +39,12 @@ function setSyncing(on) {
 
 // ─── COMITÉS (collection "pda_comites") ──────────────────────────────
 async function loadComites() {
-  const snap = await getDocs(collection(db, 'pda_comites'));
+  const snap = await db.collection('pda_comites').get();
   comites = snap.docs.map(d => d.data().name).sort();
   if (!comites.length) {
     // créer comités par défaut
     for (const name of ['Comité mensuel','Comité trimestriel','Comité de crise']) {
-      await addDoc(collection(db, 'pda_comites'), { name });
+      await db.collection('pda_comites').add({ name });
       comites.push(name);
     }
   }
@@ -56,7 +54,7 @@ async function loadComites() {
 }
 
 async function addComite(name) {
-  await addDoc(collection(db, 'pda_comites'), { name });
+  await db.collection('pda_comites').add({ name });
   comites.push(name);
   comites.sort();
   activeComite = name;
@@ -66,11 +64,11 @@ async function addComite(name) {
 
 async function deleteComite(name) {
   // supprimer le doc comité
-  const snap = await getDocs(collection(db, 'pda_comites'));
-  for (const d of snap.docs) { if (d.data().name === name) await deleteDoc(d.ref); }
+  const snap = await db.collection('pda_comites').get();
+  for (const d of snap.docs) { if (d.data().name === name) await d.ref.delete(); }
   // supprimer les actions liées
-  const aSnap = await getDocs(query(collection(db, 'pda_actions'), where('comite','==',name)));
-  for (const d of aSnap.docs) await deleteDoc(d.ref);
+  const aSnap = await db.collection('pda_actions').where('comite','==',name).get();
+  for (const d of aSnap.docs) await d.ref.delete();
   comites = comites.filter(c => c !== name);
   if (activeComite === name) activeComite = comites[0] || '';
   renderComites();
@@ -97,8 +95,7 @@ function renderComites() {
 function subscribeActions() {
   if (unsubActions) unsubActions();
   setSyncing(true);
-  const q = query(collection(db, 'pda_actions'), where('comite','==', activeComite));
-  unsubActions = onSnapshot(q, snap => {
+  unsubActions = db.collection('pda_actions').where('comite','==',activeComite).onSnapshot(snap => {
     actions = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
     setSyncing(false);
     renderTable();
@@ -109,16 +106,16 @@ function subscribeActions() {
 async function saveAction(data) {
   setSyncing(true);
   if (editingId) {
-    await updateDoc(doc(db, 'pda_actions', editingId), data);
+    await db.collection('pda_actions').doc(editingId).update(data);
   } else {
-    await addDoc(collection(db, 'pda_actions'), { ...data, comite: activeComite, createdAt: Date.now() });
+    await db.collection('pda_actions').add({ ...data, comite: activeComite, createdAt: Date.now() });
   }
   setSyncing(false);
 }
 
 async function removeAction(id) {
   setSyncing(true);
-  await deleteDoc(doc(db, 'pda_actions', id));
+  await db.collection('pda_actions').doc(id).delete();
   setSyncing(false);
 }
 
@@ -306,7 +303,7 @@ document.getElementById('btnExport').addEventListener('click', () => {
 });
 
 // ─── INIT ─────────────────────────────────────────────────────────────
-await loadComites();
+loadComites().catch(e => console.error('Erreur init:', e));
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
