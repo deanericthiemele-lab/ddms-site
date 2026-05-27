@@ -28,7 +28,12 @@ const COL = 'asm_clients';
 let clients = [];
 let currentClientId = null;
 let editState = { incidents: null, documents: null, opportunites: null };
-let pendingFile = null; // { file, name, size }
+let pendingFile = null;
+
+// ── COMPTES AUTORISÉS ──
+const ACCOUNTS = { 'adminddms': 'adminddms', 'admin1': 'admin1' };
+let currentUser = '';
+function canDelete() { return currentUser === 'admin1'; }
 
 const COLORS = ['#2563eb','#7c3aed','#16a34a','#d97706','#dc2626','#db2777','#0891b2','#65a30d'];
 function clientColor(c) { const idx = clients.indexOf(c); return COLORS[idx >= 0 ? idx % COLORS.length : 0]; }
@@ -77,6 +82,18 @@ function uploadFile(file, clientId) {
 
 // ── INIT ──
 async function init() {
+  document.getElementById('login-overlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('login-user').focus(), 100);
+}
+
+window.doLogin = async function() {
+  const u = document.getElementById('login-user').value.trim().toLowerCase();
+  const p = document.getElementById('login-pass').value.trim();
+  const errEl = document.getElementById('login-err');
+  if (!u || !p) { errEl.textContent = 'Remplissez tous les champs.'; return; }
+  if (ACCOUNTS[u] !== p) { errEl.textContent = 'Identifiants incorrects.'; document.getElementById('login-pass').value=''; return; }
+  currentUser = u;
+  document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('loading-overlay').style.display = 'flex';
   try {
     clients = await fsGetAllClients();
@@ -84,7 +101,7 @@ async function init() {
   } catch(e) { toast('Erreur Firestore : '+e.message, 'error'); }
   document.getElementById('loading-overlay').style.display = 'none';
   renderSidebar();
-}
+};
 
 // ── SIDEBAR ──
 function renderSidebar() {
@@ -497,6 +514,7 @@ function readFile(file) {
 
 // ── DELETE ITEM ──
 window.deleteItem = async function(key, idx) {
+  if (!canDelete()) { toast('⛔ Suppression non autorisée pour ce compte', 'error'); return; }
   if (!confirm('Supprimer cet élément ?')) return;
   const c = getClient(); if (!c) return;
   c[key].splice(idx,1);
@@ -506,6 +524,7 @@ window.deleteItem = async function(key, idx) {
 
 // ── DELETE CLIENT ──
 window.deleteClient = async function() {
+  if (!canDelete()) { toast('⛔ Suppression non autorisée pour ce compte', 'error'); return; }
   const c = getClient(); if (!c) return;
   if (!confirm(`Supprimer définitivement "${c.nom}" et toutes ses données ?`)) return;
   try {
@@ -621,6 +640,7 @@ window.saveNote = async function() {
 };
 
 window.deleteNote = async function(i) {
+  if (!canDelete()) { toast('⛔ Suppression non autorisée pour ce compte', 'error'); return; }
   if (!confirm('Supprimer cette note ?')) return;
   const c = getClient(); c.notes.splice(i,1);
   try { await fsSaveClient(c); renderSensibles(); toast('Supprimé ✓','success'); }
@@ -693,6 +713,7 @@ window.saveSouffrance = async function() {
   catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 window.deleteSouffrance = async function(i) {
+  if (!canDelete()) { toast('⛔ Suppression non autorisée pour ce compte', 'error'); return; }
   if (!confirm('Supprimer ce site ?')) return;
   const c = getClient(); c.souffrances.splice(i,1);
   try { await fsSaveClient(c); renderSouffrances(); toast('Supprimé ✓','success'); }
@@ -1155,6 +1176,26 @@ init();
       <button class="btn-cancel" onclick="closeModal('modal-souffrance')">Annuler</button>
       <button class="btn-primary" onclick="saveSouffrance()">Enregistrer</button>
     </div>
+  </div>
+</div>
+
+<!-- LOGIN OVERLAY -->
+<div id="login-overlay" style="display:none;position:fixed;inset:0;background:linear-gradient(135deg,#0f1420 0%,#1a1f35 100%);z-index:10000;align-items:center;justify-content:center;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 36px;width:340px;max-width:94vw;box-shadow:0 32px 80px rgba(0,0,0,.4);">
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;color:var(--accent);letter-spacing:.08em;text-transform:uppercase;">ASM</div>
+      <div style="font-family:'Syne',sans-serif;font-weight:400;font-size:13px;color:var(--text3);letter-spacing:.04em;">Knowledge Base</div>
+    </div>
+    <div class="field">
+      <label>Identifiant</label>
+      <input id="login-user" type="text" placeholder="Nom d'utilisateur" autocomplete="username" onkeydown="if(event.key==='Enter')document.getElementById('login-pass').focus()">
+    </div>
+    <div class="field">
+      <label>Mot de passe</label>
+      <input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div id="login-err" style="color:var(--red);font-size:12px;font-family:'DM Mono',monospace;min-height:18px;margin-bottom:8px;"></div>
+    <button class="btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="doLogin()">Connexion</button>
   </div>
 </div>
 
