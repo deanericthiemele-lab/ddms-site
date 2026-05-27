@@ -44,27 +44,6 @@
     <span id="meta" class="status"></span>
   </div>
 
-  <!-- Ancienneté des dossiers -->
-  <div class="card" id="dureeCard">
-    <h2 style="font-size:15px;margin:0 0 10px;display:flex;align-items:center;gap:8px;">
-      ⏱️ Ancienneté des dossiers
-      <span id="duree-badge" style="font-size:11px;font-weight:400;color:#6b7280;background:#f3f4f6;border-radius:20px;padding:2px 10px;"></span>
-    </h2>
-    <div id="duree-empty" style="color:#9ca3af;font-size:13px;padding:8px 0;">📂 Chargez un fichier via <strong>Parcourir</strong> pour afficher l'ancienneté des dossiers.</div>
-    <div id="duree-bars" style="display:none;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;"></div>
-    <div id="duree-pills" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
-  </div>
-
-  <!-- Popup détail ancienneté -->
-  <div id="popup-duree" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:flex-start;overflow-y:auto;">
-    <div style="background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,0.2);width:96%;max-width:1100px;margin:32px auto 40px;display:flex;flex-direction:column;overflow:hidden;">
-      <div id="popup-duree-header" style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;">
-        <span id="popup-duree-title" style="color:white;font-size:15px;font-weight:700;"></span>
-        <button id="popup-duree-close" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:28px;height:28px;font-size:15px;cursor:pointer;line-height:1;">✕</button>
-      </div>
-      <div id="popup-duree-body" style="overflow:auto;max-height:78vh;"></div>
-    </div>
-  </div>
 
   <!-- Étape courante -->
   <div class="card" id="etapeCard">
@@ -283,7 +262,6 @@
         state.headers = headers; state.rows = json;
         buildTable(headers, json);
         computeVolumes(json, headers);
-        buildDuree(json);
         buildEtape(json);
         setMeta(''); // masqué
         els.searchInput.value = '';
@@ -297,185 +275,37 @@
     }
 
 
-    // ── ANCIENNETÉ DES DOSSIERS ─────────────────────────────────
-    const TRANCHES = [
-      { label: '< 7 jours',   min: 0,   max: 6,           color: '#22c55e', bg: '#f0fdf4' },
-      { label: '7 – 15 j',    min: 7,   max: 15,          color: '#84cc16', bg: '#f7fee7' },
-      { label: '15 – 30 j',   min: 16,  max: 30,          color: '#f59e0b', bg: '#fffbeb' },
-      { label: '30 – 60 j',   min: 31,  max: 60,          color: '#f97316', bg: '#fff7ed' },
-      { label: '60 – 90 j',   min: 61,  max: 90,          color: '#ef4444', bg: '#fef2f2' },
-      { label: '> 90 jours',  min: 91,  max: Infinity,    color: '#7f1d1d', bg: '#fef2f2' },
-    ];
-
-    function getDaysOld(row) {
-      const val = row['DATE CREATION DOSSIER'];
-      if (!val) return null;
-      const d = toDate(val);
-      if (!d || d.getTime() === 0) return null;
-      return Math.floor((Date.now() - d.getTime()) / 86400000);
-    }
-
-    function buildDuree(rows) {
-      const buckets = TRANCHES.map(t => ({ ...t, rows: [] }));
-      let withDate = 0;
-      rows.forEach(r => {
-        const age = getDaysOld(r);
-        if (age === null) return;
-        withDate++;
-        for (const b of buckets) {
-          if (age >= b.min && age <= b.max) { b.rows.push({ ...r, _age: age }); break; }
-        }
-      });
-
-      const barsEl  = document.getElementById('duree-bars');
-      const pillsEl = document.getElementById('duree-pills');
-      const badgeEl = document.getElementById('duree-badge');
-      const emptyEl = document.getElementById('duree-empty');
-      if (!barsEl) return;
-
-      // Afficher les barres, masquer le placeholder
-      if (emptyEl) emptyEl.style.display = 'none';
-      barsEl.style.display = 'flex';
-
-      badgeEl.textContent = withDate + ' dossiers datés';
-      barsEl.innerHTML = ''; pillsEl.innerHTML = '';
-      const maxCount = Math.max(...buckets.map(b => b.rows.length), 1);
-
-      // En-tête colonnes
-      const hdr = document.createElement('div');
-      hdr.style.cssText = 'display:grid;grid-template-columns:110px 1fr 44px 52px;gap:10px;padding:3px 4px 6px;border-bottom:1px solid #e5e7eb;margin-bottom:4px;';
-      ['Tranche','','Nb','%'].forEach(function(t) {
-        const h = document.createElement('div');
-        h.style.cssText = 'font-size:10px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.05em;text-align:' + (t===''||t==='Tranche'?'left':'right') + ';';
-        h.textContent = t;
-        hdr.appendChild(h);
-      });
-      barsEl.appendChild(hdr);
-
-      barsEl.style.flexDirection = 'column';
-      barsEl.style.gap = '6px';
-      barsEl.style.alignItems = 'stretch';
-
-      buckets.forEach(b => {
-        const n = b.rows.length;
-        const pct = withDate > 0 ? Math.round((n / withDate) * 100) : 0;
-        const barPct = maxCount > 0 ? Math.round((n / maxCount) * 100) : 0;
-
-        const row = document.createElement('div');
-        row.style.cssText = 'display:grid;grid-template-columns:110px 1fr 44px 52px;align-items:center;gap:10px;padding:5px 4px;border-radius:4px;'
-          + (n > 0 ? 'cursor:pointer;' : 'cursor:default;opacity:0.45;');
-        row.title = b.label + ' : ' + n + ' dossier' + (n>1?'s':'') + ' (' + pct + '%)';
-        if (n > 0) row.addEventListener('click', () => openDureePopup(b));
-        row.onmouseover = function(){ if(n>0) this.style.background='#f8fafc'; };
-        row.onmouseout  = function(){ this.style.background=''; };
-
-        const lbl = document.createElement('div');
-        lbl.style.cssText = 'font-size:12px;color:#374151;font-weight:500;white-space:nowrap;';
-        lbl.textContent = b.label;
-
-        const track = document.createElement('div');
-        track.style.cssText = 'background:#e5e7eb;border-radius:2px;height:14px;position:relative;overflow:hidden;';
-        const fill = document.createElement('div');
-        fill.style.cssText = 'position:absolute;left:0;top:0;height:100%;width:' + barPct + '%;background:' + b.color + ';border-radius:2px;';
-        track.appendChild(fill);
-
-        const count = document.createElement('div');
-        count.style.cssText = 'font-size:13px;font-weight:700;color:' + b.color + ';text-align:right;';
-        count.textContent = n;
-
-        const pctLbl = document.createElement('div');
-        pctLbl.style.cssText = 'font-size:11px;color:#6b7280;text-align:right;';
-        pctLbl.textContent = pct + '%';
-
-        row.appendChild(lbl); row.appendChild(track); row.appendChild(count); row.appendChild(pctLbl);
-        barsEl.appendChild(row);
-      });
-      pillsEl.style.display = 'none';
-    }
-
-    function openDureePopup(bucket) {
-      const rows = [...bucket.rows].sort((a, b) => b._age - a._age);
-      const header = document.getElementById('popup-duree-header');
-      const title  = document.getElementById('popup-duree-title');
-      const body   = document.getElementById('popup-duree-body');
-
-      header.style.cssText = 'padding:14px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,' + bucket.color + ',#1e293b);';
-      title.textContent = '⏱️ ' + bucket.label + ' — ' + rows.length + ' dossier' + (rows.length > 1 ? 's' : '');
-
-      const cols = state.headers;
-      const tbl = document.createElement('table');
-      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
-
-      const thead = document.createElement('thead');
-      const hr = document.createElement('tr');
-      hr.style.cssText = 'background:#f3f4f6;position:sticky;top:0;z-index:1;';
-
-      const thAge = document.createElement('th');
-      thAge.style.cssText = 'padding:8px 10px;text-align:center;border-bottom:2px solid #e5e7eb;white-space:nowrap;font-size:12px;';
-      thAge.textContent = 'Âge (j)';
-      hr.appendChild(thAge);
-      cols.forEach(h => {
-        const th = document.createElement('th');
-        th.style.cssText = 'padding:8px 8px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;font-size:12px;color:#374151;';
-        th.textContent = h; hr.appendChild(th);
-      });
-      thead.appendChild(hr); tbl.appendChild(thead);
-
-      const tbody = document.createElement('tbody');
-      rows.forEach((r, i) => {
-        const tr = document.createElement('tr');
-        tr.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
-
-        const tdAge = document.createElement('td');
-        tdAge.style.cssText = 'padding:6px 10px;text-align:center;border-bottom:1px dashed #e5e7eb;';
-        const badge = document.createElement('span');
-        badge.style.cssText = 'background:' + bucket.color + ';color:white;padding:2px 8px;border-radius:999px;font-weight:700;font-size:11px;';
-        badge.textContent = r._age + 'j';
-        tdAge.appendChild(badge); tr.appendChild(tdAge);
-
-        cols.forEach(h => {
-          const td = document.createElement('td');
-          td.style.cssText = 'padding:6px 8px;border-bottom:1px dashed #e5e7eb;white-space:nowrap;';
-          let v = r[h]; if (v == null) v = '';
-          if (h === 'DATE CREATION DOSSIER' && v) {
-            const d = toDate(v);
-            if (d && d.getTime() !== 0) {
-              td.style.fontWeight = '700'; td.style.color = bucket.color;
-              v = d.toLocaleDateString('fr-FR');
-            }
-          }
-          td.textContent = String(v); tr.appendChild(td);
-        });
-        tbody.appendChild(tr);
-      });
-      tbl.appendChild(tbody);
-      body.innerHTML = ''; body.appendChild(tbl);
-      document.getElementById('popup-duree').style.display = 'flex';
-    }
 
     // ── ÉTAPE COURANTE ─────────────────────────────────
-    const ETAPE_COLORS = [
-      '#0ea5e9','#8b5cf6','#10b981','#f59e0b','#ef4444','#f97316',
-      '#14b8a6','#6366f1','#ec4899','#84cc16','#0284c7','#7c3aed'
-    ];
+    const ETAPE_COLOR = '#f97316'; // orange
+
+    function getDureeEtape(row) {
+      // Durée dans l'étape = DATE FIN - DATE DEBUT (ou aujourd'hui si pas de DATE FIN)
+      var debut = toDate(row['DATE DEBUT']);
+      if (!debut || debut.getTime() === 0) return null;
+      var fin = toDate(row['DATE FIN']);
+      var end = (fin && fin.getTime() > 0) ? fin.getTime() : Date.now();
+      var diff = Math.floor((end - debut.getTime()) / 86400000);
+      return diff >= 0 ? diff : null;
+    }
 
     function buildEtape(rows) {
-      const counts = {};
-      const ageSums = {};
-      const ageCounts = {};
+      const counts  = {};
+      const durSums = {};
+      const durCounts = {};
       rows.forEach(function(r) {
         var ep = String(r['ETAPE'] || '').trim();
         if (!ep) return;
         counts[ep] = (counts[ep]||0)+1;
-        var age = getDaysOld(r);
-        if (age !== null) {
-          ageSums[ep]   = (ageSums[ep]  ||0) + age;
-          ageCounts[ep] = (ageCounts[ep]||0) + 1;
+        var dur = getDureeEtape(r);
+        if (dur !== null) {
+          durSums[ep]   = (durSums[ep]  ||0) + dur;
+          durCounts[ep] = (durCounts[ep]||0) + 1;
         }
       });
 
       var entries = Object.entries(counts).sort(function(a,b){ return b[1]-a[1]; });
-      var total = entries.reduce(function(s,e){ return s+e[1]; }, 0);
+      var total   = entries.reduce(function(s,e){ return s+e[1]; }, 0);
 
       var barsEl  = document.getElementById('etape-bars');
       var pillsEl = document.getElementById('etape-pills');
@@ -483,71 +313,68 @@
       var emptyEl = document.getElementById('etape-empty');
       if (!barsEl) return;
 
-      // Afficher les barres, masquer le placeholder
       if (emptyEl) emptyEl.style.display = 'none';
-      barsEl.style.display = 'flex';
+      barsEl.style.display    = 'flex';
+      barsEl.style.flexDirection = 'column';
+      barsEl.style.gap        = '5px';
+      barsEl.style.alignItems = 'stretch';
 
       badgeEl.textContent = total + ' dossiers • ' + entries.length + ' étapes';
       barsEl.innerHTML = ''; pillsEl.innerHTML = '';
       var maxCount = entries.length ? entries[0][1] : 1;
 
-      // En-tête colonnes
-      var header = document.createElement('div');
-      header.style.cssText = 'display:grid;grid-template-columns:180px 1fr 44px 52px 64px;gap:10px;padding:3px 4px 6px;border-bottom:1px solid #e5e7eb;margin-bottom:4px;';
-      ['Étape','','Nb','%','Moy.'].forEach(function(t) {
+      // En-tête
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'display:grid;grid-template-columns:180px 1fr 44px 52px 72px;gap:10px;padding:3px 4px 6px;border-bottom:1px solid #e5e7eb;margin-bottom:4px;';
+      ['Étape','','Nb','%','Moy. (j)'].forEach(function(t) {
         var h = document.createElement('div');
-        h.style.cssText = 'font-size:10px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.05em;text-align:' + (t===''||t==='Étape'?'left':'right') + ';';
+        h.style.cssText = 'font-size:10px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.05em;text-align:' + (t===''||t==='Étape' ? 'left' : 'right') + ';';
         h.textContent = t;
-        header.appendChild(h);
+        hdr.appendChild(h);
       });
-      barsEl.appendChild(header);
+      barsEl.appendChild(hdr);
 
-      barsEl.style.flexDirection = 'column';
-      barsEl.style.gap = '5px';
-      barsEl.style.alignItems = 'stretch';
-
-      entries.forEach(function(entry, idx) {
-        var label = entry[0], n = entry[1];
-        var color = ETAPE_COLORS[idx % ETAPE_COLORS.length];
+      entries.forEach(function(entry) {
+        var label  = entry[0], n = entry[1];
         var pct    = total > 0 ? Math.round((n / total) * 100) : 0;
         var barPct = maxCount > 0 ? Math.round((n / maxCount) * 100) : 0;
-        var avgAge = ageCounts[label] ? Math.round(ageSums[label] / ageCounts[label]) : null;
+        var avgDur = durCounts[label] ? Math.round(durSums[label] / durCounts[label]) : null;
 
         var row = document.createElement('div');
-        row.style.cssText = 'display:grid;grid-template-columns:180px 1fr 44px 52px 64px;align-items:center;gap:10px;padding:5px 4px;border-radius:4px;cursor:pointer;';
-        row.title = label + ' : ' + n + ' (' + pct + '%)' + (avgAge !== null ? ' — moy. ' + avgAge + 'j' : '');
-        row.onmouseover = function(){ this.style.background='#f8fafc'; };
+        row.style.cssText = 'display:grid;grid-template-columns:180px 1fr 44px 52px 72px;align-items:center;gap:10px;padding:5px 4px;border-radius:4px;cursor:pointer;';
+        row.title = label + ' : ' + n + ' (' + pct + '%)' + (avgDur !== null ? ' — moy. ' + avgDur + 'j' : '');
+        row.onmouseover = function(){ this.style.background='#fff7ed'; };
         row.onmouseout  = function(){ this.style.background=''; };
-        row.addEventListener('click', function() { openEtapePopup(label, color, n); });
+        row.addEventListener('click', function() { openEtapePopup(label, ETAPE_COLOR, n); });
 
         var lbl = document.createElement('div');
         lbl.style.cssText = 'font-size:12px;color:#374151;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
-        lbl.textContent = label;
-        lbl.title = label;
+        lbl.textContent = label; lbl.title = label;
 
         var track = document.createElement('div');
         track.style.cssText = 'background:#e5e7eb;border-radius:2px;height:14px;position:relative;overflow:hidden;';
         var fill = document.createElement('div');
-        fill.style.cssText = 'position:absolute;left:0;top:0;height:100%;width:' + barPct + '%;background:' + color + ';border-radius:2px;';
+        fill.style.cssText = 'position:absolute;left:0;top:0;height:100%;width:' + barPct + '%;background:' + ETAPE_COLOR + ';border-radius:2px;';
         track.appendChild(fill);
 
-        var count = document.createElement('div');
-        count.style.cssText = 'font-size:13px;font-weight:700;color:' + color + ';text-align:right;';
-        count.textContent = n;
+        var cnt = document.createElement('div');
+        cnt.style.cssText = 'font-size:13px;font-weight:700;color:' + ETAPE_COLOR + ';text-align:right;';
+        cnt.textContent = n;
 
         var pctLbl = document.createElement('div');
         pctLbl.style.cssText = 'font-size:11px;color:#6b7280;text-align:right;';
         pctLbl.textContent = pct + '%';
 
-        var ageLbl = document.createElement('div');
-        ageLbl.style.cssText = 'font-size:11px;color:#9ca3af;text-align:right;white-space:nowrap;';
-        ageLbl.textContent = avgAge !== null ? avgAge + 'j moy.' : '—';
+        var durLbl = document.createElement('div');
+        durLbl.style.cssText = 'font-size:11px;font-weight:600;color:' + (avgDur !== null ? ETAPE_COLOR : '#9ca3af') + ';text-align:right;white-space:nowrap;';
+        durLbl.textContent = avgDur !== null ? avgDur + 'j' : '—';
 
-        row.appendChild(lbl); row.appendChild(track); row.appendChild(count); row.appendChild(pctLbl); row.appendChild(ageLbl);
+        row.appendChild(lbl); row.appendChild(track); row.appendChild(cnt); row.appendChild(pctLbl); row.appendChild(durLbl);
         barsEl.appendChild(row);
       });
       pillsEl.style.display = 'none';
     }
+
 
     function openEtapePopup(etapeLabel, color, count) {
       var rows = state.rows.filter(function(r) {
@@ -598,16 +425,8 @@
       if (closeEtape) closeEtape.addEventListener('click', function() {
         document.getElementById('popup-etape').style.display = 'none';
       });
-    });
-
-    document.addEventListener('DOMContentLoaded', function() {
-      const closeBtn = document.getElementById('popup-duree-close');
-      if (closeBtn) closeBtn.addEventListener('click', function() {
-        document.getElementById('popup-duree').style.display = 'none';
-      });
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
-          document.getElementById('popup-duree').style.display = 'none';
           document.getElementById('popup-etape').style.display = 'none';
         }
       });
