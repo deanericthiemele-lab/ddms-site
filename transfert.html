@@ -65,7 +65,28 @@
     </div>
   </div>
 
-  <!-- Top 20 clients AVANT le tableau principal -->
+  <!-- Étape courante -->
+  <div class="card" id="etapeCard">
+    <h2 style="font-size:15px;margin:0 0 10px;display:flex;align-items:center;gap:8px;">
+      🔄 Étape courante
+      <span id="etape-badge" style="font-size:11px;font-weight:400;color:#6b7280;background:#f3f4f6;border-radius:20px;padding:2px 10px;"></span>
+    </h2>
+    <div id="etape-bars" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;"></div>
+    <div id="etape-pills" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+
+  <!-- Popup détail étape -->
+  <div id="popup-etape" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:flex-start;overflow-y:auto;">
+    <div style="background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,0.2);width:96%;max-width:1100px;margin:32px auto 40px;display:flex;flex-direction:column;overflow:hidden;">
+      <div id="popup-etape-header" style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <span id="popup-etape-title" style="color:white;font-size:15px;font-weight:700;"></span>
+        <button id="popup-etape-close" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:28px;height:28px;font-size:15px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div id="popup-etape-body" style="overflow:auto;max-height:78vh;"></div>
+    </div>
+  </div>
+
+
   <div class="card" id="top20Card">
     <h2 style="font-size:16px;margin:0 0 8px;">🏆 Top 20 Clients (normalisés)</h2>
     <div class="table-wrap" style="max-height:40vh;">
@@ -86,7 +107,7 @@
     <!-- Volumes au-dessus du tableau principal -->
     <div id="volumes" class="metrics">
       <span class="pill" id="volTransferts"><strong>Transferts:</strong> 0</span>
-      <span class="pill" id="volModifs"><strong>Modifications:</strong> 0</span>
+      <span class="pill" id="volDebits"><strong>Débit:</strong> 0</span>
       <span class="pill" id="volTotal"><strong>Total lignes:</strong> 0</span>
     </div>
 
@@ -119,7 +140,7 @@
       colsPill: document.getElementById('colsPill'),
       sourcePill: document.getElementById('sourcePill'),
       volTransferts: document.getElementById('volTransferts'),
-      volModifs: document.getElementById('volModifs'),
+      volDebits: document.getElementById('volDebits'),
       volTotal: document.getElementById('volTotal'),
       top20Body: document.getElementById('top20Body')
     };
@@ -248,14 +269,17 @@
 
     function computeVolumes(rows, headers){
       const typeCol = guessTypeColumn(headers);
-      let t = 0, m = 0;
+      let t = 0, d = 0;
+      const debitCounts = {};
       for(const r of rows){
         const c = classifyRow(r, typeCol);
         if(c==='TRANSFERT') t++;
-        else if(c==='MODIFICATION') m++;
+        const db = String(r['DEBIT'] || '').trim();
+        if(db){ debitCounts[db] = (debitCounts[db]||0)+1; d++; }
       }
       els.volTransferts.innerHTML = '<strong>Transferts:</strong> ' + t;
-      els.volModifs.innerHTML = '<strong>Modifications:</strong> ' + m;
+      const topDebit = Object.entries(debitCounts).sort((a,b)=>b[1]-a[1])[0];
+      els.volDebits.innerHTML = '<strong>Débit:</strong> ' + d + (topDebit ? ' <span style="font-size:11px;color:#6b7280;">(+fréq: ' + topDebit[0] + ')</span>' : '');
       els.volTotal.innerHTML = '<strong>Total lignes:</strong> ' + rows.length;
     }
 
@@ -294,6 +318,7 @@
         computeVolumes(json, headers);
         buildTop20(json, headers);
         buildDuree(json);
+        buildEtape(json);
         setMeta(''); // masqué
         els.searchInput.value = '';
       } catch (err) {
@@ -444,8 +469,122 @@
       document.getElementById('popup-duree').style.display = 'flex';
     }
 
-    // Close popup
+    // ── ÉTAPE COURANTE ─────────────────────────────────
+    const ETAPE_COLORS = [
+      '#0ea5e9','#8b5cf6','#10b981','#f59e0b','#ef4444','#f97316',
+      '#14b8a6','#6366f1','#ec4899','#84cc16','#0284c7','#7c3aed'
+    ];
+
+    function buildEtape(rows) {
+      const counts = {};
+      rows.forEach(function(r) {
+        var ep = String(r['ETAPE'] || '').trim();
+        if (ep) counts[ep] = (counts[ep]||0)+1;
+      });
+
+      var entries = Object.entries(counts).sort(function(a,b){ return b[1]-a[1]; });
+      var total = entries.reduce(function(s,e){ return s+e[1]; }, 0);
+
+      var barsEl  = document.getElementById('etape-bars');
+      var pillsEl = document.getElementById('etape-pills');
+      var badgeEl = document.getElementById('etape-badge');
+      if (!barsEl) return;
+
+      badgeEl.textContent = total + ' dossiers • ' + entries.length + ' étapes';
+      barsEl.innerHTML = ''; pillsEl.innerHTML = '';
+      var maxCount = entries.length ? entries[0][1] : 1;
+
+      entries.forEach(function(entry, idx) {
+        var label = entry[0], n = entry[1];
+        var color = ETAPE_COLORS[idx % ETAPE_COLORS.length];
+        var pct   = total > 0 ? Math.round((n / total) * 100) : 0;
+        var h     = Math.round((n / maxCount) * 90) + 16;
+
+        // Barre
+        var col = document.createElement('div');
+        col.style.cssText = 'flex:1;min-width:80px;max-width:160px;text-align:center;cursor:pointer;';
+        col.title = label + ' : ' + n + ' (' + pct + '%)';
+
+        var num = document.createElement('div');
+        num.style.cssText = 'font-size:20px;font-weight:800;color:' + color + ';margin-bottom:4px;';
+        num.textContent = n;
+
+        var bar = document.createElement('div');
+        bar.style.cssText = 'height:' + h + 'px;background:' + color + ';border-radius:8px 8px 0 0;opacity:0.8;transition:opacity .15s;';
+        bar.onmouseover = function(){ this.style.opacity='1'; };
+        bar.onmouseout  = function(){ this.style.opacity='0.8'; };
+
+        var lbl = document.createElement('div');
+        lbl.style.cssText = 'font-size:10px;color:#6b7280;margin-top:5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;';
+        lbl.textContent = label;
+        lbl.title = label;
+
+        col.appendChild(num); col.appendChild(bar); col.appendChild(lbl);
+        col.addEventListener('click', function() { openEtapePopup(label, color, n); });
+        barsEl.appendChild(col);
+
+        // Pill
+        var pill = document.createElement('span');
+        pill.style.cssText = 'padding:5px 14px;border-radius:999px;font-size:12px;font-weight:600;'
+          + 'border:2px solid ' + color + ';color:' + color + ';background:white;white-space:nowrap;cursor:pointer;';
+        pill.textContent = label + '  ' + n + ' (' + pct + '%)';
+        pill.addEventListener('click', function() { openEtapePopup(label, color, n); });
+        pillsEl.appendChild(pill);
+      });
+    }
+
+    function openEtapePopup(etapeLabel, color, count) {
+      var rows = state.rows.filter(function(r) {
+        return String(r['ETAPE'] || '').trim() === etapeLabel;
+      });
+
+      var header = document.getElementById('popup-etape-header');
+      var title  = document.getElementById('popup-etape-title');
+      var body   = document.getElementById('popup-etape-body');
+
+      header.style.cssText = 'padding:14px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,' + color + ',#1e293b);';
+      title.textContent = '🔄 Étape : ' + etapeLabel + ' — ' + rows.length + ' dossier' + (rows.length > 1 ? 's' : '');
+
+      var cols = state.headers;
+      var tbl = document.createElement('table');
+      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+
+      var thead = document.createElement('thead');
+      var hr = document.createElement('tr');
+      hr.style.cssText = 'background:#f3f4f6;position:sticky;top:0;z-index:1;';
+      cols.forEach(function(h) {
+        var th = document.createElement('th');
+        th.style.cssText = 'padding:8px 8px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;font-size:12px;color:#374151;';
+        th.textContent = h; hr.appendChild(th);
+      });
+      thead.appendChild(hr); tbl.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      rows.forEach(function(r, i) {
+        var tr = document.createElement('tr');
+        tr.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
+        cols.forEach(function(h) {
+          var td = document.createElement('td');
+          td.style.cssText = 'padding:6px 8px;border-bottom:1px dashed #e5e7eb;white-space:nowrap;';
+          var v = r[h]; if (v == null) v = '';
+          if (h === 'ETAPE') { td.style.fontWeight = '700'; td.style.color = color; }
+          td.textContent = String(v); tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      body.innerHTML = ''; body.appendChild(tbl);
+      document.getElementById('popup-etape').style.display = 'flex';
+    }
+
     document.addEventListener('DOMContentLoaded', function() {
+      var closeEtape = document.getElementById('popup-etape-close');
+      if (closeEtape) closeEtape.addEventListener('click', function() {
+        document.getElementById('popup-etape').style.display = 'none';
+      });
+    });
+
+
       const closeBtn = document.getElementById('popup-duree-close');
       if (closeBtn) closeBtn.addEventListener('click', function() {
         document.getElementById('popup-duree').style.display = 'none';
