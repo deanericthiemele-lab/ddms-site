@@ -235,16 +235,28 @@
     function computeVolumes(rows, headers){
       const typeCol = guessTypeColumn(headers);
       let t = 0, d = 0;
-      const debitCounts = {};
       for(const r of rows){
         const c = classifyRow(r, typeCol);
         if(c==='TRANSFERT') t++;
-        const db = String(r['DEBIT'] || '').trim();
-        if(db){ debitCounts[db] = (debitCounts[db]||0)+1; d++; }
+        else if(c==='MODIFICATION') d++;
+      }
+      // Fallback: compter directement TYPE OPERATION TM si classifyRow ne détecte rien
+      if(t === 0 && d === 0){
+        for(const r of rows){
+          const op = String(r['TYPE OPERATION TM'] || '').trim().toLowerCase();
+          if(op.includes('transf')) t++;
+          else if(op.includes('debit') || op.includes('débit')) d++;
+        }
+      } else {
+        // Recompter debit via TYPE OPERATION TM directement (plus fiable)
+        d = 0;
+        for(const r of rows){
+          const op = String(r['TYPE OPERATION TM'] || '').trim().toLowerCase();
+          if(op.includes('debit') || op.includes('débit')) d++;
+        }
       }
       els.volTransferts.innerHTML = '<strong>Transferts:</strong> ' + t;
-      const topDebit = Object.entries(debitCounts).sort((a,b)=>b[1]-a[1])[0];
-      els.volDebits.innerHTML = '<strong>Débit:</strong> ' + d + (topDebit ? ' <span style="font-size:11px;color:#6b7280;">(+fréq: ' + topDebit[0] + ')</span>' : '');
+      els.volDebits.innerHTML = '<strong>Débits:</strong> ' + d;
       els.volTotal.innerHTML = '<strong>Total lignes:</strong> ' + rows.length;
     }
 
