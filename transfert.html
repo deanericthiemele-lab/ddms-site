@@ -71,11 +71,7 @@
 
   <div class="card">
     <!-- Volumes au-dessus du tableau principal -->
-    <div id="volumes" class="metrics">
-      <span class="pill" id="volTransferts"><strong>Transferts:</strong> 0</span>
-      <span class="pill" id="volDebits"><strong>Débit:</strong> 0</span>
-      <span class="pill" id="volTotal"><strong>Total lignes:</strong> 0</span>
-    </div>
+    <div id="volumes" class="metrics"></div>
 
     <div id="tableInfo" class="footer">
       <span class="pill" id="countPill">0 lignes</span>
@@ -105,9 +101,6 @@
       countPill: document.getElementById('countPill'),
       colsPill: document.getElementById('colsPill'),
       sourcePill: document.getElementById('sourcePill'),
-      volTransferts: document.getElementById('volTransferts'),
-      volDebits: document.getElementById('volDebits'),
-      volTotal: document.getElementById('volTotal')
     };
 
     els.backBtn.onclick = () => { window.location.href = 'index.html'; };
@@ -233,33 +226,26 @@
     }
 
     function computeVolumes(rows, headers){
-      const typeCol = guessTypeColumn(headers);
-      let t = 0, d = 0;
+      const typeCounts = {};
       for(const r of rows){
-        const c = classifyRow(r, typeCol);
-        if(c==='TRANSFERT') t++;
-        else if(c==='MODIFICATION') d++;
+        const op = String(r['TYPE OPERATION TM'] || '').trim();
+        if(op) typeCounts[op] = (typeCounts[op]||0) + 1;
       }
-      // Fallback: compter directement TYPE OPERATION TM si classifyRow ne détecte rien
-      if(t === 0 && d === 0){
-        for(const r of rows){
-          const op = String(r['TYPE OPERATION TM'] || '').trim().toLowerCase();
-          if(op.includes('transf')) t++;
-          else if(op.includes('debit') || op.includes('débit')) d++;
-        }
-      } else {
-        // Recompter debit via TYPE OPERATION TM directement (plus fiable)
-        d = 0;
-        for(const r of rows){
-          const op = String(r['TYPE OPERATION TM'] || '').trim().toLowerCase();
-          if(op.includes('debit') || op.includes('débit')) d++;
-        }
-      }
-      els.volTransferts.innerHTML = '<strong>Transferts:</strong> ' + t;
-      els.volDebits.innerHTML = '<strong>Débits:</strong> ' + d;
-      els.volTotal.innerHTML = '<strong>Total lignes:</strong> ' + rows.length;
+      const vol = document.getElementById('volumes');
+      vol.innerHTML = '';
+      Object.entries(typeCounts)
+        .sort((a,b) => b[1]-a[1])
+        .forEach(function([type, count]) {
+          const pill = document.createElement('span');
+          pill.className = 'pill';
+          pill.innerHTML = '<strong>' + type.charAt(0).toUpperCase() + type.slice(1) + ':</strong> ' + count;
+          vol.appendChild(pill);
+        });
+      const total = document.createElement('span');
+      total.className = 'pill';
+      total.innerHTML = '<strong>Total lignes:</strong> ' + rows.length;
+      vol.appendChild(total);
     }
-
 
     function parseWorkbook(arrayBuffer) {
       try {
