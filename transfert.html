@@ -50,7 +50,8 @@
       ⏱️ Ancienneté des dossiers
       <span id="duree-badge" style="font-size:11px;font-weight:400;color:#6b7280;background:#f3f4f6;border-radius:20px;padding:2px 10px;"></span>
     </h2>
-    <div id="duree-bars" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;"></div>
+    <div id="duree-empty" style="color:#9ca3af;font-size:13px;padding:8px 0;">📂 Chargez un fichier via <strong>Parcourir</strong> pour afficher l'ancienneté des dossiers.</div>
+    <div id="duree-bars" style="display:none;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;"></div>
     <div id="duree-pills" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
   </div>
 
@@ -71,7 +72,8 @@
       🔄 Étape courante
       <span id="etape-badge" style="font-size:11px;font-weight:400;color:#6b7280;background:#f3f4f6;border-radius:20px;padding:2px 10px;"></span>
     </h2>
-    <div id="etape-bars" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;"></div>
+    <div id="etape-empty" style="color:#9ca3af;font-size:13px;padding:8px 0;">📂 Chargez un fichier via <strong>Parcourir</strong> pour afficher la répartition par étape.</div>
+    <div id="etape-bars" style="display:none;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;"></div>
     <div id="etape-pills" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
   </div>
 
@@ -87,21 +89,6 @@
   </div>
 
 
-  <div class="card" id="top20Card">
-    <h2 style="font-size:16px;margin:0 0 8px;">🏆 Top 20 Clients (normalisés)</h2>
-    <div class="table-wrap" style="max-height:40vh;">
-      <table>
-        <thead>
-          <tr>
-            <th>Client normalisé</th>
-            <th>Volume</th>
-          </tr>
-        </thead>
-        <tbody id="top20Body"></tbody>
-      </table>
-    </div>
-    <div class="footer">Regroupement intelligent: SIB &amp; SIB CI → SIB, DOUANES → DOUANE, CANAL PLUS → CANAL+, BOLLORE AFRICA LOGISTICS → BOLLORE, etc.</div>
-  </div>
 
   <div class="card">
     <!-- Volumes au-dessus du tableau principal -->
@@ -141,8 +128,7 @@
       sourcePill: document.getElementById('sourcePill'),
       volTransferts: document.getElementById('volTransferts'),
       volDebits: document.getElementById('volDebits'),
-      volTotal: document.getElementById('volTotal'),
-      top20Body: document.getElementById('top20Body')
+      volTotal: document.getElementById('volTotal')
     };
 
     els.backBtn.onclick = () => { window.location.href = 'index.html'; };
@@ -283,25 +269,6 @@
       els.volTotal.innerHTML = '<strong>Total lignes:</strong> ' + rows.length;
     }
 
-    function buildTop20(rows, headers){
-      const clientCol = guessClientColumn(headers);
-      const counts = new Map();
-      for(const r of rows){
-        const canon = normalizeClient(r[clientCol]);
-        if(TOP_WHITELIST.has(canon)){
-          counts.set(canon, (counts.get(canon)||0)+1);
-        }
-      }
-      const arr = Array.from(counts.entries()).sort((a,b)=>b[1]-a[1]).slice(0,20);
-      const frag = document.createDocumentFragment();
-      for(const [name, vol] of arr){
-        const tr = document.createElement('tr');
-        const td1 = document.createElement('td'); td1.textContent = name; tr.appendChild(td1);
-        const td2 = document.createElement('td'); td2.textContent = vol; tr.appendChild(td2);
-        frag.appendChild(tr);
-      }
-      els.top20Body.innerHTML = ''; els.top20Body.appendChild(frag);
-    }
 
     function parseWorkbook(arrayBuffer) {
       try {
@@ -316,7 +283,6 @@
         state.headers = headers; state.rows = json;
         buildTable(headers, json);
         computeVolumes(json, headers);
-        buildTop20(json, headers);
         buildDuree(json);
         buildEtape(json);
         setMeta(''); // masqué
@@ -364,7 +330,12 @@
       const barsEl  = document.getElementById('duree-bars');
       const pillsEl = document.getElementById('duree-pills');
       const badgeEl = document.getElementById('duree-badge');
+      const emptyEl = document.getElementById('duree-empty');
       if (!barsEl) return;
+
+      // Afficher les barres, masquer le placeholder
+      if (emptyEl) emptyEl.style.display = 'none';
+      barsEl.style.display = 'flex';
 
       badgeEl.textContent = withDate + ' dossiers datés';
       barsEl.innerHTML = ''; pillsEl.innerHTML = '';
@@ -477,9 +448,17 @@
 
     function buildEtape(rows) {
       const counts = {};
+      const ageSums = {};
+      const ageCounts = {};
       rows.forEach(function(r) {
         var ep = String(r['ETAPE'] || '').trim();
-        if (ep) counts[ep] = (counts[ep]||0)+1;
+        if (!ep) return;
+        counts[ep] = (counts[ep]||0)+1;
+        var age = getDaysOld(r);
+        if (age !== null) {
+          ageSums[ep]   = (ageSums[ep]  ||0) + age;
+          ageCounts[ep] = (ageCounts[ep]||0) + 1;
+        }
       });
 
       var entries = Object.entries(counts).sort(function(a,b){ return b[1]-a[1]; });
@@ -488,7 +467,12 @@
       var barsEl  = document.getElementById('etape-bars');
       var pillsEl = document.getElementById('etape-pills');
       var badgeEl = document.getElementById('etape-badge');
+      var emptyEl = document.getElementById('etape-empty');
       if (!barsEl) return;
+
+      // Afficher les barres, masquer le placeholder
+      if (emptyEl) emptyEl.style.display = 'none';
+      barsEl.style.display = 'flex';
 
       badgeEl.textContent = total + ' dossiers • ' + entries.length + ' étapes';
       barsEl.innerHTML = ''; pillsEl.innerHTML = '';
@@ -499,11 +483,12 @@
         var color = ETAPE_COLORS[idx % ETAPE_COLORS.length];
         var pct   = total > 0 ? Math.round((n / total) * 100) : 0;
         var h     = Math.round((n / maxCount) * 90) + 16;
+        var avgAge = ageCounts[label] ? Math.round(ageSums[label] / ageCounts[label]) : null;
 
         // Barre
         var col = document.createElement('div');
         col.style.cssText = 'flex:1;min-width:80px;max-width:160px;text-align:center;cursor:pointer;';
-        col.title = label + ' : ' + n + ' (' + pct + '%)';
+        col.title = label + ' : ' + n + ' (' + pct + '%)' + (avgAge !== null ? ' — moy. ' + avgAge + 'j' : '');
 
         var num = document.createElement('div');
         num.style.cssText = 'font-size:20px;font-weight:800;color:' + color + ';margin-bottom:4px;';
@@ -519,7 +504,12 @@
         lbl.textContent = label;
         lbl.title = label;
 
-        col.appendChild(num); col.appendChild(bar); col.appendChild(lbl);
+        // Âge moyen sous le label
+        var ageLbl = document.createElement('div');
+        ageLbl.style.cssText = 'font-size:10px;margin-top:2px;font-weight:700;color:' + color + ';';
+        ageLbl.textContent = avgAge !== null ? '⏱ ' + avgAge + 'j moy.' : '';
+
+        col.appendChild(num); col.appendChild(bar); col.appendChild(lbl); col.appendChild(ageLbl);
         col.addEventListener('click', function() { openEtapePopup(label, color, n); });
         barsEl.appendChild(col);
 
@@ -527,7 +517,7 @@
         var pill = document.createElement('span');
         pill.style.cssText = 'padding:5px 14px;border-radius:999px;font-size:12px;font-weight:600;'
           + 'border:2px solid ' + color + ';color:' + color + ';background:white;white-space:nowrap;cursor:pointer;';
-        pill.textContent = label + '  ' + n + ' (' + pct + '%)';
+        pill.textContent = label + '  ' + n + ' (' + pct + '%)' + (avgAge !== null ? ' — ' + avgAge + 'j' : '');
         pill.addEventListener('click', function() { openEtapePopup(label, color, n); });
         pillsEl.appendChild(pill);
       });
