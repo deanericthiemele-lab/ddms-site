@@ -107,7 +107,9 @@ function renderSidebar() {
       <div class="status-dot status-${c.statut}"></div>`;
     list.appendChild(div);
   });
-  document.getElementById('sidebar-count').textContent = `${clients.length} client${clients.length>1?'s':''}`;
+  document.getElementById('sidebar-count').textContent = `${filtered.length} affiché${filtered.length>1?'s':''} / ${clients.length} total`;
+  const totalEl = document.getElementById('sidebar-total-num');
+  if (totalEl) totalEl.textContent = clients.length;
 }
 window.filterClients = () => renderSidebar();
 
@@ -274,7 +276,7 @@ function renderDocuments() {
     const ext = d.fileName?d.fileName.split('.').pop().toLowerCase():'';
     const extEmoji = {pdf:'📕',doc:'📘',docx:'📘',xls:'📗',xlsx:'📗',ppt:'📙',pptx:'📙',zip:'🗜️',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',mp4:'🎬'}[ext]||'📄';
     const openBtn = d.fileUrl
-      ? `<button class="btn-sm-edit" onclick="window.open('${d.fileUrl}','_blank')">📂 Ouvrir</button>`
+      ? `<button class="btn-sm-edit" onclick="openDocument('${d.fileUrl.replace(/'/g,"\\'")}')">📂 Ouvrir</button>`
       : '';
     return `<div class="card">
       <div class="card-head">
@@ -530,6 +532,19 @@ function formatSize(b) {
   return (b/1048576).toFixed(1)+'MB';
 }
 
+// ── OUVRIR DOCUMENT ──
+window.openDocument = function(url) {
+  if (!url) { toast('Aucun fichier disponible', 'error'); return; }
+  // Try to open in new tab; if blocked, create a direct link and click it
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
 
 // ── SUJETS SENSIBLES (liste de notes) ──
 let editStateNote = null;
@@ -619,7 +634,7 @@ function renderSouffrances() {
   const tbody = document.getElementById('souffrances-tbody'); if (!tbody) return;
   const list = c.souffrances || [];
   if (!list.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;">Aucun site enregistré</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;">Aucun site enregistré</td></tr>';
     return;
   }
   const statusMap = {
@@ -633,6 +648,7 @@ function renderSouffrances() {
     return `<tr style="border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <td style="padding:10px 14px;font-weight:500;font-size:13px;">${s.site||'—'}</td>
       <td style="padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);">${s.ref||'—'}</td>
+      <td style="padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px;color:var(--accent2);">${s.loopack||'—'}</td>
       <td style="padding:10px 14px;font-family:'DM Mono',monospace;font-size:12px;white-space:nowrap;">${s.date?formatDate(s.date):'—'}</td>
       <td style="padding:10px 14px;font-size:12px;color:var(--text2);max-width:180px;">${s.problemes||'—'}</td>
       <td style="padding:10px 14px;"><span style="padding:3px 10px;border-radius:20px;font-size:11px;font-family:'DM Mono',monospace;font-weight:600;background:${st.bg};color:${st.color};">${st.label}</span></td>
@@ -649,7 +665,7 @@ function renderSouffrances() {
 window.openAddSouffrance = function() {
   editStateSouffrance = null;
   document.getElementById('sf-modal-title').innerHTML = 'Nouveau site en souffrance <button class="modal-close" onclick="closeModal(\'modal-souffrance\')">✕</button>';
-  ['sf-site','sf-ref','sf-problemes','sf-comment'].forEach(id=>document.getElementById(id).value='');
+  ['sf-site','sf-ref','sf-loopack','sf-problemes','sf-comment'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('sf-date').value='';
   document.getElementById('sf-statut').value='critique';
   document.getElementById('modal-souffrance').style.display='flex';
@@ -660,6 +676,7 @@ window.editSouffrance = function(i) {
   document.getElementById('sf-modal-title').innerHTML = 'Modifier le site <button class="modal-close" onclick="closeModal(\'modal-souffrance\')">✕</button>';
   document.getElementById('sf-site').value=s.site||'';
   document.getElementById('sf-ref').value=s.ref||'';
+  document.getElementById('sf-loopack').value=s.loopack||'';
   document.getElementById('sf-date').value=s.date||'';
   document.getElementById('sf-statut').value=s.statut||'critique';
   document.getElementById('sf-problemes').value=s.problemes||'';
@@ -669,7 +686,7 @@ window.editSouffrance = function(i) {
 window.saveSouffrance = async function() {
   const c = getClient(); if (!c) return;
   const site = document.getElementById('sf-site').value.trim(); if (!site) return;
-  const obj = { site, ref:document.getElementById('sf-ref').value.trim(), date:document.getElementById('sf-date').value, statut:document.getElementById('sf-statut').value, problemes:document.getElementById('sf-problemes').value.trim(), comment:document.getElementById('sf-comment').value.trim() };
+  const obj = { site, ref:document.getElementById('sf-ref').value.trim(), loopack:document.getElementById('sf-loopack').value.trim(), date:document.getElementById('sf-date').value, statut:document.getElementById('sf-statut').value, problemes:document.getElementById('sf-problemes').value.trim(), comment:document.getElementById('sf-comment').value.trim() };
   if (!c.souffrances) c.souffrances=[];
   if (editStateSouffrance!==null) c.souffrances[editStateSouffrance]=obj; else c.souffrances.push(obj);
   try { toast('Enregistrement…'); await fsSaveClient(c); closeModal('modal-souffrance'); renderSouffrances(); toast('Site enregistré ✓','success'); }
@@ -847,6 +864,10 @@ init();
       <input type="text" id="search-client" placeholder="Rechercher un client…" oninput="filterClients()">
     </div>
     <button class="btn-add-client" onclick="openModal('modal-add-client')">+ Nouveau client</button>
+    <div id="sidebar-total-badge" style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding:5px 10px;background:rgba(37,99,235,.07);border:1px solid rgba(37,99,235,.15);border-radius:8px;">
+      <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;">Total clients</span>
+      <span id="sidebar-total-num" style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--accent);">—</span>
+    </div>
   </div>
   <div class="client-list" id="client-list"></div>
   <div class="sidebar-footer" id="sidebar-count">Chargement…</div>
@@ -923,6 +944,7 @@ init();
               <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
                 <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Site</th>
                 <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Référence</th>
+                <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Loopack</th>
                 <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Date</th>
                 <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Problèmes récurrents</th>
                 <th style="padding:10px 14px;text-align:left;font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);">Statut</th>
@@ -1115,7 +1137,9 @@ init();
       <div class="field"><label>Référence</label><input id="sf-ref" placeholder="ex: LS-2024-001"></div>
     </div>
     <div class="grid2">
+      <div class="field"><label>Loopack</label><input id="sf-loopack" placeholder="ex: LP-2024-001"></div>
       <div class="field"><label>Date de détection</label><input id="sf-date" type="date"></div>
+    </div>
       <div class="field"><label>Statut</label>
         <select id="sf-statut">
           <option value="critique">🔴 Critique</option>
