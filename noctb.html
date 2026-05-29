@@ -2783,7 +2783,6 @@ function renderCR(){
       <td style="display:flex;gap:4px;flex-wrap:nowrap">
         <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="viewCR('${c.id}')">👁 Voir</button>
         <button class="btn btn-sm btn-out" onclick="printCR('${c.id}')" title="Imprimer le rapport">🖨</button>
-        <button class="btn btn-sm btn-out" onclick="sendMailCR('${c.id}')" title="Envoyer par mail">✉</button>
         <button class="btn btn-sm btn-out" onclick="openEditCR('${c.id}')">✏️</button>
         <button class="btn btn-sm btn-out" onclick="deleteItem('noc_cr','${c.id}','cr')">🗑</button>
       </td>
@@ -2823,17 +2822,6 @@ function viewCR(id){
   }
   printBtn.innerHTML = '🖨 Imprimer';
   printBtn.onclick = ()=>{ closeModal('mo-detail'); printCR(id); };
-  // Bouton Mail dans la modale
-  let mailBtn = document.getElementById('mo-det-mail-btn');
-  if(!mailBtn){
-    mailBtn = document.createElement('button');
-    mailBtn.id = 'mo-det-mail-btn';
-    mailBtn.className = 'btn btn-out';
-    const foot = document.querySelector('#mo-detail .modal-foot');
-    if(foot) foot.insertBefore(mailBtn, foot.firstChild);
-  }
-  mailBtn.innerHTML = '✉ Envoyer par mail';
-  mailBtn.onclick = ()=>{ sendMailCR(id); };
   openModal('mo-detail');
 }
 
@@ -4245,8 +4233,6 @@ function printCR(id){
   .toolbar-logo span { color: #888; font-weight: 400; margin-left: 6px; font-size: 9.5pt; }
   .toolbar-sp { flex: 1; }
   .btn-print { background: #1c1c1c; color: #fff; border: none; padding: 7px 20px; font-family: 'Inter', sans-serif; font-size: 9.5pt; font-weight: 600; cursor: pointer; letter-spacing: .2px; }
-  .btn-mail { background: #fff; color: #1c1c1c; border: 1px solid #bbb; padding: 7px 18px; font-family: 'Inter', sans-serif; font-size: 9.5pt; font-weight: 500; cursor: pointer; }
-  .btn-mail:hover { border-color: #1c1c1c; background: #f9f9f9; }
   .btn-close { background: none; border: 1px solid #ccc; color: #666; padding: 7px 14px; font-family: 'Inter', sans-serif; font-size: 9.5pt; cursor: pointer; }
 
   /* ─ PAGE ─ */
@@ -4314,49 +4300,9 @@ function printCR(id){
 <div class="toolbar no-print">
   <span class="toolbar-logo">NOC B2B <span>— Aperçu Compte-Rendu</span></span>
   <span class="toolbar-sp"></span>
-  <button class="btn-mail" onclick="sendMail()">✉ Envoyer par mail</button>
-  <button class="btn-print" onclick="window.print()">Imprimer / PDF</button>
-  <button class="btn-close" onclick="window.close()">✕ Fermer</button>
+  <button class="btn-print" onclick="window.print()">Imprimer / Enregistrer PDF</button>
+  <button class="btn-close" onclick="window.close()">Fermer</button>
 </div>
-<script>
-function sendMail(){
-  const titre  = ${JSON.stringify(c.titre||'Compte-Rendu')};
-  const date   = ${JSON.stringify(c.date||'')};
-  const auteur = ${JSON.stringify(c.auteur||'')};
-  const parts  = ${JSON.stringify(c.participants||'')};
-  const odj    = ${JSON.stringify(c.odj||'')};
-  const points = ${JSON.stringify(c.points||'')};
-  const actions= ${JSON.stringify(c.actions||'')};
-  const next   = ${JSON.stringify(c.next||'')};
-  const ref    = 'CR-${id.slice(-8).toUpperCase()}';
-  const subject = encodeURIComponent('[NOC B2B] Compte-Rendu — ' + titre + ' — ' + date);
-  let body = '';
-  body += 'Bonjour,\\n\\n';
-  body += 'Veuillez trouver ci-dessous le compte-rendu de la réunion du ' + date + '.\\n\\n';
-  body += '─────────────────────────────────────\\n';
-  body += 'COMPTE-RENDU DE RÉUNION\\n';
-  body += 'Référence  : ' + ref + '\\n';
-  body += 'Date       : ' + date + '\\n';
-  body += 'Rédigé par : ' + auteur + '\\n';
-  if(parts) body += 'Participants : ' + parts + '\\n';
-  body += '─────────────────────────────────────\\n\\n';
-  if(odj){ body += 'ORDRE DU JOUR\\n' + odj + '\\n\\n'; }
-  if(points){
-    body += 'POINTS DISCUTÉS\\n';
-    points.split('\\n').filter(l=>l.trim()).forEach(l=>{ body += '• ' + l.trim() + '\\n'; });
-    body += '\\n';
-  }
-  if(actions){
-    body += 'ACTIONS DÉCIDÉES\\n';
-    actions.split('\\n').filter(l=>l.trim()).forEach((l,i)=>{ body += (i+1) + '. ' + l.trim() + '\\n'; });
-    body += '\\n';
-  }
-  if(next){ body += 'PROCHAINE RÉUNION\\n' + next + '\\n\\n'; }
-  body += '─────────────────────────────────────\\n';
-  body += 'Document généré par NOC B2B — Espace Pilotage OCI · Orange CI\\n';
-  window.location.href = 'mailto:?subject=' + subject + '&body=' + encodeURIComponent(body);
-}
-</script>
 
 <div class="page">
 
@@ -4454,41 +4400,6 @@ function sendMail(){
   if(!win){ toast('Popup bloqué — autorisez les popups','err'); return; }
   win.document.write(html);
   win.document.close();
-}
-
-// ═══════════════════════════════════════════════════════════
-// ENVOI MAIL CR
-// ═══════════════════════════════════════════════════════════
-function sendMailCR(id){
-  const c = DB.cr.find(x=>x.id===id); if(!c) return;
-  const ref = 'CR-' + id.slice(-8).toUpperCase();
-  const subject = encodeURIComponent('[NOC B2B] Compte-Rendu — ' + (c.titre||'') + ' — ' + (c.date||''));
-  let body = '';
-  body += 'Bonjour,\n\n';
-  body += 'Veuillez trouver ci-dessous le compte-rendu de la réunion du ' + (c.date||'') + '.\n\n';
-  body += '─────────────────────────────────────\n';
-  body += 'COMPTE-RENDU DE RÉUNION\n';
-  body += 'Référence  : ' + ref + '\n';
-  body += 'Date       : ' + (c.date||'—') + '\n';
-  body += 'Rédigé par : ' + (c.auteur||'—') + '\n';
-  if(c.participants) body += 'Participants : ' + c.participants + '\n';
-  body += '─────────────────────────────────────\n\n';
-  if(c.odj){ body += 'ORDRE DU JOUR\n' + c.odj + '\n\n'; }
-  if(c.points){
-    body += 'POINTS DISCUTÉS\n';
-    c.points.split('\n').filter(l=>l.trim()).forEach(l=>{ body += '• ' + l.trim() + '\n'; });
-    body += '\n';
-  }
-  if(c.actions){
-    body += 'ACTIONS DÉCIDÉES\n';
-    c.actions.split('\n').filter(l=>l.trim()).forEach((l,i)=>{ body += (i+1) + '. ' + l.trim() + '\n'; });
-    body += '\n';
-  }
-  if(c.next){ body += 'PROCHAINE RÉUNION\n' + c.next + '\n\n'; }
-  body += '─────────────────────────────────────\n';
-  body += 'Document généré par NOC B2B — Espace Pilotage OCI · Orange CI\n';
-  window.location.href = 'mailto:?subject=' + subject + '&body=' + encodeURIComponent(body);
-  toast('Ouverture Outlook…', 'ok');
 }
 
 // ═══════════════════════════════════════════════════════════
