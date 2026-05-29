@@ -2782,6 +2782,7 @@ function renderCR(){
       <td>${(c.files||[]).length>0?`<span class="bp bp-ok">${c.files.length} fichier(s)</span>`:'<span style="font-size:10px;color:var(--n4)">—</span>'}</td>
       <td style="display:flex;gap:4px;flex-wrap:nowrap">
         <button class="btn btn-sm" style="background:var(--bl);color:var(--b);border:1px solid var(--b)" onclick="viewCR('${c.id}')">👁 Voir</button>
+        <button class="btn btn-sm btn-out" onclick="printCR('${c.id}')" title="Imprimer le rapport">🖨</button>
         <button class="btn btn-sm btn-out" onclick="openEditCR('${c.id}')">✏️</button>
         <button class="btn btn-sm btn-out" onclick="deleteItem('noc_cr','${c.id}','cr')">🗑</button>
       </td>
@@ -2809,6 +2810,18 @@ function viewCR(id){
   const editBtn = document.getElementById('mo-det-edit-btn');
   editBtn.style.display = '';
   editBtn.onclick = ()=>{ closeModal('mo-detail'); openEditCR(id); };
+  // Bouton Imprimer dans la modale
+  let printBtn = document.getElementById('mo-det-print-btn');
+  if(!printBtn){
+    printBtn = document.createElement('button');
+    printBtn.id = 'mo-det-print-btn';
+    printBtn.className = 'btn btn-out';
+    printBtn.style.cssText = 'margin-right:auto';
+    const foot = document.querySelector('#mo-detail .modal-foot');
+    if(foot) foot.insertBefore(printBtn, foot.firstChild);
+  }
+  printBtn.innerHTML = '🖨 Imprimer';
+  printBtn.onclick = ()=>{ closeModal('mo-detail'); printCR(id); };
   openModal('mo-detail');
 }
 
@@ -4187,6 +4200,212 @@ function exportAll(){
   a.href=url;a.download=`noc_pilot_export_${new Date().toISOString().slice(0,10)}.json`;a.click();
   setTimeout(()=>URL.revokeObjectURL(url),3000);
   toast('Export JSON téléchargé ✓','ok');
+}
+
+// ═══════════════════════════════════════════════════════════
+// IMPRESSION CR — RAPPORT BEAU
+// ═══════════════════════════════════════════════════════════
+function printCR(id){
+  const c = DB.cr.find(x=>x.id===id); if(!c) return;
+  const today = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
+  const files = (c.files||[]).map(f=>f.url
+    ? `<a href="${f.url}">${f.name}</a>`
+    : `<span>${f.name}</span>`).join(' &nbsp;·&nbsp; ');
+
+  // Construire les actions comme liste si elles contiennent des numéros
+  const actionsHtml = (c.actions||'').split('\n').filter(l=>l.trim()).map(l=>`<li>${l.trim()}</li>`).join('') || '<li>—</li>';
+  const pointsHtml = (c.points||'').split('\n').filter(l=>l.trim()).map(l=>`<li>${l.trim()}</li>`).join('') || '<li>—</li>';
+
+  const html = `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>CR — ${c.titre||'Compte-Rendu'}</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  @page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+  body { font-family: 'Barlow', sans-serif; font-size: 11pt; color: #1A1A1A; background: #fff; }
+
+  /* ─ EN-TÊTE ─ */
+  .header { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 3px solid #E05A00; padding-bottom: 14px; margin-bottom: 20px; }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo-block { background: #1A1A1A; padding: 10px 16px; border-radius: 4px; }
+  .logo-noc { font-family: 'Barlow Condensed', sans-serif; font-size: 22pt; font-weight: 800; color: #fff; letter-spacing: -0.5px; line-height: 1; }
+  .logo-sub { font-size: 7pt; color: #E05A00; letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; font-weight: 700; }
+  .header-title { }
+  .doc-type { font-size: 8.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; color: #E05A00; margin-bottom: 3px; }
+  .doc-title { font-family: 'Barlow Condensed', sans-serif; font-size: 20pt; font-weight: 800; color: #1A1A1A; line-height: 1.1; max-width: 340px; }
+  .header-right { text-align: right; font-size: 9pt; color: #6B6B6B; line-height: 1.8; }
+  .header-right strong { color: #1A1A1A; font-weight: 700; }
+
+  /* ─ MÉTA BANDEAUX ─ */
+  .meta-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border: 1px solid #E4E4E4; border-radius: 5px; overflow: hidden; margin-bottom: 22px; }
+  .meta-cell { padding: 10px 14px; background: #FAFAFA; border-right: 1px solid #E4E4E4; }
+  .meta-cell:last-child { border-right: none; }
+  .meta-label { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #B0B0B0; margin-bottom: 4px; }
+  .meta-value { font-size: 10.5pt; font-weight: 700; color: #1A1A1A; }
+  .meta-value.orange { color: #E05A00; }
+
+  /* ─ SECTIONS ─ */
+  .section { margin-bottom: 18px; }
+  .section-title { font-family: 'Barlow Condensed', sans-serif; font-size: 11pt; font-weight: 800; text-transform: uppercase; letter-spacing: 0.8px; color: #1A1A1A; padding: 6px 10px 6px 12px; background: #F7F7F7; border-left: 4px solid #E05A00; border-radius: 0 3px 3px 0; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .section-title .ico { font-size: 12pt; }
+
+  /* ─ CONTENU ─ */
+  .text-block { background: #F7F7F7; border-radius: 4px; padding: 12px 14px; font-size: 10.5pt; line-height: 1.75; color: #333; }
+  .text-block.amber { background: #FDF5E0; border-left: 4px solid #B07700; }
+
+  ul.cr-list { padding-left: 20px; margin: 0; }
+  ul.cr-list li { padding: 3px 0; font-size: 10.5pt; line-height: 1.6; }
+  ul.cr-list li::marker { color: #E05A00; font-size: 9pt; }
+
+  /* ─ PARTICIPANTS ─ */
+  .parts-wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+  .part-chip { background: #EBF3FA; color: #1B4F72; font-size: 9pt; font-weight: 600; padding: 3px 10px; border-radius: 20px; border: 1px solid #c5d9ea; }
+
+  /* ─ NEXT ─ */
+  .next-box { display: flex; align-items: center; gap: 10px; background: #E8F5EE; border: 1px solid #a8d5b5; border-radius: 4px; padding: 10px 14px; font-size: 10.5pt; color: #1A6B3C; font-weight: 600; }
+
+  /* ─ PIED DE PAGE ─ */
+  .footer { position: fixed; bottom: 0; left: 0; right: 0; border-top: 1px solid #E4E4E4; padding: 7px 16mm; display: flex; align-items: center; justify-content: space-between; font-size: 8pt; color: #B0B0B0; background: #fff; }
+  .footer-logo { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 10pt; color: #1A1A1A; }
+  .footer-logo span { color: #E05A00; }
+
+  /* ─ FILIGRANE CONFIDENTIEL ─ */
+  .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%) rotate(-35deg); font-family: 'Barlow Condensed', sans-serif; font-size: 68pt; font-weight: 800; color: rgba(224,90,0,.05); pointer-events: none; white-space: nowrap; letter-spacing: 4px; z-index: 0; }
+
+  /* ─ SÉPARATEUR ─ */
+  .divider { border: none; border-top: 1px solid #E4E4E4; margin: 14px 0; }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .no-print { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="watermark">ORANGE CI</div>
+
+<!-- Bouton impression (masqué à l'impression) -->
+<div class="no-print" style="background:#1A1A1A;padding:10px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100">
+  <span style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14pt;color:#fff">NOC B2B</span>
+  <span style="flex:1;font-size:9.5pt;color:rgba(255,255,255,.5)">Aperçu avant impression — Compte-Rendu</span>
+  <button onclick="window.print()" style="background:#E05A00;color:#fff;border:none;padding:8px 22px;border-radius:4px;font-family:'Barlow',sans-serif;font-size:10pt;font-weight:700;cursor:pointer;letter-spacing:.3px">🖨 Imprimer / Enregistrer PDF</button>
+  <button onclick="window.close()" style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.15);padding:8px 16px;border-radius:4px;font-family:'Barlow',sans-serif;font-size:10pt;cursor:pointer">✕ Fermer</button>
+</div>
+
+<!-- CONTENU A4 -->
+<div style="max-width:794px;margin:0 auto;padding:28px 24px 80px">
+
+  <!-- EN-TÊTE -->
+  <div class="header">
+    <div class="header-left">
+      <div class="logo-block">
+        <div class="logo-noc">NOC B2B</div>
+        <div class="logo-sub">OCI · Orange CI</div>
+      </div>
+      <div class="header-title">
+        <div class="doc-type">📝 Compte-Rendu de Réunion</div>
+        <div class="doc-title">${(c.titre||'Compte-Rendu').replace(/</g,'&lt;')}</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div>Généré le <strong>${today}</strong></div>
+      <div>Rédigé par <strong>${(c.auteur||'—').replace(/</g,'&lt;')}</strong></div>
+      <div style="margin-top:6px;font-family:monospace;font-size:8pt;color:#B0B0B0">REF: CR-${id.slice(-8).toUpperCase()}</div>
+    </div>
+  </div>
+
+  <!-- MÉTA STRIP -->
+  <div class="meta-strip">
+    <div class="meta-cell">
+      <div class="meta-label">📅 Date</div>
+      <div class="meta-value orange">${c.date||'—'}</div>
+    </div>
+    <div class="meta-cell">
+      <div class="meta-label">👤 Rédigé par</div>
+      <div class="meta-value">${(c.auteur||'—').replace(/</g,'&lt;')}</div>
+    </div>
+    <div class="meta-cell">
+      <div class="meta-label">👥 Participants</div>
+      <div class="meta-value">${(c.participants||'').split(',').length} personne(s)</div>
+    </div>
+    <div class="meta-cell">
+      <div class="meta-label">📋 Actions créées</div>
+      <div class="meta-value orange">${(c.actions||'').split('\n').filter(l=>l.trim()).length} action(s)</div>
+    </div>
+  </div>
+
+  <!-- PARTICIPANTS -->
+  ${c.participants ? `
+  <div class="section">
+    <div class="section-title"><span class="ico">👥</span> Participants</div>
+    <div class="parts-wrap">
+      ${c.participants.split(',').map(p=>`<span class="part-chip">${p.trim().replace(/</g,'&lt;')}</span>`).join('')}
+    </div>
+  </div>` : ''}
+
+  <!-- ORDRE DU JOUR -->
+  ${c.odj ? `
+  <div class="section">
+    <div class="section-title"><span class="ico">📌</span> Ordre du jour</div>
+    <div class="text-block">${c.odj.replace(/</g,'&lt;').replace(/\n/g,'<br>')}</div>
+  </div>` : ''}
+
+  <!-- POINTS DISCUTÉS -->
+  <div class="section">
+    <div class="section-title"><span class="ico">💬</span> Points discutés / Résumé</div>
+    <div class="text-block">
+      <ul class="cr-list">${pointsHtml}</ul>
+    </div>
+  </div>
+
+  <!-- ACTIONS DÉCIDÉES -->
+  <div class="section">
+    <div class="section-title"><span class="ico">⚡</span> Actions décidées</div>
+    <div class="text-block amber">
+      <ul class="cr-list">${actionsHtml}</ul>
+    </div>
+  </div>
+
+  <!-- PROCHAINE RÉUNION -->
+  ${c.next ? `
+  <div class="section">
+    <div class="section-title"><span class="ico">📆</span> Prochaine réunion</div>
+    <div class="next-box">✅ ${c.next.replace(/</g,'&lt;')}</div>
+  </div>` : ''}
+
+  <!-- FICHIERS JOINTS -->
+  ${files ? `
+  <div class="section">
+    <div class="section-title"><span class="ico">📎</span> Fichiers joints</div>
+    <div class="text-block" style="font-size:10pt">${files}</div>
+  </div>` : ''}
+
+  <hr class="divider">
+  <div style="font-size:8.5pt;color:#B0B0B0;text-align:center;line-height:1.7">
+    Document généré automatiquement par la plateforme NOC B2B · Orange CI<br>
+    Espace Pilotage OCI — Diffusion interne uniquement
+  </div>
+
+</div>
+
+<!-- PIED DE PAGE FIXE (impression) -->
+<div class="footer">
+  <div class="footer-logo">NOC <span>B2B</span></div>
+  <div>Compte-Rendu · ${(c.titre||'').replace(/</g,'&lt;')} · ${c.date||'—'}</div>
+  <div>Orange CI — Confidentiel</div>
+</div>
+
+</body>
+</html>`;
+
+  const win = window.open('', '_blank', 'width=900,height=700');
+  if(!win){ toast('Popup bloqué — autorisez les popups','err'); return; }
+  win.document.write(html);
+  win.document.close();
 }
 
 // ═══════════════════════════════════════════════════════════
