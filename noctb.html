@@ -567,6 +567,7 @@ function applyRole(){
   <div class="si" data-page="contacts" onclick="nav(this)"><span class="si-ico">📋</span>Contact client</div>
   <div class="si" data-page="architectures" onclick="nav(this)"><span class="si-ico">🗂️</span>Architecture</div>
   <div class="si" data-page="point-situation" onclick="nav(this)"><span class="si-ico">📌</span>Point de situation Incident<span class="si-badge" id="b-psi">0</span></div>
+  <div class="si" data-page="kb" onclick="nav(this)"><span class="si-ico">🧠</span>Base de Connaissances<span class="si-badge" id="b-kb">0</span></div>
 
   <div class="sg">Stratégie & Gov.</div>
   <div class="si" data-page="roadmap" onclick="nav(this)"><span class="si-ico">🗺️</span>Roadmap</div>
@@ -1858,9 +1859,127 @@ async function deleteContact(id){
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════ PAGE: BASE DE CONNAISSANCES -->
+<div class="page" id="page-kb">
+  <div class="ph">
+    <div>
+      <div class="ph-title">🧠 Base de Connaissances</div>
+      <div class="ph-sub">Erreurs connues · FAQ clients · Runbooks · Glossaire</div>
+    </div>
+    <div class="t-sp"></div>
+    <button class="btn btn-out btn-sm" onclick="kbExportExcel()" style="gap:5px">📊 Exporter</button>
+    <button class="btn btn-v" onclick="kbOpenModal()">+ Nouvel article</button>
+  </div>
+
+  <!-- KPI Bar -->
+  <div class="kgrid" style="margin-bottom:18px;grid-template-columns:repeat(5,1fr)">
+    <div class="kcard info"><div class="kcard-v" id="kb-kpi-total">0</div><div class="kcard-l">Total articles</div><div class="kcard-bar"><div class="kcard-fill" style="width:100%;background:var(--b)"></div></div></div>
+    <div class="kcard" style="border-top:3px solid var(--r)"><div class="kcard-v" style="color:var(--r)" id="kb-kpi-ke">0</div><div class="kcard-l">Erreurs connues</div></div>
+    <div class="kcard" style="border-top:3px solid var(--a)"><div class="kcard-v" style="color:var(--a)" id="kb-kpi-faq">0</div><div class="kcard-l">FAQ Clients</div></div>
+    <div class="kcard" style="border-top:3px solid var(--g)"><div class="kcard-v" style="color:var(--g)" id="kb-kpi-run">0</div><div class="kcard-l">Runbooks</div></div>
+    <div class="kcard" style="border-top:3px solid var(--p)"><div class="kcard-v" style="color:var(--p)" id="kb-kpi-glo">0</div><div class="kcard-l">Glossaire</div></div>
+  </div>
+
+  <!-- Barre recherche + filtres -->
+  <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+    <input type="text" id="kb-search" placeholder="🔍 Rechercher dans les articles…" style="border:1px solid var(--n5);border-radius:3px;padding:7px 12px;font-size:12.5px;flex:1;min-width:220px;max-width:400px;" oninput="kbRender()">
+    <select id="kb-filter-cat" onchange="kbRender()" style="border:1px solid var(--n5);border-radius:3px;padding:7px 10px;font-size:12.5px;">
+      <option value="">Toutes catégories</option>
+      <option value="Erreur connue">🔴 Erreur connue</option>
+      <option value="FAQ Client">🟠 FAQ Client</option>
+      <option value="Runbook">🟢 Runbook</option>
+      <option value="Glossaire">🟣 Glossaire</option>
+    </select>
+    <div class="t-sp"></div>
+    <span style="font-size:11px;color:var(--n4);font-family:var(--mono)" id="kb-count-lbl">— articles</span>
+  </div>
+
+  <!-- Grille articles -->
+  <div id="kb-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px"></div>
+</div>
+
 </div><!-- /main -->
 </div><!-- /wrap -->
 
+
+<!-- ═══════════════════════════════════════════════════════ MODALES BASE DE CONNAISSANCES -->
+
+<!-- Modale Créer / Éditer article KB -->
+<div class="overlay" id="mo-kb">
+  <div class="modal" style="width:720px;max-width:97vw">
+    <div class="modal-hdr">
+      <span style="font-size:20px">🧠</span>
+      <span class="modal-title" id="mo-kb-title">Nouvel article</span>
+      <button class="modal-close" onclick="closeModal('mo-kb')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="kb-edit-id">
+      <div class="frow">
+        <div class="fgrp" style="grid-column:1/-1">
+          <label>Titre *</label>
+          <input type="text" id="kb-titre" placeholder="Titre clair et précis de l'article…">
+        </div>
+      </div>
+      <div class="frow">
+        <div class="fgrp">
+          <label>Catégorie *</label>
+          <select id="kb-cat">
+            <option value="Erreur connue">🔴 Erreur connue</option>
+            <option value="FAQ Client">🟠 FAQ Client</option>
+            <option value="Runbook">🟢 Runbook</option>
+            <option value="Glossaire">🟣 Glossaire</option>
+          </select>
+        </div>
+        <div class="fgrp">
+          <label>Tags (séparés par virgule)</label>
+          <input type="text" id="kb-tags" placeholder="ex: BGP, Lien Down, Orange CI…">
+        </div>
+      </div>
+      <div class="fgrp">
+        <label>Symptôme / Contexte</label>
+        <textarea id="kb-symptome" rows="3" placeholder="Décrire le symptôme observé, l'alerte reçue, ou la question client…"></textarea>
+      </div>
+      <div class="fgrp">
+        <label>Cause identifiée</label>
+        <textarea id="kb-cause" rows="2" placeholder="Quelle est la cause racine ou l'explication technique…"></textarea>
+      </div>
+      <div class="fgrp">
+        <label>Solution / Procédure *</label>
+        <textarea id="kb-solution" rows="5" placeholder="Étapes de résolution, commandes, contacts à appeler, procédure à suivre…"></textarea>
+      </div>
+      <div class="frow">
+        <div class="fgrp">
+          <label>Auteur</label>
+          <input type="text" id="kb-auteur" placeholder="Nom de l'agent rédacteur">
+        </div>
+        <div class="fgrp">
+          <label>Lien externe (optionnel)</label>
+          <input type="url" id="kb-lien" placeholder="https://…">
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-out" onclick="closeModal('mo-kb')">Annuler</button>
+      <button class="btn btn-v" onclick="kbSave()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale Visualiser article KB -->
+<div class="overlay" id="mo-kb-view">
+  <div class="modal" style="width:720px;max-width:97vw">
+    <div class="modal-hdr">
+      <span style="font-size:20px">📖</span>
+      <span class="modal-title" id="mo-kb-view-title">Article</span>
+      <button class="modal-close" onclick="closeModal('mo-kb-view')">✕</button>
+    </div>
+    <div class="modal-body" id="mo-kb-view-body"></div>
+    <div class="modal-foot">
+      <button class="btn btn-out" id="kb-view-edit-btn" onclick="">✏️ Modifier</button>
+      <button class="btn btn-out" onclick="closeModal('mo-kb-view')">Fermer</button>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════ MODALES PSI -->
 
@@ -2440,7 +2559,7 @@ async function deleteContact(id){
 // STATE
 // ═══════════════════════════════════════════════════════════
 let DB = {
-  reunions:[], cr:[], plans:[], incidents:[], changements:[], agents:[], docs:[], crises:[], psi:[]
+  reunions:[], cr:[], plans:[], incidents:[], changements:[], agents:[], docs:[], crises:[], psi:[], kb:[]
 };
 let _cr_files = [];
 let _activeFilters = {};
@@ -2534,13 +2653,13 @@ async function loadAll(){
   const dot = document.getElementById('fb-dot');
   dot.className='load';
   try{
-    const [r,c,p,inc,chg,ag,docs,crises,psi] = await Promise.all([
+    const [r,c,p,inc,chg,ag,docs,crises,psi,kb] = await Promise.all([
       fbLoad('noc_reunions'), fbLoad('noc_cr'), fbLoad('noc_actions'),
       fbLoad('noc_incidents'), fbLoad('noc_chg'), fbLoad('noc_agents'), fbLoad('noc_docs'),
-      fbLoad('noc_crises'), fbLoad('noc_psi')
+      fbLoad('noc_crises'), fbLoad('noc_psi'), fbLoad('noc_kb')
     ]);
     DB.reunions=r; DB.cr=c; DB.plans=p; DB.incidents=inc;
-    DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi;
+    DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi; DB.kb=kb;
     dot.className='ok';
     renderAll();
     toast('Données chargées depuis Firebase','ok');
@@ -2628,6 +2747,7 @@ function renderAll(){
   renderAgents();
   renderDocs();
   psiRender();
+  kbRender();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2643,6 +2763,7 @@ function updateBadges(){
   set('b-agents', DB.agents.length);
   set('b-docs', DB.docs.length);
   set('b-psi', (DB.psi||[]).length);
+  set('b-kb',  (DB.kb||[]).length);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3410,6 +3531,176 @@ function exportAgentsExcel(){
   document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(url), 3000);
   toast(`${DB.agents.length} agent(s) exporté(s) ✓`, 'ok');
+}
+
+// ═══════════════════════════════════════════════════════════
+// BASE DE CONNAISSANCES (KB)
+// ═══════════════════════════════════════════════════════════
+
+const KB_CAT_CFG = {
+  'Erreur connue': { ico:'🔴', cls:'bp-p1',  bg:'var(--rl)', color:'var(--r)' },
+  'FAQ Client':    { ico:'🟠', cls:'bp-p2',  bg:'var(--al)', color:'var(--a)' },
+  'Runbook':       { ico:'🟢', cls:'bp-ok',  bg:'var(--gl)', color:'var(--g)' },
+  'Glossaire':     { ico:'🟣', cls:'bp-p3',  bg:'var(--pl)', color:'var(--p)' },
+};
+
+function kbRender(){
+  const grid = document.getElementById('kb-grid');
+  if(!grid) return;
+  const search = (document.getElementById('kb-search')?.value||'').toLowerCase();
+  const filtCat = document.getElementById('kb-filter-cat')?.value||'';
+  const all = DB.kb||[];
+
+  // KPIs
+  document.getElementById('kb-kpi-total').textContent = all.length;
+  document.getElementById('kb-kpi-ke').textContent  = all.filter(a=>a.cat==='Erreur connue').length;
+  document.getElementById('kb-kpi-faq').textContent = all.filter(a=>a.cat==='FAQ Client').length;
+  document.getElementById('kb-kpi-run').textContent = all.filter(a=>a.cat==='Runbook').length;
+  document.getElementById('kb-kpi-glo').textContent = all.filter(a=>a.cat==='Glossaire').length;
+  const badge = document.getElementById('b-kb');
+  if(badge){ badge.textContent=all.length; badge.style.display=all.length>0?'':'none'; }
+
+  let items = all.filter(a=>{
+    const txt = ((a.titre||'')+(a.symptome||'')+(a.cause||'')+(a.solution||'')+(a.tags||'')+(a.auteur||'')).toLowerCase();
+    return (!search || txt.includes(search)) && (!filtCat || a.cat===filtCat);
+  });
+
+  document.getElementById('kb-count-lbl').textContent = items.length+' article'+(items.length>1?'s':'');
+
+  if(!items.length){
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty-ico">🧠</div><div class="empty-txt">Aucun article trouvé</div></div>`;
+    return;
+  }
+
+  grid.innerHTML = items.map(a=>{
+    const cfg = KB_CAT_CFG[a.cat]||KB_CAT_CFG['Glossaire'];
+    const tags = (a.tags||'').split(',').map(t=>t.trim()).filter(Boolean)
+      .map(t=>`<span style="font-size:9.5px;background:var(--n6);border:1px solid var(--n5);padding:1px 6px;border-radius:10px;color:var(--n3);font-family:var(--mono)">${t}</span>`).join('');
+    const shortSol = (a.solution||'').length>120 ? (a.solution||'').slice(0,120)+'…' : (a.solution||'—');
+    return `
+    <div style="background:#fff;border:1px solid var(--n5);border-radius:5px;padding:16px;display:flex;flex-direction:column;gap:8px;border-top:3px solid ${cfg.color};cursor:pointer;transition:.15s"
+      onclick="kbView('${a.id}')"
+      onmouseover="this.style.boxShadow='var(--sdm)';this.style.borderColor='${cfg.color}'"
+      onmouseout="this.style.boxShadow='';this.style.borderColor='var(--n5)'">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">${cfg.ico}</span>
+        <span style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:2px 8px;border-radius:2px;background:${cfg.bg};color:${cfg.color};font-family:var(--mono)">${a.cat}</span>
+        <div class="t-sp"></div>
+        <span style="font-size:10px;color:var(--n4);font-family:var(--mono)">${a.date||'—'}</span>
+      </div>
+      <div style="font-family:var(--cond);font-size:15px;font-weight:700;color:var(--n1);line-height:1.3">${a.titre||'—'}</div>
+      ${a.symptome?`<div style="font-size:11.5px;color:var(--n3);font-style:italic;line-height:1.4">${(a.symptome||'').slice(0,100)}${a.symptome.length>100?'…':''}</div>`:''}
+      <div style="font-size:12px;color:var(--n2);line-height:1.5;background:var(--n6);border-radius:3px;padding:8px 10px">${shortSol}</div>
+      <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:2px">
+        ${tags}
+        <div class="t-sp"></div>
+        <span style="font-size:10px;color:var(--n4)">✍ ${a.auteur||'—'}</span>
+        <button class="btn btn-sm btn-out" style="padding:2px 8px;font-size:10px" onclick="event.stopPropagation();kbEditById('${a.id}')">✏️</button>
+        <button class="btn btn-sm btn-r" style="padding:2px 8px;font-size:10px" onclick="event.stopPropagation();kbDeleteById('${a.id}')">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function kbOpenModal(){
+  document.getElementById('kb-edit-id').value='';
+  document.getElementById('mo-kb-title').textContent='🧠 Nouvel article';
+  ['kb-titre','kb-tags','kb-symptome','kb-cause','kb-solution','kb-auteur','kb-lien'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('kb-cat').value='Erreur connue';
+  openModal('mo-kb');
+}
+
+function kbEditById(id){
+  const a=(DB.kb||[]).find(x=>x.id===id); if(!a) return;
+  document.getElementById('kb-edit-id').value=id;
+  document.getElementById('mo-kb-title').textContent='✏️ Modifier l\'article';
+  document.getElementById('kb-titre').value=a.titre||'';
+  document.getElementById('kb-cat').value=a.cat||'Erreur connue';
+  document.getElementById('kb-tags').value=a.tags||'';
+  document.getElementById('kb-symptome').value=a.symptome||'';
+  document.getElementById('kb-cause').value=a.cause||'';
+  document.getElementById('kb-solution').value=a.solution||'';
+  document.getElementById('kb-auteur').value=a.auteur||'';
+  document.getElementById('kb-lien').value=a.lien||'';
+  openModal('mo-kb');
+}
+
+async function kbSave(){
+  const titre = v('kb-titre'); const solution = v('kb-solution');
+  if(!titre) return toast('Titre requis','err');
+  if(!solution) return toast('Solution/procédure requise','err');
+  const data = {
+    titre, cat: v('kb-cat'), tags: v('kb-tags'), symptome: v('kb-symptome'),
+    cause: v('kb-cause'), solution, auteur: v('kb-auteur'), lien: v('kb-lien'),
+    date: new Date().toISOString().slice(0,10)
+  };
+  const editId = document.getElementById('kb-edit-id').value;
+  try{
+    if(editId){
+      await fbUpdate('noc_kb', editId, data);
+      const rec=(DB.kb||[]).find(x=>x.id===editId);
+      if(rec) Object.assign(rec,data);
+      toast('Article mis à jour ✓','ok');
+    } else {
+      const r = await fbSave('noc_kb', data);
+      if(!DB.kb) DB.kb=[];
+      DB.kb.unshift({id:r.id,...data});
+      toast(`Article "${titre}" enregistré ✓`,'ok');
+    }
+    closeModal('mo-kb');
+    kbRender();
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+function kbView(id){
+  const a=(DB.kb||[]).find(x=>x.id===id); if(!a) return;
+  const cfg=KB_CAT_CFG[a.cat]||KB_CAT_CFG['Glossaire'];
+  const tags=(a.tags||'').split(',').map(t=>t.trim()).filter(Boolean)
+    .map(t=>`<span style="font-size:10px;background:var(--n6);border:1px solid var(--n5);padding:2px 8px;border-radius:10px;color:var(--n3);font-family:var(--mono)">${t}</span>`).join(' ');
+  document.getElementById('mo-kb-view-title').textContent=a.titre||'Article';
+  document.getElementById('mo-kb-view-body').innerHTML=`
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+      <span style="font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:3px 10px;border-radius:2px;background:${cfg.bg};color:${cfg.color};font-family:var(--mono)">${cfg.ico} ${a.cat}</span>
+      <span style="font-size:10.5px;color:var(--n4);font-family:var(--mono)">${a.date||'—'}</span>
+      <div class="t-sp"></div>
+      <span style="font-size:11px;color:var(--n3)">✍ ${a.auteur||'—'}</span>
+    </div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px">${tags||'<span style="font-size:11px;color:var(--n4)">Aucun tag</span>'}</div>
+    ${a.symptome?`<div style="margin-bottom:14px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);margin-bottom:5px">Symptôme / Contexte</div><div style="font-size:12.5px;white-space:pre-wrap;background:var(--rl);border-left:4px solid var(--r);border-radius:4px;padding:10px 12px;line-height:1.7;color:var(--n1)">${a.symptome}</div></div>`:''}
+    ${a.cause?`<div style="margin-bottom:14px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);margin-bottom:5px">Cause identifiée</div><div style="font-size:12.5px;white-space:pre-wrap;background:var(--al);border-left:4px solid var(--a);border-radius:4px;padding:10px 12px;line-height:1.7;color:var(--n1)">${a.cause}</div></div>`:''}
+    <div style="margin-bottom:14px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);margin-bottom:5px">✅ Solution / Procédure</div><div style="font-size:12.5px;white-space:pre-wrap;background:var(--gl);border-left:4px solid var(--g);border-radius:4px;padding:12px 14px;line-height:1.8;color:var(--n1)">${a.solution||'—'}</div></div>
+    ${a.lien?`<div><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--n3);margin-bottom:5px">Lien de référence</div><a href="${a.lien}" target="_blank" style="font-size:12.5px;color:var(--b);text-decoration:underline">${a.lien}</a></div>`:''}
+  `;
+  document.getElementById('kb-view-edit-btn').onclick=()=>{ closeModal('mo-kb-view'); kbEditById(id); };
+  openModal('mo-kb-view');
+}
+
+async function kbDeleteById(id){
+  if(!confirm('Supprimer cet article ?')) return;
+  try{
+    await fbDelete('noc_kb', id);
+    DB.kb=(DB.kb||[]).filter(x=>x.id!==id);
+    kbRender();
+    toast('Article supprimé ✓','ok');
+  }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+function kbExportExcel(){
+  const all=DB.kb||[];
+  if(!all.length){ toast('Aucun article à exporter','err'); return; }
+  const cols=['Titre','Catégorie','Tags','Symptôme','Cause','Solution','Auteur','Date','Lien'];
+  const rows=all.map(a=>[a.titre||'',a.cat||'',a.tags||'',a.symptome||'',a.cause||'',a.solution||'',a.auteur||'',a.date||'',a.lien||'']);
+  const esc=v=>'"'+(String(v).replace(/"/g,'""'))+'"';
+  const csv=[cols,...rows].map(r=>r.map(esc).join(';')).join('\r\n');
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`base_connaissances_noc_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),3000);
+  toast(`${all.length} article(s) exporté(s) ✓`,'ok');
 }
 
 // ═══════════════════════════════════════════════════════════
