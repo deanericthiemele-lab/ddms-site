@@ -167,6 +167,7 @@ window.switchTab = function(name, btn) {
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
   if (btn) btn.classList.add('active');
+  if (name === 'bilan' && window.generateBilan) window.generateBilan();
 };
 
 function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderSensibles(); renderSouffrances(); }
@@ -722,7 +723,17 @@ window.deleteSouffrance = async function(i) {
 
 init();
 
-// ── BILAN IA ──
+// ── CLÉ API ANTHROPIC ──
+function getAnthropicKey() {
+  let key = localStorage.getItem('anthropic_key');
+  if (!key) {
+    key = prompt('🔑 Entrez votre clé API Anthropic (sk-ant-...) :');
+    if (key && key.startsWith('sk-')) localStorage.setItem('anthropic_key', key);
+  }
+  return key;
+}
+
+
 function bilanPeriodStats(items, dateKey, days) {
   if (!days) return items;
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
@@ -813,7 +824,11 @@ Produis une analyse décisionnelle complète en JSON strict (sans markdown) :
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': getAnthropicKey(),
+        'anthropic-version': '2023-06-01'
+      },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 2000,
@@ -1249,7 +1264,7 @@ function renderBilan(c, b, stats) {
       <button class="tab-btn" onclick="switchTab('opportunites',this)">💡 Opportunités</button>
       <button class="tab-btn" onclick="switchTab('sensibles',this)">🔒 Sujets sensibles</button>
       <button class="tab-btn" onclick="switchTab('souffrances',this)">⚠️ Sites en souffrance</button>
-      <button class="tab-btn bilan-tab-btn" onclick="switchTab('bilan',this);setTimeout(function(){if(window.generateBilan)window.generateBilan();},50)">📊 Bilan</button>
+      <button class="tab-btn bilan-tab-btn" onclick="switchTab('bilan',this)">📊 Bilan</button>
     </div>
     <div id="content">
       <div class="tab-panel active" id="panel-incidents">
