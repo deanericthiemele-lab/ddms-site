@@ -910,93 +910,131 @@ function renderBilan() {
   const critColor = { haute:'var(--red)', moyenne:'var(--orange)', faible:'var(--green)' };
   const niveauColor = { critique:'var(--red)', tendu:'var(--orange)', sain:'var(--green)', surveillance:'var(--accent)' };
 
-  function sectionRows(items) {
-    if (!items.length) return '<div class="bl-empty">Aucun élément en cours.</div>';
-    return items.map(m => `<div class="bl-row">
-      <div class="bl-date-full">${fmt(m.date)}</div>
-      <div class="bl-dot" style="background:${m.color||'var(--green)'}"></div>
-      <div class="bl-content">
-        <div class="bl-titre">${m.titre}</div>
-        ${m.detail ? `<div class="bl-detail">${m.detail}</div>` : ''}
-        ${m.extra  ? `<div class="bl-extra">${m.extra}</div>`  : ''}
-        ${m.points ? `<div class="bl-points">${m.points.split('\n').filter(p=>p.trim()).map(p=>`<div class="bl-point">· ${p.replace(/^[-•·]\s*/,'')}</div>`).join('')}</div>` : ''}
-      </div>
-      ${m.badge ? `<span class="bl-badge" style="background:${m.color||'var(--green)'}20;color:${m.color||'var(--green)'};border:1px solid ${m.color||'var(--green)'}40">${m.badge}</span>` : ''}
-    </div>`).join('');
-  }
-
-  function section(titre, count, rows) {
-    const empty = !count;
-    return `<div class="bl-section${empty?' bl-collapsed':''}">
+  function section(titre, count, tableHtml) {
+    return `<div class="bl-section${!count?' bl-collapsed':''}">
       <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
         <span>${titre} <span class="bl-count">${count}</span></span>
         <span class="bl-chevron">▾</span>
       </div>
-      <div class="bl-section-body">${rows}</div>
+      <div class="bl-section-body" style="padding:0">
+        <div class="tbl-wrap" style="border-radius:0;border:none;border-top:1px solid var(--border)">${tableHtml}</div>
+      </div>
     </div>`;
   }
 
   // ── INCIDENTS : Ouvert + En cours ──
-  const incEnCours = (c.incidents||[])
+  const incidents = (c.incidents||[])
+    .map((x,i)=>({...x,_i:i}))
     .filter(i => i.statut && (i.statut.toLowerCase().includes('cours') || i.statut.toLowerCase().includes('ouvert')))
-    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-    .map(i => ({
-      date: i.date,
-      color: critColor[i.criticite]||'var(--green)',
-      titre: i.nature||i.titre||'Incident',
-      detail: [i.site?'📍 '+i.site:'', i.refLiaison?'Réf: '+i.refLiaison:'', i.service||''].filter(Boolean).join(' · '),
-      extra: i.desc||'',
-      badge: i.statut
-    }));
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  const incTable = incidents.length ? `<table class="tbl"><thead><tr>
+    <th class="tbl-th">Date</th><th class="tbl-th">Nature</th><th class="tbl-th">Site</th>
+    <th class="tbl-th">Criticité</th><th class="tbl-th">Statut</th><th class="tbl-th">Description</th>
+    <th class="tbl-th" style="width:90px"></th>
+  </tr></thead><tbody>${incidents.map(inc=>{
+    const critCls={haute:'tag-red',moyenne:'tag-orange',faible:'tag-green'};
+    const col=critColor[inc.criticite]||'var(--green)';
+    return `<tr class="tbl-tr" style="border-left:3px solid ${col}">
+      <td class="tbl-td mono">${fmt(inc.date)}</td>
+      <td class="tbl-td bold">${inc.nature||inc.titre||'—'}</td>
+      <td class="tbl-td">${inc.site||'—'}</td>
+      <td class="tbl-td"><span class="tag ${critCls[inc.criticite]||'tag-green'}">${inc.criticite||'—'}</span></td>
+      <td class="tbl-td"><span class="tag tag-orange">${inc.statut||'—'}</span></td>
+      <td class="tbl-td" style="max-width:200px;font-size:12px">${inc.desc||''}</td>
+      <td class="tbl-td tbl-actions">
+        <button class="btn-sm-edit" onclick="viewIncident(${inc._i})" title="Voir">👁</button>
+        <button class="btn-sm-edit" onclick="editIncident(${inc._i})" title="Modifier">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('incidents',${inc._i})" title="Supprimer">🗑</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table>` : '<div class="bl-empty" style="padding:16px">Aucun incident en cours.</div>';
 
   // ── OPPORTUNITÉS : toutes ──
-  const oppActives = (c.opportunites||[])
-    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-    .map(o => ({
-      date: o.date,
-      color: o.statut==='Gagné'?'var(--green)':o.statut==='Perdu'?'var(--red)':'var(--accent2)',
-      titre: o.titre||'Opportunité',
-      detail: [o.type||'', o.montant||''].filter(Boolean).join(' · '),
-      extra: o.description||'',
-      badge: o.statut
-    }));
+  const opps = (c.opportunites||[])
+    .map((x,i)=>({...x,_i:i}))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  const oppTable = opps.length ? `<table class="tbl"><thead><tr>
+    <th class="tbl-th">Date</th><th class="tbl-th">Titre</th><th class="tbl-th">Type</th>
+    <th class="tbl-th">Montant</th><th class="tbl-th">Statut</th><th class="tbl-th">Description</th>
+    <th class="tbl-th" style="width:70px"></th>
+  </tr></thead><tbody>${opps.map(o=>{
+    const sCls={Gagné:'tag-green',Perdu:'tag-red','En cours':'tag-orange','En attente':'tag-purple'};
+    const col=oppColor(o.type||'LAN');
+    return `<tr class="tbl-tr">
+      <td class="tbl-td mono">${fmt(o.date)}</td>
+      <td class="tbl-td bold">${o.titre||'—'}</td>
+      <td class="tbl-td"><span class="tag" style="background:${col}18;color:${col}">${o.type||'—'}</span></td>
+      <td class="tbl-td mono">${o.montant||'—'}</td>
+      <td class="tbl-td"><span class="tag ${sCls[o.statut]||'tag-blue'}">${o.statut||'—'}</span></td>
+      <td class="tbl-td" style="max-width:200px;font-size:12px">${o.description||''}</td>
+      <td class="tbl-td tbl-actions">
+        <button class="btn-sm-edit" onclick="editOpportunite(${o._i})">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('opportunites',${o._i})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table>` : '<div class="bl-empty" style="padding:16px">Aucune opportunité.</div>';
 
   // ── SITES EN SOUFFRANCE : tout sauf résolu ──
-  const sfActifs = (c.souffrances||[])
+  const sfs = (c.souffrances||[])
+    .map((x,i)=>({...x,_i:i}))
     .filter(s => s.statut !== 'resolu')
-    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-    .map(s => ({
-      date: s.date,
-      color: niveauColor[s.statut]||'var(--orange)',
-      titre: s.site||'',
-      detail: [s.ref?'Réf: '+s.ref:'', s.loopack?'Loopack: '+s.loopack:''].filter(Boolean).join(' · '),
-      extra: s.problemes||'',
-      points: s.comment||'',
-      badge: s.statut
-    }));
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  const sfTable = sfs.length ? `<table class="tbl"><thead><tr>
+    <th class="tbl-th">Date</th><th class="tbl-th">Site</th><th class="tbl-th">Référence</th>
+    <th class="tbl-th">Statut</th><th class="tbl-th">Problèmes</th><th class="tbl-th">Commentaire</th>
+    <th class="tbl-th" style="width:70px"></th>
+  </tr></thead><tbody>${sfs.map(s=>{
+    const stMap={critique:{l:'🔴 Critique',c:'var(--red)'},tendu:{l:'🟡 Tendu',c:'var(--orange)'},surveillance:{l:'🔵 Surveillance',c:'var(--accent)'}};
+    const st=stMap[s.statut]||{l:s.statut,c:'var(--text3)'};
+    return `<tr class="tbl-tr" style="border-left:3px solid ${st.c}">
+      <td class="tbl-td mono">${fmt(s.date)}</td>
+      <td class="tbl-td bold">${s.site||'—'}</td>
+      <td class="tbl-td mono" style="font-size:11px">${s.ref||'—'}</td>
+      <td class="tbl-td"><span style="font-size:11px;font-family:'DM Mono',monospace;font-weight:600;color:${st.c}">${st.l}</span></td>
+      <td class="tbl-td" style="max-width:180px;font-size:12px">${s.problemes||''}</td>
+      <td class="tbl-td" style="max-width:180px;font-size:12px">${s.comment||''}</td>
+      <td class="tbl-td tbl-actions">
+        <button class="btn-sm-edit" onclick="editSouffrance(${s._i})">✏️</button>
+        <button class="btn-sm" onclick="deleteSouffrance(${s._i})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table>` : '<div class="bl-empty" style="padding:16px">Aucun site en souffrance actif.</div>';
 
   // ── PDA : En cours + En retard ──
-  const pdaEnCours = (c.pda||[])
+  const pdas = (c.pda||[])
+    .map((x,i)=>({...x,_i:i}))
     .filter(p => p.statut === 'En cours' || p.statut === 'En retard')
-    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-    .map(p => ({
-      date: p.date,
-      color: p.statut==='En retard'?'var(--red)':'var(--orange)',
-      titre: p.tache||'',
-      detail: [
-        p.liste==='COMEX'&&p.mois_comex?'📅 COMEX '+p.mois_comex:p.contexte?'📋 '+p.contexte:'',
-        p.porteur?'👤 '+p.porteur:'',
-        p.delai?'⏱ '+fmt(p.delai):''
-      ].filter(Boolean).join(' · '),
-      extra: p.commentaire||'',
-      badge: p.statut
-    }));
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  const pdaTable = pdas.length ? `<table class="tbl"><thead><tr>
+    <th class="tbl-th">Date</th><th class="tbl-th">Réunion</th><th class="tbl-th">Tâche</th>
+    <th class="tbl-th">Délai</th><th class="tbl-th">Porteur</th><th class="tbl-th">Statut</th>
+    <th class="tbl-th" style="width:70px"></th>
+  </tr></thead><tbody>${pdas.map(p=>{
+    const cls=p.statut==='En retard'?'tag-red':'tag-orange';
+    const reunion=p.liste==='COMEX'?`COMEX ${p.mois_comex||''}`:p.contexte||p.liste||'';
+    return `<tr class="tbl-tr">
+      <td class="tbl-td mono">${fmt(p.date)}</td>
+      <td class="tbl-td"><span class="pda-liste ${p.liste==='COMEX'?'pda-comex':'pda-noncomex'}">${reunion}</span></td>
+      <td class="tbl-td bold">${p.tache||'—'}</td>
+      <td class="tbl-td mono">${fmt(p.delai)}</td>
+      <td class="tbl-td">${p.porteur||'—'}</td>
+      <td class="tbl-td"><span class="tag ${cls}">${p.statut}</span></td>
+      <td class="tbl-td tbl-actions">
+        <button class="btn-sm-edit" onclick="editPda(${p._i})">✏️</button>
+        <button class="btn-sm" onclick="deletePda(${p._i})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table>` : '<div class="bl-empty" style="padding:16px">Aucune action PDA en cours.</div>';
 
   el.innerHTML = `<div class="bl-wrap"><div class="bl-sections">
-    ${section('🚨 Incidents majeurs', incEnCours.length, sectionRows(incEnCours))}
-    ${section('💡 Opportunités', oppActives.length, sectionRows(oppActives))}
-    ${section('⚠️ Sites en souffrance', sfActifs.length, sectionRows(sfActifs))}
-    ${section('📌 PDA', pdaEnCours.length, sectionRows(pdaEnCours))}
+    ${section('🚨 Incidents majeurs', incidents.length, incTable)}
+    ${section('💡 Opportunités', opps.length, oppTable)}
+    ${section('⚠️ Sites en souffrance', sfs.length, sfTable)}
+    ${section('📌 PDA', pdas.length, pdaTable)}
   </div></div>`;
 }
 
