@@ -721,7 +721,242 @@ window.deleteSouffrance = async function(i) {
 };
 
 init();
-</script>
+
+// ── BILAN IA ──
+function bilanPeriodStats(items, dateKey, days) {
+  if (!days) return items;
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+  return items.filter(x => { if (!x[dateKey]) return false; try { return new Date(x[dateKey]) >= cutoff; } catch(e){ return false; } });
+}
+
+window.generateBilan = async function() {
+  const c = getClient(); if (!c) return;
+  const container = document.getElementById('bilan-container');
+  container.innerHTML = `<div class="bilan-loading"><div class="spinner"></div><p>Analyse décisionnelle en cours…</p></div>`;
+
+  const now = new Date();
+  const incidents    = c.incidents    || [];
+  const notes        = c.notes        || [];
+  const souffrances  = c.souffrances  || [];
+  const opportunites = c.opportunites || [];
+
+  // Périodes
+  const inc30   = bilanPeriodStats(incidents,   'date', 30);
+  const inc90   = bilanPeriodStats(incidents,   'date', 90);
+  const opp90   = bilanPeriodStats(opportunites,'date', 90);
+
+  const statsBlock = `
+STATISTIQUES PAR PÉRIODE (aujourd'hui : ${now.toISOString().slice(0,10)}) :
+• 30 derniers jours  — Incidents: ${inc30.length} (haute: ${inc30.filter(i=>i.criticite==='haute').length}, ouverts: ${inc30.filter(i=>i.statut&&i.statut.toLowerCase().includes('ouvert')).length})
+• 90 derniers jours  — Incidents: ${inc90.length} (haute: ${inc90.filter(i=>i.criticite==='haute').length}), Opportunités: ${opp90.length}
+• Historique total   — Incidents: ${incidents.length}, Souffrances: ${souffrances.length}, Notes sensibles: ${notes.length}, Opportunités: ${opportunites.length}
+
+TENDANCE (compare 30j vs période précédente 30-60j) :
+• Incidents 30j: ${inc30.length} vs 30-60j: ${bilanPeriodStats(incidents,'date',60).length - inc30.length}
+`;
+
+  const prompt = `Tu es un expert en gestion de la relation client télécom/réseau pour Orange Business Services CI (DOBB team).
+Aujourd'hui : ${now.toISOString().slice(0,10)}.
+Client : "${c.nom}" | Segment: ${c.segment||'N/A'} | Pays: ${c.pays||'N/A'} | Statut relation: ${c.statut||'N/A'}
+
+${statsBlock}
+
+TOUS LES INCIDENTS (du plus ancien au plus récent) :
+${incidents.map(i=>`[${i.date||'?'}] [${i.criticite||'?'}] [${i.statut||'?'}] ${i.nature||i.titre||''} | Site: ${i.site||'-'} | Réf: ${i.refLiaison||'-'} | ${i.desc||''} | Résolution: ${i.resolution||'Aucune'}`).join('\n')||'Aucun'}
+
+SITES EN SOUFFRANCE :
+${souffrances.map(s=>`[${s.date||'?'}] [${s.statut||'?'}] ${s.site||''} | Réf: ${s.ref||'-'} | Loopack: ${s.loopack||'-'} | Problèmes: ${s.problemes||'-'} | Commentaires: ${s.comment||'-'}`).join('\n')||'Aucun'}
+
+NOTES SENSIBLES :
+${notes.map(n=>`[${n.date||'?'}] [${n.niveau||'?'}] ${n.titre||''} | Catégorie: ${n.categorie||'-'} | ${n.contenu||''}`).join('\n')||'Aucune'}
+
+OPPORTUNITÉS COMMERCIALES :
+${opportunites.map(o=>`[${o.date||'?'}] [${o.statut||'?'}] ${o.titre||''} | Type: ${o.type||'-'} | Montant: ${o.montant||'-'} | ${o.description||''}`).join('\n')||'Aucune'}
+
+Produis une analyse décisionnelle complète en JSON strict (sans markdown) :
+{
+  "score_risque": number (0-100),
+  "niveau_global": "critique"|"tendu"|"sain",
+  "tendance": "deterioration"|"stable"|"amelioration",
+  "resume_executif": "3-4 phrases percutantes pour un manager",
+  "signal_alerte": "une phrase d'alerte immédiate si critique, sinon null",
+  "periodes": {
+    "j30": {
+      "titre": "30 derniers jours",
+      "resume": "phrase résumant la période",
+      "faits_marquants": ["fait 1","fait 2"],
+      "niveau": "critique"|"tendu"|"sain"
+    },
+    "j90": {
+      "titre": "90 derniers jours",
+      "resume": "phrase résumant la période",
+      "faits_marquants": ["fait 1","fait 2"],
+      "niveau": "critique"|"tendu"|"sain"
+    },
+    "historique": {
+      "titre": "Historique complet",
+      "resume": "phrase résumant l'historique global",
+      "faits_marquants": ["fait 1","fait 2"],
+      "niveau": "critique"|"tendu"|"sain"
+    }
+  },
+  "risques": [{"risque": "...", "impact": "...", "probabilite": "haute"|"moyenne"|"faible", "horizon": "immédiat"|"court terme"|"moyen terme"}],
+  "plan_action": [
+    {"horizon": "Immédiat (< 7 jours)", "actions": [{"action": "...", "responsable": "...", "objectif": "..."}]},
+    {"horizon": "Court terme (1 mois)", "actions": [{"action": "...", "responsable": "...", "objectif": "..."}]},
+    {"horizon": "Moyen terme (3 mois)", "actions": [{"action": "...", "responsable": "...", "objectif": "..."}]}
+  ],
+  "opportunites_cles": [{"titre": "...", "type": "...", "potentiel": "...", "statut": "..."}],
+  "synthese_decisive": "Une recommandation claire et directe : que doit faire le manager en priorité ?"
+}`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const data = await resp.json();
+    const raw = (data.content||[]).map(b => b.text||'').join('').replace(/```json|```/g,'').trim();
+    let bilan;
+    try { bilan = JSON.parse(raw); } catch(e) { throw new Error('Réponse IA invalide'); }
+    renderBilan(c, bilan, { inc30: inc30.length, inc90: inc90.length, incTotal: incidents.length, sfTotal: souffrances.length, oppTotal: opportunites.length });
+  } catch(e) {
+    container.innerHTML = `<div class="bilan-error">⚠️ Erreur lors de la génération : ${e.message}<br><button class="btn-add" style="margin-top:12px" onclick="generateBilan()">Réessayer</button></div>`;
+  }
+};
+
+function renderBilan(c, b, stats) {
+  const container = document.getElementById('bilan-container');
+  const sc = b.score_risque || 0;
+  const scoreColor = sc >= 70 ? 'var(--red)' : sc >= 40 ? 'var(--orange)' : 'var(--green)';
+  const scoreHex   = sc >= 70 ? '#dc2626'   : sc >= 40 ? '#d97706'       : '#16a34a';
+  const niveauLabel = { critique:'CRITIQUE', tendu:'TENDU', sain:'SAIN' };
+  const niveauColor = n => n==='critique'?'var(--red)':n==='tendu'?'var(--orange)':'var(--green)';
+  const tendanceIcon = { deterioration:'↘', stable:'→', amelioration:'↗' };
+  const tendanceCls  = { deterioration:'ck-red', stable:'ck-blue', amelioration:'ck-green' };
+  const probDot = p => p==='haute'?'🔴':p==='moyenne'?'🟡':'🟢';
+  const horizIcon = { 'immédiat':'⚡','court terme':'📅','moyen terme':'🔭' };
+
+  const periodes = b.periodes || {};
+  const plan = b.plan_action || [];
+  const risques = b.risques || [];
+  const opps = b.opportunites_cles || [];
+
+  // Frise temporelle
+  const friseHtml = ['j30','j90','historique'].map((key,ki) => {
+    const p = periodes[key]; if (!p) return '';
+    const col = niveauColor(p.niveau);
+    const labels = ['30 jours','90 jours','Historique'];
+    const icons  = ['🗓','📆','🗂'];
+    return `<div class="ck-frise-cell" style="border-top:3px solid ${col}">
+      <div class="ck-frise-head">
+        <span class="ck-frise-icon">${icons[ki]}</span>
+        <span class="ck-frise-lbl">${labels[ki]}</span>
+        <span class="ck-pill" style="background:${col}15;color:${col};border:1px solid ${col}35">${niveauLabel[p.niveau]||p.niveau}</span>
+      </div>
+      <div class="ck-frise-resume">${p.resume||''}</div>
+      ${(p.faits_marquants||[]).slice(0,3).map(f=>`<div class="ck-frise-fact">· ${f}</div>`).join('')}
+    </div>`;
+  }).join('');
+
+  // Risques : tableau compact
+  const risquesHtml = risques.slice(0,5).map(r=>`
+    <div class="ck-row">
+      <span class="ck-row-dot">${probDot(r.probabilite)}</span>
+      <span class="ck-row-main">${r.risque||''}</span>
+      <span class="ck-row-meta">${r.horizon?horizIcon[r.horizon]||'':''} ${r.horizon||''}</span>
+    </div>`).join('') || '<div class="ck-empty">—</div>';
+
+  // Plan d'action : 3 colonnes inline
+  const planHtml = plan.map((ph,pi) => {
+    const colors = ['#dc2626','#d97706','#2563eb'];
+    const col = colors[pi] || '#9ba3b8';
+    return `<div class="ck-plan-col">
+      <div class="ck-plan-head" style="color:${col};border-bottom:2px solid ${col}20">${ph.horizon||''}</div>
+      ${(ph.actions||[]).slice(0,3).map(a=>`
+        <div class="ck-plan-row">
+          <span class="ck-plan-arrow" style="color:${col}">›</span>
+          <div>
+            <div class="ck-plan-action">${a.action||''}</div>
+            ${a.objectif?`<div class="ck-plan-obj">${a.objectif}</div>`:''}
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
+
+  // Opportunités : pills horizontales
+  const oppHtml = opps.slice(0,4).map(o=>`
+    <div class="ck-opp-pill">
+      <div class="ck-opp-titre">${o.titre||''}</div>
+      ${o.type?`<div class="ck-opp-type">${o.type}</div>`:''}
+      <div class="ck-opp-pot">${o.potentiel||''}</div>
+    </div>`).join('') || '<div class="ck-empty">Aucune opportunité</div>';
+
+  const now = new Date();
+  container.innerHTML = `
+  <div class="ck-wrap">
+
+    ${b.signal_alerte ? `<div class="ck-alerte">⚡ ${b.signal_alerte}</div>` : ''}
+
+    <!-- LIGNE 1 : SCORE + RÉSUMÉ + KPIs -->
+    <div class="ck-header">
+      <div class="ck-score-bloc">
+        <svg viewBox="0 0 100 58" width="100" height="58">
+          <path d="M8 54 A42 42 0 0 1 92 54" stroke="#e2e6ef" stroke-width="9" fill="none" stroke-linecap="round"/>
+          <path d="M8 54 A42 42 0 0 1 92 54" stroke="${scoreHex}" stroke-width="9" fill="none" stroke-linecap="round"
+            stroke-dasharray="${Math.PI*42}" stroke-dashoffset="${Math.PI*42*(1-sc/100)}" style="transition:stroke-dashoffset .6s ease"/>
+          <text x="50" y="52" text-anchor="middle" font-family="Syne,sans-serif" font-weight="800" font-size="16" fill="${scoreHex}">${sc}</text>
+        </svg>
+        <div class="ck-score-label">Risque</div>
+        <div class="ck-niveau-badge" style="background:${scoreHex}15;color:${scoreHex};border:1px solid ${scoreHex}40">
+          ${niveauLabel[b.niveau_global]||b.niveau_global||''}
+        </div>
+        ${b.tendance?`<div class="ck-tendance ${tendanceCls[b.tendance]||''}">${tendanceIcon[b.tendance]||''} ${b.tendance}</div>`:''}
+      </div>
+
+      <div class="ck-resume-bloc">
+        <div class="ck-resume-text">${b.resume_executif||''}</div>
+        ${b.synthese_decisive?`<div class="ck-decisive">🧭 ${b.synthese_decisive}</div>`:''}
+        <div class="ck-gen-date">Généré le ${now.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'})} · ${now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>
+      </div>
+
+      <div class="ck-kpis">
+        <div class="ck-kpi ck-kpi-red"><div class="ck-kpi-n">${stats.inc30}</div><div class="ck-kpi-l">Inc. 30j</div></div>
+        <div class="ck-kpi ck-kpi-orange"><div class="ck-kpi-n">${stats.inc90}</div><div class="ck-kpi-l">Inc. 90j</div></div>
+        <div class="ck-kpi ck-kpi-blue"><div class="ck-kpi-n">${stats.sfTotal}</div><div class="ck-kpi-l">Sites ⚠️</div></div>
+        <div class="ck-kpi ck-kpi-purple"><div class="ck-kpi-n">${stats.oppTotal}</div><div class="ck-kpi-l">Opps.</div></div>
+      </div>
+    </div>
+
+    <!-- LIGNE 2 : FRISE TEMPORELLE -->
+    <div class="ck-block-title">📅 Analyse par période</div>
+    <div class="ck-frise">${friseHtml}</div>
+
+    <!-- LIGNE 3 : RISQUES + OPPORTUNITÉS -->
+    <div class="ck-two-col">
+      <div class="ck-block">
+        <div class="ck-block-title">⚠️ Risques</div>
+        ${risquesHtml}
+      </div>
+      <div class="ck-block">
+        <div class="ck-block-title">💡 Opportunités</div>
+        <div class="ck-opps">${oppHtml}</div>
+      </div>
+    </div>
+
+    <!-- LIGNE 4 : PLAN D'ACTION -->
+    <div class="ck-block">
+      <div class="ck-block-title">✅ Plan d'action</div>
+      <div class="ck-plan">${planHtml}</div>
+    </div>
+
+  </div>`;
+}
 
 <style>
   :root {
@@ -809,7 +1044,96 @@ init();
   .card-date{font-family:'DM Mono',monospace;font-size:11px;color:var(--text3);white-space:nowrap;}
   .card-body{font-size:13px;color:var(--text2);line-height:1.7;}
   .card-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px;}
-  .tag{padding:2px 8px;border-radius:4px;font-size:11px;font-family:'DM Mono',monospace;}
+  .bilan-tab-btn { background: linear-gradient(135deg, rgba(37,99,235,.08), rgba(124,58,237,.08)); border-radius: 6px 6px 0 0; }
+  .bilan-tab-btn.active { color: var(--accent2) !important; border-bottom-color: var(--accent2) !important; }
+
+  /* ── COCKPIT BILAN ── */
+  .ck-wrap { display:flex; flex-direction:column; gap:12px; }
+
+  .ck-alerte { background:rgba(220,38,38,.07); border:1px solid rgba(220,38,38,.25); border-left:4px solid var(--red); border-radius:8px; padding:10px 14px; font-family:'DM Mono',monospace; font-size:12px; color:var(--red); font-weight:600; }
+
+  /* HEADER */
+  .ck-header { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:16px 20px; display:flex; gap:18px; align-items:stretch; flex-wrap:wrap; }
+
+  .ck-score-bloc { display:flex; flex-direction:column; align-items:center; gap:4px; flex-shrink:0; }
+  .ck-score-label { font-family:'DM Mono',monospace; font-size:9px; color:var(--text3); text-transform:uppercase; letter-spacing:.07em; }
+  .ck-niveau-badge { font-family:'DM Mono',monospace; font-size:11px; font-weight:700; padding:3px 10px; border-radius:20px; letter-spacing:.05em; }
+  .ck-tendance { font-family:'DM Mono',monospace; font-size:11px; font-weight:600; padding:2px 8px; border-radius:6px; margin-top:2px; }
+  .ck-red { background:rgba(220,38,38,.1); color:var(--red); }
+  .ck-orange { background:rgba(217,119,6,.1); color:var(--orange); }
+  .ck-green { background:rgba(22,163,74,.1); color:var(--green); }
+  .ck-blue { background:rgba(37,99,235,.1); color:var(--accent); }
+
+  .ck-resume-bloc { flex:1; min-width:200px; display:flex; flex-direction:column; justify-content:center; gap:8px; border-left:1px solid var(--border); padding-left:18px; }
+  .ck-resume-text { font-size:13px; color:var(--text2); line-height:1.7; }
+  .ck-decisive { font-size:12px; color:var(--accent); font-weight:600; background:rgba(37,99,235,.06); border-radius:6px; padding:8px 10px; line-height:1.6; }
+  .ck-gen-date { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); }
+
+  .ck-kpis { display:grid; grid-template-columns:1fr 1fr; gap:6px; align-self:center; flex-shrink:0; }
+  .ck-kpi { border-radius:8px; padding:8px 12px; text-align:center; min-width:64px; border:1px solid transparent; }
+  .ck-kpi-red    { background:rgba(220,38,38,.07);  border-color:rgba(220,38,38,.15);  }
+  .ck-kpi-orange { background:rgba(217,119,6,.07);  border-color:rgba(217,119,6,.15);  }
+  .ck-kpi-blue   { background:rgba(37,99,235,.07);  border-color:rgba(37,99,235,.15);  }
+  .ck-kpi-purple { background:rgba(124,58,237,.07); border-color:rgba(124,58,237,.15); }
+  .ck-kpi-n { font-family:'Syne',sans-serif; font-weight:800; font-size:20px; color:var(--text); }
+  .ck-kpi-red    .ck-kpi-n { color:var(--red); }
+  .ck-kpi-orange .ck-kpi-n { color:var(--orange); }
+  .ck-kpi-blue   .ck-kpi-n { color:var(--accent); }
+  .ck-kpi-purple .ck-kpi-n { color:var(--accent2); }
+  .ck-kpi-l { font-family:'DM Mono',monospace; font-size:9px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; margin-top:1px; }
+
+  /* FRISE */
+  .ck-frise { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  @media(max-width:900px){ .ck-frise { grid-template-columns:1fr; } }
+  .ck-frise-cell { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .ck-frise-head { display:flex; align-items:center; gap:6px; margin-bottom:8px; flex-wrap:wrap; }
+  .ck-frise-icon { font-size:15px; }
+  .ck-frise-lbl  { font-family:'Syne',sans-serif; font-weight:700; font-size:12px; flex:1; }
+  .ck-pill { font-family:'DM Mono',monospace; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; white-space:nowrap; }
+  .ck-frise-resume { font-size:12px; color:var(--text2); line-height:1.55; margin-bottom:6px; }
+  .ck-frise-fact { font-size:11px; color:var(--text3); font-family:'DM Mono',monospace; padding:2px 0; line-height:1.5; }
+
+  /* BLOCS */
+  .ck-block-title { font-family:'Syne',sans-serif; font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text3); margin-bottom:6px; }
+  .ck-block { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .ck-block .ck-block-title { margin-bottom:10px; }
+
+  .ck-two-col { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media(max-width:900px){ .ck-two-col { grid-template-columns:1fr; } }
+
+  /* RISQUES */
+  .ck-row { display:flex; align-items:baseline; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); }
+  .ck-row:last-child { border-bottom:none; }
+  .ck-row-dot { font-size:11px; flex-shrink:0; }
+  .ck-row-main { font-size:12px; color:var(--text); flex:1; line-height:1.5; }
+  .ck-row-meta { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); white-space:nowrap; }
+
+  /* OPPORTUNITÉS */
+  .ck-opps { display:flex; flex-direction:column; gap:7px; }
+  .ck-opp-pill { background:rgba(124,58,237,.05); border:1px solid rgba(124,58,237,.15); border-radius:8px; padding:8px 10px; }
+  .ck-opp-titre { font-family:'Syne',sans-serif; font-weight:700; font-size:12px; color:var(--accent2); }
+  .ck-opp-type  { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); margin:2px 0; }
+  .ck-opp-pot   { font-size:11px; color:var(--text2); line-height:1.5; }
+
+  /* PLAN */
+  .ck-plan { display:grid; grid-template-columns:repeat(3,1fr); gap:0; }
+  @media(max-width:900px){ .ck-plan { grid-template-columns:1fr; } }
+  .ck-plan-col { padding:0 14px; border-right:1px solid var(--border); }
+  .ck-plan-col:first-child { padding-left:0; }
+  .ck-plan-col:last-child  { border-right:none; padding-right:0; }
+  .ck-plan-head { font-family:'DM Mono',monospace; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; padding-bottom:8px; margin-bottom:10px; }
+  .ck-plan-row  { display:flex; gap:6px; margin-bottom:9px; }
+  .ck-plan-row:last-child { margin-bottom:0; }
+  .ck-plan-arrow { font-size:14px; font-weight:700; line-height:1.4; flex-shrink:0; }
+  .ck-plan-action { font-size:12px; color:var(--text); line-height:1.5; }
+  .ck-plan-obj    { font-size:11px; color:var(--text3); font-family:'DM Mono',monospace; margin-top:2px; line-height:1.4; }
+
+  .ck-empty { font-family:'DM Mono',monospace; font-size:11px; color:var(--text3); padding:8px 0; }
+
+  /* ÉTATS */
+  .bilan-loading { display:flex; flex-direction:column; align-items:center; gap:12px; padding:60px; color:var(--text3); font-family:'DM Mono',monospace; font-size:13px; }
+  .bilan-error { background:rgba(220,38,38,.06); border:1px solid rgba(220,38,38,.2); border-radius:12px; padding:24px; text-align:center; font-family:'DM Mono',monospace; font-size:13px; color:var(--red); }
+  .bilan-placeholder { display:flex; flex-direction:column; align-items:center; padding:60px; color:var(--text3); font-family:'DM Mono',monospace; font-size:13px; text-align:center; }
   .tag-blue{background:rgba(37,99,235,.1);color:var(--accent);}
   .tag-orange{background:rgba(217,119,6,.1);color:var(--orange);}
   .tag-red{background:rgba(220,38,38,.1);color:var(--red);}
@@ -923,6 +1247,7 @@ init();
       <button class="tab-btn" onclick="switchTab('opportunites',this)">💡 Opportunités</button>
       <button class="tab-btn" onclick="switchTab('sensibles',this)">🔒 Sujets sensibles</button>
       <button class="tab-btn" onclick="switchTab('souffrances',this)">⚠️ Sites en souffrance</button>
+      <button class="tab-btn bilan-tab-btn" onclick="switchTab('bilan',this);generateBilan()">📊 Bilan</button>
     </div>
     <div id="content">
       <div class="tab-panel active" id="panel-incidents">
@@ -981,14 +1306,25 @@ init();
               <tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucun site enregistré</td></tr>
             </tbody>
           </table>
+      </div>
+
+      <!-- BILAN -->
+      <div class="tab-panel" id="panel-bilan">
+        <div class="section-header">
+          <span class="section-title">📊 Bilan client — Synthèse IA</span>
+          <button class="btn-add" onclick="generateBilan()" id="bilan-refresh-btn">↻ Actualiser</button>
+        </div>
+        <div id="bilan-container">
+          <div class="bilan-placeholder">
+            <div style="font-size:36px;margin-bottom:12px;">📊</div>
+            <p>La synthèse sera générée automatiquement à l'ouverture de cet onglet</p>
+          </div>
         </div>
       </div>
 
     </div>
   </div>
 </div>
-
-<!-- MODAL ADD CLIENT -->
 <div id="modal-add-client" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-add-client')">
   <div class="modal">
     <div class="modal-title">Nouveau client <button class="modal-close" onclick="closeModal('modal-add-client')">✕</button></div>
