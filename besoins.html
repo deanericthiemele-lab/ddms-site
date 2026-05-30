@@ -300,38 +300,39 @@
   </div>
 </div>
 
-<!-- Firebase compat v9 -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script>
-  if (!firebase.apps.length) {
-    firebase.initializeApp({
-      apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
-      authDomain: "ddms-architectures.firebaseapp.com",
-      projectId: "ddms-architectures",
-      storageBucket: "ddms-architectures.firebasestorage.app",
-      messagingSenderId: "767552965189",
-      appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
-    });
-  }
-  const db = firebase.firestore();
+<!-- Firebase ES Modules (seule approche fiable sur Netlify) -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, getDocs, doc, updateDoc, deleteDoc, orderBy, query } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const app = initializeApp({
+    apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+    authDomain: "ddms-architectures.firebaseapp.com",
+    projectId: "ddms-architectures",
+    storageBucket: "ddms-architectures.firebasestorage.app",
+    messagingSenderId: "767552965189",
+    appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+  });
+  const db = getFirestore(app);
 
   window._fetchAudits = async function() {
-    const snap = await db.collection("audits_automatisation").orderBy("createdAt", "desc").get();
+    const q = query(collection(db, "audits_automatisation"), orderBy("createdAt", "desc"));
+    const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   };
-
   window._updateStatut = async function(id, statut) {
-    await db.collection("audits_automatisation").doc(id).update({ statut });
+    await updateDoc(doc(db, "audits_automatisation", id), { statut });
   };
-
   window._updateAudit = async function(id, data) {
-    await db.collection("audits_automatisation").doc(id).update(data);
+    await updateDoc(doc(db, "audits_automatisation", id), data);
+  };
+  window._deleteAudit = async function(id) {
+    await deleteDoc(doc(db, "audits_automatisation", id));
   };
 
-  window._deleteAudit = async function(id) {
-    await db.collection("audits_automatisation").doc(id).delete();
-  };
+  // Démarrer après init Firebase
+  window._firebaseReady = true;
+  if (window._loadAuditsWaiting) window._loadAuditsWaiting();
 </script>
 
 <script>
@@ -874,7 +875,7 @@ function removeNewEditFile(i) {
   renderEditNewFiles();
 }
 
-
+function toggleTag(el, containerId) {
   el.classList.toggle('selected');
 }
 
@@ -987,8 +988,14 @@ function downloadFichier(i) {
   }
 }
 
-// Auto-load on start
-window.addEventListener('load', loadAudits);
+// Auto-load — attend que Firebase soit prêt
+window.addEventListener('load', () => {
+  if (window._firebaseReady) {
+    loadAudits();
+  } else {
+    window._loadAuditsWaiting = loadAudits;
+  }
+});
 </script>
 </body>
 </html>
