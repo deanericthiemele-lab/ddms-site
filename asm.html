@@ -168,9 +168,10 @@ window.switchTab = function(name, btn) {
   document.getElementById('panel-'+name).classList.add('active');
   if (btn) btn.classList.add('active');
   if (name === 'bilan') renderBilan();
+  if (name === 'pda') renderPda();
 };
 
-function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderSensibles(); renderSouffrances(); }
+function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderSensibles(); renderSouffrances(); renderPda(); }
 
 window.openModal = id => document.getElementById(id).style.display='flex';
 window.closeModal = id => document.getElementById(id).style.display='none';
@@ -731,8 +732,83 @@ window.deleteSouffrance = async function(i) {
   catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
+// ── PDA ──
+let editStatePda = null;
+
+function renderPda() {
+  const c = getClient(); if (!c) return;
+  const tbody = document.getElementById('pda-tbody'); if (!tbody) return;
+  const list = (c.pda||[]).slice().sort((a,b)=>(b.date_comex||'').localeCompare(a.date_comex||''));
+  if (!list.length) { tbody.innerHTML='<tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;">Aucune action enregistrée</td></tr>'; return; }
+  const statutCls = { 'En cours':'pda-encours', 'Réalisé':'pda-realise', 'En retard':'pda-retard', 'Annulé':'pda-annule' };
+  tbody.innerHTML = list.map((p,ri) => {
+    const i = (c.pda||[]).indexOf(list[ri]);
+    const cls = statutCls[p.statut]||'pda-encours';
+    return `<tr class="pda-tr">
+      <td class="pda-td" style="font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap">${p.date_comex?new Date(p.date_comex+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}):''}</td>
+      <td class="pda-td" style="font-weight:500">${p.tache||''}</td>
+      <td class="pda-td" style="font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap">${p.delai?new Date(p.delai+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}):''}</td>
+      <td class="pda-td">${p.porteur||''}</td>
+      <td class="pda-td"><span class="pda-statut ${cls}">${p.statut||''}</span></td>
+      <td class="pda-td" style="font-size:12px;color:var(--text2)">${p.commentaire||''}</td>
+      <td class="pda-td" style="white-space:nowrap">
+        <button class="btn-sm-edit" onclick="editPda(${i})">✏️</button>
+        <button class="btn-sm" onclick="deletePda(${i})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+window.openAddPda = function() {
+  editStatePda = null;
+  document.getElementById('pda-modal-title').innerHTML = 'Nouvelle action <button class="modal-close" onclick="closeModal(\'modal-pda\')">✕</button>';
+  ['pda-tache','pda-delai','pda-porteur','pda-commentaire','pda-date-comex'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('pda-statut').value='En cours';
+  document.getElementById('modal-pda').style.display='flex';
+};
+
+window.editPda = function(i) {
+  const c = getClient(); const p = (c.pda||[])[i];
+  editStatePda = i;
+  document.getElementById('pda-modal-title').innerHTML = 'Modifier l\'action <button class="modal-close" onclick="closeModal(\'modal-pda\')">✕</button>';
+  document.getElementById('pda-date-comex').value = p.date_comex||'';
+  document.getElementById('pda-tache').value = p.tache||'';
+  document.getElementById('pda-delai').value = p.delai||'';
+  document.getElementById('pda-porteur').value = p.porteur||'';
+  document.getElementById('pda-statut').value = p.statut||'En cours';
+  document.getElementById('pda-commentaire').value = p.commentaire||'';
+  document.getElementById('modal-pda').style.display='flex';
+};
+
+window.savePda = async function() {
+  const c = getClient(); if (!c) return;
+  const tache = document.getElementById('pda-tache').value.trim(); if (!tache) return;
+  const date_comex = document.getElementById('pda-date-comex').value;
+  if (!date_comex) { toast('⚠️ La date COMEX est obligatoire','error'); document.getElementById('pda-date-comex').focus(); return; }
+  const obj = {
+    date_comex,
+    tache,
+    delai:      document.getElementById('pda-delai').value,
+    porteur:    document.getElementById('pda-porteur').value.trim(),
+    statut:     document.getElementById('pda-statut').value,
+    commentaire:document.getElementById('pda-commentaire').value.trim(),
+  };
+  if (!c.pda) c.pda=[];
+  if (editStatePda!==null) c.pda[editStatePda]=obj; else c.pda.push(obj);
+  try { toast('Enregistrement…'); await fsSaveClient(c); closeModal('modal-pda'); renderPda(); toast('Action enregistrée ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+window.deletePda = async function(i) {
+  if (!canDelete()) { toast('⛔ Suppression non autorisée','error'); return; }
+  if (!confirm('Supprimer cette action ?')) return;
+  const c = getClient(); c.pda.splice(i,1);
+  try { await fsSaveClient(c); renderPda(); toast('Supprimé ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
 init();
-// ── BILAN CHRONOLOGIQUE ──
+// ── BILAN — éléments actifs ──
 function renderBilan() {
   const c = getClient(); if (!c) return;
   const el = document.getElementById('panel-bilan');
@@ -741,133 +817,103 @@ function renderBilan() {
   const critColor = { haute:'var(--red)', moyenne:'var(--orange)', faible:'var(--green)' };
   const niveauColor = { critique:'var(--red)', tendu:'var(--orange)', sain:'var(--green)', surveillance:'var(--accent)' };
 
-  // ── SECTION générique chronologique ──
-  function sectionChronо(items, mapper) {
-    if (!items.length) return '<div class="bl-empty">Aucun élément enregistré.</div>';
-    const sorted = [...items].map(i => mapper(i)).sort((a,b) => {
-      if (!a.date && !b.date) return 0;
-      if (!a.date) return 1;
-      if (!b.date) return -1;
-      return b.date.localeCompare(a.date);
-    });
-    return sorted.map(m => {
-      return `<div class="bl-row">
-        <div class="bl-date-full">${fmt(m.date)}</div>
-        <div class="bl-dot" style="background:${m.color||'var(--green)'}"></div>
-        <div class="bl-content">
-          <div class="bl-titre">${m.titre}</div>
-          ${m.detail ? `<div class="bl-detail">${m.detail}</div>` : ''}
-          ${m.extra  ? `<div class="bl-extra">${m.extra}</div>` : ''}
-          ${m.points ? `<div class="bl-points">${m.points.split('\n').filter(p=>p.trim()).map(p=>`<div class="bl-point">· ${p.replace(/^[-•·]\s*/,'')}</div>`).join('')}</div>` : ''}
-        </div>
-      </div>`;
-    }).join('');
+  function sectionRows(items) {
+    if (!items.length) return '<div class="bl-empty">Aucun élément en cours.</div>';
+    return items.map(m => `<div class="bl-row">
+      <div class="bl-date-full">${fmt(m.date)}</div>
+      <div class="bl-dot" style="background:${m.color||'var(--green)'}"></div>
+      <div class="bl-content">
+        <div class="bl-titre">${m.titre}</div>
+        ${m.detail ? `<div class="bl-detail">${m.detail}</div>` : ''}
+        ${m.extra  ? `<div class="bl-extra">${m.extra}</div>`  : ''}
+        ${m.points ? `<div class="bl-points">${m.points.split('\n').filter(p=>p.trim()).map(p=>`<div class="bl-point">· ${p.replace(/^[-•·]\s*/,'')}</div>`).join('')}</div>` : ''}
+      </div>
+      ${m.badge ? `<span class="bl-badge" style="background:${m.color||'var(--green)'}20;color:${m.color||'var(--green)'};border:1px solid ${m.color||'var(--green)'}40">${m.badge}</span>` : ''}
+    </div>`).join('');
   }
 
-  // ── INCIDENTS ──
-  const incHTML = sectionChronо(c.incidents||[], i => ({
-    date: i.date,
-    color: critColor[i.criticite]||'var(--green)',
-    titre: i.nature||i.titre||'Incident',
-    detail: [i.site?'📍 '+i.site:'', i.refLiaison?'Réf: '+i.refLiaison:'', i.service||'', i.statut||''].filter(Boolean).join(' · '),
-    extra: i.desc ? i.desc : '',
-    points: i.resolution ? '✅ '+i.resolution : ''
-  }));
-
-  // ── DOCUMENTS ──
-  const docHTML = sectionChronо(c.documents||[], d => ({
-    date: d.date,
-    color: 'var(--accent)',
-    titre: (d.type||'Document') + ' — ' + (d.titre||''),
-    detail: d.comment||'',
-    points: d.points_retenir||''
-  }));
-
-  // ── OPPORTUNITÉS ──
-  const oppHTML = sectionChronо(c.opportunites||[], o => ({
-    date: o.date||'0000-00-00',
-    color: o.statut==='Gagné'?'var(--green)':o.statut==='Perdu'?'var(--red)':'var(--accent2)',
-    titre: (o.titre||'Opportunité') + (o.type?' · '+o.type:''),
-    detail: [o.statut||'', o.montant||''].filter(Boolean).join(' · '),
-    points: o.description||''
-  }));
-
-  // ── SUJETS SENSIBLES ──
-  const noteHTML = sectionChronо(c.notes||[], n => ({
-    date: n.date,
-    color: n.niveau==='haute'?'var(--red)':n.niveau==='moyenne'?'var(--orange)':'var(--green)',
-    titre: (n.titre||'Note sensible') + (n.categorie?' · '+n.categorie:''),
-    detail: '',
-    points: n.contenu||''
-  }));
-
-  // ── SITES EN SOUFFRANCE ──
-  const sfHTML = (() => {
-    const list = c.souffrances||[];
-    if (!list.length) return '<div class="bl-empty">Aucun site enregistré.</div>';
-    return list.map(s => {
-      const col = niveauColor[s.statut]||'var(--orange)';
-      return `<div class="bl-row">
-        <div class="bl-date-full">${fmt(s.date)}</div>
-        <div class="bl-dot" style="background:${col}"></div>
-        <div class="bl-content">
-          <div class="bl-titre">${s.site||''} ${s.ref?'<span class="bl-ref">'+s.ref+'</span>':''}</div>
-          ${s.loopack?`<div class="bl-detail">Loopack: ${s.loopack}</div>`:''}
-          ${s.problemes?`<div class="bl-detail">${s.problemes}</div>`:''}
-          ${s.comment?`<div class="bl-extra">→ ${s.comment}</div>`:''}
-        </div>
-        <span class="bl-badge" style="background:${col}20;color:${col};border:1px solid ${col}40">${s.statut||''}</span>
-      </div>`;
-    }).join('');
-  })();
-
-  // ── RENDER ──
-  el.innerHTML = `
-  <div class="bl-wrap">
-    <div class="bl-sections">
-
-      <div class="bl-section">
-        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
-          <span>🚨 Incidents <span class="bl-count">${(c.incidents||[]).length}</span></span>
-          <span class="bl-chevron">▾</span>
-        </div>
-        <div class="bl-section-body">${incHTML}</div>
+  function section(titre, count, rows) {
+    const empty = !count;
+    return `<div class="bl-section${empty?' bl-collapsed':''}">
+      <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
+        <span>${titre} <span class="bl-count">${count}</span></span>
+        <span class="bl-chevron">▾</span>
       </div>
+      <div class="bl-section-body">${rows}</div>
+    </div>`;
+  }
 
-      <div class="bl-section">
-        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
-          <span>📁 Documents <span class="bl-count">${(c.documents||[]).length}</span></span>
-          <span class="bl-chevron">▾</span>
-        </div>
-        <div class="bl-section-body">${docHTML}</div>
-      </div>
+  // ── INCIDENTS EN COURS ──
+  const incEnCours = (c.incidents||[])
+    .filter(i => i.statut && i.statut.toLowerCase().includes('cours'))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+    .map(i => ({
+      date: i.date,
+      color: critColor[i.criticite]||'var(--green)',
+      titre: i.nature||i.titre||'Incident',
+      detail: [i.site?'📍 '+i.site:'', i.refLiaison?'Réf: '+i.refLiaison:'', i.service||''].filter(Boolean).join(' · '),
+      extra: i.desc||'',
+      badge: i.statut
+    }));
 
-      <div class="bl-section">
-        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
-          <span>💡 Opportunités <span class="bl-count">${(c.opportunites||[]).length}</span></span>
-          <span class="bl-chevron">▾</span>
-        </div>
-        <div class="bl-section-body">${oppHTML}</div>
-      </div>
+  // ── OPPORTUNITÉS (toutes sauf Perdu) ──
+  const oppActives = (c.opportunites||[])
+    .filter(o => o.statut !== 'Perdu')
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+    .map(o => ({
+      date: o.date,
+      color: o.statut==='Gagné'?'var(--green)':'var(--accent2)',
+      titre: o.titre||'Opportunité',
+      detail: [o.type||'', o.montant||''].filter(Boolean).join(' · '),
+      extra: o.description||'',
+      badge: o.statut
+    }));
 
-      <div class="bl-section">
-        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
-          <span>🔒 Sujets sensibles <span class="bl-count">${(c.notes||[]).length}</span></span>
-          <span class="bl-chevron">▾</span>
-        </div>
-        <div class="bl-section-body">${noteHTML}</div>
-      </div>
+  // ── SUJETS SENSIBLES (tous) ──
+  const notesActives = (c.notes||[])
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+    .map(n => ({
+      date: n.date,
+      color: n.niveau==='haute'?'var(--red)':n.niveau==='moyenne'?'var(--orange)':'var(--green)',
+      titre: (n.titre||'Note') + (n.categorie?' · '+n.categorie:''),
+      extra: n.contenu||'',
+      badge: n.niveau
+    }));
 
-      <div class="bl-section">
-        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
-          <span>⚠️ Sites en souffrance <span class="bl-count">${(c.souffrances||[]).length}</span></span>
-          <span class="bl-chevron">▾</span>
-        </div>
-        <div class="bl-section-body">${sfHTML}</div>
-      </div>
+  // ── SITES EN SOUFFRANCE (hors résolu) ──
+  const sfActifs = (c.souffrances||[])
+    .filter(s => s.statut !== 'resolu')
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
+    .map(s => ({
+      date: s.date,
+      color: niveauColor[s.statut]||'var(--orange)',
+      titre: s.site||'',
+      detail: [s.ref?'Réf: '+s.ref:'', s.loopack?'Loopack: '+s.loopack:''].filter(Boolean).join(' · '),
+      extra: s.problemes||'',
+      points: s.comment||'',
+      badge: s.statut
+    }));
 
-    </div>
-  </div>`;
+  // ── PDA EN COURS ──
+  const pdaEnCours = (c.pda||[])
+    .filter(p => p.statut === 'En cours' || p.statut === 'En retard')
+    .sort((a,b)=>(b.date_comex||'').localeCompare(a.date_comex||''))
+    .map(p => ({
+      date: p.date_comex,
+      color: p.statut==='En retard'?'var(--red)':'var(--orange)',
+      titre: p.tache||'',
+      detail: [p.porteur?'👤 '+p.porteur:'', p.delai?'⏱ Délai: '+fmt(p.delai):''].filter(Boolean).join(' · '),
+      extra: p.commentaire||'',
+      badge: p.statut
+    }));
+
+  el.innerHTML = `<div class="bl-wrap"><div class="bl-sections">
+    ${section('🚨 Incidents en cours', incEnCours.length, sectionRows(incEnCours))}
+    ${section('💡 Opportunités actives', oppActives.length, sectionRows(oppActives))}
+    ${section('🔒 Sujets sensibles', notesActives.length, sectionRows(notesActives))}
+    ${section('⚠️ Sites en souffrance', sfActifs.length, sectionRows(sfActifs))}
+    ${section('📌 PDA en cours', pdaEnCours.length, sectionRows(pdaEnCours))}
+  </div></div>`;
 }
 
 </script>
@@ -972,6 +1018,17 @@ function renderBilan() {
   .bl-badge { font-family:'DM Mono',monospace; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; white-space:nowrap; align-self:flex-start; margin-top:3px; flex-shrink:0; }
   .bl-empty { font-family:'DM Mono',monospace; font-size:12px; color:var(--text3); padding:14px 0; }
   .bilan-empty-state { text-align:center; padding:60px 20px; font-family:'DM Mono',monospace; font-size:13px; color:var(--text3); }
+
+  /* PDA TABLE */
+  .pda-th { padding:10px 14px; text-align:left; font-family:'DM Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--text3); }
+  .pda-td { padding:10px 14px; font-size:13px; border-bottom:1px solid var(--border); vertical-align:top; }
+  .pda-tr:last-child .pda-td { border-bottom:none; }
+  .pda-tr:hover { background:var(--surface2); }
+  .pda-statut { display:inline-block; padding:2px 10px; border-radius:20px; font-family:'DM Mono',monospace; font-size:10px; font-weight:700; }
+  .pda-encours { background:rgba(217,119,6,.1);  color:var(--orange); }
+  .pda-realise  { background:rgba(22,163,74,.1);  color:var(--green);  }
+  .pda-retard   { background:rgba(220,38,38,.1);  color:var(--red);    }
+  .pda-annule   { background:rgba(155,163,184,.1);color:var(--text3);  }
 
   #content{flex:1;overflow-y:auto;padding:20px 22px;}
   #content::-webkit-scrollbar{width:5px;}
@@ -1106,6 +1163,7 @@ function renderBilan() {
       <button class="tab-btn" onclick="switchTab('opportunites',this)">💡 Opportunités</button>
       <button class="tab-btn" onclick="switchTab('sensibles',this)">🔒 Sujets sensibles</button>
       <button class="tab-btn" onclick="switchTab('souffrances',this)">⚠️ Sites en souffrance</button>
+      <button class="tab-btn" onclick="switchTab('pda',this)">📌 PDA</button>
       <button class="tab-btn" onclick="switchTab('bilan',this)">📋 Bilan</button>
     </div>
     <div id="content">
@@ -1163,6 +1221,32 @@ function renderBilan() {
             </thead>
             <tbody id="souffrances-tbody">
               <tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucun site enregistré</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PDA -->
+      <div class="tab-panel" id="panel-pda">
+        <div class="section-header">
+          <span class="section-title">📌 Plan d'Action (PDA)</span>
+          <button class="btn-add" onclick="openAddPda()">+ Ajouter une action</button>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
+                <th class="pda-th">Date COMEX</th>
+                <th class="pda-th">Tâche</th>
+                <th class="pda-th">Délai</th>
+                <th class="pda-th">Porteur</th>
+                <th class="pda-th">Statut</th>
+                <th class="pda-th">Commentaire</th>
+                <th style="width:80px;"></th>
+              </tr>
+            </thead>
+            <tbody id="pda-tbody">
+              <tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucune action enregistrée</td></tr>
             </tbody>
           </table>
         </div>
@@ -1365,6 +1449,32 @@ function renderBilan() {
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('modal-souffrance')">Annuler</button>
       <button class="btn-primary" onclick="saveSouffrance()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PDA -->
+<div id="modal-pda" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-pda')">
+  <div class="modal">
+    <div class="modal-title" id="pda-modal-title">Nouvelle action <button class="modal-close" onclick="closeModal('modal-pda')">✕</button></div>
+    <div class="field"><label>Date COMEX <span style="color:var(--red)">*</span></label><input id="pda-date-comex" type="date"></div>
+    <div class="field"><label>Tâche à réaliser *</label><input id="pda-tache" placeholder="ex: Renouveler le contrat de maintenance…"></div>
+    <div class="grid2">
+      <div class="field"><label>Délai <span style="color:var(--red)">*</span></label><input id="pda-delai" type="date"></div>
+      <div class="field"><label>Porteur</label><input id="pda-porteur" placeholder="ex: Jean Dupont"></div>
+    </div>
+    <div class="field"><label>Statut</label>
+      <select id="pda-statut">
+        <option>En cours</option>
+        <option>Réalisé</option>
+        <option>En retard</option>
+        <option>Annulé</option>
+      </select>
+    </div>
+    <div class="field"><label>Commentaire</label><textarea id="pda-commentaire" placeholder="Contexte, blocages, prochaines étapes…" style="min-height:80px"></textarea></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-pda')">Annuler</button>
+      <button class="btn-primary" onclick="savePda()">Enregistrer</button>
     </div>
   </div>
 </div>
