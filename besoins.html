@@ -205,10 +205,9 @@
         <thead>
           <tr>
             <th>Contact</th>
-            <th>Entreprise</th>
             <th>Service</th>
             <th>Complexité</th>
-            <th>Budget</th>
+            <th>Fichiers</th>
             <th>Délai</th>
             <th>Date</th>
             <th>Statut</th>
@@ -299,9 +298,7 @@ function applyFilters() {
   let filtered = allAudits.filter(a => {
     const matchSearch = !search ||
       (a.nom || '').toLowerCase().includes(search) ||
-      (a.entreprise || '').toLowerCase().includes(search) ||
-      (a.service || '').toLowerCase().includes(search) ||
-      (a.email || '').toLowerCase().includes(search);
+      (a.service || '').toLowerCase().includes(search);
     const matchStatut = !statut || (a.statut || 'nouveau') === statut;
     const matchComplexite = !complexite || a.complexiteEstimee === complexite;
     return matchSearch && matchStatut && matchComplexite;
@@ -316,7 +313,7 @@ function applyFilters() {
 function renderTable(data) {
   const tbody = document.getElementById('tableBody');
   if (data.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9">
+    tbody.innerHTML = `<tr><td colspan="8">
       <div class="empty-state">
         <div class="empty-icon">📭</div>
         <div class="empty-text">Aucune demande trouvée</div>
@@ -329,19 +326,22 @@ function renderTable(data) {
     const statut = a.statut || 'nouveau';
     const date = a.createdAt?.toDate ? a.createdAt.toDate().toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }) : '—';
     const complexiteClass = (a.complexiteEstimee || '').toLowerCase().replace('é','e').replace('è','e');
+    const nbFichiers = (a.fichiers || []).length;
+    const fichiersLabel = nbFichiers > 0
+      ? `<span style="background:rgba(0,102,255,0.08);border:1px solid rgba(0,102,255,0.18);border-radius:5px;padding:2px 8px;font-size:11px;color:var(--accent);font-weight:600;">📎 ${nbFichiers}</span>`
+      : `<span style="color:var(--text-muted);font-size:12px;">—</span>`;
     return `<tr>
       <td>
         <div class="td-name">${a.nom || '—'}</div>
-        <div class="td-muted">${a.email || ''}</div>
+        <div class="td-muted">${a.fonction || ''}</div>
       </td>
-      <td>${a.entreprise || '—'}</td>
       <td>${a.service || '—'}</td>
       <td><span class="tag tag-${complexiteClass}">${a.complexiteEstimee || '—'}</span></td>
-      <td style="font-size:12px;color:var(--text-muted)">${a.budget || '—'}</td>
+      <td>${fichiersLabel}</td>
       <td style="font-size:12px;color:var(--text-muted)">${a.delai || '—'}</td>
       <td style="font-size:12px;color:var(--text-muted);white-space:nowrap">${date}</td>
       <td>
-        <select class="status-select tag tag-${statut.replace('-','-')}" onchange="updateStatut('${a.id}', this.value, this)" style="background:transparent;">
+        <select class="status-select tag tag-${statut}" onchange="updateStatut('${a.id}', this.value, this)" style="background:transparent;">
           <option value="nouveau" ${statut==='nouveau'?'selected':''}>🔵 Nouveau</option>
           <option value="en-cours" ${statut==='en-cours'?'selected':''}>🟡 En cours</option>
           <option value="traite" ${statut==='traite'?'selected':''}>🟢 Traité</option>
@@ -370,8 +370,8 @@ function openModal(id) {
   if (!a) return;
   currentId = id;
 
-  document.getElementById('modalTitle').textContent = a.nom + ' — ' + a.entreprise;
-  document.getElementById('modalSubtitle').textContent = a.service + (a.fonction ? ' · ' + a.fonction : '') + ' · ' + (a.tailleEquipe || '');
+  document.getElementById('modalTitle').textContent = a.nom + ' — ' + a.service;
+  document.getElementById('modalSubtitle').textContent = (a.fonction || '') + (a.tailleEquipe ? ' · ' + a.tailleEquipe : '');
 
   const date = a.createdAt?.toDate ? a.createdAt.toDate().toLocaleString('fr-FR') : '—';
 
@@ -391,11 +391,31 @@ function openModal(id) {
   const outils = (a.outilsActuels || []).map(o => `<span class="chip-item">${o}</span>`).join('') || '<span style="color:var(--text-muted);font-size:13px;">Non renseigné</span>';
   const autos = (a.typesAutomatisation || []).map(o => `<span class="chip-item">${o}</span>`).join('') || '<span style="color:var(--text-muted);font-size:13px;">Non sélectionné</span>';
 
+  // Fichiers joints
+  let fichiersHTML = '<span style="color:var(--text-muted);font-size:13px;">Aucun fichier joint</span>';
+  if (a.fichiers && a.fichiers.length > 0) {
+    fichiersHTML = a.fichiers.map(f => {
+      const icon = (f.type||'').includes('image') ? '🖼️' : (f.type||'').includes('pdf') ? '📄' : f.name.includes('.xls') ? '📊' : '📝';
+      const kb = f.size ? (f.size / 1024).toFixed(0) + ' Ko' : '';
+      const downloadLink = f.base64
+        ? `<a href="data:${f.type};base64,${f.base64}" download="${f.name}" style="color:var(--accent);font-size:12px;text-decoration:none;font-weight:500;">⬇ Télécharger</a>`
+        : '';
+      return `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:6px;">
+        <span style="font-size:18px;">${icon}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name}</div>
+          <div style="font-size:11px;color:var(--text-muted);">${kb}</div>
+        </div>
+        ${downloadLink}
+      </div>`;
+    }).join('');
+  }
+
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-section">
       <div class="modal-section-title">Identification</div>
       <div class="detail-grid">
-        <div class="detail-item"><div class="detail-label">Email</div><div class="detail-value">${a.email || '—'}</div></div>
+        <div class="detail-item"><div class="detail-label">Fonction</div><div class="detail-value">${a.fonction || '—'}</div></div>
         <div class="detail-item"><div class="detail-label">Taille équipe</div><div class="detail-value">${a.tailleEquipe || '—'}</div></div>
         <div class="detail-item"><div class="detail-label">Date soumission</div><div class="detail-value">${date}</div></div>
         <div class="detail-item"><div class="detail-label">Référence</div><div class="detail-value" style="color:var(--accent);font-weight:600;">${id.slice(0,8).toUpperCase()}</div></div>
@@ -419,6 +439,11 @@ function openModal(id) {
     </div>
 
     <div class="modal-section">
+      <div class="modal-section-title">Fichiers joints</div>
+      ${fichiersHTML}
+    </div>
+
+    <div class="modal-section">
       <div class="modal-section-title">Automatisations souhaitées</div>
       <div class="detail-item" style="margin-bottom:10px;">
         <div class="detail-label" style="margin-bottom:8px;">Types d'automatisation</div>
@@ -434,22 +459,18 @@ function openModal(id) {
       <div class="modal-section-title">Priorités & Contraintes</div>
       <div class="detail-grid">
         <div class="detail-item"><div class="detail-label">Priorité</div><div class="detail-value">${a.priorite || '—'}</div></div>
-        <div class="detail-item"><div class="detail-label">Budget</div><div class="detail-value">${a.budget || '—'}</div></div>
         <div class="detail-item"><div class="detail-label">Délai</div><div class="detail-value">${a.delai || '—'}</div></div>
         <div class="detail-item"><div class="detail-label">Complexité estimée</div><div class="detail-value">${a.complexiteEstimee || '—'}</div></div>
+        <div class="detail-item"><div class="detail-label">Gain temps estimé</div><div class="detail-value" style="color:var(--accent3)">${a.gainTempsEstime || '—'}</div></div>
       </div>
       ${a.contraintes ? `<div class="detail-item" style="margin-top:10px;"><div class="detail-label">Contraintes</div><div class="detail-value">${a.contraintes}</div></div>` : ''}
       ${a.experiencePassee ? `<div class="detail-item" style="margin-top:10px;"><div class="detail-label">Expérience passée</div><div class="detail-value">${a.experiencePassee}</div></div>` : ''}
     </div>
 
-    <div class="modal-section">
-      <div class="modal-section-title">Estimation & Commentaires</div>
-      <div class="detail-grid">
-        <div class="detail-item"><div class="detail-label">Gain de temps estimé</div><div class="detail-value" style="color:var(--accent3)">${a.gainTempsEstime || '—'}</div></div>
-        <div class="detail-item"><div class="detail-label">Solution proposée</div><div class="detail-value">${a.solutionProposee || '—'}</div></div>
-      </div>
-      ${a.commentaires ? `<div class="detail-item" style="margin-top:10px;"><div class="detail-label">Commentaires</div><div class="detail-value">${a.commentaires}</div></div>` : ''}
-    </div>`;
+    ${a.commentaires ? `<div class="modal-section">
+      <div class="modal-section-title">Commentaires</div>
+      <div class="detail-item"><div class="detail-value">${a.commentaires}</div></div>
+    </div>` : ''}`;
 
   document.getElementById('modalOverlay').classList.add('open');
   document.body.style.overflow = 'hidden';
