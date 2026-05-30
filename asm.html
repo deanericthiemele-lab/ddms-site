@@ -171,7 +171,7 @@ window.switchTab = function(name, btn) {
   if (name === 'pda') renderPda();
 };
 
-function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderSensibles(); renderSouffrances(); renderPda(); }
+function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderSouffrances(); renderPda(); }
 
 window.openModal = id => document.getElementById(id).style.display='flex';
 window.closeModal = id => document.getElementById(id).style.display='none';
@@ -232,7 +232,7 @@ function renderIncidents() {
 
 window.openAddIncident = function() {
   editState.incidents = null;
-  document.getElementById('incident-modal-title').innerHTML = 'Incident marquant <button class="modal-close" onclick="closeModal(\'modal-add-incident\')">✕</button>';
+  document.getElementById('incident-modal-title').innerHTML = 'Incident majeur <button class="modal-close" onclick="closeModal(\'modal-add-incident\')">✕</button>';
   document.getElementById('incident-modal-btn').textContent = 'Enregistrer';
   ['inc-nature','inc-site','inc-refliaison','inc-date','inc-desc','inc-resolution','inc-signalepar','inc-signalecontact'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('modal-add-incident').style.display='flex';
@@ -397,7 +397,7 @@ function oppColor(type) {
 function renderOpportunites() {
   const c = getClient(); if (!c) return;
   const el = document.getElementById('opportunites-list');
-  const opps = (c.opportunites || []).filter(o => o.statut !== 'Gagné' && o.statut !== 'Perdu');
+  const opps = c.opportunites || [];
 
   // Group by type
   const allTypes = [...new Set([...OPP_TYPES_DEFAULT, ...opps.map(o=>o.type)])];
@@ -574,100 +574,13 @@ window.openDocument = function(url) {
 
 
 // ── SUJETS SENSIBLES (liste de notes) ──
-let editStateNote = null;
-
-function renderSensibles() {
-  const c = getClient(); if (!c) return;
-  const el = document.getElementById('sensibles-list');
-  const notes = (c.notes || []).filter(n => n.statut !== 'Clôturé');
-  if (!notes.length) { el.innerHTML = emptyState('Aucune note active'); return; }
-  el.innerHTML = notes.map((n, i) => {
-    const realIdx = (c.notes||[]).indexOf(n);
-    const niveauMap = { haute: { label:'🔴 Haute', cls:'tag-red' }, moyenne: { label:'🟡 Moyenne', cls:'tag-orange' }, faible: { label:'🟢 Faible', cls:'tag-green' } };
-    const niv = niveauMap[n.niveau] || niveauMap.moyenne;
-    const statutCls = n.statut==='Clôturé'?'tag-green':'tag-orange';
-    return `<div class="card" style="border-left:3px solid ${n.niveau==='haute'?'var(--red)':n.niveau==='faible'?'var(--green)':'var(--orange)'}">
-      <div class="card-head">
-        <span class="card-title">${n.titre||'Sans titre'}</span>
-        <span class="card-date">${n.date?formatDate(n.date):''}</span>
-      </div>
-      <div class="card-body" style="white-space:pre-wrap;margin-top:6px;">${n.contenu||''}</div>
-      <div class="card-tags" style="margin-top:10px;">
-        <span class="tag ${niv.cls}">${niv.label}</span>
-        <span class="tag ${statutCls}">${n.statut||'En cours'}</span>
-        ${n.categorie?`<span class="tag tag-blue">${n.categorie}</span>`:''}
-      </div>
-      <div class="card-actions">
-        <button class="btn-sm-edit" onclick="editNote(${realIdx})">✏️ Modifier</button>
-        <button class="btn-sm" onclick="deleteNote(${realIdx})">Supprimer</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-window.openAddNote = function() {
-  editStateNote = null;
-  document.getElementById('note-modal-title').innerHTML = 'Nouvelle note sensible <button class="modal-close" onclick="closeModal(\'modal-note\')">✕</button>';
-  document.getElementById('note-modal-btn').textContent = 'Enregistrer';
-  ['note-titre','note-contenu','note-categorie'].forEach(id => document.getElementById(id).value='');
-  document.getElementById('note-date').value = new Date().toISOString().split('T')[0];
-  document.getElementById('note-niveau').value = 'moyenne';
-  document.getElementById('note-statut').value = 'En cours';
-  document.getElementById('modal-note').style.display='flex';
-};
-
-window.editNote = function(i) {
-  const n = (getClient().notes||[])[i];
-  editStateNote = i;
-  document.getElementById('note-modal-title').innerHTML = 'Modifier la note <button class="modal-close" onclick="closeModal(\'modal-note\')">✕</button>';
-  document.getElementById('note-modal-btn').textContent = 'Enregistrer';
-  document.getElementById('note-titre').value    = n.titre||'';
-  document.getElementById('note-date').value     = n.date||'';
-  document.getElementById('note-niveau').value   = n.niveau||'moyenne';
-  document.getElementById('note-statut').value   = n.statut||'En cours';
-  document.getElementById('note-categorie').value= n.categorie||'';
-  document.getElementById('note-contenu').value  = n.contenu||'';
-  document.getElementById('modal-note').style.display='flex';
-};
-
-window.saveNote = async function() {
-  const c = getClient(); if (!c) return;
-  const titre = document.getElementById('note-titre').value.trim(); if (!titre) return;
-  const date = document.getElementById('note-date').value;
-  if (!date) { toast('⚠️ La date est obligatoire', 'error'); document.getElementById('note-date').focus(); return; }
-  const obj = {
-    titre,
-    date:      document.getElementById('note-date').value,
-    niveau:    document.getElementById('note-niveau').value,
-    statut:    document.getElementById('note-statut').value,
-    categorie: document.getElementById('note-categorie').value.trim(),
-    contenu:   document.getElementById('note-contenu').value.trim(),
-  };
-  if (!c.notes) c.notes = [];
-  if (editStateNote !== null) c.notes[editStateNote] = obj; else c.notes.push(obj);
-  try {
-    toast('Enregistrement…');
-    await fsSaveClient(c);
-    closeModal('modal-note');
-    renderSensibles();
-    toast('Note enregistrée ✓','success');
-  } catch(e) { toast('Erreur : '+e.message,'error'); }
-};
-
-window.deleteNote = async function(i) {
-  if (!canDelete()) { toast('⛔ Suppression non autorisée pour ce compte', 'error'); return; }
-  if (!confirm('Supprimer cette note ?')) return;
-  const c = getClient(); c.notes.splice(i,1);
-  try { await fsSaveClient(c); renderSensibles(); toast('Supprimé ✓','success'); }
-  catch(e) { toast('Erreur : '+e.message,'error'); }
-};
 
 // ── SITES EN SOUFFRANCE ──
 let editStateSouffrance = null;
 function renderSouffrances() {
   const c = getClient(); if (!c) return;
   const tbody = document.getElementById('souffrances-tbody'); if (!tbody) return;
-  const list = (c.souffrances||[]).filter(s => s.statut !== 'resolu');
+  const list = c.souffrances || [];
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;">Aucun site enregistré</td></tr>';
     return;
@@ -754,7 +667,7 @@ function renderPda() {
     const lcls = listeCls[p.liste]||'pda-noncomex';
     return `<tr class="pda-tr">
       <td class="pda-td" style="font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap">${fmtD(p.date)}</td>
-      <td class="pda-td"><span class="pda-liste ${lcls}">${p.liste||''}</span></td>
+      <td class="pda-td"><span class="pda-liste ${lcls}">${p.liste||''}</span>${p.mois_comex?`<div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-top:3px">${p.mois_comex}</div>`:p.contexte?`<div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-top:3px">${p.contexte}</div>`:''}</td>
       <td class="pda-td" style="font-weight:500">${p.tache||''}</td>
       <td class="pda-td" style="font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap">${fmtD(p.delai)}</td>
       <td class="pda-td">${p.porteur||''}</td>
@@ -768,12 +681,20 @@ function renderPda() {
   }).join('');
 }
 
+window.togglePdaReunion = function() {
+  const v = document.getElementById('pda-liste').value;
+  document.getElementById('pda-comex-wrap').style.display = v==='COMEX' ? 'block' : 'none';
+  document.getElementById('pda-hors-wrap').style.display  = v==='COMEX' ? 'none'  : 'block';
+};
+
 window.openAddPda = function() {
   editStatePda = null;
   document.getElementById('pda-modal-title').innerHTML = 'Nouvelle action <button class="modal-close" onclick="closeModal(\'modal-pda\')">✕</button>';
-  ['pda-date','pda-tache','pda-delai','pda-porteur','pda-commentaire'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('pda-liste').value='COMEX';
-  document.getElementById('pda-statut').value='En cours';
+  ['pda-date','pda-tache','pda-delai','pda-porteur','pda-commentaire','pda-contexte'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('pda-liste').value = 'COMEX';
+  document.getElementById('pda-mois-comex').value = '';
+  document.getElementById('pda-statut').value = 'En cours';
+  togglePdaReunion();
   document.getElementById('modal-pda').style.display='flex';
 };
 
@@ -781,24 +702,32 @@ window.editPda = function(i) {
   const c = getClient(); const p = (c.pda||[])[i];
   editStatePda = i;
   document.getElementById('pda-modal-title').innerHTML = 'Modifier l\'action <button class="modal-close" onclick="closeModal(\'modal-pda\')">✕</button>';
-  document.getElementById('pda-date').value    = p.date||'';
-  document.getElementById('pda-liste').value   = p.liste||'COMEX';
-  document.getElementById('pda-tache').value   = p.tache||'';
-  document.getElementById('pda-delai').value   = p.delai||'';
-  document.getElementById('pda-porteur').value = p.porteur||'';
-  document.getElementById('pda-statut').value  = p.statut||'En cours';
+  document.getElementById('pda-date').value      = p.date||'';
+  document.getElementById('pda-liste').value     = p.liste||'COMEX';
+  document.getElementById('pda-mois-comex').value= p.mois_comex||'';
+  document.getElementById('pda-contexte').value  = p.contexte||'';
+  document.getElementById('pda-tache').value     = p.tache||'';
+  document.getElementById('pda-delai').value     = p.delai||'';
+  document.getElementById('pda-porteur').value   = p.porteur||'';
+  document.getElementById('pda-statut').value    = p.statut||'En cours';
   document.getElementById('pda-commentaire').value = p.commentaire||'';
+  togglePdaReunion();
   document.getElementById('modal-pda').style.display='flex';
 };
 
 window.savePda = async function() {
   const c = getClient(); if (!c) return;
   const tache = document.getElementById('pda-tache').value.trim(); if (!tache) return;
-  const date = document.getElementById('pda-date').value;
+  const date  = document.getElementById('pda-date').value;
   if (!date) { toast('⚠️ La date est obligatoire','error'); document.getElementById('pda-date').focus(); return; }
+  const liste = document.getElementById('pda-liste').value;
+  const mois_comex = liste==='COMEX' ? document.getElementById('pda-mois-comex').value : '';
+  if (liste==='COMEX' && !mois_comex) { toast('⚠️ Le mois du COMEX est obligatoire','error'); document.getElementById('pda-mois-comex').focus(); return; }
   const obj = {
     date,
-    liste:       document.getElementById('pda-liste').value,
+    liste,
+    mois_comex,
+    contexte:    liste!=='COMEX' ? document.getElementById('pda-contexte').value.trim() : '',
     tache,
     delai:       document.getElementById('pda-delai').value,
     porteur:     document.getElementById('pda-porteur').value.trim(),
@@ -921,9 +850,8 @@ function renderBilan() {
     }));
 
   el.innerHTML = `<div class="bl-wrap"><div class="bl-sections">
-    ${section('🚨 Incidents en cours', incEnCours.length, sectionRows(incEnCours))}
+    ${section('🚨 Incidents majeurs en cours', incEnCours.length, sectionRows(incEnCours))}
     ${section('💡 Opportunités actives', oppActives.length, sectionRows(oppActives))}
-    ${section('🔒 Sujets sensibles', notesActives.length, sectionRows(notesActives))}
     ${section('⚠️ Sites en souffrance', sfActifs.length, sectionRows(sfActifs))}
     ${section('📌 PDA en cours', pdaEnCours.length, sectionRows(pdaEnCours))}
   </div></div>`;
@@ -1173,10 +1101,9 @@ function renderBilan() {
       </div>
     </div>
     <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('incidents',this)">🚨 Incidents</button>
+      <button class="tab-btn active" onclick="switchTab('incidents',this)">🚨 Incidents majeurs</button>
       <button class="tab-btn" onclick="switchTab('documents',this)">📁 Documents</button>
       <button class="tab-btn" onclick="switchTab('opportunites',this)">💡 Opportunités</button>
-      <button class="tab-btn" onclick="switchTab('sensibles',this)">🔒 Sujets sensibles</button>
       <button class="tab-btn" onclick="switchTab('souffrances',this)">⚠️ Sites en souffrance</button>
       <button class="tab-btn" onclick="switchTab('pda',this)">📌 PDA</button>
       <button class="tab-btn" onclick="switchTab('bilan',this)">📋 Bilan</button>
@@ -1184,7 +1111,7 @@ function renderBilan() {
     <div id="content">
       <div class="tab-panel active" id="panel-incidents">
         <div class="section-header">
-          <span class="section-title">Incidents marquants</span>
+          <span class="section-title">Incidents majeurs</span>
           <button class="btn-add" onclick="openAddIncident()">+ Ajouter</button>
         </div>
         <div id="incidents-list"></div>
@@ -1202,16 +1129,6 @@ function renderBilan() {
           <button class="btn-add" onclick="openAddOpportunite()">+ Ajouter</button>
         </div>
         <div id="opportunites-list"></div>
-      </div>
-
-      <!-- SUJETS SENSIBLES -->
-      <div class="tab-panel" id="panel-sensibles">
-        <div class="section-header">
-          <span class="section-title">🔒 Sujets sensibles</span>
-          <button class="btn-add" onclick="openAddNote()">+ Ajouter une note</button>
-        </div>
-        <p style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:14px;">Notes confidentielles — non partagées dans les rapports standard</p>
-        <div id="sensibles-list"></div>
       </div>
 
       <!-- SITES EN SOUFFRANCE -->
@@ -1299,7 +1216,7 @@ function renderBilan() {
 <!-- MODAL INCIDENT -->
 <div id="modal-add-incident" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-add-incident')">
   <div class="modal">
-    <div class="modal-title" id="incident-modal-title">Incident marquant <button class="modal-close" onclick="closeModal('modal-add-incident')">✕</button></div>
+    <div class="modal-title" id="incident-modal-title">Incident majeur <button class="modal-close" onclick="closeModal('modal-add-incident')">✕</button></div>
 
     <div class="form-section-label">Identification</div>
     <div class="field"><label>Nature de l'incident *</label><input id="inc-nature" placeholder="ex: Coupure totale, Dégradation débit…"></div>
@@ -1414,38 +1331,6 @@ function renderBilan() {
 </div>
 
 
-<!-- MODAL NOTE SENSIBLE -->
-<div id="modal-note" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-note')">
-  <div class="modal">
-    <div class="modal-title" id="note-modal-title">Nouvelle note sensible <button class="modal-close" onclick="closeModal('modal-note')">✕</button></div>
-    <div class="field"><label>Titre *</label><input id="note-titre" placeholder="ex: Tension contractuelle, Litige en cours…"></div>
-    <div class="grid2">
-      <div class="field"><label>Date <span style="color:var(--red)">*</span></label><input id="note-date" type="date"></div>
-      <div class="field"><label>Niveau de sensibilité</label>
-        <select id="note-niveau">
-          <option value="haute">🔴 Haute</option>
-          <option value="moyenne" selected>🟡 Moyenne</option>
-          <option value="faible">🟢 Faible</option>
-        </select>
-      </div>
-    </div>
-    <div class="field"><label>Statut</label>
-      <select id="note-statut">
-        <option>En cours</option>
-        <option>Clôturé</option>
-      </select>
-    </div>
-    <div class="field"><label>Catégorie</label><input id="note-categorie" placeholder="ex: Contractuel, Politique, Financier…"></div>
-    <div class="field"><label>Contenu de la note</label>
-      <textarea id="note-contenu" placeholder="Décrivez le contexte, les enjeux, les personnes impliquées…" style="min-height:120px;"></textarea>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" onclick="closeModal('modal-note')">Annuler</button>
-      <button class="btn-primary" id="note-modal-btn" onclick="saveNote()">Enregistrer</button>
-    </div>
-  </div>
-</div>
-
 <!-- MODAL SITE EN SOUFFRANCE -->
 <div id="modal-souffrance" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-souffrance')">
   <div class="modal">
@@ -1481,12 +1366,30 @@ function renderBilan() {
     <div class="modal-title" id="pda-modal-title">Nouvelle action <button class="modal-close" onclick="closeModal('modal-pda')">✕</button></div>
     <div class="grid2">
       <div class="field"><label>Date <span style="color:var(--red)">*</span></label><input id="pda-date" type="date"></div>
-      <div class="field"><label>Liste</label>
-        <select id="pda-liste">
-          <option>COMEX</option>
-          <option>Non COMEX</option>
+      <div class="field"><label>Type de réunion</label>
+        <select id="pda-liste" onchange="togglePdaReunion()">
+          <option value="COMEX">COMEX</option>
+          <option value="Hors COMEX">Hors COMEX</option>
         </select>
       </div>
+    </div>
+    <div id="pda-comex-wrap" class="field">
+      <label>Mois du COMEX <span style="color:var(--red)">*</span></label>
+      <select id="pda-mois-comex">
+        <option value="">-- Sélectionner --</option>
+        <option>Janvier 2025</option><option>Février 2025</option><option>Mars 2025</option>
+        <option>Avril 2025</option><option>Mai 2025</option><option>Juin 2025</option>
+        <option>Juillet 2025</option><option>Août 2025</option><option>Septembre 2025</option>
+        <option>Octobre 2025</option><option>Novembre 2025</option><option>Décembre 2025</option>
+        <option>Janvier 2026</option><option>Février 2026</option><option>Mars 2026</option>
+        <option>Avril 2026</option><option>Mai 2026</option><option>Juin 2026</option>
+        <option>Juillet 2026</option><option>Août 2026</option><option>Septembre 2026</option>
+        <option>Octobre 2026</option><option>Novembre 2026</option><option>Décembre 2026</option>
+      </select>
+    </div>
+    <div id="pda-hors-wrap" class="field" style="display:none">
+      <label>Réunion / Contexte</label>
+      <input id="pda-contexte" placeholder="ex: Revue mensuelle, Appel client, Revue technique…">
     </div>
     <div class="field"><label>Tâche à réaliser *</label><input id="pda-tache" placeholder="ex: Renouveler le contrat de maintenance…"></div>
     <div class="grid2">
