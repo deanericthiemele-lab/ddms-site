@@ -327,6 +327,10 @@
   window._updateAudit = async function(id, data) {
     await db.collection("audits_automatisation").doc(id).update(data);
   };
+
+  window._deleteAudit = async function(id) {
+    await db.collection("audits_automatisation").doc(id).delete();
+  };
 </script>
 
 <script>
@@ -598,6 +602,34 @@ function openEditModal(id) {
   let actionsEditHTML = actionsManuelles.map((ac, i) => buildActionRow(i, ac)).join('');
   if (!actionsEditHTML) actionsEditHTML = buildActionRow(0, {});
 
+  // Build existing fichiers HTML for edit modal
+  let editFichiersData = [];
+  try {
+    if (typeof a.fichiers === 'string' && a.fichiers) editFichiersData = JSON.parse(a.fichiers);
+    else if (Array.isArray(a.fichiers)) editFichiersData = a.fichiers;
+  } catch(e) { editFichiersData = []; }
+  window._editFichiersExisting = editFichiersData.map(f => ({...f, _keep: true}));
+  window._editFichiersNew = [];
+
+  function buildExistingFilesHTML() {
+    if (window._editFichiersExisting.filter(f=>f._keep).length === 0)
+      return '<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px;">Aucun fichier existant</div>';
+    return window._editFichiersExisting.map((f, i) => {
+      if (!f._keep) return '';
+      const icon = (f.type||'').includes('image') ? '🖼️' : (f.type||'').includes('pdf') ? '📄' : (f.name||'').includes('.xls') ? '📊' : '📝';
+      const kb = f.size ? (f.size/1024).toFixed(0)+' Ko' : '';
+      return `<div id="ef_${i}" style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 13px;margin-bottom:6px;">
+        <span style="font-size:18px;">${icon}</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name||'Fichier'}</div>
+          <div style="font-size:11px;color:var(--accent3);">✓ Fichier existant · ${kb}</div>
+        </div>
+        <button onclick="removeExistingFile(${i})" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--danger);cursor:pointer;" onmouseover="this.style.background='rgba(230,48,80,0.08)'" onmouseout="this.style.background='none'">✕ Retirer</button>
+      </div>`;
+    }).join('');
+  }
+  const existingFilesHTML = buildExistingFilesHTML();
+
   document.getElementById('editModalBody').innerHTML = `
 
     <!-- IDENTIFICATION -->
@@ -631,6 +663,23 @@ function openEditModal(id) {
           <button class="add-tag-btn" onclick="addCustomTag('outils-tags','newOutil')">+ Ajouter</button>
         </div>
       </div>
+    </div>
+
+    <!-- FICHIERS -->
+    <div class="edit-section">
+      <div class="edit-section-title">Fichiers joints</div>
+      <div id="editFichiersExistants" style="margin-bottom:10px;">${existingFilesHTML}</div>
+      <div id="editDropZone" onclick="document.getElementById('editFileInput').click()"
+        style="border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:all 0.2s;background:var(--surface2);"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(0,102,255,0.04)'"
+        ondragleave="this.style.borderColor='var(--border)';this.style.background='var(--surface2)'"
+        ondrop="handleEditDrop(event)">
+        <div style="font-size:22px;margin-bottom:6px;">📎</div>
+        <div style="font-size:13px;color:var(--text-muted);">Glissez ou <span style="color:var(--accent);text-decoration:underline;">parcourez</span> pour ajouter des fichiers</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">PNG, JPG, PDF, XLSX, DOCX — max 2 Mo / fichier · 5 max</div>
+      </div>
+      <input type="file" id="editFileInput" multiple accept=".png,.jpg,.jpeg,.pdf,.xlsx,.xls,.docx,.doc,.csv" style="display:none" onchange="handleEditFiles(this.files)">
+      <div id="editNewFileList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
     </div>
 
     <!-- AUTOMATISATIONS -->
@@ -693,10 +742,13 @@ function openEditModal(id) {
     </div>
 
     <!-- FOOTER -->
-    <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;padding-top:8px;border-top:1px solid var(--border);margin-top:8px;">
-      <div class="saving-inline" id="savingInline"><div class="spinner-xs"></div> Enregistrement...</div>
-      <button class="btn btn-ghost" onclick="closeEditModalDirect()">Annuler</button>
-      <button class="btn btn-primary" onclick="saveEdit()">💾 Enregistrer</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:8px;border-top:1px solid var(--border);margin-top:8px;">
+      <button class="btn btn-danger" onclick="deleteAudit('${id}')">🗑 Supprimer</button>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div class="saving-inline" id="savingInline"><div class="spinner-xs"></div> Enregistrement...</div>
+        <button class="btn btn-ghost" onclick="closeEditModalDirect()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveEdit()">💾 Enregistrer</button>
+      </div>
     </div>`;
 
   document.getElementById('editModalOverlay').classList.add('open');
@@ -753,7 +805,75 @@ function removeEditAction(i) {
   if (el) el.remove();
 }
 
-function toggleTag(el, containerId) {
+async function deleteAudit(id) {
+  if (!confirm('Supprimer définitivement cette demande ? Cette action est irréversible.')) return;
+  try {
+    await window._deleteAudit(id);
+    allAudits = allAudits.filter(a => a.id !== id);
+    updateStats();
+    applyFilters();
+    closeEditModalDirect();
+  } catch(e) {
+    alert('Erreur suppression : ' + e.message);
+  }
+}
+
+function removeExistingFile(i) {
+  if (window._editFichiersExisting[i]) {
+    window._editFichiersExisting[i]._keep = false;
+    const el = document.getElementById('ef_' + i);
+    if (el) el.remove();
+  }
+}
+
+function handleEditDrop(e) {
+  e.preventDefault();
+  document.getElementById('editDropZone').style.borderColor = 'var(--border)';
+  document.getElementById('editDropZone').style.background = 'var(--surface2)';
+  handleEditFiles(e.dataTransfer.files);
+}
+
+function handleEditFiles(files) {
+  const maxSize = 2 * 1024 * 1024;
+  const totalExisting = (window._editFichiersExisting||[]).filter(f=>f._keep).length;
+  const totalNew = (window._editFichiersNew||[]).length;
+  Array.from(files).forEach(file => {
+    if (totalExisting + totalNew + (window._editFichiersNew||[]).length >= 5) { alert('Maximum 5 fichiers au total.'); return; }
+    if (file.size > maxSize) { alert('"' + file.name + '" dépasse 2 Mo.'); return; }
+    if ((window._editFichiersNew||[]).find(f => f.name === file.name)) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      if (!window._editFichiersNew) window._editFichiersNew = [];
+      window._editFichiersNew.push({ name: file.name, type: file.type, size: file.size, base64: ev.target.result.split(',')[1] });
+      renderEditNewFiles();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderEditNewFiles() {
+  const el = document.getElementById('editNewFileList');
+  if (!el) return;
+  el.innerHTML = (window._editFichiersNew||[]).map((f, i) => {
+    const icon = (f.type||'').includes('image') ? '🖼️' : (f.type||'').includes('pdf') ? '📄' : (f.name||'').includes('.xls') ? '📊' : '📝';
+    const kb = (f.size/1024).toFixed(0);
+    return `<div style="display:flex;align-items:center;gap:10px;background:rgba(0,102,255,0.04);border:1px solid rgba(0,102,255,0.2);border-radius:8px;padding:9px 13px;">
+      <span style="font-size:18px;">${icon}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name}</div>
+        <div style="font-size:11px;color:var(--accent);">🆕 Nouveau · ${kb} Ko</div>
+      </div>
+      <button onclick="removeNewEditFile(${i})" style="background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:12px;color:var(--danger);cursor:pointer;">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function removeNewEditFile(i) {
+  if (window._editFichiersNew) window._editFichiersNew.splice(i, 1);
+  renderEditNewFiles();
+}
+
+
   el.classList.toggle('selected');
 }
 
@@ -807,6 +927,11 @@ async function saveEdit() {
     statut:                       document.getElementById('e_statut').value,
     complexiteEstimee:            document.getElementById('e_complexite').value,
     commentaires:                 document.getElementById('e_commentaires').value.trim(),
+    fichiers:                     JSON.stringify([
+      ...(window._editFichiersExisting||[]).filter(f=>f._keep).map(f=>({name:f.name,type:f.type,size:f.size,base64:f.base64})),
+      ...(window._editFichiersNew||[])
+    ]),
+    nbFichiers:                   (window._editFichiersExisting||[]).filter(f=>f._keep).length + (window._editFichiersNew||[]).length,
   };
 
   try {
@@ -836,6 +961,8 @@ function closeEditModalDirect() {
   document.getElementById('editModalOverlay').classList.remove('open');
   document.body.style.overflow = '';
   editActionCount = 0;
+  window._editFichiersExisting = [];
+  window._editFichiersNew = [];
 }
 
 function downloadFichier(i) {
