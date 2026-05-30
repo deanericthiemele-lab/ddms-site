@@ -463,21 +463,25 @@ function openModal(id) {
     else if (Array.isArray(a.fichiers)) fichiersData = a.fichiers;
   } catch(e) { fichiersData = []; }
 
+  // Stocker dans map globale pour accès depuis bouton
+  window._fichiersMap = {};
+  fichiersData.forEach((f, i) => { window._fichiersMap[i] = f; });
+
   let fichiersHTML = '<span style="color:var(--text-muted);font-size:13px;">Aucun fichier joint</span>';
   if (fichiersData.length > 0) {
-    fichiersHTML = fichiersData.map(f => {
+    fichiersHTML = fichiersData.map((f, i) => {
       const icon = (f.type||'').includes('image') ? '🖼️' : (f.type||'').includes('pdf') ? '📄' : (f.name||'').includes('.xls') ? '📊' : '📝';
       const kb = f.size ? (f.size / 1024).toFixed(0) + ' Ko' : '';
-      const downloadLink = f.base64
-        ? `<a href="data:${f.type};base64,${f.base64}" download="${f.name}" style="color:var(--accent);font-size:12px;text-decoration:none;font-weight:500;">⬇ Télécharger</a>`
-        : '';
+      const dlBtn = f.base64
+        ? `<button onclick="downloadFichier(${i})" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;flex-shrink:0;" onmouseover="this.style.background='var(--accent2)'" onmouseout="this.style.background='var(--accent)'">⬇ Télécharger</button>`
+        : `<span style="font-size:11px;color:var(--text-muted);font-style:italic;flex-shrink:0;">Pas de données</span>`;
       return `<div style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:6px;">
-        <span style="font-size:18px;">${icon}</span>
+        <span style="font-size:20px;flex-shrink:0;">${icon}</span>
         <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name}</div>
+          <div style="font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name || 'Fichier'}</div>
           <div style="font-size:11px;color:var(--text-muted);">${kb}</div>
         </div>
-        ${downloadLink}
+        ${dlBtn}
       </div>`;
     }).join('');
   }
@@ -832,6 +836,27 @@ function closeEditModalDirect() {
   document.getElementById('editModalOverlay').classList.remove('open');
   document.body.style.overflow = '';
   editActionCount = 0;
+}
+
+function downloadFichier(i) {
+  const f = window._fichiersMap && window._fichiersMap[i];
+  if (!f || !f.base64) { alert('Données du fichier non disponibles.'); return; }
+  try {
+    const byteChars = atob(f.base64);
+    const byteArr = new Uint8Array(byteChars.length);
+    for (let j = 0; j < byteChars.length; j++) byteArr[j] = byteChars.charCodeAt(j);
+    const blob = new Blob([byteArr], { type: f.type || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = f.name || 'fichier';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch(e) {
+    alert('Erreur téléchargement : ' + e.message);
+  }
 }
 
 // Auto-load on start
