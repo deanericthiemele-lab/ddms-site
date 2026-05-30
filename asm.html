@@ -727,107 +727,137 @@ function renderBilan() {
   const c = getClient(); if (!c) return;
   const el = document.getElementById('panel-bilan');
 
-  // Collecter tous les événements avec date
-  const events = [];
-
-  (c.incidents||[]).forEach(i => {
-    if (i.date) events.push({
-      date: i.date,
-      type: 'incident',
-      crit: i.criticite||'faible',
-      titre: i.nature||i.titre||'Incident',
-      detail: [i.site?'📍 '+i.site:'', i.refLiaison?'Réf: '+i.refLiaison:'', i.statut||'', i.desc||''].filter(Boolean).join(' · '),
-      resolution: i.resolution||''
-    });
-  });
-
-  (c.souffrances||[]).forEach(s => {
-    if (s.date) events.push({
-      date: s.date,
-      type: 'souffrance',
-      crit: s.statut==='critique'?'haute':s.statut==='tendu'?'moyenne':'faible',
-      titre: '⚠️ Site en souffrance — ' + (s.site||''),
-      detail: [s.ref?'Réf: '+s.ref:'', s.loopack?'Loopack: '+s.loopack:'', s.problemes||''].filter(Boolean).join(' · '),
-      resolution: s.comment||''
-    });
-  });
-
-  (c.notes||[]).forEach(n => {
-    if (n.date) events.push({
-      date: n.date,
-      type: 'note',
-      crit: n.niveau||'faible',
-      titre: '🔒 ' + (n.titre||'Note sensible'),
-      detail: [n.categorie||'', n.contenu||''].filter(Boolean).join(' · '),
-      resolution: ''
-    });
-  });
-
-  (c.opportunites||[]).forEach(o => {
-    if (o.date) events.push({
-      date: o.date,
-      type: 'opportunite',
-      crit: 'faible',
-      titre: '💡 ' + (o.titre||'Opportunité'),
-      detail: [o.type||'', o.montant||'', o.statut||'', o.description||''].filter(Boolean).join(' · '),
-      resolution: ''
-    });
-  });
-
-  (c.documents||[]).forEach(d => {
-    if (d.date) events.push({
-      date: d.date,
-      type: 'document',
-      crit: 'faible',
-      titre: '📄 ' + (d.titre||'Document'),
-      detail: [d.type||'', d.comment||''].filter(Boolean).join(' · '),
-      resolution: ''
-    });
-  });
-
-  // Trier du plus récent au plus ancien
-  events.sort((a,b) => b.date.localeCompare(a.date));
-
-  if (!events.length) {
-    el.innerHTML = '<div class="bilan-empty-state">Aucun événement daté enregistré pour ce client.</div>';
-    return;
-  }
-
+  const fmt = d => { if (!d) return '—'; try { return new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}); } catch(e){ return d; } };
   const critColor = { haute:'var(--red)', moyenne:'var(--orange)', faible:'var(--green)' };
-  const typeLabel = { incident:'Incident', souffrance:'Souffrance', note:'Note', opportunite:'Opportunité', document:'Document' };
+  const niveauColor = { critique:'var(--red)', tendu:'var(--orange)', sain:'var(--green)', surveillance:'var(--accent)' };
 
-  // Grouper par mois/année
-  const groupes = {};
-  events.forEach(e => {
-    const key = e.date.substring(0,7); // YYYY-MM
-    if (!groupes[key]) groupes[key] = [];
-    groupes[key].push(e);
-  });
-
-  const html = Object.keys(groupes).sort((a,b)=>b.localeCompare(a)).map(key => {
-    const [yr, mo] = key.split('-');
-    const moisNoms = ['','Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
-    const label = moisNoms[parseInt(mo)] + ' ' + yr;
-    const lignes = groupes[key].map(e => {
-      const col = critColor[e.crit]||'var(--green)';
-      const jour = e.date.split('-')[2];
+  // ── SECTION générique chronologique ──
+  function sectionChronо(items, mapper) {
+    if (!items.length) return '<div class="bl-empty">Aucun élément enregistré.</div>';
+    const sorted = [...items].filter(i => mapper(i)).sort((a,b) => {
+      const da = mapper(a).date||''; const db = mapper(b).date||'';
+      return db.localeCompare(da);
+    });
+    if (!sorted.length) return '<div class="bl-empty">Aucun élément enregistré.</div>';
+    return sorted.map(i => {
+      const m = mapper(i);
       return `<div class="bl-row">
-        <div class="bl-date">${jour}</div>
-        <div class="bl-dot" style="background:${col}"></div>
+        <div class="bl-date-full">${fmt(m.date)}</div>
+        <div class="bl-dot" style="background:${m.color||'var(--green)'}"></div>
         <div class="bl-content">
-          <div class="bl-titre">${e.titre}</div>
-          ${e.detail ? `<div class="bl-detail">${e.detail}</div>` : ''}
-          ${e.resolution ? `<div class="bl-resolution">✅ ${e.resolution}</div>` : ''}
+          <div class="bl-titre">${m.titre}</div>
+          ${m.detail ? `<div class="bl-detail">${m.detail}</div>` : ''}
+          ${m.extra  ? `<div class="bl-extra">${m.extra}</div>` : ''}
+          ${m.points ? `<div class="bl-points">${m.points.split('\n').filter(p=>p.trim()).map(p=>`<div class="bl-point">· ${p.replace(/^[-•·]\s*/,'')}</div>`).join('')}</div>` : ''}
         </div>
       </div>`;
     }).join('');
-    return `<div class="bl-group">
-      <div class="bl-month">${label}</div>
-      <div class="bl-lines">${lignes}</div>
-    </div>`;
-  }).join('');
+  }
 
-  el.innerHTML = `<div class="bl-wrap">${html}</div>`;
+  // ── INCIDENTS ──
+  const incHTML = sectionChronо(c.incidents||[], i => ({
+    date: i.date,
+    color: critColor[i.criticite]||'var(--green)',
+    titre: i.nature||i.titre||'Incident',
+    detail: [i.site?'📍 '+i.site:'', i.refLiaison?'Réf: '+i.refLiaison:'', i.service||'', i.statut||''].filter(Boolean).join(' · '),
+    extra: i.desc ? i.desc : '',
+    points: i.resolution ? '✅ '+i.resolution : ''
+  }));
+
+  // ── DOCUMENTS ──
+  const docHTML = sectionChronо(c.documents||[], d => ({
+    date: d.date,
+    color: 'var(--accent)',
+    titre: (d.type||'Document') + ' — ' + (d.titre||''),
+    detail: d.comment||'',
+    points: d.points_retenir||''
+  }));
+
+  // ── OPPORTUNITÉS ──
+  const oppHTML = sectionChronо(c.opportunites||[], o => ({
+    date: o.date||'0000-00-00',
+    color: o.statut==='Gagné'?'var(--green)':o.statut==='Perdu'?'var(--red)':'var(--accent2)',
+    titre: (o.titre||'Opportunité') + (o.type?' · '+o.type:''),
+    detail: [o.statut||'', o.montant||''].filter(Boolean).join(' · '),
+    points: o.description||''
+  }));
+
+  // ── SUJETS SENSIBLES ──
+  const noteHTML = sectionChronо(c.notes||[], n => ({
+    date: n.date,
+    color: n.niveau==='haute'?'var(--red)':n.niveau==='moyenne'?'var(--orange)':'var(--green)',
+    titre: (n.titre||'Note sensible') + (n.categorie?' · '+n.categorie:''),
+    detail: '',
+    points: n.contenu||''
+  }));
+
+  // ── SITES EN SOUFFRANCE ──
+  const sfHTML = (() => {
+    const list = c.souffrances||[];
+    if (!list.length) return '<div class="bl-empty">Aucun site enregistré.</div>';
+    return list.map(s => {
+      const col = niveauColor[s.statut]||'var(--orange)';
+      return `<div class="bl-row">
+        <div class="bl-date-full">${fmt(s.date)}</div>
+        <div class="bl-dot" style="background:${col}"></div>
+        <div class="bl-content">
+          <div class="bl-titre">${s.site||''} ${s.ref?'<span class="bl-ref">'+s.ref+'</span>':''}</div>
+          ${s.loopack?`<div class="bl-detail">Loopack: ${s.loopack}</div>`:''}
+          ${s.problemes?`<div class="bl-detail">${s.problemes}</div>`:''}
+          ${s.comment?`<div class="bl-extra">→ ${s.comment}</div>`:''}
+        </div>
+        <span class="bl-badge" style="background:${col}20;color:${col};border:1px solid ${col}40">${s.statut||''}</span>
+      </div>`;
+    }).join('');
+  })();
+
+  // ── RENDER ──
+  el.innerHTML = `
+  <div class="bl-wrap">
+    <div class="bl-sections">
+
+      <div class="bl-section">
+        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
+          <span>🚨 Incidents <span class="bl-count">${(c.incidents||[]).length}</span></span>
+          <span class="bl-chevron">▾</span>
+        </div>
+        <div class="bl-section-body">${incHTML}</div>
+      </div>
+
+      <div class="bl-section">
+        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
+          <span>📁 Documents <span class="bl-count">${(c.documents||[]).length}</span></span>
+          <span class="bl-chevron">▾</span>
+        </div>
+        <div class="bl-section-body">${docHTML}</div>
+      </div>
+
+      <div class="bl-section">
+        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
+          <span>💡 Opportunités <span class="bl-count">${(c.opportunites||[]).length}</span></span>
+          <span class="bl-chevron">▾</span>
+        </div>
+        <div class="bl-section-body">${oppHTML}</div>
+      </div>
+
+      <div class="bl-section">
+        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
+          <span>🔒 Sujets sensibles <span class="bl-count">${(c.notes||[]).length}</span></span>
+          <span class="bl-chevron">▾</span>
+        </div>
+        <div class="bl-section-body">${noteHTML}</div>
+      </div>
+
+      <div class="bl-section">
+        <div class="bl-section-head" onclick="this.parentElement.classList.toggle('bl-collapsed')">
+          <span>⚠️ Sites en souffrance <span class="bl-count">${(c.souffrances||[]).length}</span></span>
+          <span class="bl-chevron">▾</span>
+        </div>
+        <div class="bl-section-body">${sfHTML}</div>
+      </div>
+
+    </div>
+  </div>`;
 }
 
 </script>
@@ -907,10 +937,30 @@ function renderBilan() {
   .bl-row:last-child { border-bottom:none; }
   .bl-date { font-family:'DM Mono',monospace; font-size:12px; color:var(--text3); width:22px; flex-shrink:0; padding-top:2px; }
   .bl-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; margin-top:5px; }
+  /* BILAN SEGMENTÉ */
+  .bl-wrap { display:flex; flex-direction:column; gap:10px; }
+  .bl-sections { display:flex; flex-direction:column; gap:8px; }
+  .bl-section { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .bl-section-head { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; cursor:pointer; user-select:none; font-family:'Syne',sans-serif; font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--text2); transition:background .15s; }
+  .bl-section-head:hover { background:var(--surface2); }
+  .bl-count { display:inline-block; background:var(--surface2); border:1px solid var(--border); border-radius:20px; padding:1px 8px; font-size:10px; font-family:'DM Mono',monospace; font-weight:400; color:var(--text3); margin-left:6px; }
+  .bl-chevron { font-size:14px; color:var(--text3); transition:transform .2s; }
+  .bl-collapsed .bl-chevron { transform:rotate(-90deg); }
+  .bl-collapsed .bl-section-body { display:none; }
+  .bl-section-body { padding:0 16px 14px; border-top:1px solid var(--border); }
+  .bl-row { display:flex; align-items:flex-start; gap:10px; padding:10px 0; border-bottom:1px solid var(--surface2); }
+  .bl-row:last-child { border-bottom:none; }
+  .bl-date-full { font-family:'DM Mono',monospace; font-size:11px; color:var(--text3); white-space:nowrap; padding-top:3px; min-width:80px; }
+  .bl-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; margin-top:5px; }
   .bl-content { flex:1; min-width:0; }
   .bl-titre { font-size:13px; font-weight:500; color:var(--text); line-height:1.5; }
-  .bl-detail { font-size:12px; color:var(--text2); margin-top:3px; line-height:1.5; white-space:pre-wrap; }
-  .bl-resolution { font-size:11px; color:var(--green); margin-top:3px; font-family:'DM Mono',monospace; }
+  .bl-ref { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); background:var(--surface2); padding:1px 6px; border-radius:4px; margin-left:6px; }
+  .bl-detail { font-size:12px; color:var(--text2); margin-top:3px; line-height:1.5; }
+  .bl-extra { font-size:12px; color:var(--text2); margin-top:4px; line-height:1.6; font-style:italic; }
+  .bl-points { margin-top:6px; display:flex; flex-direction:column; gap:3px; }
+  .bl-point { font-size:12px; color:var(--text2); line-height:1.5; padding-left:4px; }
+  .bl-badge { font-family:'DM Mono',monospace; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; white-space:nowrap; align-self:flex-start; margin-top:3px; flex-shrink:0; }
+  .bl-empty { font-family:'DM Mono',monospace; font-size:12px; color:var(--text3); padding:14px 0; }
   .bilan-empty-state { text-align:center; padding:60px 20px; font-family:'DM Mono',monospace; font-size:13px; color:var(--text3); }
 
   #content{flex:1;overflow-y:auto;padding:20px 22px;}
