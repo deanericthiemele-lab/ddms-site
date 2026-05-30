@@ -110,21 +110,81 @@ function renderSidebar() {
   const filtered = clients.filter(c => c.nom.toLowerCase().includes(q));
   const list = document.getElementById('client-list');
   list.innerHTML = '';
-  filtered.forEach(c => {
-    const col = clientColor(c);
-    const initials = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
-    const div = document.createElement('div');
-    div.className = 'client-item'+(c.id===currentClientId?' active':'');
-    div.onclick = () => selectClient(c.id);
-    div.innerHTML = `
-      <div class="client-avatar" style="background:${col}18;color:${col}">${initials}</div>
-      <div class="client-info">
-        <div class="client-name">${c.nom}</div>
-        <div class="client-meta">${c.segment||''} ${c.pays?'· '+c.pays:''}</div>
-      </div>
-      <div class="status-dot status-${c.statut}"></div>`;
-    list.appendChild(div);
+
+  // Grouper par ASM
+  const grouped = [];
+  asmTeams.forEach(t => {
+    const asmClients = (t.clientIds||[]).map(id=>filtered.find(c=>c.id===id)).filter(Boolean);
+    if (asmClients.length || !q) grouped.push({ asm:t, clients:asmClients });
   });
+  const nonAffectes = filtered.filter(c => !asmTeams.some(t=>(t.clientIds||[]).includes(c.id)));
+
+  if (grouped.length === 0 && nonAffectes.length === 0) {
+    // Pas d'ASM — affichage plat classique
+    filtered.forEach(c => {
+      const col = clientColor(c);
+      const initials = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+      const div = document.createElement('div');
+      div.className = 'client-item'+(c.id===currentClientId?' active':'');
+      div.onclick = () => selectClient(c.id);
+      div.innerHTML = `
+        <div class="client-avatar" style="background:${col}18;color:${col}">${initials}</div>
+        <div class="client-info"><div class="client-name">${c.nom}</div><div class="client-meta">${c.segment||''} ${c.pays?'· '+c.pays:''}</div></div>
+        <div class="status-dot status-${c.statut}"></div>`;
+      list.appendChild(div);
+    });
+  } else {
+    // Affichage groupé par ASM
+    grouped.forEach(({asm, clients:asmClients}) => {
+      const isOpen = asmClients.some(c=>c.id===currentClientId) || !q;
+      // En-tête ASM
+      const asmDiv = document.createElement('div');
+      asmDiv.className = 'sidebar-asm-group';
+      asmDiv.innerHTML = `
+        <div class="sidebar-asm-header" onclick="this.parentElement.classList.toggle('sidebar-asm-open')">
+          <span class="sidebar-asm-icon">👤</span>
+          <span class="sidebar-asm-nom">${asm.nom}</span>
+          <span class="sidebar-asm-count">${asmClients.length}</span>
+          <span class="sidebar-asm-chevron">▾</span>
+        </div>
+        <div class="sidebar-asm-clients">${asmClients.map(c => {
+          const col = clientColor(c);
+          const ini = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+          const active = c.id===currentClientId?' active':'';
+          return `<div class="client-item sidebar-asm-client${active}" onclick="selectClient('${c.id}')">
+            <div class="client-avatar" style="background:${col}18;color:${col}">${ini}</div>
+            <div class="client-info"><div class="client-name">${c.nom}</div><div class="client-meta">${c.segment||''} ${c.pays?'· '+c.pays:''}</div></div>
+            <div class="status-dot status-${c.statut}"></div>
+          </div>`;
+        }).join('')}</div>`;
+      if (isOpen) asmDiv.classList.add('sidebar-asm-open');
+      list.appendChild(asmDiv);
+    });
+
+    // Clients sans ASM
+    if (nonAffectes.length) {
+      const naDiv = document.createElement('div');
+      naDiv.className = 'sidebar-asm-group sidebar-asm-open';
+      naDiv.innerHTML = `
+        <div class="sidebar-asm-header" onclick="this.parentElement.classList.toggle('sidebar-asm-open')">
+          <span class="sidebar-asm-icon">—</span>
+          <span class="sidebar-asm-nom" style="color:var(--text3)">Non affectés</span>
+          <span class="sidebar-asm-count">${nonAffectes.length}</span>
+          <span class="sidebar-asm-chevron">▾</span>
+        </div>
+        <div class="sidebar-asm-clients">${nonAffectes.map(c => {
+          const col = clientColor(c);
+          const ini = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+          return `<div class="client-item sidebar-asm-client${c.id===currentClientId?' active':''}" onclick="selectClient('${c.id}')">
+            <div class="client-avatar" style="background:${col}18;color:${col}">${ini}</div>
+            <div class="client-info"><div class="client-name">${c.nom}</div><div class="client-meta">${c.segment||''} ${c.pays?'· '+c.pays:''}</div></div>
+            <div class="status-dot status-${c.statut}"></div>
+          </div>`;
+        }).join('')}</div>`;
+      list.appendChild(naDiv);
+    }
+  }
+
   document.getElementById('sidebar-count').textContent = `${filtered.length} affiché${filtered.length>1?'s':''} / ${clients.length} total`;
   const totalEl = document.getElementById('sidebar-total-num');
   if (totalEl) totalEl.textContent = clients.length;
@@ -700,167 +760,66 @@ function getAsmOfClient(clientId) {
   return asmTeams.find(t => (t.clientIds||[]).includes(clientId));
 }
 
-// ── RENDER PDA → vue complète par ASM ──
+// ── RENDER PDA simple ──
 let currentAsmId = null;
 
 function renderPda() {
   const tree = document.getElementById('pda-tree'); if (!tree) return;
+  const c = getClient(); if (!c) return;
 
-  const fmt = d => { if(!d) return '—'; try { return new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}); } catch(e){return d;} };
-  const critCls  = { haute:'tag-red', moyenne:'tag-orange', faible:'tag-green' };
-  const statIncCls = { 'Résolu':'tag-green','En cours':'tag-orange','Ouvert':'tag-red' };
-  const oppCls   = { 'Gagné':'tag-green','Perdu':'tag-red','En cours':'tag-orange','En attente':'tag-purple' };
-  const sfMap    = { critique:{l:'🔴 Critique',c:'var(--red)'}, tendu:{l:'🟡 Tendu',c:'var(--orange)'}, surveillance:{l:'🔵 Surveillance',c:'var(--accent)'}, resolu:{l:'🟢 Résolu',c:'var(--green)'} };
-  const pdaCls   = { 'En cours':'pda-encours','Réalisé':'pda-realise','En retard':'pda-retard','Annulé':'pda-annule' };
-  const pdaLCls  = { 'COMEX':'pda-comex','Hors COMEX':'pda-noncomex' };
+  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const statutCls = { 'En cours':'pda-encours','Réalisé':'pda-realise','En retard':'pda-retard','Annulé':'pda-annule' };
+  const listeCls  = { 'COMEX':'pda-comex','Hors COMEX':'pda-noncomex' };
 
-  if (!asmTeams.length) {
-    tree.innerHTML = `<div style="text-align:center;padding:48px 20px;background:var(--surface);border:2px dashed var(--border);border-radius:12px">
-      <div style="font-size:40px;margin-bottom:12px">👤</div>
-      <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;margin-bottom:8px">Aucun ASM configuré</div>
-      <div style="font-size:13px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:20px">Créez des ASM et rattachez-leur des clients</div>
-      <button class="btn-primary" onclick="openModalAsmConfig()">⚙️ Configurer les ASM</button>
-    </div>`;
-    return;
-  }
+  const asm = getAsmOfClient(c.id);
+  const pda = (c.pda||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 
-  if (!currentAsmId || !asmTeams.find(t=>t.id===currentAsmId)) currentAsmId = asmTeams[0].id;
-  const asm = asmTeams.find(t=>t.id===currentAsmId);
-  const asmClients = (asm.clientIds||[]).map(id=>clients.find(c=>c.id===id)).filter(Boolean);
-
-  // Onglet sélecteur ASM
-  const selector = `<div class="pda-asm-selector">${asmTeams.map(t=>`
-    <button class="pda-asm-tab${t.id===currentAsmId?' pda-asm-tab-active':''}" onclick="currentAsmId='${t.id}';renderPda()">
-      <span>👤</span><span>${t.nom}</span>
-      <span class="pda-asm-tab-count">${(t.clientIds||[]).length}</span>
-    </button>`).join('')}</div>`;
-
-  // Fonction helper : tableau générique
-  const tbl = (heads, rows) => rows.length
-    ? `<div class="tbl-wrap" style="border-radius:0;border:none;border-top:1px solid var(--border)"><table class="tbl">
-        <thead><tr>${heads.map(h=>`<th class="tbl-th">${h}</th>`).join('')}</tr></thead>
-        <tbody>${rows.join('')}</tbody>
-       </table></div>`
-    : `<div style="padding:12px 16px;font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)">Aucun élément.</div>`;
-
-  // Bloc accordéon par section
-  const accord = (icon, titre, count, content, uid) => `
-    <div class="asm-accord" id="acc-${uid}">
-      <div class="asm-accord-head" onclick="document.getElementById('acc-${uid}').classList.toggle('asm-accord-open')">
-        <span>${icon} ${titre}</span>
-        <span style="display:flex;align-items:center;gap:8px">
-          <span class="bl-count">${count}</span>
-          <span class="bl-chevron">▾</span>
-        </span>
-      </div>
-      <div class="asm-accord-body">${content}</div>
-    </div>`;
-
-  // Un bloc client complet
-  const clientBlock = c => {
-    const col = clientColor(c);
-    const ini = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
-    const statBadge = {sain:'🟢 Sain',tendu:'🟡 Tendu',critique:'🔴 Critique'}[c.statut]||'';
-
-    // Incidents
-    const incs = (c.incidents||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    const incRows = incs.map((inc,i)=>`<tr class="tbl-tr" style="border-left:3px solid ${inc.criticite==='haute'?'var(--red)':inc.criticite==='moyenne'?'var(--orange)':'var(--green)'}">
-      <td class="tbl-td mono">${fmt(inc.date)}</td>
-      <td class="tbl-td bold">${inc.nature||inc.titre||'—'}</td>
-      <td class="tbl-td">${inc.site||'—'}</td>
-      <td class="tbl-td mono">${inc.refLiaison||'—'}</td>
-      <td class="tbl-td"><span class="tag ${critCls[inc.criticite]||'tag-green'}">${inc.criticite||'—'}</span></td>
-      <td class="tbl-td">${inc.service||'—'}</td>
-      <td class="tbl-td"><span class="tag ${statIncCls[inc.statut]||'tag-blue'}">${inc.statut||'—'}</span></td>
-      <td class="tbl-td" style="font-size:12px;max-width:140px">${inc.desc||'—'}</td>
-      <td class="tbl-td" style="font-size:12px;color:var(--green);max-width:120px">${inc.resolution||'—'}</td>
-    </tr>`);
-
-    // Documents
-    const docs = (c.documents||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    const docRows = docs.map(d=>`<tr class="tbl-tr">
-      <td class="tbl-td mono">${fmt(d.date)}</td>
-      <td class="tbl-td bold">${d.titre||'—'}</td>
-      <td class="tbl-td"><span class="tag tag-blue">${d.type||'—'}</span></td>
-      <td class="tbl-td" style="font-size:12px;max-width:150px">${d.comment||'—'}</td>
-      <td class="tbl-td" style="font-size:12px;color:var(--accent2);max-width:150px">${d.points_retenir||'—'}</td>
-    </tr>`);
-
-    // Opportunités
-    const opps = (c.opportunites||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    const oppRows = opps.map(o=>{ const col2=oppColor(o.type||'LAN'); return `<tr class="tbl-tr">
-      <td class="tbl-td mono">${fmt(o.date)}</td>
-      <td class="tbl-td bold">${o.titre||'—'}</td>
-      <td class="tbl-td"><span class="tag" style="background:${col2}18;color:${col2}">${o.type||'—'}</span></td>
-      <td class="tbl-td"><span class="tag ${oppCls[o.statut]||'tag-blue'}">${o.statut||'—'}</span></td>
-      <td class="tbl-td mono">${o.montant||'—'}</td>
-      <td class="tbl-td" style="font-size:12px;max-width:160px">${o.description||'—'}</td>
-    </tr>`; });
-
-    // Sites en souffrance
-    const sfs = (c.souffrances||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    const sfRows = sfs.map(s=>{ const st=sfMap[s.statut]||sfMap.critique; return `<tr class="tbl-tr" style="border-left:3px solid ${st.c}">
-      <td class="tbl-td mono">${fmt(s.date)}</td>
-      <td class="tbl-td bold">${s.site||'—'}</td>
-      <td class="tbl-td mono">${s.ref||'—'}</td>
-      <td class="tbl-td mono">${s.loopack||'—'}</td>
-      <td class="tbl-td" style="font-size:11px;font-weight:600;color:${st.c}">${st.l}</td>
-      <td class="tbl-td" style="font-size:12px;max-width:160px">${s.problemes||'—'}</td>
-      <td class="tbl-td" style="font-size:12px;max-width:160px">${s.comment||'—'}</td>
-    </tr>`; });
-
-    // PDA
-    const pdas = (c.pda||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    const pdaRows = pdas.map((p,ri)=>{ const i=(c.pda||[]).indexOf(pdas[ri]); return `<tr class="tbl-tr">
-      <td class="tbl-td mono">${fmt(p.date)}</td>
-      <td class="tbl-td"><span class="pda-liste ${pdaLCls[p.liste]||'pda-noncomex'}">${p.liste||'—'}</span></td>
-      <td class="tbl-td mono" style="font-size:11px">${p.mois_comex||p.contexte||'—'}</td>
+  const rows = pda.length ? pda.map((p,ri) => {
+    const i = (c.pda||[]).indexOf(pda[ri]);
+    return `<tr class="tbl-tr">
+      <td class="tbl-td mono">${fmtD(p.date)}</td>
+      <td class="tbl-td"><span class="pda-liste ${listeCls[p.liste]||'pda-noncomex'}">${p.liste||'—'}</span></td>
+      <td class="tbl-td mono" style="font-size:11px">${p.mois_comex||'—'}</td>
+      <td class="tbl-td" style="font-size:12px">${p.contexte||'—'}</td>
       <td class="tbl-td bold">${p.tache||'—'}</td>
-      <td class="tbl-td mono">${fmt(p.delai)}</td>
+      <td class="tbl-td mono">${fmtD(p.delai)}</td>
       <td class="tbl-td">${p.porteur||'—'}</td>
-      <td class="tbl-td"><span class="pda-statut ${pdaCls[p.statut]||'pda-encours'}">${p.statut||'—'}</span></td>
-      <td class="tbl-td" style="font-size:12px;max-width:140px">${p.commentaire||'—'}</td>
+      <td class="tbl-td"><span class="pda-statut ${statutCls[p.statut]||'pda-encours'}">${p.statut||'—'}</span></td>
+      <td class="tbl-td" style="max-width:160px;font-size:12px;color:var(--text2)">${p.commentaire||'—'}</td>
       <td class="tbl-td tbl-actions">
-        <button class="btn-sm-edit" onclick="selectClientAndEdit('${c.id}',${i})">✏️</button>
-        <button class="btn-sm" onclick="selectClientAndDelete('${c.id}',${i})">🗑</button>
+        <button class="btn-sm-edit" onclick="editPda(${i})">✏️</button>
+        <button class="btn-sm" onclick="deletePda(${i})">🗑</button>
       </td>
-    </tr>`; });
-
-    const uid = c.id;
-    return `<div class="asm-client-block">
-      <div class="asm-client-block-header" onclick="document.getElementById('cb-${uid}').classList.toggle('asm-cb-open')">
-        <span class="pda-client-avatar" style="background:${col}18;color:${col}">${ini}</span>
-        <span class="pda-client-nom">${c.nom}</span>
-        <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2)">${c.segment||''} ${c.pays?'· '+c.pays:''}</span>
-        <span class="tag" style="background:rgba(0,0,0,.04);color:var(--text3);margin-left:4px">${statBadge}</span>
-        <span class="bl-chevron" style="margin-left:auto">▾</span>
-      </div>
-      <div class="asm-cb-body" id="cb-${uid}">
-        ${accord('🚨','Incidents majeurs', incs.length, tbl(['Date','Nature','Site','Réf.','Criticité','Service','Statut','Description','Résolution'], incRows), uid+'inc')}
-        ${accord('📁','Documents', docs.length, tbl(['Date','Titre','Type','Commentaire','Points à retenir'], docRows), uid+'doc')}
-        ${accord('💡','Opportunités', opps.length, tbl(['Date','Titre','Type','Statut','Montant','Description'], oppRows), uid+'opp')}
-        ${accord('⚠️','Sites en souffrance', sfs.length, tbl(['Date','Site','Réf.','Loopack','Statut','Problèmes','Commentaire'], sfRows), uid+'sf')}
-        ${accord('📌','PDA', pdas.length, tbl(['Date','Type réunion','COMEX/Contexte','Tâche','Délai','Porteur','Statut','Commentaire',''], pdaRows), uid+'pda')}
-      </div>
-    </div>`;
-  };
-
-  const clientsHtml = asmClients.length
-    ? asmClients.map(c=>clientBlock(c)).join('')
-    : `<div style="text-align:center;padding:32px;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px">
-        Aucun client rattaché.<br><br>
-        <button class="btn-add" onclick="openModalAsmConfig()">⚙️ Affecter des clients</button>
-       </div>`;
+    </tr>`;
+  }).join('') : `<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px">Aucune action PDA</td></tr>`;
 
   tree.innerHTML = `<div class="pda-tree-wrap">
-    ${selector}
     <div class="pda-asm-node">
       <div class="pda-asm-header">
         <span class="pda-asm-icon">👤</span>
-        <span class="pda-asm-nom">${asm.nom}</span>
-        <span class="pda-asm-badge">${asmClients.length} client${asmClients.length>1?'s':''}</span>
+        <span class="pda-asm-nom">${asm ? asm.nom : 'Non affecté'}</span>
+        <span class="pda-asm-badge">${pda.length} action${pda.length>1?'s':''}</span>
+        <button class="btn-add" style="margin-left:auto" onclick="openAddPda()">+ Ajouter</button>
       </div>
-      ${clientsHtml}
+      <div class="pda-client-node">
+        <div class="pda-client-header">
+          <span class="pda-tree-line">└─</span>
+          <span class="pda-client-avatar" style="background:${clientColor(c)}18;color:${clientColor(c)}">${c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}</span>
+          <span class="pda-client-nom">${c.nom}</span>
+        </div>
+        <div class="tbl-wrap" style="border-radius:0;border-left:none;border-right:none;border-bottom:none">
+          <table class="tbl">
+            <thead><tr>
+              <th class="tbl-th">Date</th><th class="tbl-th">Type réunion</th>
+              <th class="tbl-th">Mois COMEX</th><th class="tbl-th">Contexte</th>
+              <th class="tbl-th">Tâche à réaliser</th><th class="tbl-th">Délai</th>
+              <th class="tbl-th">Porteur</th><th class="tbl-th">Statut</th>
+              <th class="tbl-th">Commentaire</th><th class="tbl-th" style="width:70px"></th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>`;
 }
@@ -1231,6 +1190,20 @@ function renderBilan() {
   .status-tendu{background:var(--orange);}
   .status-critique{background:var(--red);}
   .sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;}
+
+  /* SIDEBAR ASM GROUPES */
+  .sidebar-asm-group { margin-bottom:2px; }
+  .sidebar-asm-header { display:flex; align-items:center; gap:6px; padding:7px 10px; cursor:pointer; border-radius:8px; user-select:none; transition:background .15s; }
+  .sidebar-asm-header:hover { background:var(--surface2); }
+  .sidebar-asm-icon { font-size:12px; }
+  .sidebar-asm-nom { font-family:'Syne',sans-serif; font-weight:700; font-size:12px; flex:1; color:var(--accent); }
+  .sidebar-asm-count { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); background:var(--surface2); border-radius:20px; padding:1px 6px; }
+  .sidebar-asm-chevron { font-size:11px; color:var(--text3); transition:transform .2s; }
+  .sidebar-asm-clients { display:none; padding-left:10px; }
+  .sidebar-asm-open .sidebar-asm-clients { display:block; }
+  .sidebar-asm-open .sidebar-asm-chevron { transform:rotate(0deg); }
+  .sidebar-asm-group:not(.sidebar-asm-open) .sidebar-asm-chevron { transform:rotate(-90deg); }
+  .sidebar-asm-client { border-left:2px solid var(--border); margin-left:4px; border-radius:0 8px 8px 0; }
 
   /* MAIN */
   #main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);min-width:0;}
