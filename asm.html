@@ -222,16 +222,41 @@ window.switchTab = function(name, btn) {
 
 function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderSouffrances(); renderPda(); }
 
-window.openModal = id => document.getElementById(id).style.display='flex';
+window.openModal = function(id) {
+  document.getElementById(id).style.display='flex';
+  if (id === 'modal-add-client') {
+    const sel = document.getElementById('c-asm');
+    if (sel) {
+      sel.innerHTML = '<option value="">— Non affecté —</option>' +
+        asmTeams.map(t => `<option value="${t.id}">${t.nom}</option>`).join('') +
+        '<option value="__new__">➕ Nouvel ASM…</option>';
+      document.getElementById('new-asm-wrap').style.display = 'none';
+      const inp = document.getElementById('c-asm-new');
+      if (inp) inp.value = '';
+    }
+  }
+};
+
+window.toggleNewAsmInput = function() {
+  const sel = document.getElementById('c-asm');
+  const wrap = document.getElementById('new-asm-wrap');
+  if (sel.value === '__new__') {
+    wrap.style.display = 'block';
+    document.getElementById('c-asm-new').focus();
+  } else {
+    wrap.style.display = 'none';
+  }
+};
 window.closeModal = id => document.getElementById(id).style.display='none';
 window.closeModalOutside = (e,id) => { if(e.target.id===id) window.closeModal(id); };
 
 // ── ADD CLIENT ──
 window.addClient = async function() {
   const nom = document.getElementById('c-nom').value.trim(); if (!nom) return;
+  let asmId = document.getElementById('c-asm').value;
   const c = {
     id: Date.now().toString(), nom,
-    pays: document.getElementById('c-pays').value,
+    pays: '',
     segment: document.getElementById('c-segment').value,
     statut: document.getElementById('c-statut').value,
     incidents: [], documents: [], contrats: [], opportunites: []
@@ -240,10 +265,33 @@ window.addClient = async function() {
     toast('Enregistrement…');
     await fsSaveClient(c);
     clients.push(c); clients.sort((a,b)=>a.nom.localeCompare(b.nom));
+
+    // Créer un nouvel ASM si "__new__" sélectionné
+    if (asmId === '__new__') {
+      const newNom = (document.getElementById('c-asm-new').value || '').trim();
+      if (!newNom) { toast('⚠️ Saisissez le nom du nouvel ASM', 'error'); return; }
+      const newTeam = { id: 'asm_' + Date.now(), nom: newNom, clientIds: [c.id] };
+      await saveAsmTeam(newTeam);
+      asmTeams.push(newTeam);
+      asmTeams.sort((a,b) => a.nom.localeCompare(b.nom));
+      toast('ASM "' + newNom + '" créé ✓', 'success');
+    } else if (asmId) {
+      // Affecter à un ASM existant
+      const team = asmTeams.find(t => t.id === asmId);
+      if (team) {
+        if (!team.clientIds) team.clientIds = [];
+        if (!team.clientIds.includes(c.id)) team.clientIds.push(c.id);
+        await saveAsmTeam(team);
+      }
+    }
+
     window.closeModal('modal-add-client');
-    ['c-nom','c-pays'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('c-nom').value = '';
+    document.getElementById('c-asm').value = '';
+    document.getElementById('c-asm-new').value = '';
+    document.getElementById('new-asm-wrap').style.display = 'none';
     renderSidebar(); selectClient(c.id);
-    toast('Client créé ✓','success');
+    toast('Client créé ✓', 'success');
   } catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
@@ -1158,8 +1206,8 @@ function renderBilan() {
   .search-box input::placeholder{color:var(--text3);}
   .btn-add-client{width:100%;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-family:'Syne',sans-serif;font-size:12px;font-weight:700;padding:8px;cursor:pointer;letter-spacing:.05em;transition:opacity .2s;}
   .btn-add-client:hover{opacity:.85;}
-  .btn-asm-config{width:100%;background:rgba(37,99,235,.12);border:1px solid rgba(37,99,235,.35);border-radius:8px;color:#93c5fd;font-family:'Syne',sans-serif;font-size:11px;font-weight:600;padding:7px;cursor:pointer;letter-spacing:.04em;transition:all .2s;margin-top:6px;}
-  .btn-asm-config:hover{background:rgba(37,99,235,.22);border-color:rgba(37,99,235,.6);color:#bfdbfe;}
+  .btn-asm-config{width:100%;background:#dbeafe;border:1px solid #93c5fd;border-radius:8px;color:#1d4ed8;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;padding:7px;cursor:pointer;letter-spacing:.04em;transition:all .2s;margin-top:6px;}
+  .btn-asm-config:hover{background:#bfdbfe;border-color:#60a5fa;color:#1e40af;}
   .asm-client-pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-family:'DM Mono',monospace;background:rgba(37,99,235,.08);color:var(--accent);margin:2px;}
   .client-list{flex:1;overflow-y:auto;padding:8px;}
   .client-list::-webkit-scrollbar{width:4px;}
@@ -1504,7 +1552,14 @@ function renderBilan() {
     <div class="modal-title">Nouveau client <button class="modal-close" onclick="closeModal('modal-add-client')">✕</button></div>
     <div class="field"><label>Nom de l'opérateur *</label><input id="c-nom" placeholder="ex: Orange CI"></div>
     <div class="grid2">
-      <div class="field"><label>Pays / Région</label><input id="c-pays" placeholder="ex: Côte d'Ivoire"></div>
+      <div class="field"><label>ASM</label>
+        <select id="c-asm" onchange="toggleNewAsmInput()">
+          <option value="">— Non affecté —</option>
+        </select>
+        <div id="new-asm-wrap" style="display:none;margin-top:6px;display:none">
+          <input id="c-asm-new" placeholder="Nom du nouvel ASM…" style="width:100%;box-sizing:border-box">
+        </div>
+      </div>
       <div class="field"><label>Segment</label>
         <select id="c-segment"><option>Mobile</option><option>Fixe</option><option>MVNO</option><option>Mobile + Fixe</option><option>ISP</option><option>Autre</option></select>
       </div>
