@@ -700,87 +700,184 @@ function getAsmOfClient(clientId) {
   return asmTeams.find(t => (t.clientIds||[]).includes(clientId));
 }
 
-// ── RENDER PDA arborescence ──
+// ── RENDER PDA → vue complète par ASM ──
+let currentAsmId = null;
+
 function renderPda() {
   const tree = document.getElementById('pda-tree'); if (!tree) return;
-  const c = getClient(); if (!c) return;
 
-  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '—';
-  const statutCls = { 'En cours':'pda-encours','Réalisé':'pda-realise','En retard':'pda-retard','Annulé':'pda-annule' };
-  const listeCls  = { 'COMEX':'pda-comex','Hors COMEX':'pda-noncomex' };
+  const fmt = d => { if(!d) return '—'; try { return new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}); } catch(e){return d;} };
+  const critCls  = { haute:'tag-red', moyenne:'tag-orange', faible:'tag-green' };
+  const statIncCls = { 'Résolu':'tag-green','En cours':'tag-orange','Ouvert':'tag-red' };
+  const oppCls   = { 'Gagné':'tag-green','Perdu':'tag-red','En cours':'tag-orange','En attente':'tag-purple' };
+  const sfMap    = { critique:{l:'🔴 Critique',c:'var(--red)'}, tendu:{l:'🟡 Tendu',c:'var(--orange)'}, surveillance:{l:'🔵 Surveillance',c:'var(--accent)'}, resolu:{l:'🟢 Résolu',c:'var(--green)'} };
+  const pdaCls   = { 'En cours':'pda-encours','Réalisé':'pda-realise','En retard':'pda-retard','Annulé':'pda-annule' };
+  const pdaLCls  = { 'COMEX':'pda-comex','Hors COMEX':'pda-noncomex' };
 
-  const asm = getAsmOfClient(c.id);
-  const asmNom = asm ? asm.nom : 'Non affecté';
-  const asmColor = asm ? 'var(--accent)' : 'var(--text3)';
-
-  // Si aucun ASM configuré, afficher invite claire
   if (!asmTeams.length) {
     tree.innerHTML = `<div style="text-align:center;padding:48px 20px;background:var(--surface);border:2px dashed var(--border);border-radius:12px">
       <div style="font-size:40px;margin-bottom:12px">👤</div>
       <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:16px;margin-bottom:8px">Aucun ASM configuré</div>
-      <div style="font-size:13px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:20px">Créez des ASM et rattachez-leur des clients pour voir l'arborescence PDA</div>
+      <div style="font-size:13px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:20px">Créez des ASM et rattachez-leur des clients</div>
       <button class="btn-primary" onclick="openModalAsmConfig()">⚙️ Configurer les ASM</button>
     </div>`;
     return;
   }
 
-  const tableRows = pda.length ? pda.map((p,ri) => {
-    const i = (c.pda||[]).indexOf(pda[ri]);
-    const cls  = statutCls[p.statut]||'pda-encours';
-    const lcls = listeCls[p.liste]||'pda-noncomex';
-    return `<tr class="tbl-tr">
-      <td class="tbl-td mono">${fmtD(p.date)}</td>
-      <td class="tbl-td"><span class="pda-liste ${lcls}">${p.liste||'—'}</span></td>
-      <td class="tbl-td mono" style="font-size:11px">${p.mois_comex||'—'}</td>
-      <td class="tbl-td" style="font-size:12px">${p.contexte||'—'}</td>
-      <td class="tbl-td bold">${p.tache||'—'}</td>
-      <td class="tbl-td mono">${fmtD(p.delai)}</td>
-      <td class="tbl-td">${p.porteur||'—'}</td>
-      <td class="tbl-td"><span class="pda-statut ${cls}">${p.statut||'—'}</span></td>
-      <td class="tbl-td" style="max-width:160px;font-size:12px;color:var(--text2)">${p.commentaire||'—'}</td>
-      <td class="tbl-td tbl-actions">
-        <button class="btn-sm-edit" onclick="editPda(${i})">✏️</button>
-        <button class="btn-sm" onclick="deletePda(${i})">🗑</button>
-      </td>
-    </tr>`;
-  }).join('') : `<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucune action enregistrée</td></tr>`;
+  if (!currentAsmId || !asmTeams.find(t=>t.id===currentAsmId)) currentAsmId = asmTeams[0].id;
+  const asm = asmTeams.find(t=>t.id===currentAsmId);
+  const asmClients = (asm.clientIds||[]).map(id=>clients.find(c=>c.id===id)).filter(Boolean);
 
-  tree.innerHTML = `
-    <div class="pda-tree-wrap">
-      <div class="pda-asm-node">
-        <div class="pda-asm-header">
-          <span class="pda-asm-icon">👤</span>
-          <span class="pda-asm-nom" style="color:${asmColor}">${asmNom}</span>
-          <span class="pda-asm-badge">${pda.length} action${pda.length>1?'s':''}</span>
-        </div>
-        <div class="pda-client-node">
-          <div class="pda-client-header">
-            <span class="pda-tree-line">└─</span>
-            <span class="pda-client-avatar" style="background:${clientColor(c)}18;color:${clientColor(c)}">${c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}</span>
-            <span class="pda-client-nom">${c.nom}</span>
-            <button class="btn-add" style="margin-left:auto" onclick="openAddPda()">+ Ajouter</button>
-          </div>
-          <div class="tbl-wrap" style="border-radius:0;border-left:none;border-right:none;border-bottom:none">
-            <table class="tbl">
-              <thead><tr>
-                <th class="tbl-th">Date</th>
-                <th class="tbl-th">Type réunion</th>
-                <th class="tbl-th">Mois COMEX</th>
-                <th class="tbl-th">Contexte</th>
-                <th class="tbl-th">Tâche à réaliser</th>
-                <th class="tbl-th">Délai</th>
-                <th class="tbl-th">Porteur</th>
-                <th class="tbl-th">Statut</th>
-                <th class="tbl-th">Commentaire</th>
-                <th class="tbl-th" style="width:70px"></th>
-              </tr></thead>
-              <tbody>${tableRows}</tbody>
-            </table>
-          </div>
-        </div>
+  // Onglet sélecteur ASM
+  const selector = `<div class="pda-asm-selector">${asmTeams.map(t=>`
+    <button class="pda-asm-tab${t.id===currentAsmId?' pda-asm-tab-active':''}" onclick="currentAsmId='${t.id}';renderPda()">
+      <span>👤</span><span>${t.nom}</span>
+      <span class="pda-asm-tab-count">${(t.clientIds||[]).length}</span>
+    </button>`).join('')}</div>`;
+
+  // Fonction helper : tableau générique
+  const tbl = (heads, rows) => rows.length
+    ? `<div class="tbl-wrap" style="border-radius:0;border:none;border-top:1px solid var(--border)"><table class="tbl">
+        <thead><tr>${heads.map(h=>`<th class="tbl-th">${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.join('')}</tbody>
+       </table></div>`
+    : `<div style="padding:12px 16px;font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)">Aucun élément.</div>`;
+
+  // Bloc accordéon par section
+  const accord = (icon, titre, count, content, uid) => `
+    <div class="asm-accord" id="acc-${uid}">
+      <div class="asm-accord-head" onclick="document.getElementById('acc-${uid}').classList.toggle('asm-accord-open')">
+        <span>${icon} ${titre}</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span class="bl-count">${count}</span>
+          <span class="bl-chevron">▾</span>
+        </span>
+      </div>
+      <div class="asm-accord-body">${content}</div>
+    </div>`;
+
+  // Un bloc client complet
+  const clientBlock = c => {
+    const col = clientColor(c);
+    const ini = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+    const statBadge = {sain:'🟢 Sain',tendu:'🟡 Tendu',critique:'🔴 Critique'}[c.statut]||'';
+
+    // Incidents
+    const incs = (c.incidents||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const incRows = incs.map((inc,i)=>`<tr class="tbl-tr" style="border-left:3px solid ${inc.criticite==='haute'?'var(--red)':inc.criticite==='moyenne'?'var(--orange)':'var(--green)'}">
+      <td class="tbl-td mono">${fmt(inc.date)}</td>
+      <td class="tbl-td bold">${inc.nature||inc.titre||'—'}</td>
+      <td class="tbl-td">${inc.site||'—'}</td>
+      <td class="tbl-td mono">${inc.refLiaison||'—'}</td>
+      <td class="tbl-td"><span class="tag ${critCls[inc.criticite]||'tag-green'}">${inc.criticite||'—'}</span></td>
+      <td class="tbl-td">${inc.service||'—'}</td>
+      <td class="tbl-td"><span class="tag ${statIncCls[inc.statut]||'tag-blue'}">${inc.statut||'—'}</span></td>
+      <td class="tbl-td" style="font-size:12px;max-width:140px">${inc.desc||'—'}</td>
+      <td class="tbl-td" style="font-size:12px;color:var(--green);max-width:120px">${inc.resolution||'—'}</td>
+    </tr>`);
+
+    // Documents
+    const docs = (c.documents||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const docRows = docs.map(d=>`<tr class="tbl-tr">
+      <td class="tbl-td mono">${fmt(d.date)}</td>
+      <td class="tbl-td bold">${d.titre||'—'}</td>
+      <td class="tbl-td"><span class="tag tag-blue">${d.type||'—'}</span></td>
+      <td class="tbl-td" style="font-size:12px;max-width:150px">${d.comment||'—'}</td>
+      <td class="tbl-td" style="font-size:12px;color:var(--accent2);max-width:150px">${d.points_retenir||'—'}</td>
+    </tr>`);
+
+    // Opportunités
+    const opps = (c.opportunites||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const oppRows = opps.map(o=>{ const col2=oppColor(o.type||'LAN'); return `<tr class="tbl-tr">
+      <td class="tbl-td mono">${fmt(o.date)}</td>
+      <td class="tbl-td bold">${o.titre||'—'}</td>
+      <td class="tbl-td"><span class="tag" style="background:${col2}18;color:${col2}">${o.type||'—'}</span></td>
+      <td class="tbl-td"><span class="tag ${oppCls[o.statut]||'tag-blue'}">${o.statut||'—'}</span></td>
+      <td class="tbl-td mono">${o.montant||'—'}</td>
+      <td class="tbl-td" style="font-size:12px;max-width:160px">${o.description||'—'}</td>
+    </tr>`; });
+
+    // Sites en souffrance
+    const sfs = (c.souffrances||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const sfRows = sfs.map(s=>{ const st=sfMap[s.statut]||sfMap.critique; return `<tr class="tbl-tr" style="border-left:3px solid ${st.c}">
+      <td class="tbl-td mono">${fmt(s.date)}</td>
+      <td class="tbl-td bold">${s.site||'—'}</td>
+      <td class="tbl-td mono">${s.ref||'—'}</td>
+      <td class="tbl-td mono">${s.loopack||'—'}</td>
+      <td class="tbl-td" style="font-size:11px;font-weight:600;color:${st.c}">${st.l}</td>
+      <td class="tbl-td" style="font-size:12px;max-width:160px">${s.problemes||'—'}</td>
+      <td class="tbl-td" style="font-size:12px;max-width:160px">${s.comment||'—'}</td>
+    </tr>`; });
+
+    // PDA
+    const pdas = (c.pda||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const pdaRows = pdas.map((p,ri)=>{ const i=(c.pda||[]).indexOf(pdas[ri]); return `<tr class="tbl-tr">
+      <td class="tbl-td mono">${fmt(p.date)}</td>
+      <td class="tbl-td"><span class="pda-liste ${pdaLCls[p.liste]||'pda-noncomex'}">${p.liste||'—'}</span></td>
+      <td class="tbl-td mono" style="font-size:11px">${p.mois_comex||p.contexte||'—'}</td>
+      <td class="tbl-td bold">${p.tache||'—'}</td>
+      <td class="tbl-td mono">${fmt(p.delai)}</td>
+      <td class="tbl-td">${p.porteur||'—'}</td>
+      <td class="tbl-td"><span class="pda-statut ${pdaCls[p.statut]||'pda-encours'}">${p.statut||'—'}</span></td>
+      <td class="tbl-td" style="font-size:12px;max-width:140px">${p.commentaire||'—'}</td>
+      <td class="tbl-td tbl-actions">
+        <button class="btn-sm-edit" onclick="selectClientAndEdit('${c.id}',${i})">✏️</button>
+        <button class="btn-sm" onclick="selectClientAndDelete('${c.id}',${i})">🗑</button>
+      </td>
+    </tr>`; });
+
+    const uid = c.id;
+    return `<div class="asm-client-block">
+      <div class="asm-client-block-header" onclick="document.getElementById('cb-${uid}').classList.toggle('asm-cb-open')">
+        <span class="pda-client-avatar" style="background:${col}18;color:${col}">${ini}</span>
+        <span class="pda-client-nom">${c.nom}</span>
+        <span style="font-size:11px;font-family:'DM Mono',monospace;color:var(--text2)">${c.segment||''} ${c.pays?'· '+c.pays:''}</span>
+        <span class="tag" style="background:rgba(0,0,0,.04);color:var(--text3);margin-left:4px">${statBadge}</span>
+        <span class="bl-chevron" style="margin-left:auto">▾</span>
+      </div>
+      <div class="asm-cb-body" id="cb-${uid}">
+        ${accord('🚨','Incidents majeurs', incs.length, tbl(['Date','Nature','Site','Réf.','Criticité','Service','Statut','Description','Résolution'], incRows), uid+'inc')}
+        ${accord('📁','Documents', docs.length, tbl(['Date','Titre','Type','Commentaire','Points à retenir'], docRows), uid+'doc')}
+        ${accord('💡','Opportunités', opps.length, tbl(['Date','Titre','Type','Statut','Montant','Description'], oppRows), uid+'opp')}
+        ${accord('⚠️','Sites en souffrance', sfs.length, tbl(['Date','Site','Réf.','Loopack','Statut','Problèmes','Commentaire'], sfRows), uid+'sf')}
+        ${accord('📌','PDA', pdas.length, tbl(['Date','Type réunion','COMEX/Contexte','Tâche','Délai','Porteur','Statut','Commentaire',''], pdaRows), uid+'pda')}
       </div>
     </div>`;
+  };
+
+  const clientsHtml = asmClients.length
+    ? asmClients.map(c=>clientBlock(c)).join('')
+    : `<div style="text-align:center;padding:32px;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px">
+        Aucun client rattaché.<br><br>
+        <button class="btn-add" onclick="openModalAsmConfig()">⚙️ Affecter des clients</button>
+       </div>`;
+
+  tree.innerHTML = `<div class="pda-tree-wrap">
+    ${selector}
+    <div class="pda-asm-node">
+      <div class="pda-asm-header">
+        <span class="pda-asm-icon">👤</span>
+        <span class="pda-asm-nom">${asm.nom}</span>
+        <span class="pda-asm-badge">${asmClients.length} client${asmClients.length>1?'s':''}</span>
+      </div>
+      ${clientsHtml}
+    </div>
+  </div>`;
 }
+
+window.selectClientAndAdd = function(clientId) {
+  const c = clients.find(x=>x.id===clientId); if (!c) return;
+  currentClientId = clientId;
+  openAddPda();
+};
+window.selectClientAndEdit = function(clientId, i) {
+  currentClientId = clientId;
+  editPda(i);
+};
+window.selectClientAndDelete = async function(clientId, i) {
+  currentClientId = clientId;
+  await deletePda(i);
+};
 
 // ── PDA ──
 let editStatePda = null;
@@ -1212,6 +1309,15 @@ function renderBilan() {
   .vd-l { padding:6px 12px 6px 0; color:var(--text3); font-family:'DM Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; width:120px; vertical-align:top; }
   .vd-r { padding:6px 0; color:var(--text); font-size:13px; }
   .pda-tree-wrap { display:flex; flex-direction:column; gap:12px; }
+
+  /* SÉLECTEUR ASM */
+  .pda-asm-selector { display:flex; gap:8px; flex-wrap:wrap; padding-bottom:12px; border-bottom:1px solid var(--border); }
+  .pda-asm-tab { display:flex; align-items:center; gap:6px; padding:7px 14px; border-radius:20px; border:1px solid var(--border); background:var(--surface); color:var(--text2); font-family:'Syne',sans-serif; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
+  .pda-asm-tab:hover { border-color:var(--accent); color:var(--accent); }
+  .pda-asm-tab-active { background:var(--accent); color:#fff !important; border-color:var(--accent) !important; }
+  .pda-asm-tab-active .pda-asm-tab-count { background:rgba(255,255,255,.25); color:#fff; }
+  .pda-asm-tab-icon { font-size:13px; }
+  .pda-asm-tab-count { font-family:'DM Mono',monospace; font-size:10px; background:var(--surface2); border-radius:20px; padding:1px 7px; color:var(--text3); }
   .pda-asm-node { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
   .pda-asm-header { display:flex; align-items:center; gap:10px; padding:12px 16px; background:var(--surface2); border-bottom:1px solid var(--border); }
   .pda-asm-icon { font-size:16px; }
@@ -1224,7 +1330,20 @@ function renderBilan() {
   .pda-client-nom { font-family:'Syne',sans-serif; font-weight:700; font-size:13px; flex:1; }
   .pda-table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 
-  /* MODAL ASM */
+  /* BLOCS CLIENT ASM */
+  .asm-client-block { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:10px; }
+  .asm-client-block-header { display:flex; align-items:center; gap:10px; padding:13px 16px; cursor:pointer; user-select:none; border-bottom:1px solid transparent; transition:background .15s; }
+  .asm-client-block-header:hover { background:var(--surface2); }
+  .asm-cb-body { display:none; }
+  .asm-cb-open { display:block; }
+
+  /* ACCORDÉON SECTIONS */
+  .asm-accord { border-top:1px solid var(--border); }
+  .asm-accord:first-child { border-top:none; }
+  .asm-accord-head { display:flex; justify-content:space-between; align-items:center; padding:9px 16px; cursor:pointer; font-family:'Syne',sans-serif; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text3); background:var(--surface2); user-select:none; transition:background .15s; }
+  .asm-accord-head:hover { background:#e8edf5; }
+  .asm-accord-body { display:none; }
+  .asm-accord-open .asm-accord-body { display:block; }
   .asm-cfg-row { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:var(--surface2); border-radius:8px; margin-bottom:8px; }
   .asm-cfg-nom { font-family:'Syne',sans-serif; font-weight:700; font-size:13px; }
   .asm-cfg-clients { font-size:11px; color:var(--text3); font-family:'DM Mono',monospace; margin-top:2px; }
