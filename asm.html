@@ -397,7 +397,7 @@ function oppColor(type) {
 function renderOpportunites() {
   const c = getClient(); if (!c) return;
   const el = document.getElementById('opportunites-list');
-  const opps = c.opportunites || [];
+  const opps = (c.opportunites || []).filter(o => o.statut !== 'Gagné' && o.statut !== 'Perdu');
 
   // Group by type
   const allTypes = [...new Set([...OPP_TYPES_DEFAULT, ...opps.map(o=>o.type)])];
@@ -579,12 +579,13 @@ let editStateNote = null;
 function renderSensibles() {
   const c = getClient(); if (!c) return;
   const el = document.getElementById('sensibles-list');
-  const notes = c.notes || [];
-  if (!notes.length) { el.innerHTML = emptyState('Aucune note confidentielle'); return; }
-  el.innerHTML = [...notes].reverse().map((n, ri) => {
-    const i = notes.length - 1 - ri;
+  const notes = (c.notes || []).filter(n => n.statut !== 'Clôturé');
+  if (!notes.length) { el.innerHTML = emptyState('Aucune note active'); return; }
+  el.innerHTML = notes.map((n, i) => {
+    const realIdx = (c.notes||[]).indexOf(n);
     const niveauMap = { haute: { label:'🔴 Haute', cls:'tag-red' }, moyenne: { label:'🟡 Moyenne', cls:'tag-orange' }, faible: { label:'🟢 Faible', cls:'tag-green' } };
     const niv = niveauMap[n.niveau] || niveauMap.moyenne;
+    const statutCls = n.statut==='Clôturé'?'tag-green':'tag-orange';
     return `<div class="card" style="border-left:3px solid ${n.niveau==='haute'?'var(--red)':n.niveau==='faible'?'var(--green)':'var(--orange)'}">
       <div class="card-head">
         <span class="card-title">${n.titre||'Sans titre'}</span>
@@ -593,11 +594,12 @@ function renderSensibles() {
       <div class="card-body" style="white-space:pre-wrap;margin-top:6px;">${n.contenu||''}</div>
       <div class="card-tags" style="margin-top:10px;">
         <span class="tag ${niv.cls}">${niv.label}</span>
+        <span class="tag ${statutCls}">${n.statut||'En cours'}</span>
         ${n.categorie?`<span class="tag tag-blue">${n.categorie}</span>`:''}
       </div>
       <div class="card-actions">
-        <button class="btn-sm-edit" onclick="editNote(${i})">✏️ Modifier</button>
-        <button class="btn-sm" onclick="deleteNote(${i})">Supprimer</button>
+        <button class="btn-sm-edit" onclick="editNote(${realIdx})">✏️ Modifier</button>
+        <button class="btn-sm" onclick="deleteNote(${realIdx})">Supprimer</button>
       </div>
     </div>`;
   }).join('');
@@ -610,6 +612,7 @@ window.openAddNote = function() {
   ['note-titre','note-contenu','note-categorie'].forEach(id => document.getElementById(id).value='');
   document.getElementById('note-date').value = new Date().toISOString().split('T')[0];
   document.getElementById('note-niveau').value = 'moyenne';
+  document.getElementById('note-statut').value = 'En cours';
   document.getElementById('modal-note').style.display='flex';
 };
 
@@ -621,6 +624,7 @@ window.editNote = function(i) {
   document.getElementById('note-titre').value    = n.titre||'';
   document.getElementById('note-date').value     = n.date||'';
   document.getElementById('note-niveau').value   = n.niveau||'moyenne';
+  document.getElementById('note-statut').value   = n.statut||'En cours';
   document.getElementById('note-categorie').value= n.categorie||'';
   document.getElementById('note-contenu').value  = n.contenu||'';
   document.getElementById('modal-note').style.display='flex';
@@ -635,6 +639,7 @@ window.saveNote = async function() {
     titre,
     date:      document.getElementById('note-date').value,
     niveau:    document.getElementById('note-niveau').value,
+    statut:    document.getElementById('note-statut').value,
     categorie: document.getElementById('note-categorie').value.trim(),
     contenu:   document.getElementById('note-contenu').value.trim(),
   };
@@ -662,7 +667,7 @@ let editStateSouffrance = null;
 function renderSouffrances() {
   const c = getClient(); if (!c) return;
   const tbody = document.getElementById('souffrances-tbody'); if (!tbody) return;
-  const list = c.souffrances || [];
+  const list = (c.souffrances||[]).filter(s => s.statut !== 'resolu');
   if (!list.length) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;">Aucun site enregistré</td></tr>';
     return;
@@ -876,15 +881,16 @@ function renderBilan() {
       badge: o.statut
     }));
 
-  // ── SUJETS SENSIBLES (tous) ──
+  // ── SUJETS SENSIBLES (hors clôturé) ──
   const notesActives = (c.notes||[])
+    .filter(n => n.statut !== 'Clôturé')
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
     .map(n => ({
       date: n.date,
       color: n.niveau==='haute'?'var(--red)':n.niveau==='moyenne'?'var(--orange)':'var(--green)',
       titre: (n.titre||'Note') + (n.categorie?' · '+n.categorie:''),
       extra: n.contenu||'',
-      badge: n.niveau
+      badge: n.statut||'En cours'
     }));
 
   // ── SITES EN SOUFFRANCE (hors résolu) ──
@@ -1422,6 +1428,12 @@ function renderBilan() {
           <option value="faible">🟢 Faible</option>
         </select>
       </div>
+    </div>
+    <div class="field"><label>Statut</label>
+      <select id="note-statut">
+        <option>En cours</option>
+        <option>Clôturé</option>
+      </select>
     </div>
     <div class="field"><label>Catégorie</label><input id="note-categorie" placeholder="ex: Contractuel, Politique, Financier…"></div>
     <div class="field"><label>Contenu de la note</label>
