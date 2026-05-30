@@ -388,7 +388,7 @@ function renderTable(data) {
     const statut = a.statut || 'nouveau';
     const date = a.createdAt?.toDate ? a.createdAt.toDate().toLocaleDateString('fr-FR', { day:'2-digit', month:'short', year:'numeric' }) : '—';
     const complexiteClass = (a.complexiteEstimee || '').toLowerCase().replace('é','e').replace('è','e');
-    const nbFichiers = (a.fichiers || []).length;
+    const nbFichiers = a.nbFichiers || (typeof a.fichiers === 'string' ? (() => { try { return JSON.parse(a.fichiers).length; } catch(e){ return 0; } })() : (Array.isArray(a.fichiers) ? a.fichiers.length : 0));
     const fichiersLabel = nbFichiers > 0
       ? `<span style="background:rgba(0,102,255,0.08);border:1px solid rgba(0,102,255,0.18);border-radius:5px;padding:2px 8px;font-size:11px;color:var(--accent);font-weight:600;">📎 ${nbFichiers}</span>`
       : `<span style="color:var(--text-muted);font-size:12px;">—</span>`;
@@ -456,11 +456,17 @@ function openModal(id) {
   const outils = (a.outilsActuels || []).map(o => `<span class="chip-item">${o}</span>`).join('') || '<span style="color:var(--text-muted);font-size:13px;">Non renseigné</span>';
   const autos = (a.typesAutomatisation || []).map(o => `<span class="chip-item">${o}</span>`).join('') || '<span style="color:var(--text-muted);font-size:13px;">Non sélectionné</span>';
 
-  // Fichiers joints
+  // Fichiers joints — stockés en JSON string ou tableau
+  let fichiersData = [];
+  try {
+    if (typeof a.fichiers === 'string' && a.fichiers) fichiersData = JSON.parse(a.fichiers);
+    else if (Array.isArray(a.fichiers)) fichiersData = a.fichiers;
+  } catch(e) { fichiersData = []; }
+
   let fichiersHTML = '<span style="color:var(--text-muted);font-size:13px;">Aucun fichier joint</span>';
-  if (a.fichiers && a.fichiers.length > 0) {
-    fichiersHTML = a.fichiers.map(f => {
-      const icon = (f.type||'').includes('image') ? '🖼️' : (f.type||'').includes('pdf') ? '📄' : f.name.includes('.xls') ? '📊' : '📝';
+  if (fichiersData.length > 0) {
+    fichiersHTML = fichiersData.map(f => {
+      const icon = (f.type||'').includes('image') ? '🖼️' : (f.type||'').includes('pdf') ? '📄' : (f.name||'').includes('.xls') ? '📊' : '📝';
       const kb = f.size ? (f.size / 1024).toFixed(0) + ' Ko' : '';
       const downloadLink = f.base64
         ? `<a href="data:${f.type};base64,${f.base64}" download="${f.name}" style="color:var(--accent);font-size:12px;text-decoration:none;font-weight:500;">⬇ Télécharger</a>`
