@@ -98,6 +98,7 @@ window.doLogin = async function() {
   try {
     clients = await fsGetAllClients();
     clients.sort((a,b) => a.nom.localeCompare(b.nom));
+    await loadAsmTeams();
   } catch(e) { toast('Erreur Firestore : '+e.message, 'error'); }
   document.getElementById('loading-overlay').style.display = 'none';
   renderSidebar();
@@ -202,32 +203,31 @@ window.addClient = async function() {
 function renderIncidents() {
   const c = getClient(); if (!c) return;
   const el = document.getElementById('incidents-list');
-  if (!c.incidents||!c.incidents.length) { el.innerHTML = emptyState('Aucun incident marquant'); return; }
-  el.innerHTML = [...c.incidents].reverse().map((inc,ri) => {
-    const i = c.incidents.length-1-ri;
-    return `<div class="card criticite-${inc.criticite}">
-      <div class="card-head">
-        <span class="card-title">${inc.nature||inc.titre||''}</span>
-        <span class="card-date">${inc.date?formatDate(inc.date):''}</span>
-      </div>
-      <div class="card-body">
-        ${inc.site?`<span style="font-size:12px;color:var(--text3)">📍 Site : <strong>${inc.site}</strong></span><br>`:''}
-        ${inc.refLiaison?`<span style="font-size:12px;color:var(--text3)">🔗 Réf. liaison : <strong>${inc.refLiaison}</strong></span><br>`:''}
-        ${inc.signalePar?`<span style="font-size:12px;color:var(--text3)">👤 Signalé par : <strong>${inc.signalePar}</strong>${inc.signaleContact?' — '+inc.signaleContact:''}</span><br>`:''}
-        ${inc.desc?`<div style="margin-top:6px">${inc.desc}</div>`:''}
-      </div>
-      ${inc.resolution?`<div style="margin-top:8px;font-size:12px;color:var(--green)">✅ ${inc.resolution}</div>`:''}
-      <div class="card-tags">
-        <span class="tag tag-${inc.criticite==='haute'?'red':inc.criticite==='moyenne'?'orange':'green'}">${inc.criticite}</span>
-        <span class="tag tag-blue">${inc.service||''}</span>
-        <span class="tag tag-purple">${inc.statut||''}</span>
-      </div>
-      <div class="card-actions">
-        <button class="btn-sm-edit" onclick="editIncident(${i})">✏️ Modifier</button>
-        <button class="btn-sm" onclick="deleteItem('incidents',${i})">Supprimer</button>
-      </div>
-    </div>`;
-  }).join('');
+  const list = (c.incidents||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if (!list.length) { el.innerHTML = emptyState('Aucun incident majeur'); return; }
+  const critCls = { haute:'tag-red', moyenne:'tag-orange', faible:'tag-green' };
+  const statutCls = { 'Résolu':'tag-green', 'En cours':'tag-orange', 'Ouvert':'tag-red' };
+  el.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th class="tbl-th">Date</th><th class="tbl-th">Nature</th><th class="tbl-th">Site</th>
+    <th class="tbl-th">Criticité</th><th class="tbl-th">Service</th><th class="tbl-th">Statut</th>
+    <th class="tbl-th">Résolution</th><th class="tbl-th" style="width:90px"></th>
+  </tr></thead><tbody>${list.map((inc,ri) => {
+    const i = (c.incidents||[]).indexOf(list[ri]);
+    return `<tr class="tbl-tr">
+      <td class="tbl-td mono">${inc.date?formatDate(inc.date):'—'}</td>
+      <td class="tbl-td bold">${inc.nature||inc.titre||'—'}</td>
+      <td class="tbl-td">${inc.site||'—'}</td>
+      <td class="tbl-td"><span class="tag ${critCls[inc.criticite]||'tag-green'}">${inc.criticite||'—'}</span></td>
+      <td class="tbl-td">${inc.service||'—'}</td>
+      <td class="tbl-td"><span class="tag ${statutCls[inc.statut]||'tag-blue'}">${inc.statut||'—'}</span></td>
+      <td class="tbl-td" style="max-width:180px;font-size:12px;color:var(--green)">${inc.resolution||''}</td>
+      <td class="tbl-td tbl-actions">
+        <button class="btn-sm-edit" onclick="viewIncident(${i})" title="Voir">👁</button>
+        <button class="btn-sm-edit" onclick="editIncident(${i})" title="Modifier">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('incidents',${i})" title="Supprimer">🗑</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
 }
 
 window.openAddIncident = function() {
@@ -287,35 +287,56 @@ window.saveIncident = async function() {
   } catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
+window.viewIncident = function(i) {
+  const c = getClient(); const inc = (c.incidents||[])[i]; if (!inc) return;
+  const critColor = { haute:'var(--red)', moyenne:'var(--orange)', faible:'var(--green)' };
+  document.getElementById('view-modal-content').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:18px">${inc.nature||inc.titre||''}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <span class="tag tag-${inc.criticite==='haute'?'red':inc.criticite==='moyenne'?'orange':'green'}">${inc.criticite||''}</span>
+        <span class="tag tag-blue">${inc.service||''}</span>
+        <span class="tag tag-purple">${inc.statut||''}</span>
+      </div>
+      <table style="width:100%;font-size:13px;border-collapse:collapse">
+        ${inc.date?`<tr><td class="vd-l">Date</td><td class="vd-r">${formatDate(inc.date)}</td></tr>`:''}
+        ${inc.site?`<tr><td class="vd-l">Site</td><td class="vd-r">${inc.site}</td></tr>`:''}
+        ${inc.refLiaison?`<tr><td class="vd-l">Réf. liaison</td><td class="vd-r">${inc.refLiaison}</td></tr>`:''}
+        ${inc.signalePar?`<tr><td class="vd-l">Signalé par</td><td class="vd-r">${inc.signalePar}${inc.signaleContact?' — '+inc.signaleContact:''}</td></tr>`:''}
+      </table>
+      ${inc.desc?`<div style="background:var(--surface2);border-radius:8px;padding:12px;font-size:13px;color:var(--text2);white-space:pre-wrap">${inc.desc}</div>`:''}
+      ${inc.resolution?`<div style="background:rgba(22,163,74,.08);border:1px solid rgba(22,163,74,.2);border-radius:8px;padding:10px;font-size:13px;color:var(--green)">✅ ${inc.resolution}</div>`:''}
+    </div>`;
+  document.getElementById('modal-view').style.display='flex';
+};
+
 // ── DOCUMENTS ──
 function renderDocuments() {
   const c = getClient(); if (!c) return;
   const el = document.getElementById('documents-list');
-  if (!c.documents||!c.documents.length) { el.innerHTML = emptyState('Aucun document enregistré'); return; }
-  el.innerHTML = [...c.documents].reverse().map((d,ri) => {
-    const i = c.documents.length-1-ri;
-    const ext = d.fileName?d.fileName.split('.').pop().toLowerCase():'';
-    const extEmoji = {pdf:'📕',doc:'📘',docx:'📘',xls:'📗',xlsx:'📗',ppt:'📙',pptx:'📙',zip:'🗜️',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',mp4:'🎬'}[ext]||'📄';
-    const openBtn = d.fileUrl
-      ? `<button class="btn-sm-edit" onclick="openDocument('${d.fileUrl.replace(/'/g,"\\'")}')">📂 Ouvrir</button>`
-      : '';
-    return `<div class="card">
-      <div class="card-head">
-        <span class="card-title">${extEmoji} ${d.titre}</span>
-        <span class="card-date">${d.date?formatDate(d.date):''}</span>
-      </div>
-      <div class="card-body">
-        ${d.fileName?`<span style="font-size:12px;font-family:'DM Mono',monospace;color:var(--text3)">📎 ${d.fileName} ${d.fileSize?'('+formatSize(d.fileSize)+')':''}</span><br>`:''}
-        ${d.comment?`<span style="font-size:13px;color:var(--text2)">${d.comment}</span>`:''}
-      </div>
-      <div class="card-tags"><span class="tag tag-blue">${d.type||''}</span></div>
-      <div class="card-actions">
-        ${openBtn}
-        <button class="btn-sm-edit" onclick="editDocument(${i})">✏️ Modifier</button>
-        <button class="btn-sm" onclick="deleteItem('documents',${i})">Supprimer</button>
-      </div>
-    </div>`;
-  }).join('');
+  const list = (c.documents||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if (!list.length) { el.innerHTML = emptyState('Aucun document enregistré'); return; }
+  const extEmoji = f => { if(!f) return '📄'; const e=f.split('.').pop().toLowerCase(); return {pdf:'📕',doc:'📘',docx:'📘',xls:'📗',xlsx:'📗',ppt:'📙',pptx:'📙',zip:'🗜️',png:'🖼️',jpg:'🖼️',jpeg:'🖼️',mp4:'🎬'}[e]||'📄'; };
+  el.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th class="tbl-th">Date</th><th class="tbl-th">Titre</th><th class="tbl-th">Type</th>
+    <th class="tbl-th">Fichier</th><th class="tbl-th">Commentaire</th><th class="tbl-th">Points à retenir</th>
+    <th class="tbl-th" style="width:90px"></th>
+  </tr></thead><tbody>${list.map((d,ri) => {
+    const i = (c.documents||[]).indexOf(list[ri]);
+    return `<tr class="tbl-tr">
+      <td class="tbl-td mono">${d.date?formatDate(d.date):'—'}</td>
+      <td class="tbl-td bold">${extEmoji(d.fileName)} ${d.titre||'—'}</td>
+      <td class="tbl-td"><span class="tag tag-blue">${d.type||'—'}</span></td>
+      <td class="tbl-td mono" style="font-size:11px">${d.fileName?d.fileName+'<br><span style="color:var(--text3)">'+(d.fileSize?formatSize(d.fileSize):'')+'</span>':'—'}</td>
+      <td class="tbl-td" style="max-width:150px;font-size:12px">${d.comment||''}</td>
+      <td class="tbl-td" style="max-width:150px;font-size:12px;color:var(--accent2)">${d.points_retenir||''}</td>
+      <td class="tbl-td tbl-actions">
+        ${d.fileUrl?`<button class="btn-sm-edit" onclick="openDocument('${d.fileUrl.replace(/'/g,"\\'")}')">📂</button>`:''}
+        <button class="btn-sm-edit" onclick="editDocument(${i})">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('documents',${i})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
 }
 
 window.openAddDocument = function() {
@@ -397,48 +418,29 @@ function oppColor(type) {
 function renderOpportunites() {
   const c = getClient(); if (!c) return;
   const el = document.getElementById('opportunites-list');
-  const opps = c.opportunites || [];
-
-  // Group by type
-  const allTypes = [...new Set([...OPP_TYPES_DEFAULT, ...opps.map(o=>o.type)])];
-
-  if (!opps.length) {
-    el.innerHTML = emptyState('Aucune opportunité enregistrée');
-    return;
-  }
-
-  let html = '';
-  allTypes.forEach(type => {
-    const items = opps.map((o,i) => ({...o, _idx:i})).filter(o => o.type === type);
-    if (!items.length) return;
-    const col = oppColor(type);
-    html += `<div class="opp-group">
-      <div class="opp-group-header">
-        <span class="opp-group-badge" style="background:${col}18;color:${col};border:1px solid ${col}33">${type}</span>
-        <span style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace">${items.length} opportunité${items.length>1?'s':''}</span>
-      </div>`;
-    items.forEach(o => {
-      const i = o._idx;
-      html += `<div class="card opp-card" style="border-left:3px solid ${col}">
-        <div class="card-head">
-          <span class="card-title">${o.titre}</span>
-          <span class="card-date">${o.date?formatDate(o.date):''}</span>
-        </div>
-        <div class="card-body" style="white-space:pre-wrap">${o.description||''}</div>
-        ${o.montant?`<div style="margin-top:8px;font-size:12px;font-family:'DM Mono',monospace;color:${col}">💰 ${o.montant}</div>`:''}
-        <div class="card-tags">
-          <span class="tag" style="background:${col}14;color:${col}">${type}</span>
-          <span class="tag tag-${o.statut==='Gagné'?'green':o.statut==='Perdu'?'red':o.statut==='En cours'?'orange':'purple'}">${o.statut||'En cours'}</span>
-        </div>
-        <div class="card-actions">
-          <button class="btn-sm-edit" onclick="editOpportunite(${i})">✏️ Modifier</button>
-          <button class="btn-sm" onclick="deleteItem('opportunites',${i})">Supprimer</button>
-        </div>
-      </div>`;
-    });
-    html += '</div>';
-  });
-  el.innerHTML = html || emptyState('Aucune opportunité enregistrée');
+  const list = (c.opportunites||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if (!list.length) { el.innerHTML = emptyState('Aucune opportunité enregistrée'); return; }
+  const sCls = { 'Gagné':'tag-green','Perdu':'tag-red','En cours':'tag-orange','En attente':'tag-purple' };
+  el.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th class="tbl-th">Date</th><th class="tbl-th">Titre</th><th class="tbl-th">Type</th>
+    <th class="tbl-th">Montant</th><th class="tbl-th">Statut</th><th class="tbl-th">Description</th>
+    <th class="tbl-th" style="width:70px"></th>
+  </tr></thead><tbody>${list.map((o,ri) => {
+    const i = (c.opportunites||[]).indexOf(list[ri]);
+    const col = oppColor(o.type||'LAN');
+    return `<tr class="tbl-tr">
+      <td class="tbl-td mono">${o.date?formatDate(o.date):'—'}</td>
+      <td class="tbl-td bold">${o.titre||'—'}</td>
+      <td class="tbl-td"><span class="tag" style="background:${col}18;color:${col}">${o.type||'—'}</span></td>
+      <td class="tbl-td mono">${o.montant||'—'}</td>
+      <td class="tbl-td"><span class="tag ${sCls[o.statut]||'tag-blue'}">${o.statut||'—'}</span></td>
+      <td class="tbl-td" style="max-width:200px;font-size:12px">${o.description||''}</td>
+      <td class="tbl-td tbl-actions">
+        <button class="btn-sm-edit" onclick="editOpportunite(${i})">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('opportunites',${i})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
 }
 
 window.openAddOpportunite = function() {
@@ -650,24 +652,52 @@ window.deleteSouffrance = async function(i) {
   catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
-// ── PDA ──
-let editStatePda = null;
+// ── ASM TEAMS ──
+const COL_ASM = 'asm_teams';
+let asmTeams = []; // [{id, nom, clientIds:[]}]
 
+async function loadAsmTeams() {
+  try {
+    const snap = await getDocs(collection(db, COL_ASM));
+    asmTeams = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch(e) { asmTeams = []; }
+}
+async function saveAsmTeam(t) {
+  const { id, ...data } = t;
+  await setDoc(doc(db, COL_ASM, id), data);
+}
+async function deleteAsmTeam(id) { await deleteDoc(doc(db, COL_ASM, id)); }
+
+function getAsmOfClient(clientId) {
+  return asmTeams.find(t => (t.clientIds||[]).includes(clientId));
+}
+
+// ── RENDER PDA arborescence ──
 function renderPda() {
+  const tree = document.getElementById('pda-tree'); if (!tree) return;
   const c = getClient(); if (!c) return;
-  const tbody = document.getElementById('pda-tbody'); if (!tbody) return;
-  const list = (c.pda||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  if (!list.length) { tbody.innerHTML='<tr><td colspan="8" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:\'DM Mono\',monospace;font-size:13px;">Aucune action enregistrée</td></tr>'; return; }
-  const statutCls = { 'En cours':'pda-encours', 'Réalisé':'pda-realise', 'En retard':'pda-retard', 'Annulé':'pda-annule' };
-  const listeCls  = { 'COMEX':'pda-comex', 'Non COMEX':'pda-noncomex' };
-  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '';
-  tbody.innerHTML = list.map((p,ri) => {
-    const i = (c.pda||[]).indexOf(list[ri]);
+
+  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const statutCls = { 'En cours':'pda-encours','Réalisé':'pda-realise','En retard':'pda-retard','Annulé':'pda-annule' };
+  const listeCls  = { 'COMEX':'pda-comex','Hors COMEX':'pda-noncomex' };
+
+  // Trouver l'ASM de ce client
+  const asm = getAsmOfClient(c.id);
+  const asmNom = asm ? asm.nom : 'Non affecté';
+  const asmColor = asm ? 'var(--accent)' : 'var(--text3)';
+
+  const pda = (c.pda||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+
+  const tableRows = pda.length ? pda.map((p,ri) => {
+    const i = (c.pda||[]).indexOf(pda[ri]);
     const cls  = statutCls[p.statut]||'pda-encours';
     const lcls = listeCls[p.liste]||'pda-noncomex';
     return `<tr class="pda-tr">
       <td class="pda-td" style="font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap">${fmtD(p.date)}</td>
-      <td class="pda-td"><span class="pda-liste ${lcls}">${p.liste||''}</span>${p.mois_comex?`<div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-top:3px">${p.mois_comex}</div>`:p.contexte?`<div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-top:3px">${p.contexte}</div>`:''}</td>
+      <td class="pda-td">
+        <span class="pda-liste ${lcls}">${p.liste||''}</span>
+        ${p.mois_comex?`<div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-top:2px">${p.mois_comex}</div>`:p.contexte?`<div style="font-size:10px;font-family:'DM Mono',monospace;color:var(--text3);margin-top:2px">${p.contexte}</div>`:''}
+      </td>
       <td class="pda-td" style="font-weight:500">${p.tache||''}</td>
       <td class="pda-td" style="font-family:'DM Mono',monospace;font-size:11px;white-space:nowrap">${fmtD(p.delai)}</td>
       <td class="pda-td">${p.porteur||''}</td>
@@ -678,8 +708,130 @@ function renderPda() {
         <button class="btn-sm" onclick="deletePda(${i})">🗑</button>
       </td>
     </tr>`;
+  }).join('') : `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucune action enregistrée</td></tr>`;
+
+  tree.innerHTML = `
+    <div class="pda-tree-wrap">
+      <!-- NŒUD ASM -->
+      <div class="pda-asm-node">
+        <div class="pda-asm-header">
+          <span class="pda-asm-icon">👤</span>
+          <span class="pda-asm-nom" style="color:${asmColor}">${asmNom}</span>
+          <span class="pda-asm-badge">${pda.length} action${pda.length>1?'s':''}</span>
+        </div>
+        <!-- NŒUD CLIENT -->
+        <div class="pda-client-node">
+          <div class="pda-client-header">
+            <span class="pda-tree-line">└─</span>
+            <span class="pda-client-avatar" style="background:${clientColor(c)}18;color:${clientColor(c)}">${c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase()}</span>
+            <span class="pda-client-nom">${c.nom}</span>
+            <button class="btn-add" style="margin-left:auto" onclick="openAddPda()">+ Ajouter</button>
+          </div>
+          <div class="pda-table-wrap">
+            <table style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
+                  <th class="pda-th">Date</th>
+                  <th class="pda-th">Liste</th>
+                  <th class="pda-th">Tâche à réaliser</th>
+                  <th class="pda-th">Délai</th>
+                  <th class="pda-th">Porteur</th>
+                  <th class="pda-th">Statut</th>
+                  <th class="pda-th">Commentaire</th>
+                  <th style="width:80px;"></th>
+                </tr>
+              </thead>
+              <tbody>${tableRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── PDA ──
+let editStatePda = null;
+
+// ── MODAL CONFIG ASM ──
+window.openModalAsmConfig = function() {
+  renderAsmConfigList();
+  document.getElementById('modal-asm-config').style.display='flex';
+};
+
+function renderAsmConfigList() {
+  const el = document.getElementById('asm-config-list');
+  if (!asmTeams.length) { el.innerHTML='<div style="color:var(--text3);font-size:13px;font-family:\'DM Mono\',monospace;padding:12px 0">Aucun ASM configuré</div>'; return; }
+  el.innerHTML = asmTeams.map((t,i) => {
+    const clientNoms = (t.clientIds||[]).map(id => { const c = clients.find(x=>x.id===id); return c?c.nom:''; }).filter(Boolean).join(', ');
+    return `<div class="asm-cfg-row">
+      <div class="asm-cfg-info">
+        <div class="asm-cfg-nom">👤 ${t.nom}</div>
+        <div class="asm-cfg-clients">${clientNoms||'Aucun client affecté'}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn-sm-edit" onclick="editAsmConfig('${t.id}')">✏️</button>
+        <button class="btn-sm" onclick="deleteAsmConfig('${t.id}')">🗑</button>
+      </div>
+    </div>`;
   }).join('');
 }
+
+window.addNewAsm = function() {
+  document.getElementById('asm-cfg-edit').style.display='block';
+  document.getElementById('asm-cfg-id').value = Date.now().toString();
+  document.getElementById('asm-cfg-nom').value = '';
+  renderAsmClientCheckboxes('');
+};
+
+window.editAsmConfig = function(id) {
+  const t = asmTeams.find(x=>x.id===id); if (!t) return;
+  document.getElementById('asm-cfg-edit').style.display='block';
+  document.getElementById('asm-cfg-id').value = t.id;
+  document.getElementById('asm-cfg-nom').value = t.nom||'';
+  renderAsmClientCheckboxes(t.id);
+};
+
+function renderAsmClientCheckboxes(asmId) {
+  const t = asmTeams.find(x=>x.id===asmId);
+  const sel = t ? (t.clientIds||[]) : [];
+  const el = document.getElementById('asm-clients-checkboxes');
+  el.innerHTML = clients.sort((a,b)=>a.nom.localeCompare(b.nom)).map(c => `
+    <label class="asm-check-label">
+      <input type="checkbox" value="${c.id}" ${sel.includes(c.id)?'checked':''}>
+      <span>${c.nom}</span>
+    </label>`).join('');
+}
+
+window.saveAsmConfig = async function() {
+  const id  = document.getElementById('asm-cfg-id').value;
+  const nom = document.getElementById('asm-cfg-nom').value.trim();
+  if (!nom) { toast('⚠️ Nom de l\'ASM obligatoire','error'); return; }
+  const clientIds = [...document.querySelectorAll('#asm-clients-checkboxes input:checked')].map(x=>x.value);
+  // Retirer ce client des autres ASM
+  asmTeams.forEach(t => { if (t.id!==id) t.clientIds=(t.clientIds||[]).filter(x=>!clientIds.includes(x)); });
+  const existing = asmTeams.find(x=>x.id===id);
+  if (existing) { existing.nom=nom; existing.clientIds=clientIds; }
+  else asmTeams.push({ id, nom, clientIds });
+  try {
+    toast('Enregistrement…');
+    await Promise.all(asmTeams.map(t=>saveAsmTeam(t)));
+    document.getElementById('asm-cfg-edit').style.display='none';
+    renderAsmConfigList();
+    renderPda();
+    toast('ASM enregistré ✓','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+window.deleteAsmConfig = async function(id) {
+  if (!confirm('Supprimer cet ASM ?')) return;
+  try {
+    await deleteAsmTeam(id);
+    asmTeams = asmTeams.filter(x=>x.id!==id);
+    renderAsmConfigList();
+    renderPda();
+    toast('ASM supprimé','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
 
 window.togglePdaReunion = function() {
   const v = document.getElementById('pda-liste').value;
@@ -784,9 +936,9 @@ function renderBilan() {
     </div>`;
   }
 
-  // ── INCIDENTS EN COURS ──
+  // ── INCIDENTS : Ouvert + En cours ──
   const incEnCours = (c.incidents||[])
-    .filter(i => i.statut && i.statut.toLowerCase().includes('cours'))
+    .filter(i => i.statut && (i.statut.toLowerCase().includes('cours') || i.statut.toLowerCase().includes('ouvert')))
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
     .map(i => ({
       date: i.date,
@@ -797,32 +949,19 @@ function renderBilan() {
       badge: i.statut
     }));
 
-  // ── OPPORTUNITÉS (toutes sauf Perdu) ──
+  // ── OPPORTUNITÉS : toutes ──
   const oppActives = (c.opportunites||[])
-    .filter(o => o.statut !== 'Perdu')
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
     .map(o => ({
       date: o.date,
-      color: o.statut==='Gagné'?'var(--green)':'var(--accent2)',
+      color: o.statut==='Gagné'?'var(--green)':o.statut==='Perdu'?'var(--red)':'var(--accent2)',
       titre: o.titre||'Opportunité',
       detail: [o.type||'', o.montant||''].filter(Boolean).join(' · '),
       extra: o.description||'',
       badge: o.statut
     }));
 
-  // ── SUJETS SENSIBLES (hors clôturé) ──
-  const notesActives = (c.notes||[])
-    .filter(n => n.statut !== 'Clôturé')
-    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
-    .map(n => ({
-      date: n.date,
-      color: n.niveau==='haute'?'var(--red)':n.niveau==='moyenne'?'var(--orange)':'var(--green)',
-      titre: (n.titre||'Note') + (n.categorie?' · '+n.categorie:''),
-      extra: n.contenu||'',
-      badge: n.statut||'En cours'
-    }));
-
-  // ── SITES EN SOUFFRANCE (hors résolu) ──
+  // ── SITES EN SOUFFRANCE : tout sauf résolu ──
   const sfActifs = (c.souffrances||[])
     .filter(s => s.statut !== 'resolu')
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
@@ -836,7 +975,7 @@ function renderBilan() {
       badge: s.statut
     }));
 
-  // ── PDA EN COURS ──
+  // ── PDA : En cours + En retard ──
   const pdaEnCours = (c.pda||[])
     .filter(p => p.statut === 'En cours' || p.statut === 'En retard')
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''))
@@ -844,16 +983,20 @@ function renderBilan() {
       date: p.date,
       color: p.statut==='En retard'?'var(--red)':'var(--orange)',
       titre: p.tache||'',
-      detail: [p.porteur?'👤 '+p.porteur:'', p.delai?'⏱ Délai: '+fmt(p.delai):''].filter(Boolean).join(' · '),
+      detail: [
+        p.liste==='COMEX'&&p.mois_comex?'📅 COMEX '+p.mois_comex:p.contexte?'📋 '+p.contexte:'',
+        p.porteur?'👤 '+p.porteur:'',
+        p.delai?'⏱ '+fmt(p.delai):''
+      ].filter(Boolean).join(' · '),
       extra: p.commentaire||'',
       badge: p.statut
     }));
 
   el.innerHTML = `<div class="bl-wrap"><div class="bl-sections">
-    ${section('🚨 Incidents majeurs en cours', incEnCours.length, sectionRows(incEnCours))}
-    ${section('💡 Opportunités actives', oppActives.length, sectionRows(oppActives))}
+    ${section('🚨 Incidents majeurs', incEnCours.length, sectionRows(incEnCours))}
+    ${section('💡 Opportunités', oppActives.length, sectionRows(oppActives))}
     ${section('⚠️ Sites en souffrance', sfActifs.length, sectionRows(sfActifs))}
-    ${section('📌 PDA en cours', pdaEnCours.length, sectionRows(pdaEnCours))}
+    ${section('📌 PDA', pdaEnCours.length, sectionRows(pdaEnCours))}
   </div></div>`;
 }
 
@@ -968,6 +1111,40 @@ function renderBilan() {
   .pda-liste  { display:inline-block; padding:2px 8px; border-radius:4px; font-family:'DM Mono',monospace; font-size:10px; font-weight:700; }
   .pda-comex    { background:rgba(37,99,235,.1);  color:var(--accent);  }
   .pda-noncomex { background:rgba(155,163,184,.1); color:var(--text3);  }
+
+  /* TABLEAUX UNIVERSELS */
+  .tbl-wrap { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; overflow-x:auto; }
+  .tbl { width:100%; border-collapse:collapse; }
+  .tbl-th { padding:10px 14px; text-align:left; font-family:'DM Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border); white-space:nowrap; }
+  .tbl-td { padding:9px 14px; font-size:13px; border-bottom:1px solid var(--border); vertical-align:top; }
+  .tbl-tr:last-child .tbl-td { border-bottom:none; }
+  .tbl-tr:hover { background:var(--surface2); }
+  .tbl-actions { display:flex; gap:4px; flex-wrap:nowrap; }
+  .tbl td.mono { font-family:'DM Mono',monospace; font-size:11px; white-space:nowrap; }
+  .tbl td.bold { font-weight:500; }
+
+  /* MODAL VIEW */
+  .vd-l { padding:6px 12px 6px 0; color:var(--text3); font-family:'DM Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:.05em; white-space:nowrap; width:120px; vertical-align:top; }
+  .vd-r { padding:6px 0; color:var(--text); font-size:13px; }
+  .pda-tree-wrap { display:flex; flex-direction:column; gap:12px; }
+  .pda-asm-node { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+  .pda-asm-header { display:flex; align-items:center; gap:10px; padding:12px 16px; background:var(--surface2); border-bottom:1px solid var(--border); }
+  .pda-asm-icon { font-size:16px; }
+  .pda-asm-nom { font-family:'Syne',sans-serif; font-weight:700; font-size:14px; flex:1; }
+  .pda-asm-badge { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:2px 8px; }
+  .pda-client-node { padding:12px 16px; }
+  .pda-client-header { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .pda-tree-line { font-family:'DM Mono',monospace; color:var(--text3); font-size:13px; }
+  .pda-client-avatar { width:28px; height:28px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-family:'Syne',sans-serif; font-weight:800; font-size:11px; flex-shrink:0; }
+  .pda-client-nom { font-family:'Syne',sans-serif; font-weight:700; font-size:13px; flex:1; }
+  .pda-table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+
+  /* MODAL ASM */
+  .asm-cfg-row { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; background:var(--surface2); border-radius:8px; margin-bottom:8px; }
+  .asm-cfg-nom { font-family:'Syne',sans-serif; font-weight:700; font-size:13px; }
+  .asm-cfg-clients { font-size:11px; color:var(--text3); font-family:'DM Mono',monospace; margin-top:2px; }
+  .asm-check-label { display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; padding:4px 2px; }
+  .asm-check-label:hover { color:var(--accent); }
   .pda-encours { background:rgba(217,119,6,.1);  color:var(--orange); }
   .pda-realise  { background:rgba(22,163,74,.1);  color:var(--green);  }
   .pda-retard   { background:rgba(220,38,38,.1);  color:var(--red);    }
@@ -1106,7 +1283,7 @@ function renderBilan() {
       <button class="tab-btn" onclick="switchTab('opportunites',this)">💡 Opportunités</button>
       <button class="tab-btn" onclick="switchTab('souffrances',this)">⚠️ Sites en souffrance</button>
       <button class="tab-btn" onclick="switchTab('pda',this)">📌 PDA</button>
-      <button class="tab-btn" onclick="switchTab('bilan',this)">📋 Bilan</button>
+      <button class="tab-btn" onclick="switchTab('bilan',this)">📋 Bilan des actions en cours</button>
     </div>
     <div id="content">
       <div class="tab-panel active" id="panel-incidents">
@@ -1162,27 +1339,9 @@ function renderBilan() {
       <div class="tab-panel" id="panel-pda">
         <div class="section-header">
           <span class="section-title">📌 Plan d'Action (PDA)</span>
-          <button class="btn-add" onclick="openAddPda()">+ Ajouter une action</button>
+          <button class="btn-add" onclick="openModalAsmConfig()">⚙️ Gérer les ASM</button>
         </div>
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
-          <table style="width:100%;border-collapse:collapse;">
-            <thead>
-              <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
-                <th class="pda-th">Date</th>
-                <th class="pda-th">Liste</th>
-                <th class="pda-th">Tâche à réaliser</th>
-                <th class="pda-th">Délai</th>
-                <th class="pda-th">Porteur</th>
-                <th class="pda-th">Statut</th>
-                <th class="pda-th">Commentaire</th>
-                <th style="width:80px;"></th>
-              </tr>
-            </thead>
-            <tbody id="pda-tbody">
-              <tr><td colspan="7" style="text-align:center;padding:2.5rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px;">Aucune action enregistrée</td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div id="pda-tree"></div>
       </div>
 
       <!-- BILAN -->
@@ -1408,6 +1567,39 @@ function renderBilan() {
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('modal-pda')">Annuler</button>
       <button class="btn-primary" onclick="savePda()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VIEW -->
+<div id="modal-view" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-view')">
+  <div class="modal">
+    <div class="modal-title">Détail <button class="modal-close" onclick="closeModal('modal-view')">✕</button></div>
+    <div id="view-modal-content"></div>
+    <div class="modal-footer"><button class="btn-cancel" onclick="closeModal('modal-view')">Fermer</button></div>
+  </div>
+</div>
+
+<!-- MODAL ASM CONFIG -->
+<div id="modal-asm-config" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-asm-config')">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-title">⚙️ Gestion des ASM <button class="modal-close" onclick="closeModal('modal-asm-config')">✕</button></div>
+    <div id="asm-config-list" style="margin-bottom:14px"></div>
+    <button class="btn-add" style="width:100%;justify-content:center;margin-bottom:16px" onclick="addNewAsm()">+ Nouvel ASM</button>
+    <div id="asm-cfg-edit" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
+      <input type="hidden" id="asm-cfg-id">
+      <div class="field"><label>Nom de l'ASM *</label><input id="asm-cfg-nom" placeholder="ex: Jean Dupont"></div>
+      <div class="field">
+        <label>Clients rattachés</label>
+        <div id="asm-clients-checkboxes" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px"></div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn-cancel" onclick="document.getElementById('asm-cfg-edit').style.display='none'">Annuler</button>
+        <button class="btn-primary" onclick="saveAsmConfig()">Enregistrer</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-asm-config')">Fermer</button>
     </div>
   </div>
 </div>
