@@ -111,77 +111,65 @@ function renderSidebar() {
   const list = document.getElementById('client-list');
   list.innerHTML = '';
 
-  // Grouper par ASM
-  const grouped = [];
-  asmTeams.forEach(t => {
-    const asmClients = (t.clientIds||[]).map(id=>filtered.find(c=>c.id===id)).filter(Boolean);
-    if (asmClients.length || !q) grouped.push({ asm:t, clients:asmClients });
-  });
-  const nonAffectes = filtered.filter(c => !asmTeams.some(t=>(t.clientIds||[]).includes(c.id)));
+  const makeClientDiv = (c, extraClass='') => {
+    const col = clientColor(c);
+    const ini = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+    const div = document.createElement('div');
+    div.className = 'client-item'+(c.id===currentClientId?' active':'')+(extraClass?' '+extraClass:'');
+    div.dataset.id = c.id;
+    div.onclick = () => selectClient(c.id);
+    div.innerHTML = `
+      <div class="client-avatar" style="background:${col}18;color:${col}">${ini}</div>
+      <div class="client-info"><div class="client-name">${c.nom}</div><div class="client-meta">${c.segment||''} ${c.pays?'· '+c.pays:''}</div></div>
+      <div class="status-dot status-${c.statut}"></div>`;
+    return div;
+  };
 
-  if (grouped.length === 0 && nonAffectes.length === 0) {
-    // Pas d'ASM — affichage plat classique
-    filtered.forEach(c => {
-      const col = clientColor(c);
-      const initials = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
-      const div = document.createElement('div');
-      div.className = 'client-item'+(c.id===currentClientId?' active':'');
-      div.onclick = () => selectClient(c.id);
-      div.innerHTML = `
-        <div class="client-avatar" style="background:${col}18;color:${col}">${initials}</div>
-        <div class="client-info"><div class="client-name">${c.nom}</div><div class="client-meta">${c.segment||''} ${c.pays?'· '+c.pays:''}</div></div>
-        <div class="status-dot status-${c.statut}"></div>`;
-      list.appendChild(div);
-    });
+  if (!asmTeams.length) {
+    // Affichage plat classique sans ASM
+    filtered.forEach(c => list.appendChild(makeClientDiv(c)));
   } else {
-    // Affichage groupé par ASM
-    grouped.forEach(({asm, clients:asmClients}) => {
+    // Groupé par ASM
+    asmTeams.forEach(t => {
+      const asmClients = (t.clientIds||[]).map(id=>filtered.find(c=>c.id===id)).filter(Boolean);
+      if (!asmClients.length) return;
+
       const isOpen = asmClients.some(c=>c.id===currentClientId) || !q;
-      // En-tête ASM
-      const asmDiv = document.createElement('div');
-      asmDiv.className = 'sidebar-asm-group';
-      asmDiv.innerHTML = `
-        <div class="sidebar-asm-header" onclick="this.parentElement.classList.toggle('sidebar-asm-open')">
-          <span class="sidebar-asm-icon">👤</span>
-          <span class="sidebar-asm-nom">${asm.nom}</span>
-          <span class="sidebar-asm-count">${asmClients.length}</span>
-          <span class="sidebar-asm-chevron">▾</span>
-        </div>
-        <div class="sidebar-asm-clients">${asmClients.map(c => {
-          const col = clientColor(c);
-          const ini = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
-          const active = c.id===currentClientId?' active':'';
-          return `<div class="client-item sidebar-asm-client${active}" onclick="selectClient('${c.id}')">
-            <div class="client-avatar" style="background:${col}18;color:${col}">${ini}</div>
-            <div class="client-info"><div class="client-name">${c.nom}</div><div class="client-meta">${c.segment||''} ${c.pays?'· '+c.pays:''}</div></div>
-            <div class="status-dot status-${c.statut}"></div>
-          </div>`;
-        }).join('')}</div>`;
-      if (isOpen) asmDiv.classList.add('sidebar-asm-open');
-      list.appendChild(asmDiv);
+      const group = document.createElement('div');
+      group.className = 'sidebar-asm-group' + (isOpen?' sidebar-asm-open':'');
+
+      const header = document.createElement('div');
+      header.className = 'sidebar-asm-header';
+      header.innerHTML = `<span class="sidebar-asm-icon">👤</span><span class="sidebar-asm-nom">${t.nom}</span><span class="sidebar-asm-count">${asmClients.length}</span><span class="sidebar-asm-chevron">▾</span>`;
+      header.onclick = () => group.classList.toggle('sidebar-asm-open');
+
+      const clientsWrap = document.createElement('div');
+      clientsWrap.className = 'sidebar-asm-clients';
+      asmClients.forEach(c => clientsWrap.appendChild(makeClientDiv(c, 'sidebar-asm-client')));
+
+      group.appendChild(header);
+      group.appendChild(clientsWrap);
+      list.appendChild(group);
     });
 
-    // Clients sans ASM
+    // Non affectés
+    const nonAffectes = filtered.filter(c => !asmTeams.some(t=>(t.clientIds||[]).includes(c.id)));
     if (nonAffectes.length) {
-      const naDiv = document.createElement('div');
-      naDiv.className = 'sidebar-asm-group sidebar-asm-open';
-      naDiv.innerHTML = `
-        <div class="sidebar-asm-header" onclick="this.parentElement.classList.toggle('sidebar-asm-open')">
-          <span class="sidebar-asm-icon">—</span>
-          <span class="sidebar-asm-nom" style="color:var(--text3)">Non affectés</span>
-          <span class="sidebar-asm-count">${nonAffectes.length}</span>
-          <span class="sidebar-asm-chevron">▾</span>
-        </div>
-        <div class="sidebar-asm-clients">${nonAffectes.map(c => {
-          const col = clientColor(c);
-          const ini = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
-          return `<div class="client-item sidebar-asm-client${c.id===currentClientId?' active':''}" onclick="selectClient('${c.id}')">
-            <div class="client-avatar" style="background:${col}18;color:${col}">${ini}</div>
-            <div class="client-info"><div class="client-name">${c.nom}</div><div class="client-meta">${c.segment||''} ${c.pays?'· '+c.pays:''}</div></div>
-            <div class="status-dot status-${c.statut}"></div>
-          </div>`;
-        }).join('')}</div>`;
-      list.appendChild(naDiv);
+      const group = document.createElement('div');
+      group.className = 'sidebar-asm-group sidebar-asm-open';
+
+      const header = document.createElement('div');
+      header.className = 'sidebar-asm-header';
+      header.innerHTML = `<span class="sidebar-asm-icon">—</span><span class="sidebar-asm-nom" style="color:var(--text3)">Non affectés</span><span class="sidebar-asm-count">${nonAffectes.length}</span><span class="sidebar-asm-chevron">▾</span>`;
+      header.onclick = () => group.classList.toggle('sidebar-asm-open');
+
+      const clientsWrap = document.createElement('div');
+      clientsWrap.className = 'sidebar-asm-clients';
+      nonAffectes.forEach(c => clientsWrap.appendChild(makeClientDiv(c, 'sidebar-asm-client')));
+
+      group.appendChild(header);
+      group.appendChild(clientsWrap);
+      list.appendChild(group);
     }
   }
 
