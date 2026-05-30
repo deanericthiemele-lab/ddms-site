@@ -82,8 +82,46 @@ function uploadFile(file, clientId) {
 
 // ── INIT ──
 async function init() {
-  document.getElementById('login-overlay').style.display = 'flex';
-  setTimeout(() => document.getElementById('login-user').focus(), 100);
+  // Si accès visiteur via index.html, bypasser le login interne
+  if (sessionStorage.getItem('userRole') === 'visiteur') {
+    currentUser = 'visiteur';
+    document.getElementById('login-overlay').style.display = 'none';
+    document.getElementById('loading-overlay').style.display = 'flex';
+    try {
+      clients = await fsGetAllClients();
+      clients.sort((a,b) => a.nom.localeCompare(b.nom));
+      await loadAsmTeams();
+    } catch(e) { toast('Erreur Firestore : '+e.message, 'error'); }
+    document.getElementById('loading-overlay').style.display = 'none';
+    applyReadonlyMode();
+    renderSidebar();
+  } else {
+    document.getElementById('login-overlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('login-user').focus(), 100);
+  }
+}
+
+// ── MODE LECTURE SEULE (visiteur) ──
+function applyReadonlyMode() {
+  if (sessionStorage.getItem('userRole') !== 'visiteur') return;
+  // Masquer boutons d'écriture côté sidebar
+  const btnAddClient = document.querySelector('.btn-add-client');
+  if (btnAddClient) btnAddClient.style.display = 'none';
+  const btnAsmConfig = document.querySelector('.btn-asm-config');
+  if (btnAsmConfig) btnAsmConfig.style.display = 'none';
+  // Masquer bouton supprimer client dans topbar (injecté dynamiquement → via CSS)
+  const style = document.createElement('style');
+  style.textContent = `
+    .del-client-btn { display: none !important; }
+    .btn-add { display: none !important; }
+    .btn-sm-edit[onclick*="edit"] { display: none !important; }
+    .btn-sm[onclick*="delete"] { display: none !important; }
+    .btn-sm[onclick*="Delete"] { display: none !important; }
+    .status-badge { cursor: default !important; pointer-events: none !important; }
+  `;
+  document.head.appendChild(style);
+  // Bloquer cycleStatus (changement de statut)
+  window.cycleStatus = function() { toast('Accès lecture seule', 'error'); };
 }
 
 window.doLogin = async function() {
@@ -333,8 +371,8 @@ function renderIncidents() {
       <td class="tbl-td" style="max-width:160px;font-size:12px;color:var(--green)">${inc.resolution||'—'}</td>
       <td class="tbl-td tbl-actions">
         <button class="btn-sm-edit" onclick="viewIncident(${i})" title="Voir">👁</button>
-        <button class="btn-sm-edit" onclick="editIncident(${i})" title="Modifier">✏️</button>
-        <button class="btn-sm" onclick="deleteItem('incidents',${i})" title="Supprimer">🗑</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editIncident(${i})" title="Modifier">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('incidents',${i})" title="Supprimer">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('')}</tbody></table></div>`;
@@ -448,8 +486,8 @@ function renderDocuments() {
       <td class="tbl-td" style="max-width:150px;font-size:12px;color:var(--accent2)">${d.points_retenir||'—'}</td>
       <td class="tbl-td tbl-actions">
         ${d.fileUrl?`<button class="btn-sm-edit" onclick="openDocument('${d.fileUrl.replace(/'/g,"\\'")}')">📂</button>`:''}
-        <button class="btn-sm-edit" onclick="editDocument(${i})">✏️</button>
-        <button class="btn-sm" onclick="deleteItem('documents',${i})">🗑</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editDocument(${i})">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('documents',${i})">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('')}</tbody></table></div>`;
@@ -556,8 +594,8 @@ function renderOpportunites() {
       <td class="tbl-td mono">${o.montant||'—'}</td>
       <td class="tbl-td" style="max-width:220px;font-size:12px;color:var(--text2)">${o.description||'—'}</td>
       <td class="tbl-td tbl-actions">
-        <button class="btn-sm-edit" onclick="editOpportunite(${i})">✏️</button>
-        <button class="btn-sm" onclick="deleteItem('opportunites',${i})">🗑</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editOpportunite(${i})">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('opportunites',${i})">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('')}</tbody></table></div>`;
@@ -730,8 +768,8 @@ function renderSouffrances() {
       <td class="tbl-td" style="max-width:180px;font-size:12px;color:var(--text2)">${s.problemes||'—'}</td>
       <td class="tbl-td" style="max-width:180px;font-size:12px;color:var(--text2)">${s.comment||'—'}</td>
       <td class="tbl-td tbl-actions">
-        <button class="btn-sm-edit" onclick="editSouffrance(${i})">✏️</button>
-        <button class="btn-sm" onclick="deleteSouffrance(${i})">🗑</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editSouffrance(${i})">✏️</button>
+        <button class="btn-sm" onclick="deleteSouffrance(${i})">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('')}</tbody></table></div>`;
@@ -823,8 +861,8 @@ function renderPda() {
       <td class="tbl-td"><span class="pda-statut ${statutCls[p.statut]||'pda-encours'}">${p.statut||'—'}</span></td>
       <td class="tbl-td" style="max-width:160px;font-size:12px;color:var(--text2)">${p.commentaire||'—'}</td>
       <td class="tbl-td tbl-actions">
-        <button class="btn-sm-edit" onclick="editPda(${i})">✏️</button>
-        <button class="btn-sm" onclick="deletePda(${i})">🗑</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editPda(${i})">✏️</button>
+        <button class="btn-sm" onclick="deletePda(${i})">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('') : `<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:13px">Aucune action PDA</td></tr>`;
@@ -835,7 +873,7 @@ function renderPda() {
         <span class="pda-asm-icon">👤</span>
         <span class="pda-asm-nom">${asm ? asm.nom : 'Non affecté'}</span>
         <span class="pda-asm-badge">${pda.length} action${pda.length>1?'s':''}</span>
-        <button class="btn-add" style="margin-left:auto" onclick="openAddPda()">+ Ajouter</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-add" style="margin-left:auto" onclick="openAddPda()">+ Ajouter</button>`:''}
       </div>
       <div class="pda-client-node">
         <div class="pda-client-header">
@@ -1106,8 +1144,8 @@ function renderBilan() {
       <td class="tbl-td"><span class="tag ${sCls[o.statut]||'tag-blue'}">${o.statut||'—'}</span></td>
       <td class="tbl-td" style="max-width:200px;font-size:12px">${o.description||''}</td>
       <td class="tbl-td tbl-actions">
-        <button class="btn-sm-edit" onclick="editOpportunite(${o._i})">✏️</button>
-        <button class="btn-sm" onclick="deleteItem('opportunites',${o._i})">🗑</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editOpportunite(${o._i})">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('opportunites',${o._i})">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('')}</tbody></table>` : '<div class="bl-empty" style="padding:16px">Aucune opportunité.</div>';
@@ -1133,8 +1171,8 @@ function renderBilan() {
       <td class="tbl-td" style="max-width:180px;font-size:12px">${s.problemes||''}</td>
       <td class="tbl-td" style="max-width:180px;font-size:12px">${s.comment||''}</td>
       <td class="tbl-td tbl-actions">
-        <button class="btn-sm-edit" onclick="editSouffrance(${s._i})">✏️</button>
-        <button class="btn-sm" onclick="deleteSouffrance(${s._i})">🗑</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editSouffrance(${s._i})">✏️</button>
+        <button class="btn-sm" onclick="deleteSouffrance(${s._i})">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('')}</tbody></table>` : '<div class="bl-empty" style="padding:16px">Aucun site en souffrance actif.</div>';
@@ -1160,8 +1198,8 @@ function renderBilan() {
       <td class="tbl-td">${p.porteur||'—'}</td>
       <td class="tbl-td"><span class="tag ${cls}">${p.statut}</span></td>
       <td class="tbl-td tbl-actions">
-        <button class="btn-sm-edit" onclick="editPda(${p._i})">✏️</button>
-        <button class="btn-sm" onclick="deletePda(${p._i})">🗑</button>
+        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editPda(${p._i})">✏️</button>
+        <button class="btn-sm" onclick="deletePda(${p._i})">🗑</button>`:''}
       </td>
     </tr>`;
   }).join('')}</tbody></table>` : '<div class="bl-empty" style="padding:16px">Aucune action PDA en cours.</div>';
