@@ -249,7 +249,7 @@ function afficherTableauMensuel(data) {
     html += "</tr>";
 
     // Ligne récurrent (sous chaque année)
-    html += "<tr style='background:#fff8f0;font-size:14px;color:#c2440f;font-weight:600;'>";
+    html += "<tr style='background:#fff8f0;font-size:11px;color:#c2440f;'>";
     html += "<td style='padding-left:10px;font-style:italic;white-space:nowrap;'>↳ Récurent (FCFA)</td>";
     html += "<td style='font-weight:bold;white-space:nowrap;text-align:right;'>"
       + Math.round(totalRecAnnuel).toLocaleString("fr-FR") + "</td>";
@@ -299,64 +299,110 @@ function afficherTableau(data, id) {
   document.getElementById(id).innerHTML = html;
 }
 
-function normaliserClient(nom) {
-  if (!nom) return "INCONNU";
-  let n = nom.toUpperCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
-    .replace(/[^A-Z0-9 ]/g," ")
-    .replace(/\b(SA|SAS|SARL|CI|COTE DIVOIRE|COTE D IVOIRE|INTERNATIONAL|LIMITED|LTD)\b/g, "")
-    .replace(/\s+/g," ")
+// Mots à supprimer pour normalisation (formes juridiques + mots génériques CI)
+const STOP_WORDS = new Set([
+  "SA","SAS","SARL","SNC","SUARL","SURL","GIE","ONG","ASSOCIATION","ASSOC",
+  "CI","RCI","COTE","DIVOIRE","IVOIRE","INTERNATIONAL","INTER","LIMITED","LTD",
+  "GROUP","GROUPE","HOLDING","SERVICES","SERVICE","SOLUTION","SOLUTIONS",
+  "TECHNOLOGIES","TECHNOLOGIE","TECH","SYSTEMS","SYSTEM","SYSTEME",
+  "ET","AND","DE","DU","LA","LE","LES","L","D","THE","OF",
+  "BUREAU","AGENCE","CABINET","CENTRE","CENTER","DIRECTION",
+  "ABIDJAN","COCODY","PLATEAU","MARCORY","TREICHVILLE","YOPOUGON"
+]);
+
+// Règles explicites : si le nom normalisé contient ce pattern → ce label
+const REGLES_EXPLICITES = [
+  [/ORANGE\s*BUSINESS/,          "ORANGE BUSINESS SERVICES"],
+  [/STANDARD\s*CHARTERED/,       "STANDARD CHARTERED BANK"],
+  [/ECOBANK/,                    "ECOBANK"],
+  [/CFAO/,                       "CFAO"],
+  [/AIR\s*(COTE|IVOIRE)/,        "AIR CÔTE D'IVOIRE"],
+  [/MULTIMEDIA/,                 "CI-TELECOM / MULTIMEDIA"],
+  [/CI.?TELECOM|CITELEC/,        "CI-TELECOM / MULTIMEDIA"],
+  [/BRASSIVOIRE/,                "BRASSIVOIRE"],
+  [/SUNU\s*ASSUR/,               "SUNU ASSURANCES"],
+  [/VIPNET/,                     "VIPNET"],
+  [/MUGEF|MUTUELLE\s*GEN/,       "MUGEF-CI"],
+  [/CANAL\s*\+?|CANALSAT/,       "CANAL+"],
+  [/UCP\s*SANT|UNITE.*COORD/,    "UCP SANTÉ BM"],
+  [/SGBCI|SOCIETE\s*GEN/,        "SOCIÉTÉ GÉNÉRALE CI"],
+  [/BNI\b|BANQUE\s*NAT.*INVEST/, "BNI"],
+  [/NSIA\s*BANQUE/,              "NSIA BANQUE"],
+  [/NSIA\s*ASSUR/,               "NSIA ASSURANCES"],
+  [/BICICI/,                     "BICICI"],
+  [/BOA\b|BANK.*AFRICA/,         "BANK OF AFRICA"],
+  [/CORIS\s*BANK/,               "CORIS BANK"],
+  [/UBA\b/,                      "UBA"],
+  [/MANSA\s*MUSA|MANSAMUSA/,     "MANSA MUSA"],
+  [/SIVOM|OFFICE.*VOIRIE/,       "SIVOM"],
+  [/SOTRA\b/,                    "SOTRA"],
+  [/CIE\b|COMPAGNIE.*ELECTR/,    "CIE"],
+  [/SODECI/,                     "SODECI"],
+  [/PETROCI/,                    "PETROCI"],
+  [/SIR\b|RAFFINERIE/,           "SIR"],
+  [/PALMCI/,                     "PALMCI"],
+  [/NESTLE/,                     "NESTLÉ"],
+  [/UNILEVER/,                   "UNILEVER"],
+  [/TOTAL.*ENERG|TOTALENERG/,    "TOTALENERGIES"],
+  [/SHELL/,                      "SHELL"],
+  [/MTN\b/,                      "MTN"],
+  [/MOOV/,                       "MOOV AFRICA"],
+  [/WAVE\b/,                     "WAVE"],
+  [/TRESOR.*PUBLIC|DIR.*TRESOR/, "TRÉSOR PUBLIC"],
+  [/DGBF|DIR.*BUDGET/,           "DGBF"],
+  [/CHU\b|CENTRE\s*HOSP.*UNIV/,  "CHU"],
+  [/AMBASSADE.*ETATS|AMBASS.*USA/,"AMBASSADE USA"],
+  [/AZUR|HOTEL\s*AZUR/,          "HÔTEL AZUR"],
+  [/SOFITEL/,                    "SOFITEL"],
+  [/PULLMAN/,                    "PULLMAN"],
+  [/RADISSON/,                   "RADISSON"],
+];
+
+function normaliserBrut(nom) {
+  if (!nom) return "";
+  return nom.toUpperCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
-
-  if (n.includes("ORANGE BUSINESS")) return "ORANGE BUSINESS SERVICES";
-  if (n.includes("STANDARD CHARTERED")) return "STANDARD CHARTERED BANK";
-  if (n.includes("ECOBANK")) return "ECOBANK";
-  if (n.includes("CFAO")) return "CFAO";
-  if (n.includes("AIR COTE DIVOIRE")) return "AIR COTE DIVOIRE";
-  if (n.includes("MULTIMEDIA")) return "COTE D'IVOIRE MULTIMEDIA";
-  if (n.includes("BRASSIVOIRE")) return "BRASSIVOIRE";
-  if (n.includes("SUNU ASSURANCES")) return "SUNU ASSURANCES";
-  if (n.includes("VIPNET")) return "VIPNET";   // ✅ Nouvelle règle ajoutée
-
-  return n;
 }
 
-function levenshtein(a, b) {
-  if (!a || !b) return Math.max(a?.length||0, b?.length||0);
-  let matrix = [];
-  let i, j;
-  for (i = 0; i <= b.length; i++) {
-    matrix[i] = [i];
+function cleRegroupement(nom) {
+  if (!nom) return "INCONNU";
+  const brut = normaliserBrut(nom);
+
+  // 1. Règles explicites en priorité
+  for (const [pattern, label] of REGLES_EXPLICITES) {
+    if (pattern.test(brut)) return label;
   }
-  for (j = 0; j <= a.length; j++) {
-    matrix[0][j] = j;
-  }
-  for (i = 1; i <= b.length; i++) {
-    for (j = 1; j <= a.length; j++) {
-      if (b.charAt(i-1) == a.charAt(j-1)) {
-        matrix[i][j] = matrix[i-1][j-1];
-      } else {
-        matrix[i][j] = Math.min(
-          matrix[i-1][j-1] + 1,
-          Math.min(matrix[i][j-1] + 1, matrix[i-1][j] + 1)
-        );
-      }
-    }
-  }
-  return matrix[b.length][a.length];
+
+  // 2. Extraction des tokens significatifs (≥3 chars, pas stop word)
+  const tokens = brut.split(" ").filter(t => t.length >= 3 && !STOP_WORDS.has(t));
+
+  // 3. Clé = les 2 premiers tokens significatifs (ou 1 si un seul)
+  if (tokens.length === 0) return brut || "INCONNU";
+  return tokens.slice(0, 2).join(" ");
 }
 
-function trouverGroupeSimilaire(groupes, nom, seuil=3) {
-  let minDist = Infinity;
-  let best = null;
+// Jaccard sur tokens pour valider si deux clés doivent fusionner
+function jaccardTokens(a, b) {
+  const ta = new Set(a.split(" ").filter(t => t.length >= 3));
+  const tb = new Set(b.split(" ").filter(t => t.length >= 3));
+  if (ta.size === 0 && tb.size === 0) return 1;
+  let inter = 0;
+  ta.forEach(t => { if (tb.has(t)) inter++; });
+  const union = ta.size + tb.size - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+function trouverGroupeSimilaire(groupes, cle) {
+  // Correspondance exacte
+  if (groupes[cle]) return cle;
+  // Jaccard ≥ 0.6 sur les tokens de la clé
   for (let g in groupes) {
-    let d = levenshtein(nom, g);
-    if (d < minDist && d <= seuil) {
-      minDist = d;
-      best = g;
-    }
+    if (jaccardTokens(cle, g) >= 0.6) return g;
   }
-  return best;
+  return null;
 }
 
 function afficherTableauResume(data) {
@@ -364,23 +410,35 @@ function afficherTableauResume(data) {
   const groupes = {};
 
   data.forEach(row => {
-    
-    let cle = normaliserClient(row["Clients"]);
-    let similaire = trouverGroupeSimilaire(groupes, cle);
-    if (similaire) cle = similaire;
-    
+    let cle = cleRegroupement(row["Clients"]);
+    let existant = trouverGroupeSimilaire(groupes, cle);
+    if (existant) cle = existant;
+
     if (!groupes[cle]) groupes[cle] = { volume: 0, recurent: 0, originaux: [] };
     groupes[cle].volume++;
     groupes[cle].originaux.push(row["Clients"]);
-    const montant = String(row["Récurent"] || "0").replace(/\./g,"").replace(",",".");
-    groupes[cle].recurent += Number(montant);
+    groupes[cle].recurent += parseRecurent(row);
   });
 
-  let html = "<div class='tableau-scroll'><table><thead><tr><th>Client regroupé</th><th>Volume</th></tr></thead><tbody>";
+  let html = "<div class='tableau-scroll'><table><thead><tr>"
+    + "<th>#</th><th>Client regroupé</th><th>Volume</th><th>Récurent (FCFA)</th>"
+    + "</tr></thead><tbody>";
+  let rank = 0;
   Object.entries(groupes)
-    .sort((a,b) => b[1].volume - a[1].volume) // tri par volume décroissant
-    .forEach(([groupe, data]) => {
-      html += `<tr><td>${groupe}</td><td style="cursor:pointer;color:blue;text-decoration:underline" onclick="afficherPopupClientsRegroupes('${groupe}')">${data.volume}</td></tr>`;
+    .sort((a, b) => b[1].volume - a[1].volume)
+    .forEach(([groupe, info]) => {
+      rank++;
+      const rec = info.recurent > 0
+        ? Math.round(info.recurent).toLocaleString("fr-FR") + " FCFA" : "-";
+      html += `<tr>
+        <td>${rank}</td>
+        <td style="text-align:left">${groupe}</td>
+        <td style="cursor:pointer;color:blue;text-decoration:underline;font-weight:bold"
+            onclick="afficherPopupClientsRegroupes('${groupe.replace(/'/g,"\\'")}')">
+          ${info.volume}
+        </td>
+        <td style="color:#c2440f;font-weight:600">${rec}</td>
+      </tr>`;
     });
   html += "</tbody></table></div>";
 
