@@ -128,6 +128,24 @@ async function chargerExcel() {
   });
 }
 
+// Fonction centrale de parsing du récurrent — robuste à l'encodage et au format
+function parseRecurent(row) {
+  // Détection dynamique de la clé (accent, espace, casse...)
+  const key = Object.keys(row).find(k => k.replace(/\s/g,'').toLowerCase() === 'récurent'
+    || k.replace(/\s/g,'').toLowerCase() === 'recurrent'
+    || k.replace(/\s/g,'').toLowerCase() === 'r\u00e9curent');
+  const val = key ? row[key] : null;
+  if (val == null || val === '') return 0;
+  // Si c'est déjà un nombre (XLSX parse parfois directement en Number)
+  if (typeof val === 'number') return val;
+  // Sinon nettoyage string : espaces, points séparateurs de milliers, virgule décimale
+  const s = String(val)
+    .replace(/\s/g, '')           // espaces insécables et normaux
+    .replace(/\.(?=\d{3})/g, '')  // points séparateurs de milliers (1.500.000)
+    .replace(',', '.');            // virgule décimale → point
+  return parseFloat(s) || 0;
+}
+
 function mettreAJourAffichage() {
   afficherKPI(dataFiltre);
   afficherKPI2026(dataFiltre);
@@ -139,26 +157,21 @@ function mettreAJourAffichage() {
     return (db?db.getTime():0) - (da?da.getTime():0);
   });
 
-  // On ne filtre QUE pour la liste et le par client
-const uniquement2026 = totalTrie.filter(r => {
-  let d = getDateFromCell(r["Date résiliation "] || r["Date résiliation"]);
-  return d && d.getFullYear() === 2026;
-});
+  const uniquement2026 = totalTrie.filter(r => {
+    let d = getDateFromCell(r["Date résiliation "] || r["Date résiliation"]);
+    return d && d.getFullYear() === 2026;
+  });
 
-const totalFormate = formatDatesInRows(uniquement2026);
-afficherTableau(totalFormate, "tableau");
-afficherTableauResume(totalFormate);
+  // Calcul récurrent sur données brutes (avant formatDatesInRows qui ne touche pas Récurent)
+  let sommeRecurent = uniquement2026.reduce((acc, row) => acc + parseRecurent(row), 0);
 
-  
-  let sommeRecurent = totalFormate.reduce((acc, row) => {
-    let montant = String(row["Récurent"] || "0")
-      .replace(/[^0-9,.-]/g,"")
-      .replace(/\./g,"")
-      .replace(",","."); 
-    return acc + (parseFloat(montant) || 0);
-  }, 0);
-  document.getElementById("titre-resi").innerText = "Liste totale des résiliations 2026 (" + totalFormate.length + ") - Total Récurent : " + sommeRecurent.toLocaleString("fr-FR") + " FCFA";
+  const totalFormate = formatDatesInRows(uniquement2026);
+  afficherTableau(totalFormate, "tableau");
+  afficherTableauResume(totalFormate);
 
+  document.getElementById("titre-resi").innerText =
+    "Liste totale des résiliations 2026 (" + totalFormate.length + ") - Total Récurent : " +
+    Math.round(sommeRecurent).toLocaleString("fr-FR") + " FCFA";
 }
 
 function afficherKPI(data) {
@@ -189,6 +202,7 @@ function afficherKPI2026(data) {
 
 function afficherTableauMensuel(data) {
   let volumes = {};
+  let recurents = {};
   let details = {};
 
   data.forEach(d => {
@@ -197,8 +211,9 @@ function afficherTableauMensuel(data) {
     const mois = dateRes.getMonth();
     const annee = dateRes.getFullYear();
     const cle = annee + "-" + mois;
-    if (!volumes[cle]) { volumes[cle] = 0; details[cle] = []; }
+    if (!volumes[cle]) { volumes[cle] = 0; recurents[cle] = 0; details[cle] = []; }
     volumes[cle]++;
+    recurents[cle] += parseRecurent(d);
     details[cle].push(d);
   });
 
@@ -206,34 +221,49 @@ function afficherTableauMensuel(data) {
                       "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
 
   let annees = [...new Set(Object.keys(volumes).map(k => k.split("-")[0]))].sort();
-  let html = "<table><thead><tr><th>Année</th><th>Total</th>" + moisLabels.map(m=>"<th>"+m+"</th>").join("") + "</tr></thead><tbody>";
+  let html = "<table><thead><tr>"
+    + "<th>Année</th><th>Total</th>"
+    + moisLabels.map(m => "<th>" + m + "</th>").join("")
+    + "</tr></thead><tbody>";
 
-annees.forEach(annee => {
-  let totalAnnuel = 0;
-  html += "<tr><td>"+annee+"</td>";
-
-  for (let m=0; m<12; m++) {
-    const cle = annee+"-"+m;
-    totalAnnuel += volumes[cle] || 0;
-  }
-  html += "<td style='font-weight:bold'>"+totalAnnuel+"</td>";
-
-  for (let m=0; m<12; m++) {
-    const cle = annee+"-"+m;
-    const val = volumes[cle] || 0;
-    if (val > 0) {
-      html += `<td style="cursor:pointer;color:blue;text-decoration:underline" 
-                 onclick="afficherPopupClients('${annee}', ${m})">${val}</td>`;
-    } else {
-      html += "<td>0</td>";
+  annees.forEach(annee => {
+    let totalAnnuel = 0;
+    let totalRecAnnuel = 0;
+    for (let m = 0; m < 12; m++) {
+      const cle = annee + "-" + m;
+      totalAnnuel   += volumes[cle]   || 0;
+      totalRecAnnuel += recurents[cle] || 0;
     }
-  }
-  html += "</tr>";
-});
 
-html += "</tbody></table>";
-document.getElementById("tableau-mensuel").innerHTML = html;
+    // Ligne volumes
+    html += "<tr><td><b>" + annee + "</b></td><td style='font-weight:bold'>" + totalAnnuel + "</td>";
+    for (let m = 0; m < 12; m++) {
+      const cle = annee + "-" + m;
+      const val = volumes[cle] || 0;
+      if (val > 0) {
+        html += `<td style="cursor:pointer;color:blue;text-decoration:underline" onclick="afficherPopupClients('${annee}', ${m})">${val}</td>`;
+      } else {
+        html += "<td>0</td>";
+      }
+    }
+    html += "</tr>";
 
+    // Ligne récurrent (sous chaque année)
+    html += "<tr style='background:#fff8f0;font-size:11px;color:#c2440f;'>";
+    html += "<td style='padding-left:10px;font-style:italic;white-space:nowrap;'>↳ Récurent (FCFA)</td>";
+    html += "<td style='font-weight:bold;white-space:nowrap;text-align:right;'>"
+      + Math.round(totalRecAnnuel).toLocaleString("fr-FR") + "</td>";
+    for (let m = 0; m < 12; m++) {
+      const cle = annee + "-" + m;
+      const rec = recurents[cle] || 0;
+      html += "<td style='white-space:nowrap;text-align:right;'>"
+        + (rec > 0 ? Math.round(rec).toLocaleString("fr-FR") : "-") + "</td>";
+    }
+    html += "</tr>";
+  });
+
+  html += "</tbody></table>";
+  document.getElementById("tableau-mensuel").innerHTML = html;
   window.detailsMensuels = details;
 }
 
