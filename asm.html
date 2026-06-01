@@ -113,6 +113,7 @@ function applyReadonlyMode() {
   const style = document.createElement('style');
   style.textContent = `
     .del-client-btn { display: none !important; }
+    .edit-client-btn { display: none !important; }
     .btn-add { display: none !important; }
     .btn-sm-edit[onclick*="edit"] { display: none !important; }
     .btn-sm[onclick*="delete"] { display: none !important; }
@@ -123,6 +124,79 @@ function applyReadonlyMode() {
   // Bloquer cycleStatus (changement de statut)
   window.cycleStatus = function() { toast('Accès lecture seule', 'error'); };
 }
+
+// ── MODIFIER FICHE CLIENT ──
+window.openEditClient = function() {
+  const c = getClient(); if (!c) return;
+  document.getElementById('ec-nom').value = c.nom || '';
+  document.getElementById('ec-segment').value = c.segment || '';
+  document.getElementById('ec-statut').value = c.statut || 'sain';
+
+  // Peupler la liste ASM
+  const sel = document.getElementById('ec-asm');
+  sel.innerHTML = '<option value="">— Non affecté —</option>' +
+    asmTeams.map(t => `<option value="${t.id}"${(t.clientIds||[]).includes(c.id)?' selected':''}>${t.nom}</option>`).join('') +
+    '<option value="__new__" style="color:var(--accent);font-weight:600">➕ Nouvel ASM…</option>';
+  document.getElementById('ec-asm-new-wrap').style.display = 'none';
+  document.getElementById('ec-asm-new').value = '';
+
+  document.getElementById('modal-edit-client').style.display = 'flex';
+};
+
+window.toggleEditAsmInput = function() {
+  const sel = document.getElementById('ec-asm');
+  document.getElementById('ec-asm-new-wrap').style.display = sel.value === '__new__' ? 'block' : 'none';
+  if (sel.value === '__new__') document.getElementById('ec-asm-new').focus();
+};
+
+window.updateClient = async function() {
+  const c = getClient(); if (!c) return;
+  const nom = document.getElementById('ec-nom').value.trim();
+  if (!nom) { toast('⚠️ Le nom est obligatoire', 'error'); return; }
+
+  c.nom = nom;
+  c.segment = document.getElementById('ec-segment').value.trim();
+  c.statut = document.getElementById('ec-statut').value;
+
+  let newAsmId = document.getElementById('ec-asm').value;
+
+  try {
+    // Retirer le client de tous les ASM existants
+    for (const team of asmTeams) {
+      if ((team.clientIds||[]).includes(c.id)) {
+        team.clientIds = team.clientIds.filter(id => id !== c.id);
+        await saveAsmTeam(team);
+      }
+    }
+
+    // Gérer ASM sélectionné
+    if (newAsmId === '__new__') {
+      const newNom = (document.getElementById('ec-asm-new').value || '').trim();
+      if (!newNom) { toast('⚠️ Saisissez le nom du nouvel ASM', 'error'); return; }
+      const newTeam = { id: 'asm_' + Date.now(), nom: newNom, clientIds: [c.id] };
+      await saveAsmTeam(newTeam);
+      asmTeams.push(newTeam);
+      asmTeams.sort((a,b) => a.nom.localeCompare(b.nom));
+    } else if (newAsmId) {
+      const team = asmTeams.find(t => t.id === newAsmId);
+      if (team) {
+        if (!team.clientIds) team.clientIds = [];
+        if (!team.clientIds.includes(c.id)) team.clientIds.push(c.id);
+        await saveAsmTeam(team);
+      }
+    }
+
+    toast('Enregistrement…');
+    await fsSaveClient(c);
+    clients.sort((a,b) => a.nom.localeCompare(b.nom));
+    closeModal('modal-edit-client');
+    document.getElementById('view-name').textContent = c.nom;
+    document.getElementById('view-segment').textContent = (c.segment||'')+(c.pays?' · '+c.pays:'');
+    updateStatusBadge(c);
+    renderSidebar();
+    toast('Client mis à jour ✓', 'success');
+  } catch(e) { toast('Erreur : ' + e.message, 'error'); }
+};
 
 window.doLogin = async function() {
   const u = document.getElementById('login-user').value.trim().toLowerCase();
@@ -1290,7 +1364,9 @@ function renderBilan() {
   .badge-sain{background:rgba(22,163,74,.12);color:var(--green);border:1px solid rgba(22,163,74,.25);}
   .badge-tendu{background:rgba(217,119,6,.12);color:var(--orange);border:1px solid rgba(217,119,6,.25);}
   .badge-critique{background:rgba(220,38,38,.12);color:var(--red);border:1px solid rgba(220,38,38,.25);}
-  .del-client-btn{background:none;border:1px solid rgba(220,38,38,.25);border-radius:8px;color:var(--red);font-size:11px;font-family:'DM Mono',monospace;padding:4px 10px;cursor:pointer;margin-left:auto;transition:all .15s;}
+  .edit-client-btn{background:none;border:1px solid rgba(37,99,235,.3);border-radius:8px;color:var(--accent);font-size:11px;font-family:'DM Mono',monospace;padding:4px 10px;cursor:pointer;margin-left:auto;transition:all .15s;}
+  .edit-client-btn:hover{background:rgba(37,99,235,.07);}
+  .del-client-btn{background:none;border:1px solid rgba(220,38,38,.25);border-radius:8px;color:var(--red);font-size:11px;font-family:'DM Mono',monospace;padding:4px 10px;cursor:pointer;margin-left:4px;transition:all .15s;}
   .del-client-btn:hover{background:rgba(220,38,38,.06);}
 
   .tabs{display:flex;padding:0 22px;background:var(--surface);overflow-x:auto;}
@@ -1526,6 +1602,7 @@ function renderBilan() {
           <div class="client-headline-segment" id="view-segment"></div>
         </div>
         <span class="status-badge" id="view-status-badge" onclick="cycleStatus()" title="Cliquer pour changer le statut"></span>
+        <button class="edit-client-btn" onclick="openEditClient()">✏️ Modifier</button>
         <button class="del-client-btn" onclick="deleteClient()">🗑 Supprimer</button>
       </div>
     </div>
@@ -1580,6 +1657,39 @@ function renderBilan() {
       <!-- BILAN -->
       <div class="tab-panel" id="panel-bilan"></div>
 
+    </div>
+  </div>
+</div>
+
+<!-- MODAL MODIFIER CLIENT -->
+<div id="modal-edit-client" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-edit-client')">
+  <div class="modal">
+    <div class="modal-title">✏️ Modifier le client <button class="modal-close" onclick="closeModal('modal-edit-client')">✕</button></div>
+    <div class="field"><label>Nom de l'opérateur *</label><input id="ec-nom" placeholder="ex: Orange CI"></div>
+    <div class="grid2">
+      <div class="field"><label>ASM</label>
+        <select id="ec-asm" onchange="toggleEditAsmInput()">
+          <option value="">— Non affecté —</option>
+          <option value="__new__">➕ Nouvel ASM…</option>
+        </select>
+        <div id="ec-asm-new-wrap" style="display:none;margin-top:6px">
+          <input id="ec-asm-new" placeholder="Nom du nouvel ASM…" style="width:100%;box-sizing:border-box">
+        </div>
+      </div>
+      <div class="field"><label>Activité</label>
+        <input id="ec-segment" placeholder="ex: Banque, Télécom, Distribution…">
+      </div>
+    </div>
+    <div class="field"><label>Statut relation</label>
+      <select id="ec-statut">
+        <option value="sain">🟢 Sain</option>
+        <option value="tendu">🟡 Tendu</option>
+        <option value="critique">🔴 Critique</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-edit-client')">Annuler</button>
+      <button class="btn-primary" onclick="updateClient()">Enregistrer</button>
     </div>
   </div>
 </div>
