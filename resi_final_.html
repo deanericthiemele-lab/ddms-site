@@ -152,9 +152,10 @@ afficherTableauResume(totalFormate);
   
   let sommeRecurent = totalFormate.reduce((acc, row) => {
     let montant = String(row["Récurent"] || "0")
+      .replace(/\s/g,"")       // espaces (séparateurs milliers)
       .replace(/[^0-9,.-]/g,"")
       .replace(/\./g,"")
-      .replace(",","."); 
+      .replace(",",".");
     return acc + (parseFloat(montant) || 0);
   }, 0);
   document.getElementById("titre-resi").innerText = "Liste totale des résiliations 2026 (" + totalFormate.length + ") - Total Récurent : " + sommeRecurent.toLocaleString("fr-FR") + " FCFA";
@@ -187,8 +188,24 @@ function afficherKPI2026(data) {
   document.getElementById("kpis2026").innerHTML = html;
 }
 
+function parseRecurent(val) {
+  return parseFloat(
+    String(val || "0")
+      .replace(/\s/g,"")
+      .replace(/[^0-9,.-]/g,"")
+      .replace(/\./g,"")
+      .replace(",",".")
+  ) || 0;
+}
+
+function formatFCFA(n) {
+  if (!n) return "0";
+  return Math.round(n).toLocaleString("fr-FR");
+}
+
 function afficherTableauMensuel(data) {
   let volumes = {};
+  let recurents = {};
   let details = {};
 
   data.forEach(d => {
@@ -197,8 +214,9 @@ function afficherTableauMensuel(data) {
     const mois = dateRes.getMonth();
     const annee = dateRes.getFullYear();
     const cle = annee + "-" + mois;
-    if (!volumes[cle]) { volumes[cle] = 0; details[cle] = []; }
+    if (!volumes[cle]) { volumes[cle] = 0; recurents[cle] = 0; details[cle] = []; }
     volumes[cle]++;
+    recurents[cle] += parseRecurent(d["Récurent"]);
     details[cle].push(d);
   });
 
@@ -210,11 +228,13 @@ function afficherTableauMensuel(data) {
 
 annees.forEach(annee => {
   let totalAnnuel = 0;
+  let totalRecurentAnnuel = 0;
   html += "<tr><td>"+annee+"</td>";
 
   for (let m=0; m<12; m++) {
     const cle = annee+"-"+m;
     totalAnnuel += volumes[cle] || 0;
+    totalRecurentAnnuel += recurents[cle] || 0;
   }
   html += "<td style='font-weight:bold'>"+totalAnnuel+"</td>";
 
@@ -227,6 +247,17 @@ annees.forEach(annee => {
     } else {
       html += "<td>0</td>";
     }
+  }
+  html += "</tr>";
+
+  // Ligne récurrent pour cette année
+  html += `<tr style="background:#fff8f0;font-size:11px;color:#b45309;">`;
+  html += `<td style="padding-left:12px;font-style:italic;white-space:nowrap;">↳ Récurent (FCFA)</td>`;
+  html += `<td style="font-weight:bold;white-space:nowrap;">${formatFCFA(totalRecurentAnnuel)}</td>`;
+  for (let m=0; m<12; m++) {
+    const cle = annee+"-"+m;
+    const rec = recurents[cle] || 0;
+    html += `<td style="white-space:nowrap;">${rec > 0 ? formatFCFA(rec) : "-"}</td>`;
   }
   html += "</tr>";
 });
