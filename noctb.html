@@ -5332,24 +5332,50 @@ function filtreN2(mode, btn){
 
 // ── MODAL N1 ──
 // ═══ RAPPORT HEBDOMADAIRE — NOUVEAU ═══
-let RDB1=JSON.parse(localStorage.getItem('rn1')||'[]');
-let RDB2=JSON.parse(localStorage.getItem('rn2')||'[]');
+let RDB1=[];
+let RDB2=[];
 let _rso2=true;
 function rTd(){return new Date().toISOString().slice(0,10);}
 function rSw(d){const dt=new Date(d),j=new Date(dt.getFullYear(),0,1);return Math.ceil(((dt-j)/86400000+j.getDay()+1)/7);}
 function rSc(){return rSw(rTd());}
-function rSvLocal(){localStorage.setItem('rn1',JSON.stringify(RDB1));localStorage.setItem('rn2',JSON.stringify(RDB2));}
 function rG(id){return document.getElementById(id);}
 function rGi(id){return parseInt(rG(id)?.value)||0;}
 function rGf(id){return parseFloat(rG(id)?.value)||0;}
 function rGv(id){return (rG(id)?.value||'').trim();}
+
+async function rLoadFirestore(){
+  try{
+    const db=window._db;
+    const [s1,s2]=await Promise.all([
+      window._gets(window._col(db,'noc_rn1')),
+      window._gets(window._col(db,'noc_rn2'))
+    ]);
+    RDB1=s1.docs.map(d=>({...d.data(),_fid:d.id}));
+    RDB2=s2.docs.map(d=>({...d.data(),_fid:d.id}));
+    rRenderN1(); rRenderN2();
+  }catch(e){console.error('rLoad',e);}
+}
+
+async function rSvFirestore(col,rec){
+  try{
+    const db=window._db;
+    const ref=await window._add(window._col(db,col),rec);
+    return ref.id;
+  }catch(e){console.error('rSv',e);}
+}
+
+async function rDelFirestore(col,fid){
+  try{
+    await window._del(window._doc(window._db,col,fid));
+  }catch(e){console.error('rDel',e);}
+}
 
 function rInitPage(){
   const ds1=rG('rd1'),ds2=rG('rn2d');
   if(ds1)ds1.value=rTd(); if(ds2)ds2.value=rTd();
   const cs=rG('rcs'),csp=rG('rcsp');
   if(cs)cs.value=rSc(); if(csp)csp.value=Math.max(1,rSc()-1);
-  rRenderN1(); rRenderN2();
+  rLoadFirestore();
 }
 
 function rTogPeriode(){
@@ -5371,25 +5397,37 @@ function rSetTab(t){
   if(b2){b2.style.background=t==='n2'?'var(--v)':'#fff';b2.style.color=t==='n2'?'#fff':'var(--n2)';}
 }
 
-function rAddN1(){
+async function rAddN1(){
   const d=rGv('rd1'); if(!d){toast('Date requise','warn');return;}
-  RDB1.push({id:Date.now(),date:d,semaine:rSw(d),
+  const rec={id:Date.now(),date:d,semaine:rSw(d),
     p1:rGi('rp1'),p2:rGi('rp2'),p3:rGi('rp3'),
     tk1:rGi('rtk1'),tk2:rGi('rtk2'),tk3:rGi('rtk3'),
-    tkd:rGi('rtkd1')});
-  rSvLocal(); rRenderN1(); rRstN1(); toast('Saisie N1 ajoutée','ok');
+    tkd:rGi('rtkd1')};
+  const fid=await rSvFirestore('noc_rn1',rec);
+  if(fid){rec._fid=fid;RDB1.push(rec);}
+  rRenderN1(); rRstN1(); toast('Saisie N1 ajoutée ✓','ok');
 }
-function rAddN2(){
+async function rAddN2(){
   const d=rGv('rn2d'); if(!d){toast('Date requise','warn');return;}
-  RDB2.push({id:Date.now(),date:d,semaine:rSw(d),
+  const rec={id:Date.now(),date:d,semaine:rSw(d),
     p1:rGi('rn2p1'),p2:rGi('rn2p2'),p3:rGi('rn2p3'),
     tk1:rGi('rn2tk1'),tk2:rGi('rn2tk2'),tk3:rGi('rn2tk3'),
     tkd:rGi('rn2tkd'),
-    c1:rGi('rn2c1'),c2:rGi('rn2c2'),c3:rGi('rn2c3')});
-  rSvLocal(); rRenderN2(); rRstN2(); toast('Saisie N2 ajoutée','ok');
+    c1:rGi('rn2c1'),c2:rGi('rn2c2'),c3:rGi('rn2c3')};
+  const fid=await rSvFirestore('noc_rn2',rec);
+  if(fid){rec._fid=fid;RDB2.push(rec);}
+  rRenderN2(); rRstN2(); toast('Saisie N2 ajoutée ✓','ok');
 }
-function rDelN1(id){RDB1=RDB1.filter(r=>r.id!==id);rSvLocal();rRenderN1();}
-function rDelN2(id){RDB2=RDB2.filter(r=>r.id!==id);rSvLocal();rRenderN2();}
+async function rDelN1(id){
+  const rec=RDB1.find(r=>r.id===id);
+  if(rec?._fid) await rDelFirestore('noc_rn1',rec._fid);
+  RDB1=RDB1.filter(r=>r.id!==id); rRenderN1();
+}
+async function rDelN2(id){
+  const rec=RDB2.find(r=>r.id===id);
+  if(rec?._fid) await rDelFirestore('noc_rn2',rec._fid);
+  RDB2=RDB2.filter(r=>r.id!==id); rRenderN2();
+}
 function rRstN1(){['rp1','rp2','rp3','rtk1','rtk2','rtk3','rtkd1'].forEach(i=>{const e=rG(i);if(e)e.value=0;});const d=rG('rd1');if(d)d.value=rTd();}
 function rRstN2(){['rn2p1','rn2p2','rn2p3','rn2tk1','rn2tk2','rn2tk3','rn2tkd','rn2c1','rn2c2','rn2c3'].forEach(i=>{const e=rG(i);if(e)e.value=0;});const d=rG('rn2d');if(d)d.value=rTd();}
 
