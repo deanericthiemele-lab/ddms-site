@@ -2265,8 +2265,8 @@ async function deleteContact(id){
           <div class="fgrp" style="margin:0">
             <label>Contact client</label>
             <div style="display:flex;gap:6px">
-              <input type="text" id="tk-contact-nom" placeholder="Nom" style="flex:1.2">
-              <input type="text" id="tk-contact-tel" placeholder="Téléphone" style="flex:1;font-family:var(--mono);font-size:12px">
+              <input type="text" id="tk-contact-nom" placeholder="Nom *" style="flex:1.2" required>
+              <input type="text" id="tk-contact-tel" placeholder="Téléphone *" style="flex:1;font-family:var(--mono);font-size:12px" required>
             </div>
           </div>
 
@@ -2780,7 +2780,7 @@ async function deleteContact(id){
 
       <div class="fgrp">
         <label>Ouvert par *</label>
-        <input type="text" id="tk-ouvert-par" placeholder="Ex: Dean COFFI, N1 NOC…">
+        <input type="text" id="tk-ouvert-par" placeholder="Ex: Dean COFFI, N1 NOC…" required>
       </div>
     </div>
     <div class="modal-foot" style="justify-content:space-between">
@@ -5845,33 +5845,78 @@ function ticketOpenModal(){ ticketResetForm(); }
 function ticketEdit(id){ ticketEditInline(id); }
 
 
+function ticketBuildMailto(t){
+  const debutFmt = t.debut ? new Date(t.debut).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '\u2014';
+  const contact  = [t.contact_nom, t.contact_tel, t.contact_mail].filter(Boolean).join(' / ') || '\u2014';
+  const subject  = encodeURIComponent('Indisponibilit\u00e9 du lien ' + (t.ref||'') + ' \u2014 ' + (t.client||''));
+  const lines = [
+    'Bonjour AT,',
+    '',
+    'Nous vous informons qu\u0027une indisponibilit\u00e9 du lien ci-dessous est observ\u00e9e.',
+    '',
+    'Client                  : ' + (t.client||'\u2014'),
+    'R\u00e9f\u00e9rence lien primaire : ' + (t.ref||'\u2014'),
+    'Type de lien            : ' + (t.type||'\u2014'),
+    'Date / heure de d\u00e9but   : ' + debutFmt,
+    'Localisation            : ' + (t.localisation||'\u2014'),
+    'Contact client          : ' + contact,
+    '',
+    'Veuillez ne pas r\u00e9pondre \u00e0 ce message. Cette adresse e-mail est d\u00e9di\u00e9e \u00e0 la surveillance des liens B2B OCI.',
+    'Pour toute question, merci de contacter votre \u00e9quipe habituelle SAV B2B : assistancetechniqueb2b.oci@orange.com'
+  ];
+  const body = encodeURIComponent(lines.join('\r\n'));
+  return 'mailto:assistancetechniqueb2b.oci@orange.com?subject=' + subject + '&body=' + body;
+}
+
 function ticketMailtoOpen(data){
-  const a = document.createElement('a');
-  a.href = ticketBuildMailto(data);
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(()=>document.body.removeChild(a), 500);
+  setTimeout(()=>{ window.location.href = ticketBuildMailto(data); }, 300);
+}
+
+function ticketOutlookById(id){
+  const t=(DB.tickets||[]).find(x=>x.id===id); if(!t) return;
+  window.location.href = ticketBuildMailto(t);
+}
+
+function ticketOpenOutlook(){
+  const t={
+    client:v('tk-client'), ref:v('tk-ref'), type:v('tk-type'),
+    debut:v('tk-debut'), localisation:v('tk-localisation'),
+    contact_nom:v('tk-contact-nom'), contact_tel:v('tk-contact-tel'), contact_mail:v('tk-contact-mail')
+  };
+  if(!t.client && !t.ref){ toast('Renseigner au moins Client et Référence','err'); return; }
+  window.location.href = ticketBuildMailto(t);
 }
 
 async function ticketSave(){
   if(!window._db){
     await new Promise(res => window.addEventListener('fbReady', res, {once:true}));
   }
-  const client = v('tk-client'); const tkRef = v('tk-ref'); const debut = v('tk-debut');
-  if(!client){ toast('Client requis','err'); return null; }
-  if(!tkRef){  toast('Référence lien requise','err'); return null; }
-  if(!debut){  toast('Date de début requise','err'); return null; }
+  const client     = v('tk-client');
+  const tkRef      = v('tk-ref');
+  const debut      = v('tk-debut');
+  const localisa   = v('tk-localisation');
+  const contNom    = v('tk-contact-nom');
+  const contTel    = v('tk-contact-tel');
+  const ouvertPar  = v('tk-ouvert-par');
+  if(!client)    { toast('Client obligatoire','err');           return null; }
+  if(!tkRef)     { toast('Référence lien obligatoire','err');   return null; }
+  if(!debut)     { toast('Date de début obligatoire','err');    return null; }
+  if(!localisa)  { toast('Localisation obligatoire','err');     return null; }
+  if(!contNom)   { toast('Nom contact obligatoire','err');      return null; }
+  if(!contTel)   { toast('Téléphone contact obligatoire','err');return null; }
+  if(!ouvertPar) { toast('Ouvert par obligatoire','err');       return null; }
 
   const data = {
-    client, ref: tkRef,
+    client,
+    ref         : tkRef,
     type        : v('tk-type'),
     debut,
-    localisation: v('tk-localisation'),
+    localisation: localisa,
     statut      : 'Ouvert',
-    contact_nom : v('tk-contact-nom'),
-    contact_tel : v('tk-contact-tel'),
+    contact_nom : contNom,
+    contact_tel : contTel,
     contact_mail: v('tk-contact-mail'),
-    ouvert_par  : v('tk-ouvert-par'),
+    ouvert_par  : ouvertPar,
     notes       : '',
     fin         : null
   };
