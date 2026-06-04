@@ -5,6 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rapport Réseau — NOC B2B</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+  const cfg = {
+    apiKey:"AIzaSyC4zvX8M3dyiGLjwQxYYensN2xYBgME_Mc",
+    authDomain:"ong-dons-app.firebaseapp.com",
+    projectId:"ong-dons-app",
+    storageBucket:"ong-dons-app.firebasestorage.app",
+    messagingSenderId:"1074497073956",
+    appId:"1:1074497073956:web:240dc3bb278da82f6139b1"
+  };
+  const app = initializeApp(cfg);
+  const db  = getFirestore(app);
+  window._db=db;
+  window._col=collection; window._add=addDoc; window._gets=getDocs;
+  window._doc=doc; window._del=deleteDoc; window._set=setDoc;
+  window.dispatchEvent(new Event('fbReady'));
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
@@ -1141,12 +1159,37 @@ document.getElementById("raw-input").addEventListener("input",function(){
 
 // ── SIDEBAR ───────────────────────────────────────────────────────────────────
 const SB_KEY = "noc_rapports_v1";
+let _rjCache = null; // cache local
 
-function getSaved(){ try{ return JSON.parse(localStorage.getItem(SB_KEY)||"[]"); } catch(e){ return []; } }
-function setSaved(arr){ localStorage.setItem(SB_KEY, JSON.stringify(arr)); }
+async function getSaved(){
+  if(_rjCache) return _rjCache;
+  try{
+    const snap = await window._gets(window._col(window._db,'noc_rapport_journalier'));
+    _rjCache = snap.docs.map(d=>({...d.data(),_fid:d.id}));
+    return _rjCache;
+  }catch(e){ console.error('getSaved',e); return []; }
+}
 
-function sbRenderList(){
-  const list = getSaved();
+async function setSaved(arr){
+  _rjCache = arr;
+}
+
+async function addToFirestore(entry){
+  try{
+    const ref = await window._add(window._col(window._db,'noc_rapport_journalier'), entry);
+    entry._fid = ref.id;
+    if(_rjCache) _rjCache.push(entry);
+  }catch(e){ console.error('addToFirestore',e); }
+}
+
+async function delFromFirestore(fid){
+  try{
+    await window._del(window._doc(window._db,'noc_rapport_journalier',fid));
+  }catch(e){ console.error('delFromFirestore',e); }
+}
+
+async function sbRenderList(){
+  const list = await getSaved();
   const ul = document.getElementById("sb-list");
   const empty = document.getElementById("sb-empty");
   const count = document.getElementById("sb-count");
@@ -1179,7 +1222,7 @@ function sbRenderList(){
   });
 }
 
-function saveCurrentReport(){
+async function saveCurrentReport(){
   if(!IF_DATA.length && !ND_DATA.length) return;
   const dateLabel = document.getElementById("hdr-date").textContent || "—";
   const period    = document.getElementById("hdr-period").textContent || "";
@@ -1200,15 +1243,17 @@ function saveCurrentReport(){
     hdrTotal: total
   };
 
-  const list = getSaved();
+  const list = await getSaved();
   // éviter doublons par date
   const dupIdx = list.findIndex(r=>r.label===label);
   if(dupIdx>=0){
     if(!confirm(`Un rapport pour "${label}" existe déjà.\nVoulez-vous le remplacer ?`)) return;
+    const old_fid = list[dupIdx]._fid;
+    if(old_fid) await delFromFirestore(old_fid);
     list.splice(dupIdx,1);
+    _rjCache = list;
   }
-  list.push(entry);
-  setSaved(list);
+  await addToFirestore(entry);
   window._currentSavedId = id;
 
   // feedback
@@ -1221,8 +1266,8 @@ function saveCurrentReport(){
   sbRenderList();
 }
 
-function loadSavedReport(id){
-  const list = getSaved();
+async function loadSavedReport(id){
+  const list = await getSaved();
   const r = list.find(x=>x.id===id);
   if(!r) return;
 
@@ -1261,13 +1306,14 @@ function loadSavedReport(id){
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
-function deleteSavedReport(id, e){
+async function deleteSavedReport(id, e){
   e.stopPropagation();
-  const list = getSaved();
+  const list = await getSaved();
   const r = list.find(x=>x.id===id);
   if(!r) return;
   if(!confirm(`Supprimer le rapport "${r.label}" ?`)) return;
-  setSaved(list.filter(x=>x.id!==id));
+  if(r._fid) await delFromFirestore(r._fid);
+  _rjCache = list.filter(x=>x.id!==id);
   if(window._currentSavedId===id) window._currentSavedId=null;
   sbRenderList();
 }
@@ -1622,8 +1668,8 @@ function exportPdf(){
   doc.save(fname);
 }
 
-// init
-sbRenderList();
+// init — attendre Firebase
+window.addEventListener('fbReady', ()=>{ sbRenderList(); });
 </script>
 </body>
 </html>
