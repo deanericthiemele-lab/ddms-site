@@ -31,9 +31,14 @@ let editState = { incidents: null, documents: null, opportunites: null };
 let pendingFile = null;
 
 // ── COMPTES AUTORISÉS ──
-const ACCOUNTS = { 'adminddms': 'adminddms', 'admin1': 'admin1', 'asm1': 'asm1' };
+// adminn    → superadmin (accès total + suppression)
+// adminddms → admin      (créer/modifier, pas de suppression)
+// visiteur  → visitor    (lecture seule)
+const ACCOUNTS = { 'adminn': 'adminn', 'adminddms': 'adminddms', 'visiteur': 'visiteur' };
 let currentUser = '';
-function canDelete() { return currentUser === 'admin1'; }
+let APP_ROLE = null; // 'superadmin' | 'admin' | 'visitor'
+function canDelete() { return APP_ROLE === 'superadmin'; }
+function canWrite()  { return APP_ROLE === 'superadmin' || APP_ROLE === 'admin'; }
 
 const COLORS = ['#2563eb','#7c3aed','#16a34a','#d97706','#dc2626','#db2777','#0891b2','#65a30d'];
 function clientColor(c) { const idx = clients.indexOf(c); return COLORS[idx >= 0 ? idx % COLORS.length : 0]; }
@@ -58,7 +63,10 @@ async function fsSaveClient(c) {
   const { id, ...data } = c;
   await setDoc(doc(db, COL, id), data);
 }
-async function fsDeleteClient(id) { await deleteDoc(doc(db, COL, id)); }
+async function fsDeleteClient(id) {
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
+  await deleteDoc(doc(db, COL, id));
+}
 
 // ── FIREBASE STORAGE UPLOAD avec progression ──
 function uploadFile(file, clientId) {
@@ -85,6 +93,7 @@ async function init() {
   // Si accès visiteur via index.html, bypasser le login interne
   if (sessionStorage.getItem('userRole') === 'visiteur') {
     currentUser = 'visiteur';
+    APP_ROLE = 'visitor';
     document.getElementById('login-overlay').style.display = 'none';
     document.getElementById('loading-overlay').style.display = 'flex';
     try {
@@ -101,28 +110,82 @@ async function init() {
   }
 }
 
-// ── MODE LECTURE SEULE (visiteur) ──
-function applyReadonlyMode() {
-  if (sessionStorage.getItem('userRole') !== 'visiteur') return;
-  // Masquer boutons d'écriture côté sidebar
-  const btnAddClient = document.querySelector('.btn-add-client');
-  if (btnAddClient) btnAddClient.style.display = 'none';
-  const btnAsmConfig = document.querySelector('.btn-asm-config');
-  if (btnAsmConfig) btnAsmConfig.style.display = 'none';
-  // Masquer bouton supprimer client dans topbar (injecté dynamiquement → via CSS)
-  const style = document.createElement('style');
-  style.textContent = `
-    .del-client-btn { display: none !important; }
-    .edit-client-btn { display: none !important; }
-    .btn-add { display: none !important; }
-    .btn-sm-edit[onclick*="edit"] { display: none !important; }
-    .btn-sm[onclick*="delete"] { display: none !important; }
-    .btn-sm[onclick*="Delete"] { display: none !important; }
-    .status-badge { cursor: default !important; pointer-events: none !important; }
-  `;
-  document.head.appendChild(style);
-  // Bloquer cycleStatus (changement de statut)
-  window.cycleStatus = function() { toast('Accès lecture seule', 'error'); };
+// ── GESTION DES RÔLES ──
+function applyReadonlyMode() { applyRole(); } // alias legacy
+
+function applyRole() {
+  // ── Badge topbar ──
+  const topbar = document.querySelector('.topbar') || document.querySelector('#topbar') || document.body;
+  const existingBadge = document.getElementById('role-badge');
+  if (existingBadge) existingBadge.remove();
+  const badge = document.createElement('span');
+  badge.id = 'role-badge';
+
+  if (APP_ROLE === 'visitor') {
+    // ════════════════════════════════════════
+    // 👁 VISITEUR — lecture seule partout
+    // ════════════════════════════════════════
+    badge.textContent = '👁 LECTURE SEULE';
+    badge.style.cssText = 'position:fixed;top:10px;right:14px;z-index:9999;background:#FEF0E6;color:#E05A00;border:1px solid #E05A00;border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:monospace';
+
+    // Masquer tous les boutons d'action via CSS
+    const style = document.createElement('style');
+    style.id = 'role-visitor-style';
+    style.textContent = `
+      .del-client-btn { display: none !important; }
+      .edit-client-btn { display: none !important; }
+      .btn-add { display: none !important; }
+      .btn-add-client { display: none !important; }
+      .btn-asm-config { display: none !important; }
+      .btn-sm-edit { display: none !important; }
+      .btn-sm[onclick*="delete"] { display: none !important; }
+      .btn-sm[onclick*="Delete"] { display: none !important; }
+      .status-badge { cursor: default !important; pointer-events: none !important; }
+      button.btn-primary { opacity: .35 !important; cursor: not-allowed !important; pointer-events: none !important; }
+      button[onclick*="save"], button[onclick*="Save"],
+      button[onclick*="add"], button[onclick*="Add"],
+      button[onclick*="delete"], button[onclick*="Delete"],
+      button[onclick*="openEdit"], button[onclick*="openAdd"] {
+        opacity: .35 !important; cursor: not-allowed !important; pointer-events: none !important;
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Bloquer cycleStatus
+    window.cycleStatus = function() { toast('🔒 Accès lecture seule', 'error'); };
+
+  } else if (APP_ROLE === 'admin') {
+    // ════════════════════════════════════════
+    // 🔑 ADMIN — créer/modifier, pas supprimer
+    // ════════════════════════════════════════
+    badge.textContent = '🔑 ADMIN';
+    badge.style.cssText = 'position:fixed;top:10px;right:14px;z-index:9999;background:#E8F5EE;color:#1A6B3C;border:1px solid #1A6B3C;border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:monospace';
+
+    // Masquer uniquement les boutons de suppression
+    const style = document.createElement('style');
+    style.id = 'role-admin-style';
+    style.textContent = `
+      .del-client-btn { display: none !important; }
+      .btn-sm[onclick*="delete"] { display: none !important; }
+      .btn-sm[onclick*="Delete"] { display: none !important; }
+      button[onclick*="deleteItem"] { display: none !important; }
+      button[onclick*="deleteClient"] { display: none !important; }
+      button[onclick*="deleteSouffrance"] { display: none !important; }
+      button[onclick*="deletePda"] { display: none !important; }
+      button[onclick*="deleteAsmConfig"] { display: none !important; }
+      button[onclick*="selectClientAndDelete"] { display: none !important; }
+    `;
+    document.head.appendChild(style);
+
+  } else if (APP_ROLE === 'superadmin') {
+    // ════════════════════════════════════════
+    // 👑 SUPER ADMIN — accès complet
+    // ════════════════════════════════════════
+    badge.textContent = '👑 SUPER ADMIN';
+    badge.style.cssText = 'position:fixed;top:10px;right:14px;z-index:9999;background:#1A1A1A;color:#FFD700;border:1px solid #FFD700;border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:monospace';
+  }
+
+  document.body.appendChild(badge);
 }
 
 // ── MODIFIER FICHE CLIENT ──
@@ -150,6 +213,7 @@ window.toggleEditAsmInput = function() {
 };
 
 window.updateClient = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const c = getClient(); if (!c) return;
   const nom = document.getElementById('ec-nom').value.trim();
   if (!nom) { toast('⚠️ Le nom est obligatoire', 'error'); return; }
@@ -205,6 +269,7 @@ window.doLogin = async function() {
   if (!u || !p) { errEl.textContent = 'Remplissez tous les champs.'; return; }
   if (ACCOUNTS[u] !== p) { errEl.textContent = 'Identifiants incorrects.'; document.getElementById('login-pass').value=''; return; }
   currentUser = u;
+  APP_ROLE = (u === 'adminn') ? 'superadmin' : (u === 'adminddms') ? 'admin' : 'visitor';
   document.getElementById('login-overlay').style.display = 'none';
   document.getElementById('loading-overlay').style.display = 'flex';
   try {
@@ -316,6 +381,7 @@ function updateStatusBadge(c) {
 }
 
 window.cycleStatus = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const c = getClient(); if (!c) return;
   const order = ['sain','tendu','critique'];
   c.statut = order[(order.indexOf(c.statut)+1)%3];
@@ -364,6 +430,7 @@ window.closeModalOutside = (e,id) => { if(e.target.id===id) window.closeModal(id
 
 // ── ADD CLIENT ──
 window.addClient = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const nom = document.getElementById('c-nom').value.trim(); if (!nom) return;
   let asmId = document.getElementById('c-asm').value;
   const c = {
@@ -445,7 +512,7 @@ function renderIncidents() {
       <td class="tbl-td" style="max-width:160px;font-size:12px;color:var(--green)">${inc.resolution||'—'}</td>
       <td class="tbl-td tbl-actions">
         <button class="btn-sm-edit" onclick="viewIncident(${i})" title="Voir">👁</button>
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editIncident(${i})" title="Modifier">✏️</button>
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editIncident(${i})" title="Modifier">✏️</button>
         <button class="btn-sm" onclick="deleteItem('incidents',${i})" title="Supprimer">🗑</button>`:''}
       </td>
     </tr>`;
@@ -480,6 +547,7 @@ window.editIncident = function(i) {
 };
 
 window.saveIncident = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const c = getClient(); if (!c) return;
   const nature = document.getElementById('inc-nature').value.trim(); if (!nature) return;
   const date = document.getElementById('inc-date').value;
@@ -560,7 +628,7 @@ function renderDocuments() {
       <td class="tbl-td" style="max-width:150px;font-size:12px;color:var(--accent2)">${d.points_retenir||'—'}</td>
       <td class="tbl-td tbl-actions">
         ${d.fileUrl?`<button class="btn-sm-edit" onclick="openDocument('${d.fileUrl.replace(/'/g,"\\'")}')">📂</button>`:''}
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editDocument(${i})">✏️</button>
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editDocument(${i})">✏️</button>
         <button class="btn-sm" onclick="deleteItem('documents',${i})">🗑</button>`:''}
       </td>
     </tr>`;
@@ -590,6 +658,7 @@ window.editDocument = function(i) {
 };
 
 window.saveDocument = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const c = getClient(); if (!c) return;
   const titre = document.getElementById('doc-titre').value.trim(); if (!titre) return;
   const date = document.getElementById('doc-date').value;
@@ -668,7 +737,7 @@ function renderOpportunites() {
       <td class="tbl-td mono">${o.montant||'—'}</td>
       <td class="tbl-td" style="max-width:220px;font-size:12px;color:var(--text2)">${o.description||'—'}</td>
       <td class="tbl-td tbl-actions">
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editOpportunite(${i})">✏️</button>
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editOpportunite(${i})">✏️</button>
         <button class="btn-sm" onclick="deleteItem('opportunites',${i})">🗑</button>`:''}
       </td>
     </tr>`;
@@ -716,6 +785,7 @@ window.toggleCustomType = function() {
 };
 
 window.saveOpportunite = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const c = getClient(); if (!c) return;
   const titre = document.getElementById('opp-titre').value.trim(); if (!titre) return;
   const date = document.getElementById('opp-date').value;
@@ -756,7 +826,7 @@ function readFile(file) {
 
 // ── DELETE ITEM ──
 window.deleteItem = async function(key, idx) {
-  if (!canDelete()) { toast('⛔ Suppression non autorisée pour ce compte', 'error'); return; }
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
   if (!confirm('Supprimer cet élément ?')) return;
   const c = getClient(); if (!c) return;
   c[key].splice(idx,1);
@@ -766,7 +836,7 @@ window.deleteItem = async function(key, idx) {
 
 // ── DELETE CLIENT ──
 window.deleteClient = async function() {
-  if (!canDelete()) { toast('⛔ Suppression non autorisée pour ce compte', 'error'); return; }
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
   const c = getClient(); if (!c) return;
   if (!confirm(`Supprimer définitivement "${c.nom}" et toutes ses données ?`)) return;
   try {
@@ -842,7 +912,7 @@ function renderSouffrances() {
       <td class="tbl-td" style="max-width:180px;font-size:12px;color:var(--text2)">${s.problemes||'—'}</td>
       <td class="tbl-td" style="max-width:180px;font-size:12px;color:var(--text2)">${s.comment||'—'}</td>
       <td class="tbl-td tbl-actions">
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editSouffrance(${i})">✏️</button>
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editSouffrance(${i})">✏️</button>
         <button class="btn-sm" onclick="deleteSouffrance(${i})">🗑</button>`:''}
       </td>
     </tr>`;
@@ -870,6 +940,7 @@ window.editSouffrance = function(i) {
   document.getElementById('modal-souffrance').style.display='flex';
 };
 window.saveSouffrance = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const c = getClient(); if (!c) return;
   const site = document.getElementById('sf-site').value.trim(); if (!site) return;
   const date = document.getElementById('sf-date').value;
@@ -881,7 +952,7 @@ window.saveSouffrance = async function() {
   catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 window.deleteSouffrance = async function(i) {
-  if (!canDelete()) { toast('⛔ Suppression non autorisée pour ce compte', 'error'); return; }
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
   if (!confirm('Supprimer ce site ?')) return;
   const c = getClient(); c.souffrances.splice(i,1);
   try { await fsSaveClient(c); renderSouffrances(); toast('Supprimé ✓','success'); }
@@ -899,10 +970,14 @@ async function loadAsmTeams() {
   } catch(e) { asmTeams = []; }
 }
 async function saveAsmTeam(t) {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const { id, ...data } = t;
   await setDoc(doc(db, COL_ASM, id), data);
 }
-async function deleteAsmTeam(id) { await deleteDoc(doc(db, COL_ASM, id)); }
+async function deleteAsmTeam(id) {
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
+  await deleteDoc(doc(db, COL_ASM, id));
+}
 
 function getAsmOfClient(clientId) {
   return asmTeams.find(t => (t.clientIds||[]).includes(clientId));
@@ -935,7 +1010,7 @@ function renderPda() {
       <td class="tbl-td"><span class="pda-statut ${statutCls[p.statut]||'pda-encours'}">${p.statut||'—'}</span></td>
       <td class="tbl-td" style="max-width:160px;font-size:12px;color:var(--text2)">${p.commentaire||'—'}</td>
       <td class="tbl-td tbl-actions">
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editPda(${i})">✏️</button>
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editPda(${i})">✏️</button>
         <button class="btn-sm" onclick="deletePda(${i})">🗑</button>`:''}
       </td>
     </tr>`;
@@ -947,7 +1022,7 @@ function renderPda() {
         <span class="pda-asm-icon">👤</span>
         <span class="pda-asm-nom">${asm ? asm.nom : 'Non affecté'}</span>
         <span class="pda-asm-badge">${pda.length} action${pda.length>1?'s':''}</span>
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-add" style="margin-left:auto" onclick="openAddPda()">+ Ajouter</button>`:''}
+        ${canWrite()?`<button class="btn-add" style="margin-left:auto" onclick="openAddPda()">+ Ajouter</button>`:''}
       </div>
       <div class="pda-client-node">
         <div class="pda-client-header">
@@ -982,6 +1057,7 @@ window.selectClientAndEdit = function(clientId, i) {
   editPda(i);
 };
 window.selectClientAndDelete = async function(clientId, i) {
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
   currentClientId = clientId;
   await deletePda(i);
 };
@@ -1051,6 +1127,7 @@ function renderAsmClientCheckboxes(asmId) {
 }
 
 window.saveAsmConfig = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const id  = document.getElementById('asm-cfg-id').value;
   const nom = document.getElementById('asm-cfg-nom').value.trim();
   if (!nom) { toast('⚠️ Nom de l\'ASM obligatoire','error'); return; }
@@ -1071,6 +1148,7 @@ window.saveAsmConfig = async function() {
 };
 
 window.deleteAsmConfig = async function(id) {
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
   if (!confirm('Supprimer cet ASM ?')) return;
   try {
     await deleteAsmTeam(id);
@@ -1116,6 +1194,7 @@ window.editPda = function(i) {
 };
 
 window.savePda = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   const c = getClient(); if (!c) return;
   const tache = document.getElementById('pda-tache').value.trim(); if (!tache) return;
   const date  = document.getElementById('pda-date').value;
@@ -1141,6 +1220,7 @@ window.savePda = async function() {
 };
 
 window.deletePda = async function(i) {
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
   if (!canDelete()) { toast('⛔ Suppression non autorisée','error'); return; }
   if (!confirm('Supprimer cette action ?')) return;
   const c = getClient(); c.pda.splice(i,1);
@@ -1218,7 +1298,7 @@ function renderBilan() {
       <td class="tbl-td"><span class="tag ${sCls[o.statut]||'tag-blue'}">${o.statut||'—'}</span></td>
       <td class="tbl-td" style="max-width:200px;font-size:12px">${o.description||''}</td>
       <td class="tbl-td tbl-actions">
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editOpportunite(${o._i})">✏️</button>
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editOpportunite(${o._i})">✏️</button>
         <button class="btn-sm" onclick="deleteItem('opportunites',${o._i})">🗑</button>`:''}
       </td>
     </tr>`;
@@ -1245,7 +1325,7 @@ function renderBilan() {
       <td class="tbl-td" style="max-width:180px;font-size:12px">${s.problemes||''}</td>
       <td class="tbl-td" style="max-width:180px;font-size:12px">${s.comment||''}</td>
       <td class="tbl-td tbl-actions">
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editSouffrance(${s._i})">✏️</button>
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editSouffrance(${s._i})">✏️</button>
         <button class="btn-sm" onclick="deleteSouffrance(${s._i})">🗑</button>`:''}
       </td>
     </tr>`;
@@ -1272,7 +1352,7 @@ function renderBilan() {
       <td class="tbl-td">${p.porteur||'—'}</td>
       <td class="tbl-td"><span class="tag ${cls}">${p.statut}</span></td>
       <td class="tbl-td tbl-actions">
-        ${sessionStorage.getItem('userRole')!=='visiteur'?`<button class="btn-sm-edit" onclick="editPda(${p._i})">✏️</button>
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editPda(${p._i})">✏️</button>
         <button class="btn-sm" onclick="deletePda(${p._i})">🗑</button>`:''}
       </td>
     </tr>`;
