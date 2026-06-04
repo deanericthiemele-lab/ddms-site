@@ -2278,7 +2278,7 @@ async function deleteContact(id){
           <!-- Boutons -->
           <div style="display:flex;gap:8px;padding-top:4px">
             <button class="btn btn-out btn-sm" onclick="ticketResetForm()" style="flex:1">↺ Réinitialiser</button>
-            <button class="btn btn-v" onclick="ticketSaveAndOutlook()" style="flex:2;font-size:12px">💾 Enregistrer &amp; Notifier AT</button>
+            <button class="btn btn-v" onclick="ticketSaveAndOutlook()" style="flex:2;font-size:12px">💾 Enregistrer &amp; Générer mail</button>
           </div>
         </div>
       </div>
@@ -2785,7 +2785,29 @@ async function deleteContact(id){
     </div>
     <div class="modal-foot" style="justify-content:space-between">
       <button class="btn btn-out" onclick="closeModal('mo-ticket')">Annuler</button>
-      <button class="btn btn-v" onclick="ticketSaveAndOutlook()">💾 Enregistrer &amp; Notifier AT</button>
+      <button class="btn btn-v" onclick="ticketSaveAndOutlook()">💾 Enregistrer &amp; Générer mail</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ MODALE: APERÇU TICKET -->
+<div class="overlay" id="mo-tk-preview">
+  <div class="modal" style="width:660px;max-width:97vw">
+    <div class="modal-hdr">
+      <span style="font-size:18px">📧</span>
+      <span class="modal-title">Aperçu message — copiez et collez dans Outlook</span>
+      <button class="modal-close" onclick="document.getElementById('mo-tk-preview').classList.remove('on')">✕</button>
+    </div>
+    <div class="modal-body" style="background:#f4f4f2;padding:20px">
+      <div style="background:#E8F5EE;border:1px solid #A8D5B5;border-radius:4px;padding:10px 14px;margin-bottom:16px;font-size:12.5px;color:#1A6B3C;display:flex;align-items:flex-start;gap:8px">
+        <span style="font-size:16px;flex-shrink:0">💡</span>
+        <span>Cliquez <strong>📋 Copier</strong> puis ouvrez Outlook → Nouveau message → collez avec <kbd style="background:#fff;border:1px solid #ccc;border-radius:3px;padding:1px 5px;font-size:11px">Ctrl+V</kbd> dans le corps du mail.</span>
+      </div>
+      <div id="tk-preview-body"></div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between">
+      <button class="btn btn-out" onclick="document.getElementById('mo-tk-preview').classList.remove('on')">Fermer</button>
+      <button class="btn btn-v" onclick="tkCopyHtml()" style="background:#1A6B3C;gap:6px">📋 Copier</button>
     </div>
   </div>
 </div>
@@ -5868,13 +5890,11 @@ function ticketBuildMailto(t){
   return 'mailto:assistancetechniqueb2b.oci@orange.com?subject=' + subject + '&body=' + body;
 }
 
-function ticketMailtoOpen(data){
-  setTimeout(()=>{ _openMailto(ticketBuildMailto(data)); }, 300);
-}
+function ticketMailtoOpen(data){ ticketShowPreview(data); }
 
 function ticketOutlookById(id){
   const t=(DB.tickets||[]).find(x=>x.id===id); if(!t) return;
-  _openMailto(ticketBuildMailto(t));
+  ticketShowPreview(t);
 }
 
 function ticketOpenOutlook(){
@@ -5883,20 +5903,79 @@ function ticketOpenOutlook(){
     debut:v('tk-debut'), localisation:v('tk-localisation'),
     contact_nom:v('tk-contact-nom'), contact_tel:v('tk-contact-tel'), contact_mail:v('tk-contact-mail')
   };
-  if(!t.client && !t.ref){ toast('Renseigner au moins Client et Référence','err'); return; }
-  _openMailto(ticketBuildMailto(t));
+  if(!t.client && !t.ref){ toast('Renseigner Client et Référence','err'); return; }
+  ticketShowPreview(t);
 }
 
-function _openMailto(href){
-  // Iframe caché : déclenche le protocole mailto sans naviguer la page
-  let fr = document.getElementById('_mailto_frame');
-  if(!fr){
-    fr = document.createElement('iframe');
-    fr.id = '_mailto_frame';
-    fr.style.cssText = 'display:none;width:0;height:0;border:none;position:fixed;top:-999px';
-    document.body.appendChild(fr);
+function ticketShowPreview(t){
+  const debutFmt = t.debut
+    ? new Date(t.debut).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).replace(',',' —')
+    : '—';
+  const contactLine = [t.contact_nom, t.contact_tel].filter(Boolean).join('<br>') || '—';
+
+  document.getElementById('tk-preview-body').innerHTML = `
+<div id="tk-preview-card" style="font-family:Arial,Helvetica,sans-serif;max-width:580px;background:#ffffff;border:1px solid #e0e0e0;border-radius:8px;overflow:hidden">
+  <div style="background:#E05A00;padding:14px 20px;display:flex;align-items:center;gap:10px">
+    <span style="color:#fff;font-size:18px">&#9888;</span>
+    <span style="color:#fff;font-size:15px;font-weight:bold">Alerte indisponibilité — Lien B2B</span>
+  </div>
+  <div style="padding:16px 22px 8px">
+    <p style="margin:0 0 5px;font-size:14px;color:#555555">Bonjour AT,</p>
+    <p style="margin:0 0 14px;font-size:14px;color:#222222;font-weight:bold">Nous vous informons qu’une indisponibilité du lien ci-dessous est observée.</p>
+  </div>
+  <div style="margin:0 22px 14px;border:1px solid #ebebeb;border-radius:6px;overflow:hidden;background:#fafafa">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="border-bottom:1px solid #f0f0f0">
+        <td style="padding:10px 14px;color:#777777;width:46%">&#127963; Client</td>
+        <td style="padding:10px 14px;font-weight:bold;color:#222222">${t.client||'—'}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f0f0f0">
+        <td style="padding:10px 14px;color:#777777">&#128204; Référence lien primaire</td>
+        <td style="padding:10px 14px;font-weight:bold;color:#222222">${t.ref||'—'}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f0f0f0">
+        <td style="padding:10px 14px;color:#777777">&#9874; Type de lien</td>
+        <td style="padding:10px 14px;font-weight:bold;color:#222222">${t.type||'—'}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f0f0f0">
+        <td style="padding:10px 14px;color:#777777">&#128336; Date / heure de début</td>
+        <td style="padding:10px 14px;font-weight:bold;color:#222222">${debutFmt}</td>
+      </tr>
+      <tr style="border-bottom:1px solid #f0f0f0">
+        <td style="padding:10px 14px;color:#777777">&#128205; Localisation</td>
+        <td style="padding:10px 14px;font-weight:bold;color:#222222">${t.localisation||'—'}</td>
+      </tr>
+      <tr>
+        <td style="padding:10px 14px;color:#777777">&#128100; Contact client</td>
+        <td style="padding:10px 14px;color:#222222">${contactLine}</td>
+      </tr>
+    </table>
+  </div>
+  <div style="margin:0 22px 18px;background:#FFF3ED;border-left:3px solid #E05A00;border-radius:4px;padding:10px 14px;font-size:12px;color:#7A3010;line-height:1.6">
+    &#9432; Veuillez ne pas répondre à ce message. Cette adresse e-mail est dédiée à la surveillance des liens B2B OCI.<br>
+    Pour toute question, merci de contacter votre équipe habituelle SAV B2B : <strong>assistancetechniqueb2b.oci@orange.com</strong>
+  </div>
+</div>`;
+  document.getElementById('mo-tk-preview').classList.add('on');
+}
+
+async function tkCopyHtml(){
+  const card = document.getElementById('tk-preview-card');
+  if(!card){ toast('Rien à copier','err'); return; }
+  try{
+    const blob = new Blob([card.outerHTML],{type:'text/html'});
+    const item = new ClipboardItem({'text/html':blob});
+    await navigator.clipboard.write([item]);
+    toast('Contenu copié — collez dans Outlook ✓','ok');
+  }catch(e){
+    const range=document.createRange();
+    range.selectNode(card);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    document.execCommand('copy');
+    window.getSelection().removeAllRanges();
+    toast('Copié — collez dans votre mail ✓','ok');
   }
-  fr.src = href;
 }
 
 async function ticketSave(){
@@ -5953,7 +6032,7 @@ async function ticketSave(){
 
 async function ticketSaveAndOutlook(){
   const data = await ticketSave();
-  if(data) ticketMailtoOpen(data);
+  if(data) ticketShowPreview(data);
 }
 
 async function ticketDelete(id){
