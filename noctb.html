@@ -2285,20 +2285,34 @@ async function deleteContact(id){
 
       <!-- KPI par agent -->
       <div style="background:#fff;border:1px solid var(--n5);border-radius:6px;padding:12px 14px">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <!-- ligne 1 : titre + onglets Semaine/Mois -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4)">Tickets par agent</div>
           <div style="display:flex;gap:4px">
-            <button id="tkp-jour" onclick="tkSetPeriode('jour')" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;border:1px solid var(--v);background:var(--v);color:#fff;cursor:pointer">Jour</button>
-            <button id="tkp-semaine" onclick="tkSetPeriode('semaine')" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;border:1px solid var(--n5);background:#fff;color:var(--n3);cursor:pointer">Semaine</button>
+            <button id="tkp-semaine" onclick="tkSetPeriode('semaine')" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;border:1px solid var(--v);background:var(--v);color:#fff;cursor:pointer">Semaine</button>
             <button id="tkp-mois" onclick="tkSetPeriode('mois')" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;border:1px solid var(--n5);background:#fff;color:var(--n3);cursor:pointer">Mois</button>
           </div>
         </div>
+        <!-- ligne 2 : navigation ← libellé → -->
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+          <button onclick="tkNavigate(-1)" style="background:var(--n6);border:1px solid var(--n5);border-radius:3px;width:24px;height:24px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--n2);flex-shrink:0">‹</button>
+          <div style="flex:1;text-align:center">
+            <div id="tk-period-label" style="font-size:11px;font-weight:700;color:var(--n1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">—</div>
+          </div>
+          <button onclick="tkNavigate(+1)" id="tkp-nav-next" style="background:var(--n6);border:1px solid var(--n5);border-radius:3px;width:24px;height:24px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--n2);flex-shrink:0">›</button>
+        </div>
+        <!-- ligne 3 : total + agents -->
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
           <div style="background:var(--bl);border-radius:4px;padding:8px 14px;display:flex;flex-direction:column;align-items:center;min-width:60px">
             <span style="font-family:var(--cond);font-size:24px;font-weight:800;color:var(--b);line-height:1" id="tk-kpi-total">0</span>
             <span style="font-size:9px;color:var(--b);font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-top:2px">Total</span>
           </div>
           <div id="tk-kpi-agents" style="display:flex;flex-wrap:wrap;gap:6px;flex:1"></div>
+        </div>
+        <!-- ligne 4 : moyenne par agent -->
+        <div style="border-top:1px solid var(--n5);padding-top:9px;margin-top:2px">
+          <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:7px">Moyenne / agent</div>
+          <div id="tk-kpi-avg" style="display:flex;flex-wrap:wrap;gap:5px"></div>
         </div>
       </div>
 
@@ -5799,37 +5813,91 @@ const TK_STATUT_CLS = {
   'Ouvert':'bp-open','En cours':'bp-prog','Escaladé':'bp-late','Résolu':'bp-done','Fermé':'bp-ok'
 };
 const TK_AGENT_COLORS = ['var(--v)','var(--b)','var(--g)','var(--p)','var(--a)','var(--r)'];
-window._tkPeriode = 'jour';
+window._tkPeriode  = 'semaine'; // 'semaine' | 'mois'
+window._tkOffset   = 0;         // 0 = période courante, -1 = précédente, etc.
+
+// ── Helpers date ──────────────────────────────────────────────────────────────
+function tkGetRange(){
+  const now = new Date();
+  const p   = window._tkPeriode;
+  const off = window._tkOffset||0;
+
+  if(p==='semaine'){
+    // lundi de la semaine courante
+    const mon = new Date(now);
+    mon.setHours(0,0,0,0);
+    mon.setDate(now.getDate() - ((now.getDay()+6)%7) + off*7);
+    const sun = new Date(mon);
+    sun.setDate(mon.getDate()+6);
+    sun.setHours(23,59,59,999);
+    return {start:mon, end:sun};
+  } else {
+    // 1er du mois courant + décalage mensuel
+    const d = new Date(now.getFullYear(), now.getMonth()+off, 1);
+    const start = new Date(d.getFullYear(), d.getMonth(), 1, 0,0,0,0);
+    const end   = new Date(d.getFullYear(), d.getMonth()+1, 0, 23,59,59,999);
+    return {start, end};
+  }
+}
+
+function tkFormatLabel(range){
+  const p    = window._tkPeriode;
+  const MOIS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  const fmt  = (d,short)=> {
+    const day = d.getDate();
+    const mon = MOIS[d.getMonth()];
+    const yr  = d.getFullYear();
+    return short ? `${day} ${mon.slice(0,3)}.` : `${day===1?'1er':day} ${mon} ${yr}`;
+  };
+  if(p==='semaine'){
+    const s = range.start, e = range.end;
+    const sameYear  = s.getFullYear()===e.getFullYear();
+    const sameMon   = sameYear && s.getMonth()===e.getMonth();
+    const sd = s.getDate()===1?'1er':s.getDate();
+    const ed = e.getDate()===1?'1er':e.getDate();
+    if(sameMon)  return `Semaine du ${sd} au ${ed} ${MOIS[e.getMonth()]} ${e.getFullYear()}`;
+    if(sameYear) return `Semaine du ${sd} ${MOIS[s.getMonth()]} au ${ed} ${MOIS[e.getMonth()]} ${e.getFullYear()}`;
+    return `Semaine du ${fmt(s,false)} au ${fmt(e,false)}`;
+  } else {
+    return `${MOIS[range.start.getMonth()].charAt(0).toUpperCase()+MOIS[range.start.getMonth()].slice(1)} ${range.start.getFullYear()}`;
+  }
+}
 
 function tkSetPeriode(p){
   window._tkPeriode = p;
-  ['jour','semaine','mois'].forEach(k=>{
+  window._tkOffset  = 0;
+  ['semaine','mois'].forEach(k=>{
     const btn = document.getElementById('tkp-'+k);
     if(!btn) return;
     if(k===p){ btn.style.background='var(--v)'; btn.style.borderColor='var(--v)'; btn.style.color='#fff'; }
-    else { btn.style.background='#fff'; btn.style.borderColor='var(--n5)'; btn.style.color='var(--n3)'; }
+    else      { btn.style.background='#fff';     btn.style.borderColor='var(--n5)'; btn.style.color='var(--n3)'; }
   });
   ticketRender();
 }
 
+function tkNavigate(dir){
+  window._tkOffset = (window._tkOffset||0) + dir;
+  // bloquer le futur
+  if(window._tkOffset>0) { window._tkOffset=0; return; }
+  // cacher flèche droite si on est à 0
+  const nxt = document.getElementById('tkp-nav-next');
+  if(nxt) nxt.style.opacity = window._tkOffset>=0 ? '0.35' : '1';
+  ticketRender();
+}
+
 function tkFilterByPeriode(tickets){
-  const now = new Date();
-  const p = window._tkPeriode||'jour';
+  const {start,end} = tkGetRange();
   return tickets.filter(t=>{
     if(!t.debut) return false;
     const d = new Date(t.debut);
-    if(p==='jour'){
-      return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth() && d.getDate()===now.getDate();
-    } else if(p==='semaine'){
-      const startOfWeek = new Date(now); startOfWeek.setHours(0,0,0,0);
-      startOfWeek.setDate(now.getDate()-now.getDay()+1);
-      const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate()+6); endOfWeek.setHours(23,59,59,999);
-      return d>=startOfWeek && d<=endOfWeek;
-    } else if(p==='mois'){
-      return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
-    }
-    return true;
+    return d>=start && d<=end;
   });
+}
+
+// Calcul nb de semaines dans le mois pour la moyenne mensuelle
+function tkWeeksInRange(range){
+  const ms = range.end - range.start;
+  return Math.max(1, Math.round(ms/(7*24*3600*1000)));
 }
 
 function ticketRender(){
@@ -5843,6 +5911,16 @@ function ticketRender(){
 
   // KPI total + par agent filtrés par période
   const kpiTickets = tkFilterByPeriode(all);
+  const range      = tkGetRange();
+
+  // libellé période
+  const lbl = document.getElementById('tk-period-label');
+  if(lbl) lbl.textContent = tkFormatLabel(range);
+
+  // flèche droite désactivée si période courante
+  const nxt = document.getElementById('tkp-nav-next');
+  if(nxt) nxt.style.opacity = (window._tkOffset||0)>=0 ? '0.35' : '1';
+
   const totEl = document.getElementById('tk-kpi-total');
   if(totEl) totEl.textContent = kpiTickets.length;
 
@@ -5862,6 +5940,33 @@ function ticketRender(){
         </div>
       </div>`;
     }).join('');
+  }
+
+  // Moyenne par agent
+  const avgBox = document.getElementById('tk-kpi-avg');
+  if(avgBox){
+    const p = window._tkPeriode;
+    // pour le mois : moyenne = total / nb_semaines_dans_la_période
+    // pour la semaine : moyenne = total (c'est déjà par semaine)
+    const nbAgents = Object.keys(agentMap).length;
+    if(!nbAgents){
+      avgBox.innerHTML = `<div style="font-size:11px;color:var(--n4)">Aucun ticket sur cette période</div>`;
+    } else {
+      const weeks = p==='mois' ? tkWeeksInRange(range) : 1;
+      const unit  = p==='mois' ? '/sem. (moy.)' : '/semaine';
+      avgBox.innerHTML = Object.entries(agentMap).sort((a,b)=>b[1]-a[1]).map(([nom,cnt],i)=>{
+        const col = TK_AGENT_COLORS[i%TK_AGENT_COLORS.length];
+        const ini = nom.split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2);
+        const avg = p==='mois' ? (cnt/weeks).toFixed(1) : cnt;
+        return `<div style="display:flex;align-items:center;gap:5px;background:var(--n6);border-radius:4px;padding:4px 8px;flex:1;min-width:110px">
+          <div style="width:20px;height:20px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;flex-shrink:0">${ini}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:9px;color:var(--n3);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${nom}</div>
+            <div style="font-family:var(--cond);font-size:13px;font-weight:800;color:${col};line-height:1.1">${avg} <span style="font-size:9px;font-weight:500;color:var(--n3)">${unit}</span></div>
+          </div>
+        </div>`;
+      }).join('');
+    }
   }
 
   // Badge sidebar
