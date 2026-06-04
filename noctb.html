@@ -2272,7 +2272,12 @@ async function deleteContact(id){
 
           <div class="fgrp" style="margin:0">
             <label>Ouvert par *</label>
-            <input type="text" id="tk-ouvert-par" placeholder="Ex: Dean COFFI">
+            <div style="display:flex;gap:6px;align-items:center">
+              <select id="tk-ouvert-par" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:13px;background:#fff">
+                <option value="">— Sélectionner —</option>
+              </select>
+              <button type="button" onclick="tkAddAgent()" title="Ajouter un agent" style="background:var(--v);color:#fff;border:none;border-radius:3px;width:30px;height:30px;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
+            </div>
           </div>
 
           <!-- Boutons -->
@@ -3218,13 +3223,14 @@ async function loadAll(){
   const dot = document.getElementById('fb-dot');
   dot.className='load';
   try{
-    const [r,c,p,inc,chg,ag,docs,crises,psi,kb,tickets] = await Promise.all([
+    const [r,c,p,inc,chg,ag,docs,crises,psi,kb,tickets,agExtra] = await Promise.all([
       fbLoad('noc_reunions'), fbLoad('noc_cr'), fbLoad('noc_actions'),
       fbLoad('noc_incidents'), fbLoad('noc_chg'), fbLoad('noc_agents'), fbLoad('noc_docs'),
-      fbLoad('noc_crises'), fbLoad('noc_psi'), fbLoad('noc_kb'), fbLoad('noc_tickets_indispo')
+      fbLoad('noc_crises'), fbLoad('noc_psi'), fbLoad('noc_kb'), fbLoad('noc_tickets_indispo'),
+      fbLoad('noc_agents_extra')
     ]);
     DB.reunions=r; DB.cr=c; DB.plans=p; DB.incidents=inc;
-    DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi; DB.kb=kb; DB.tickets=tickets;
+    DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi; DB.kb=kb; DB.tickets=tickets; DB.agentsExtra=agExtra;
     dot.className='ok';
     renderAll();
     loadN1(); loadN2();
@@ -3318,6 +3324,7 @@ function renderAll(){
   psiRender();
   kbRender();
   ticketRender();
+  tkBuildAgentSelect();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -5860,6 +5867,48 @@ function tkFormatLabel(range){
     return `Semaine du ${fmt(s,false)} au ${fmt(e,false)}`;
   } else {
     return `${MOIS[range.start.getMonth()].charAt(0).toUpperCase()+MOIS[range.start.getMonth()].slice(1)} ${range.start.getFullYear()}`;
+  }
+}
+
+// ── AGENTS SELECT (Firebase) ──────────────────────────────────────────────────
+// Les agents extra sont stockés dans la collection 'noc_agents_extra'
+// DB.agentsExtra est chargé au démarrage avec le reste
+
+function tkBuildAgentSelect(){
+  const sel = document.getElementById('tk-ouvert-par');
+  if(!sel) return;
+  const current = sel.value;
+  // agents depuis DB.agents (équipe NOC Firestore)
+  const dbAgents = (DB.agents||[]).map(a=>a.nom||a.name||'').filter(Boolean);
+  // agents extra ajoutés manuellement (aussi Firestore)
+  const extraAgents = (DB.agentsExtra||[]).map(a=>a.nom||'').filter(Boolean);
+  // fusion sans doublon, triée
+  const all = [...new Set([...dbAgents, ...extraAgents])].sort((a,b)=>a.localeCompare(b));
+
+  sel.innerHTML = `<option value="">— Sélectionner —</option>` +
+    all.map(n=>`<option value="${n}"${n===current?' selected':''}>${n}</option>`).join('');
+}
+
+async function tkAddAgent(){
+  const nom = prompt("Nom de l'agent à ajouter :");
+  if(!nom || !nom.trim()) return;
+  const n = nom.trim();
+  // vérifier doublon
+  const dbAgents  = (DB.agents||[]).map(a=>a.nom||a.name||'');
+  const extAgents = (DB.agentsExtra||[]).map(a=>a.nom||'');
+  if(dbAgents.includes(n) || extAgents.includes(n)){
+    toast('Agent déjà dans la liste', 'warn'); return;
+  }
+  try{
+    const ref = await fbSave('noc_agents_extra', {nom: n});
+    if(!DB.agentsExtra) DB.agentsExtra = [];
+    DB.agentsExtra.push({id: ref.id, nom: n});
+    tkBuildAgentSelect();
+    const sel = document.getElementById('tk-ouvert-par');
+    if(sel) sel.value = n;
+    toast(`Agent "${n}" ajouté ✓`, 'ok');
+  } catch(e){
+    toast('Erreur ajout agent', 'err');
   }
 }
 
