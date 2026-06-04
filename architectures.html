@@ -230,12 +230,38 @@ tbody td{padding:9px 14px;vertical-align:middle}
 .btn{border:none;font-family:var(--body);font-size:12px;font-weight:600;padding:8px 18px;border-radius:3px;cursor:pointer;transition:opacity .15s;display:inline-flex;align-items:center;gap:6px}
 .btn:hover{opacity:.85}
 .btn:disabled{opacity:.4;cursor:not-allowed}
+/* ── LOGIN OVERLAY ── */
+#login-overlay{position:fixed;inset:0;background:linear-gradient(135deg,#0f1420 0%,#1a1f35 100%);z-index:10000;display:flex;align-items:center;justify-content:center}
+.login-box{background:#fff;border-radius:8px;padding:36px 32px;width:360px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.login-logo{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:#1A1A1A;letter-spacing:1px;margin-bottom:4px}
+.login-sub{font-size:11px;color:#9AA0AE;font-family:'JetBrains Mono',monospace;margin-bottom:24px}
+.login-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:#6B6B6B;margin-bottom:5px}
+.login-input{width:100%;border:1px solid #E4E4E4;border-radius:4px;padding:9px 12px;font-size:13px;font-family:'Barlow',sans-serif;outline:none;margin-bottom:14px}
+.login-input:focus{border-color:#E05A00}
+.login-btn{width:100%;background:#E05A00;color:#fff;border:none;border-radius:4px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;font-family:'Barlow',sans-serif;margin-top:4px}
+.login-btn:hover{opacity:.88}
+.login-err{color:#B22222;font-size:12px;font-family:'JetBrains Mono',monospace;min-height:18px;margin-bottom:8px}
+#role-badge{position:fixed;top:10px;right:14px;z-index:9999;border-radius:10px;font-size:10px;font-weight:700;padding:3px 10px;letter-spacing:.5px;font-family:'JetBrains Mono',monospace}
+
 .btn-v{background:var(--v);color:white}
 .btn-g{background:var(--g5);color:var(--g1)}
 .btn-b{background:var(--b);color:white}
 </style>
 </head>
 <body>
+
+
+<!-- ════ LOGIN OVERLAY ════ -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">🏗 ARCHITECTURES</div>
+    <div class="login-sub">Orange CI · DDMS · Accès sécurisé</div>
+    <div class="login-label">Mot de passe</div>
+    <input id="login-pwd" class="login-input" type="password" placeholder="Entrez votre mot de passe…" onkeydown="if(event.key==='Enter')doLogin()">
+    <div class="login-err" id="login-err"></div>
+    <button class="login-btn" onclick="doLogin()">→ Connexion</button>
+  </div>
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -250,7 +276,7 @@ tbody td{padding:9px 14px;vertical-align:middle}
     <span style="color:rgba(255,255,255,.35)">🔍</span>
     <input type="text" id="searchInput" placeholder="Client, composant, site, tag…" oninput="renderGrid()">
   </div>
-  <button class="nbtn nb-add" onclick="openAdd()">＋ Ajouter une architecture</button>
+  <button class="nbtn nb-add" id="btn-add-archi" onclick="openAdd()">＋ Ajouter une architecture</button>
 </nav>
 
 <!-- STATUS -->
@@ -406,6 +432,75 @@ tbody td{padding:9px 14px;vertical-align:middle}
 </div>
 
 <script>
+
+// ══════════════════════════════════════════════════
+// RÔLES & AUTHENTIFICATION
+// ══════════════════════════════════════════════════
+let APP_ROLE = null;
+function canWrite()  { return APP_ROLE === 'superadmin' || APP_ROLE === 'admin'; }
+function canDelete() { return APP_ROLE === 'superadmin'; }
+
+function doLogin(){
+  const pwd = document.getElementById('login-pwd').value.trim();
+  const err = document.getElementById('login-err');
+  if(!pwd){ err.textContent = 'Mot de passe requis.'; return; }
+  if(pwd === 'adminn'){
+    APP_ROLE = 'superadmin';
+  } else if(pwd === 'adminddms'){
+    APP_ROLE = 'admin';
+  } else if(pwd === 'visiteur'){
+    APP_ROLE = 'visitor';
+  } else {
+    err.textContent = 'Mot de passe incorrect.';
+    document.getElementById('login-pwd').value = '';
+    return;
+  }
+  document.getElementById('login-overlay').style.display = 'none';
+  applyRole();
+}
+
+function applyRole(){
+  const badge = document.createElement('span');
+  badge.id = 'role-badge';
+
+  if(APP_ROLE === 'visitor'){
+    // ════ 👁 VISITEUR — lecture seule ════
+    badge.textContent = '👁 LECTURE SEULE';
+    badge.style.cssText = 'background:#FEF0E6;color:#E05A00;border:1px solid #E05A00';
+
+    // Masquer boutons d'action via CSS
+    const style = document.createElement('style');
+    style.textContent = `
+      button.nbtn.nb-add { display:none !important; }
+      button[onclick*="openAdd"] { display:none !important; }
+      button[onclick*="editCurrent"] { display:none !important; }
+      button[onclick*="deleteCurrent"] { display:none !important; }
+      button[onclick*="deleteById"] { display:none !important; }
+      button[onclick*="exportExcel"] { display:none !important; }
+    `;
+    document.head.appendChild(style);
+
+  } else if(APP_ROLE === 'admin'){
+    // ════ 🔑 ADMIN — créer/modifier, pas supprimer ════
+    badge.textContent = '🔑 ADMIN';
+    badge.style.cssText = 'background:#E8F5EE;color:#1A6B3C;border:1px solid #1A6B3C';
+
+    const style = document.createElement('style');
+    style.textContent = `
+      button[onclick*="deleteCurrent"] { display:none !important; }
+      button[onclick*="deleteById"] { display:none !important; }
+    `;
+    document.head.appendChild(style);
+
+  } else if(APP_ROLE === 'superadmin'){
+    // ════ 👑 SUPER ADMIN — accès complet ════
+    badge.textContent = '👑 SUPER ADMIN';
+    badge.style.cssText = 'background:#1A1A1A;color:#FFD700;border:1px solid #FFD700';
+  }
+
+  document.body.appendChild(badge);
+}
+
 // ══════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════
@@ -426,10 +521,13 @@ const TYPE_ICO={'MPLS':'🔗','SD-WAN':'🔀','Internet':'🌐','VDC':'🖥️',
 // ══════════════════════════════════════════════════
 window.addEventListener('firebaseReady', async()=>{
   db=window._db;
-  setDbStatus('ok','🔥 Firebase connecté — ONG33');
+  setDbStatus('ok','🔥 Firebase connecté');
+  // Charger les données dès que Firebase est prêt (indépendant du login)
   await loadArchis();
   setupDrop();
   addComp();addComp();addComp();
+  // Afficher le login overlay
+  setTimeout(()=>{ const o=document.getElementById('login-pwd'); if(o) o.focus(); }, 100);
 });
 
 function setDbStatus(s,m){
@@ -678,6 +776,7 @@ function exportExcel(){
 // MODAL AJOUT / ÉDITION
 // ══════════════════════════════════════════════════
 function openAdd(){
+  if(!canWrite()){showToast('🔒 Accès lecture seule — connexion admin requise','err');return;}
   editingId=null;pendingFiles=[];tags=[];existingFilesKept=[];
   clearForm();
   document.getElementById('addModalTitle').textContent='Nouvelle architecture';
@@ -685,6 +784,7 @@ function openAdd(){
 }
 
 async function editById(id){
+  if(!canWrite()){showToast('🔒 Accès lecture seule — connexion admin requise','err');return;}
   editingId=id;
   const a=allArchis.find(x=>x.id===id);if(!a)return;
   closeDetail();
@@ -808,6 +908,7 @@ async function uploadToStorage(file,onProgress){
 // SAUVEGARDER
 // ══════════════════════════════════════════════════
 async function saveArchi(){
+  if(!canWrite()){showToast('🔒 Accès lecture seule — connexion admin requise','err');return;}
   const client=document.getElementById('f_client').value.trim();
   if(!client){showToast('Le nom du client est obligatoire','err');return;}
   const btn=document.getElementById('btnSave');
@@ -962,6 +1063,7 @@ function downloadFile(archiId,fileName){
 // SUPPRIMER
 // ══════════════════════════════════════════════════
 async function deleteById(id){
+  if(!canDelete()){showToast('🔒 Suppression réservée au Super Admin','err');return;}
   if(!confirm('Supprimer cette architecture ?'))return;
   try{
     await window._deleteDoc(window._doc(db,COLL,id));
@@ -970,7 +1072,7 @@ async function deleteById(id){
     showToast('Architecture supprimée','ok');
   }catch(e){showToast('Erreur : '+e.message,'err');}
 }
-async function deleteCurrent(){if(!currentDetailId)return;closeDetail();await deleteById(currentDetailId);}
+async function deleteCurrent(){if(!canDelete()){showToast('🔒 Suppression réservée au Super Admin','err');return;}if(!currentDetailId)return;closeDetail();await deleteById(currentDetailId);}
 
 // UTILS
 function showToast(msg,type='ok'){const t=document.getElementById('toast');t.textContent=msg;t.className=`toast t-${type} show`;setTimeout(()=>t.classList.remove('show'),3500);}
