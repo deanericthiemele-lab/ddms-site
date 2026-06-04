@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rapport Réseau — NOC B2B</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
   :root {
@@ -1283,26 +1285,322 @@ function toggleSidebar(){
 
 // ── EXPORT PDF ────────────────────────────────────────────────────────────────
 function exportPdf(){
-  // Populate PDF cover data
-  document.getElementById("pdf-period").textContent =
-    (document.getElementById("hdr-date").textContent||"—") + " · " +
-    (document.getElementById("hdr-period").textContent||"");
-  document.getElementById("pdf-gendate").textContent = new Date().toLocaleDateString("fr-FR",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
-  document.getElementById("pdf-sites").textContent = document.getElementById("k-sites").textContent||"—";
-  document.getElementById("pdf-total").textContent = document.getElementById("hdr-total").textContent||"—";
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:"landscape", unit:"mm", format:"a4" });
+  const PW = 297, PH = 210;
+  const ML = 14, MR = 14, MT = 14;
+  const CW = PW - ML - MR; // 269mm landscape
+  let y = MT;
 
-  // Make both tab panels visible for print
-  document.querySelectorAll(".tab-panel").forEach(p=>p.style.display="block");
-  // Show both tabs labels for print as section headers
-  document.querySelectorAll(".tab").forEach(t=>t.style.display="block");
+  const ORANGE = [224, 90, 0];
+  const DARK   = [26, 29, 35];
+  const GRAY   = [90, 96, 112];
+  const LGRAY  = [228, 231, 237];
+  const RED_T  = [192, 57, 43];
+  const AMBER_T= [180, 83, 9];
+  const GREEN_T= [22, 101, 52];
+  const RED_BG = [253, 242, 241];
+  const AMB_BG = [255, 251, 235];
+  const GRN_BG = [240, 253, 244];
 
-  window.print();
+  const dateLabel  = document.getElementById("hdr-date").textContent || "—";
+  const periodLabel= document.getElementById("hdr-period").textContent || "";
+  const genDate    = new Date().toLocaleDateString("fr-FR",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+  const genTime    = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  const allSites   = new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
+  const totalEvt   = IF_DATA.reduce((s,d)=>s+d.nb,0)+ND_DATA.reduce((s,d)=>s+d.nb,0);
 
-  // Restore after print dialog
-  setTimeout(()=>{
-    document.querySelectorAll(".tab-panel").forEach((p,i)=>{p.style.display=i===0?"block":"none";});
-    document.querySelectorAll(".tab").forEach((t,i)=>{t.style.display="";});
-  }, 1000);
+  // ── helpers ──────────────────────────────────────────────────────────────────
+  function checkPage(needed){
+    if(y + needed > PH - 16){
+      doc.addPage();
+      y = MT;
+      drawPageFooter();
+    }
+  }
+
+  function drawPageFooter(){
+    const p = doc.internal.getCurrentPageInfo().pageNumber;
+    doc.setDrawColor(...LGRAY);
+    doc.setLineWidth(0.3);
+    doc.line(ML, PH-10, PW-MR, PH-10);
+    doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+    doc.text("Orange Côte d'Ivoire · DDMS NOC B2B · Confidentiel", ML, PH-6);
+    doc.text("Page "+p, PW-MR, PH-6, {align:"right"});
+  }
+
+  function sectionTitle(txt, sub){
+    checkPage(14);
+    doc.setFillColor(...ORANGE);
+    doc.rect(ML, y, 3, 7, "F");
+    doc.setFontSize(11); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
+    doc.text(txt, ML+6, y+5.5);
+    if(sub){
+      doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+      doc.text(sub, ML+6, y+10);
+      y += 14;
+    } else {
+      y += 10;
+    }
+  }
+
+  function kpiRow(items){
+    // items = [{label, value, color}]
+    checkPage(18);
+    const w = CW / items.length;
+    items.forEach((item, i)=>{
+      const x = ML + i*w;
+      doc.setFillColor(248,249,250);
+      doc.setDrawColor(...LGRAY);
+      doc.roundedRect(x+1, y, w-2, 16, 1.5, 1.5, "FD");
+      doc.setFontSize(7); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+      doc.text(item.label, x+w/2, y+4.5, {align:"center"});
+      doc.setFontSize(15); doc.setFont("helvetica","bold"); doc.setTextColor(...(item.color||DARK));
+      doc.text(String(item.value), x+w/2, y+12, {align:"center"});
+    });
+    y += 20;
+  }
+
+  function statusColor(s){
+    if(s==="Instable")    return {text:RED_T,  bg:RED_BG};
+    if(s==="Indisponible") return {text:AMBER_T,bg:AMB_BG};
+    return                        {text:GREEN_T,bg:GRN_BG};
+  }
+  function prioColor(p){
+    if(p==="Haute")   return {text:RED_T,  bg:RED_BG};
+    if(p==="Moyenne") return {text:AMBER_T,bg:AMB_BG};
+    return                   {text:GRAY,   bg:[241,243,246]};
+  }
+
+  function drawTable(data, type){
+    if(!data.length){
+      checkPage(10);
+      doc.setFontSize(9); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY);
+      doc.text("Aucun événement.", ML, y+5); y+=10; return;
+    }
+    const isIf = type==="if";
+    const head = isIf
+      ? [["Site client","Coup.","1ère coupure","Rétabl.","Durée","Interface","Statut","Prio"]]
+      : [["Site client","Inc.","1er incident","Rétabl.","Durée","Cause","Statut","Prio"]];
+    const body = data.map(d=>[
+      d.site.length>32 ? d.site.substring(0,30)+"…" : d.site,
+      String(d.nb),
+      d.down,
+      d.up,
+      d.duree.str,
+      isIf ? (d.iface.length>18?d.iface.substring(0,16)+"…":d.iface) : d.cause,
+      d.statut,
+      d.prio
+    ]);
+
+    doc.autoTable({
+      head,
+      body,
+      startY: y,
+      margin:{left:ML, right:MR},
+      tableWidth:CW,
+      styles:{fontSize:7, cellPadding:1.5, font:"helvetica", textColor:DARK, lineColor:LGRAY, lineWidth:0.2, overflow:'ellipsize'},
+      headStyles:{fillColor:DARK, textColor:[255,255,255], fontStyle:"bold", fontSize:7},
+      columnStyles:{
+        0:{cellWidth:Math.round(CW*0.30)},
+        1:{cellWidth:Math.round(CW*0.06), halign:"center"},
+        2:{cellWidth:Math.round(CW*0.11)},
+        3:{cellWidth:Math.round(CW*0.11)},
+        4:{cellWidth:Math.round(CW*0.09)},
+        5:{cellWidth:Math.round(CW*0.15)},
+        6:{cellWidth:Math.round(CW*0.10)},
+        7:{cellWidth:CW - Math.round(CW*0.30) - Math.round(CW*0.06) - Math.round(CW*0.11)*2 - Math.round(CW*0.09) - Math.round(CW*0.15) - Math.round(CW*0.10)}
+      },
+      alternateRowStyles:{fillColor:[250,251,252]},
+      didParseCell(data){
+        if(data.section==="body"){
+          if(data.column.index===6){ // Statut
+            const sc=statusColor(data.cell.raw);
+            data.cell.styles.textColor=sc.text;
+            data.cell.styles.fillColor=sc.bg;
+            data.cell.styles.fontStyle="bold";
+          }
+          if(data.column.index===7){ // Prio
+            const pc=prioColor(data.cell.raw);
+            data.cell.styles.textColor=pc.text;
+            data.cell.styles.fillColor=pc.bg;
+            data.cell.styles.fontStyle="bold";
+          }
+          if(data.column.index===1){ // count
+            const n=parseInt(data.cell.raw);
+            if(n>=10) data.cell.styles.textColor=RED_T;
+            else if(n>=3) data.cell.styles.textColor=AMBER_T;
+            else data.cell.styles.textColor=GREEN_T;
+            data.cell.styles.fontStyle="bold";
+          }
+        }
+      },
+      didDrawPage(){ drawPageFooter(); y=doc.lastAutoTable.finalY+6; }
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  // ── PAGE 1 : COUVERTURE ───────────────────────────────────────────────────────
+  // Orange bar top
+  doc.setFillColor(...ORANGE);
+  doc.rect(0, 0, PW, 4, "F");
+
+  // Logo area
+  doc.setFontSize(9); doc.setFont("helvetica","bold"); doc.setTextColor(...ORANGE);
+  doc.text("ORANGE", ML, 16);
+  doc.setFontSize(7); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+  doc.text("Côte d'Ivoire", ML, 21);
+
+  // Title block
+  y = 52;
+  doc.setFontSize(22); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
+  doc.text("RAPPORT DE DISPONIBILITÉ", ML, y);
+  y += 10;
+  doc.setFontSize(22); doc.setFont("helvetica","bold"); doc.setTextColor(...ORANGE);
+  doc.text("RÉSEAU B2B", ML, y);
+  y += 8;
+  doc.setDrawColor(...ORANGE); doc.setLineWidth(1);
+  doc.line(ML, y, ML+80, y);
+  y += 10;
+  doc.setFontSize(10); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+  doc.text("Direction DDMS · NOC B2B · Orange Côte d'Ivoire", ML, y);
+
+  // Meta block
+  y += 22;
+  const metaItems = [
+    {k:"Période couverte", v: dateLabel},
+    {k:"Horaire", v: periodLabel.replace("Période : ","")},
+    {k:"Date de génération", v: genDate+" à "+genTime},
+    {k:"Classification", v: "Point de situation — Usage interne DG"},
+  ];
+  metaItems.forEach(m=>{
+    doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...GRAY);
+    doc.text(m.k.toUpperCase(), ML, y);
+    doc.setFontSize(10); doc.setFont("helvetica","normal"); doc.setTextColor(...DARK);
+    doc.text(m.v, ML, y+5);
+    y += 12;
+  });
+
+  // Summary KPIs on cover
+  y += 8;
+  doc.setFillColor(248,249,250); doc.setDrawColor(...LGRAY);
+  doc.roundedRect(ML, y, CW, 38, 2, 2, "FD");
+  const covKpis=[
+    {l:"Sites impactés",    v:allSites.size,                     c:ORANGE},
+    {l:"Total événements",  v:totalEvt,                          c:DARK},
+    {l:"Coupures interface",v:IF_DATA.reduce((s,d)=>s+d.nb,0),  c:RED_T},
+    {l:"Pertes de contact", v:ND_DATA.reduce((s,d)=>s+d.nb,0),  c:AMBER_T},
+    {l:"Sites indisponibles",v:[...IF_DATA,...ND_DATA].filter(d=>d.isDown).length, c:AMBER_T},
+    {l:"Sites instables",   v:[...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length, c:RED_T},
+  ];
+  const kw = CW/covKpis.length;
+  covKpis.forEach((k,i)=>{
+    const x=ML+i*kw;
+    if(i>0){ doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3); doc.line(x, y+4, x, y+34); }
+    doc.setFontSize(7); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+    doc.text(k.l, x+kw/2, y+9, {align:"center"});
+    doc.setFontSize(18); doc.setFont("helvetica","bold"); doc.setTextColor(...k.c);
+    doc.text(String(k.v), x+kw/2, y+27, {align:"center"});
+  });
+  y += 46;
+
+  // Intro text
+  doc.setFontSize(8.5); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+  const intro = "Ce document présente la synthèse des incidents réseau enregistrés sur le parc B2B supervisé par le NOC DDMS. Il recense les coupures d'interface physique (Interface Down) et les pertes de contact équipement (Node Down / Timeout) détectées sur la période indiquée, avec statut de rétablissement et priorisation par impact client.";
+  const introLines = doc.splitTextToSize(intro, CW);
+  doc.text(introLines, ML, y);
+  y += introLines.length * 4.5 + 6;
+
+  // Footer cover
+  doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
+  doc.line(ML, PH-12, PW-MR, PH-12);
+  doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+  doc.text("Orange Côte d'Ivoire · DDMS NOC B2B · Confidentiel", ML, PH-7);
+  doc.text("Page 1", PW-MR, PH-7, {align:"right"});
+
+  // ── PAGE 2+ : CONTENU ─────────────────────────────────────────────────────────
+  doc.addPage(); y=MT; drawPageFooter();
+
+  // -- Vue d'ensemble KPIs --
+  sectionTitle("Vue d'ensemble");
+  const ifAvgData = IF_DATA.filter(d=>d.duree.val!==null);
+  const ndAvgData = ND_DATA.filter(d=>d.duree.val!==null);
+  const ifAvg = ifAvgData.length ? Math.round(ifAvgData.reduce((s,d)=>s+d.duree.val,0)/ifAvgData.length) : null;
+  const ndAvg = ndAvgData.length ? Math.round(ndAvgData.reduce((s,d)=>s+d.duree.val,0)/ndAvgData.length) : null;
+  const ifMax = [...ifAvgData].sort((a,b)=>b.duree.val-a.duree.val)[0];
+  const ndMax = [...ndAvgData].sort((a,b)=>b.duree.val-a.duree.val)[0];
+
+  kpiRow([
+    {label:"Sites impactés",      value:allSites.size, color:ORANGE},
+    {label:"Toujours indisponibles", value:[...IF_DATA,...ND_DATA].filter(d=>d.isDown).length, color:AMBER_T},
+    {label:"Sites instables",     value:[...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length, color:RED_T},
+    {label:"Total événements",    value:totalEvt, color:DARK},
+  ]);
+
+  // -- Coupures interface --
+  sectionTitle("Coupures d'interface", "Lien physique interrompu (Interface Down)");
+  kpiRow([
+    {label:"Sites affectés",       value:IF_DATA.length, color:RED_T},
+    {label:"Nombre de coupures",   value:IF_DATA.reduce((s,d)=>s+d.nb,0), color:RED_T},
+    {label:"Durée moyenne",        value:ifAvg!==null?(ifAvg>=60?(ifAvg/60).toFixed(1)+"h":ifAvg+"min"):"—", color:RED_T},
+    {label:"Coupure max",          value:ifMax?(ifMax.duree.val>=60?(ifMax.duree.val/60).toFixed(1)+"h":ifMax.duree.val+"min"):"—", color:RED_T},
+  ]);
+  drawTable(IF_DATA,"if");
+
+  // -- Pertes de contact --
+  sectionTitle("Pertes de contact", "Équipement injoignable (Node Down / Timeout / Reboot)");
+  kpiRow([
+    {label:"Sites affectés",       value:ND_DATA.length, color:AMBER_T},
+    {label:"Nombre d'incidents",   value:ND_DATA.reduce((s,d)=>s+d.nb,0), color:AMBER_T},
+    {label:"Durée moyenne",        value:ndAvg!==null?(ndAvg>=60?(ndAvg/60).toFixed(1)+"h":ndAvg+"min"):"—", color:AMBER_T},
+    {label:"Incident max",         value:ndMax?(ndMax.duree.val>=60?(ndMax.duree.val/60).toFixed(1)+"h":ndMax.duree.val+"min"):"—", color:AMBER_T},
+  ]);
+  drawTable(ND_DATA,"nd");
+
+  // -- Sites prioritaires (Haute prio, toujours down ou instables) --
+  const prio = [...IF_DATA,...ND_DATA].filter(d=>d.prio==="Haute").sort((a,b)=>{
+    const order={Instable:0,Indisponible:1,Rétabli:2};
+    return (order[a.statut]||0)-(order[b.statut]||0);
+  });
+  if(prio.length){
+    checkPage(20);
+    sectionTitle("Sites prioritaires", "Priorité Haute — nécessitent un suivi immédiat");
+    doc.autoTable({
+      head:[["Site","Type","Statut","Nb","Durée","Priorité"]],
+      body:prio.map(d=>[
+        d.site.length>38?d.site.substring(0,36)+"…":d.site,
+        IF_DATA.includes(d)?"Interface":"Node Down",
+        d.statut,
+        String(d.nb),
+        d.duree.str,
+        d.prio
+      ]),
+      startY:y, margin:{left:ML,right:MR}, tableWidth:CW,
+      styles:{fontSize:8, cellPadding:1.5, font:"helvetica", textColor:DARK, lineColor:LGRAY, lineWidth:0.2, overflow:'ellipsize'},
+      headStyles:{fillColor:[192,57,43], textColor:[255,255,255], fontStyle:"bold", fontSize:7.5},
+      alternateRowStyles:{fillColor:[250,251,252]},
+      columnStyles:{
+        0:{cellWidth:Math.round(CW*0.38)},
+        1:{cellWidth:Math.round(CW*0.13)},
+        2:{cellWidth:Math.round(CW*0.13)},
+        3:{cellWidth:Math.round(CW*0.07), halign:"center"},
+        4:{cellWidth:Math.round(CW*0.13)},
+        5:{cellWidth:CW - Math.round(CW*0.38) - Math.round(CW*0.13)*3 - Math.round(CW*0.07)}
+      },
+      didParseCell(data){
+        if(data.section==="body"&&data.column.index===2){
+          const sc=statusColor(data.cell.raw);
+          data.cell.styles.textColor=sc.text; data.cell.styles.fontStyle="bold";
+        }
+      },
+      didDrawPage(){ drawPageFooter(); }
+    });
+    y=doc.lastAutoTable.finalY+10;
+  }
+
+  // Save
+  const fname="NOC_B2B_Rapport_"+dateLabel.replace(/\//g,"-").replace(/\s/g,"_")+".pdf";
+  doc.save(fname);
 }
 
 // init
