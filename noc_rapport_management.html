@@ -109,6 +109,17 @@
 
   /* TABLE */
   .tbl-wrap{overflow-x:auto}
+  .tbl-scroll{max-height:370px;overflow-y:auto}
+  .tbl-scroll thead th{position:sticky;top:0;z-index:2;background:var(--bg)}
+  /* PAGINATION */
+  .tbl-pagination{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-top:1px solid var(--border);background:var(--bg);font-size:11px;color:var(--text3)}
+  .tbl-pages{display:flex;align-items:center;gap:6px}
+  .tbl-page-info{font-size:11px;color:var(--text3)}
+  .btn-page{background:none;border:1px solid var(--border2);border-radius:5px;padding:4px 10px;font-size:11px;color:var(--text2);cursor:pointer;font-family:'Inter',sans-serif;display:flex;align-items:center;gap:4px}
+  .btn-page:hover:not(:disabled){border-color:var(--orange);color:var(--orange)}
+  .btn-page:disabled{opacity:.35;cursor:not-allowed}
+  .btn-showall{background:none;border:none;font-size:11px;color:var(--orange);cursor:pointer;font-family:'Inter',sans-serif;text-decoration:underline;text-underline-offset:2px;padding:0}
+  .btn-showall:hover{opacity:.7}
   table{width:100%;border-collapse:collapse;min-width:760px}
   thead th{padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:var(--text3);border-bottom:1px solid var(--border);background:var(--bg);white-space:nowrap}
   tbody tr{border-bottom:1px solid var(--border)}
@@ -433,8 +444,8 @@
     <div class="section-label">Détail par site</div>
     <div class="panel">
       <div class="tabs">
-        <div class="tab active" onclick="switchTab('if',this)">Coupures d'interface <span class="tab-count" id="tc-if">0</span></div>
-        <div class="tab" onclick="switchTab('nd',this)">Pertes de contact <span class="tab-count" id="tc-nd">0</span></div>
+        <div class="tab active" onclick="switchTab('if',this)">Interfaces <span class="tab-count" id="tc-if">0</span></div>
+        <div class="tab" onclick="switchTab('nd',this)">Pertes contact <span class="tab-count" id="tc-nd">0</span></div>
       </div>
 
       <!-- TAB IF -->
@@ -460,7 +471,7 @@
             <option value="site">Site</option>
           </select>
         </div>
-        <div class="tbl-wrap">
+        <div class="tbl-wrap tbl-scroll">
           <table>
             <thead><tr>
               <th style="width:22%">Site client</th>
@@ -474,6 +485,14 @@
             </tr></thead>
             <tbody id="tbody-if"></tbody>
           </table>
+        </div>
+        <div class="tbl-pagination" id="pag-if">
+          <span class="tbl-page-info" id="pi-if"></span>
+          <div class="tbl-pages">
+            <button class="btn-page" id="pp-if" onclick="changePage('if',-1)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg> Précédent</button>
+            <button class="btn-showall" id="pa-if" onclick="toggleAll('if')">Voir tout</button>
+            <button class="btn-page" id="pn-if" onclick="changePage('if',1)">Suivant <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>
+          </div>
         </div>
       </div>
 
@@ -507,7 +526,7 @@
             <option value="site">Site</option>
           </select>
         </div>
-        <div class="tbl-wrap">
+        <div class="tbl-wrap tbl-scroll">
           <table>
             <thead><tr>
               <th style="width:22%">Site client</th>
@@ -521,6 +540,14 @@
             </tr></thead>
             <tbody id="tbody-nd"></tbody>
           </table>
+        </div>
+        <div class="tbl-pagination" id="pag-nd">
+          <span class="tbl-page-info" id="pi-nd"></span>
+          <div class="tbl-pages">
+            <button class="btn-page" id="pp-nd" onclick="changePage('nd',-1)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg> Précédent</button>
+            <button class="btn-showall" id="pa-nd" onclick="toggleAll('nd')">Voir tout</button>
+            <button class="btn-page" id="pn-nd" onclick="changePage('nd',1)">Suivant <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>
+          </div>
         </div>
       </div>
     </div>
@@ -967,7 +994,10 @@ function clearSearch(type){
   renderTbl(type);
 }
 
-function renderTbl(type){
+const PAGE_SIZE = 10;
+const tblState = { if:{page:0,showAll:false,rows:[]}, nd:{page:0,showAll:false,rows:[]} };
+
+function renderTbl(type, resetPage){
   const data=type==="if"?IF_DATA:ND_DATA;
   const fs=document.getElementById("fs-"+type)?.value||"";
   const so=document.getElementById("so-"+type)?.value||"nb";
@@ -992,16 +1022,27 @@ function renderTbl(type){
     if(sq) sm.textContent=rows.length+" résultat"+(rows.length>1?"s":"")+" sur "+data.length;
     else sm.textContent="";
   }
+
+  // reset page on filter/search change
+  if(resetPage!==false){ tblState[type].page=0; tblState[type].showAll=false; }
+  tblState[type].rows=rows;
+
   const tbody=document.getElementById("tbody-"+type);
   if(!rows.length){
     tbody.innerHTML=`<tr><td colspan="8" class="empty-state">${sq?"Aucun site ne correspond à «"+sq+"»":"Aucun événement de ce type dans les données"}</td></tr>`;
+    updatePagination(type,0);
     return;
   }
 
   const causeMap={"Redémarrage":"b-blue","Signalé dans groupe":"b-gray","Perte de contact":"b-amber"};
-  const causeBadge=c=>`<span class="badge ${causeMap[c]||'b-gray'}">${c}</span>`;
+  const causeBadge=cv=>`<span class="badge ${causeMap[cv]||'b-gray'}">${cv}</span>`;
   const upCls=d=>d.up==="—"?"t-open":"t-up";
-  tbody.innerHTML=rows.map(d=>`<tr>
+
+  const showAll=tblState[type].showAll;
+  const page=tblState[type].page;
+  const visible = showAll ? rows : rows.slice(page*PAGE_SIZE, page*PAGE_SIZE+PAGE_SIZE);
+
+  tbody.innerHTML=visible.map(d=>`<tr>
     <td><div class="site-name">${d.site}</div></td>
     <td style="text-align:center">${nbPill(d.nb)}</td>
     <td><span class="t-time t-down">${d.down}</span></td>
@@ -1011,6 +1052,51 @@ function renderTbl(type){
     <td>${statusBadge(d.statut)}</td>
     <td>${prioBadge(d.prio)}</td>
   </tr>`).join("");
+
+  updatePagination(type, rows.length);
+}
+
+function updatePagination(type, total){
+  const st=tblState[type];
+  const totalPages=Math.ceil(total/PAGE_SIZE);
+  const pi=document.getElementById("pi-"+type);
+  const pp=document.getElementById("pp-"+type);
+  const pn=document.getElementById("pn-"+type);
+  const pa=document.getElementById("pa-"+type);
+  const pag=document.getElementById("pag-"+type);
+  if(!pi) return;
+  if(total===0||total<=PAGE_SIZE){ pag.style.display="none"; return; }
+  pag.style.display="flex";
+  if(st.showAll){
+    pi.textContent=`Tous les ${total} sites affichés`;
+    pp.disabled=true; pn.disabled=true;
+    pa.textContent="Réduire";
+  } else {
+    const from=st.page*PAGE_SIZE+1, to=Math.min((st.page+1)*PAGE_SIZE,total);
+    pi.textContent=`${from}–${to} sur ${total} site${total>1?"s":""}`;
+    pp.disabled=st.page===0;
+    pn.disabled=(st.page+1)>=totalPages;
+    pa.textContent="Voir tout";
+  }
+}
+
+function changePage(type, dir){
+  const st=tblState[type];
+  const total=st.rows.length;
+  const totalPages=Math.ceil(total/PAGE_SIZE);
+  st.page=Math.max(0,Math.min(st.page+dir,totalPages-1));
+  renderTbl(type,false);
+  // scroll table to top
+  const wrap=document.querySelector("#tab-"+type+" .tbl-scroll");
+  if(wrap) wrap.scrollTop=0;
+}
+
+function toggleAll(type){
+  tblState[type].showAll=!tblState[type].showAll;
+  tblState[type].page=0;
+  renderTbl(type,false);
+  const wrap=document.querySelector("#tab-"+type+" .tbl-scroll");
+  if(wrap) wrap.scrollTop=0;
 }
 
 function switchTab(type,el){
