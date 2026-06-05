@@ -1366,6 +1366,273 @@ function renderBilan() {
   </div></div>`;
 }
 
+
+// ══ SUIVI PDA TOUS CLIENTS ══
+window.openAllPda = function() {
+  document.getElementById('all-pda-filter-statut').value = '';
+  document.getElementById('all-pda-filter-liste').value = '';
+  document.getElementById('all-pda-filter-porteur').value = '';
+  document.getElementById('all-pda-search').value = '';
+  renderAllPda();
+  document.getElementById('modal-all-pda').style.display = 'block';
+};
+
+window.closeAllPda = function() {
+  document.getElementById('modal-all-pda').style.display = 'none';
+};
+
+window.toggleApdaRow = function(id) {
+  const el = document.getElementById('apda-detail-'+id);
+  const btn = document.getElementById('apda-toggle-'+id);
+  if (!el) return;
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'table-row';
+  btn.textContent = open ? '▶' : '▼';
+};
+
+window.renderAllPda = function() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const statutCls = { 'En cours':'pda-encours','Réalisé':'pda-realise','En retard':'pda-retard','Annulé':'pda-annule' };
+  const listeCls  = { 'COMEX':'pda-comex','Hors COMEX':'pda-noncomex' };
+
+  const filterStatut  = document.getElementById('all-pda-filter-statut').value;
+  const filterListe   = document.getElementById('all-pda-filter-liste').value;
+  const filterPorteur = (document.getElementById('all-pda-filter-porteur').value||'').trim().toLowerCase();
+  const searchQ       = (document.getElementById('all-pda-search').value||'').toLowerCase().trim();
+
+  // ── Calcul retard ──
+  function joursRetard(p) {
+    if (!p.delai || p.statut === 'Réalisé' || p.statut === 'Annulé') return null;
+    const d = new Date(p.delai+'T00:00:00');
+    if (isNaN(d)) return null;
+    const diff = Math.floor((today - d) / 86400000);
+    return diff; // >0 = en retard, <=0 = ok
+  }
+
+  // ── Collecte ALL PDA pour KPIs globaux ──
+  let allPdaFlat = [];
+  clients.forEach(c => (c.pda||[]).forEach(p => allPdaFlat.push({...p, _clientId: c.id, _clientNom: c.nom})));
+
+  const kpiTotal    = allPdaFlat.length;
+  const kpiEncours  = allPdaFlat.filter(p => p.statut === 'En cours').length;
+  const kpiRetard   = allPdaFlat.filter(p => { const j = joursRetard(p); return j !== null && j > 0; }).length;
+  const kpiRealise  = allPdaFlat.filter(p => p.statut === 'Réalisé').length;
+  const kpiAnnule   = allPdaFlat.filter(p => p.statut === 'Annulé').length;
+  const pctRealise  = kpiTotal ? Math.round(kpiRealise / kpiTotal * 100) : 0;
+  const pctRetard   = kpiTotal ? Math.round(kpiRetard  / kpiTotal * 100) : 0;
+
+  // ── Porteurs distincts ──
+  const porteursSel = document.getElementById('all-pda-filter-porteur');
+  if (porteursSel) {
+    const allPorteurs = [...new Set(allPdaFlat.map(p => p.porteur||'').filter(Boolean))].sort();
+    const curVal = porteursSel.value;
+    porteursSel.innerHTML = '<option value="">Tous porteurs</option>' +
+      allPorteurs.map(p => `<option value="${p}"${curVal===p?' selected':''}>${p}</option>`).join('');
+  }
+
+  // ── Regroupement par porteur (section dépliable) ──
+  const porteurMap = {};
+  allPdaFlat.forEach(p => {
+    const k = p.porteur||'(non défini)';
+    if (!porteurMap[k]) porteurMap[k] = { total:0, encours:0, retard:0, realise:0, annule:0 };
+    porteurMap[k].total++;
+    if (p.statut==='En cours') porteurMap[k].encours++;
+    if (p.statut==='Réalisé')  porteurMap[k].realise++;
+    if (p.statut==='Annulé')   porteurMap[k].annule++;
+    const j = joursRetard(p); if (j!==null && j>0) porteurMap[k].retard++;
+  });
+
+  const porteurRows = Object.entries(porteurMap).sort((a,b)=>b[1].total-a[1].total).map(([nom, s]) => {
+    const pct = s.total ? Math.round(s.realise/s.total*100) : 0;
+    const barColor = pct >= 80 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+    return `<div class="apda-porteur-row">
+      <span class="apda-porteur-nom">👤 ${nom}</span>
+      <span class="apda-porteur-stat encours">${s.encours} en cours</span>
+      <span class="apda-porteur-stat retard">${s.retard} en retard</span>
+      <span class="apda-porteur-stat realise">${s.realise} réalisés</span>
+      <span class="apda-porteur-stat annule">${s.annule} annulés</span>
+      <div class="apda-porteur-bar-wrap">
+        <div class="apda-porteur-bar" style="width:${pct}%;background:${barColor}"></div>
+      </div>
+      <span class="apda-porteur-pct" style="color:${barColor}">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  // ── KPI HTML ──
+  const kpiHtml = `<div class="apda-kpi-bar">
+    <div class="apda-kpi-card apda-kpi-total"><div class="apda-kpi-val">${kpiTotal}</div><div class="apda-kpi-lbl">Total actions</div></div>
+    <div class="apda-kpi-card apda-kpi-encours"><div class="apda-kpi-val">${kpiEncours}</div><div class="apda-kpi-lbl">En cours</div></div>
+    <div class="apda-kpi-card apda-kpi-retard"><div class="apda-kpi-val">${kpiRetard}</div><div class="apda-kpi-lbl">En retard <span style="font-size:10px">(${pctRetard}%)</span></div></div>
+    <div class="apda-kpi-card apda-kpi-realise"><div class="apda-kpi-val">${kpiRealise}</div><div class="apda-kpi-lbl">Réalisées <span style="font-size:10px">(${pctRealise}%)</span></div></div>
+    <div class="apda-kpi-card apda-kpi-annule"><div class="apda-kpi-val">${kpiAnnule}</div><div class="apda-kpi-lbl">Annulées</div></div>
+    <div class="apda-kpi-progress">
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Avancement global</div>
+      <div style="background:#e5e7eb;border-radius:6px;height:10px;overflow:hidden;">
+        <div style="height:10px;background:linear-gradient(90deg,#16a34a,#4ade80);border-radius:6px;width:${pctRealise}%;transition:width .4s"></div>
+      </div>
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:var(--green);margin-top:4px">${pctRealise}% réalisé</div>
+    </div>
+  </div>`;
+
+  // ── Section porteurs (accordéon) ──
+  const porteurSection = `<div class="apda-section-accordion" id="apda-porteur-section">
+    <div class="apda-section-head" onclick="document.getElementById('apda-porteur-body').classList.toggle('apda-accord-open')">
+      <span>👥 Répartition par porteur <span class="apda-count-badge" style="margin-left:6px">${Object.keys(porteurMap).length} porteurs</span></span>
+      <span class="bl-chevron">▾</span>
+    </div>
+    <div class="apda-accord-body apda-accord-open" id="apda-porteur-body" style="padding:12px 16px;">
+      ${porteurRows || '<div class="apda-empty">Aucun porteur défini</div>'}
+    </div>
+  </div>`;
+
+  // ── Lignes par client ──
+  let totalFiltrees = 0;
+  let clientsHtml = '';
+
+  const clientsAvecPda = clients.filter(c => (c.pda||[]).length > 0);
+
+  clientsAvecPda.forEach(c => {
+    let pda = (c.pda||[]).slice().sort((a,b)=>(a.delai||'').localeCompare(b.delai||'')); // tri par délai
+
+    if (filterStatut)  pda = pda.filter(p => p.statut === filterStatut);
+    if (filterListe)   pda = pda.filter(p => p.liste === filterListe);
+    if (filterPorteur) pda = pda.filter(p => (p.porteur||'').toLowerCase() === filterPorteur);
+    if (searchQ) pda = pda.filter(p =>
+      (p.tache||'').toLowerCase().includes(searchQ) ||
+      (p.contexte||'').toLowerCase().includes(searchQ) ||
+      (p.porteur||'').toLowerCase().includes(searchQ) ||
+      c.nom.toLowerCase().includes(searchQ)
+    );
+    if (!pda.length && (filterStatut || filterListe || filterPorteur || searchQ)) return;
+
+    totalFiltrees += pda.length;
+    const asm = getAsmOfClient(c.id);
+    const col = clientColor(c);
+    const ini = c.nom.split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
+    const statutBadge = {sain:'🟢',tendu:'🟡',critique:'🔴'}[c.statut]||'';
+    const cRealise = pda.filter(p=>p.statut==='Réalisé').length;
+    const cRetard  = pda.filter(p=>{ const j=joursRetard(p); return j!==null&&j>0; }).length;
+    const cPct = pda.length ? Math.round(cRealise/pda.length*100) : 0;
+    const barCol = cPct>=80?'#16a34a':cPct>=50?'#d97706':'#dc2626';
+
+    const rows = pda.map((p, ri) => {
+      const realIdx = (c.pda||[]).indexOf(p);
+      const uid = c.id + '_' + realIdx;
+      const jr = joursRetard(p);
+      let retardHtml = '';
+      let rowBorderColor = 'transparent';
+      if (jr !== null) {
+        if (jr > 0) {
+          retardHtml = `<span class="apda-retard-badge">⚠️ ${jr}j</span>`;
+          rowBorderColor = '#dc2626';
+        } else if (jr > -7) {
+          retardHtml = `<span class="apda-soon-badge">⏰ ${Math.abs(jr)}j</span>`;
+          rowBorderColor = '#d97706';
+        }
+      }
+      return `<tr class="tbl-tr apda-main-row" style="border-left:3px solid ${rowBorderColor};cursor:pointer;" onclick="toggleApdaRow('${uid}')">
+        <td class="tbl-td" style="width:28px;text-align:center;padding:8px 4px;">
+          <span id="apda-toggle-${uid}" style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">▶</span>
+        </td>
+        <td class="tbl-td mono" style="font-size:11px;white-space:nowrap">${fmtD(p.date)}</td>
+        <td class="tbl-td"><span class="pda-liste ${listeCls[p.liste]||'pda-noncomex'}">${p.liste||'—'}</span>${p.mois_comex?`<br><span style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace">${p.mois_comex}</span>`:''}</td>
+        <td class="tbl-td bold" style="max-width:220px">${p.tache||'—'}</td>
+        <td class="tbl-td" style="white-space:nowrap">
+          ${p.delai?`<span style="font-family:'DM Mono',monospace;font-size:11px">${fmtD(p.delai)}</span>`:'—'}
+          ${retardHtml}
+        </td>
+        <td class="tbl-td">${p.porteur||'—'}</td>
+        <td class="tbl-td"><span class="pda-statut ${statutCls[p.statut]||'pda-encours'}">${p.statut||'—'}</span></td>
+        <td class="tbl-td tbl-actions" onclick="event.stopPropagation()">
+          ${canWrite()?`<button class="btn-sm-edit" title="Modifier" onclick="apdaEdit('${c.id}',${realIdx})">✏️</button>`:''}
+          ${canDelete()?`<button class="btn-sm" title="Supprimer" onclick="selectClientAndDeleteAndRefresh('${c.id}',${realIdx})">🗑</button>`:''}
+        </td>
+      </tr>
+      <tr id="apda-detail-${uid}" style="display:none;background:#f8fafc;">
+        <td colspan="8" style="padding:14px 20px 14px 40px;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
+            ${p.contexte?`<div class="apda-detail-field"><div class="apda-detail-label">Contexte</div><div class="apda-detail-val">${p.contexte}</div></div>`:''}
+            ${p.commentaire?`<div class="apda-detail-field"><div class="apda-detail-label">Commentaire</div><div class="apda-detail-val">${p.commentaire}</div></div>`:''}
+            <div class="apda-detail-field"><div class="apda-detail-label">Type réunion</div><div class="apda-detail-val"><span class="pda-liste ${listeCls[p.liste]||'pda-noncomex'}">${p.liste||'—'}</span></div></div>
+            ${p.mois_comex?`<div class="apda-detail-field"><div class="apda-detail-label">Mois COMEX</div><div class="apda-detail-val" style="font-family:'DM Mono',monospace">${p.mois_comex}</div></div>`:''}
+            <div class="apda-detail-field"><div class="apda-detail-label">Date action</div><div class="apda-detail-val" style="font-family:'DM Mono',monospace">${fmtD(p.date)}</div></div>
+            <div class="apda-detail-field"><div class="apda-detail-label">Délai</div><div class="apda-detail-val" style="font-family:'DM Mono',monospace;${jr!==null&&jr>0?'color:var(--red);font-weight:700':''}">${fmtD(p.delai)}${jr!==null&&jr>0?' ⚠️ '+jr+' j de retard':jr!==null&&jr<=0&&jr>-7?' ⏰ échéance dans '+Math.abs(jr)+' j':''}</div></div>
+            <div class="apda-detail-field"><div class="apda-detail-label">Porteur</div><div class="apda-detail-val">👤 ${p.porteur||'—'}</div></div>
+            <div class="apda-detail-field"><div class="apda-detail-label">Statut</div><div class="apda-detail-val"><span class="pda-statut ${statutCls[p.statut]||'pda-encours'}">${p.statut||'—'}</span></div></div>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    clientsHtml += `<div class="apda-client-block">
+      <div class="apda-client-header" onclick="document.getElementById('apda-body-${c.id}').classList.toggle('apda-cb-open')" style="cursor:pointer;">
+        <div class="apda-client-avatar" style="background:${col}18;color:${col}">${ini}</div>
+        <span class="apda-client-nom">${statutBadge} ${c.nom}</span>
+        ${asm ? `<span class="apda-client-asm">👤 ${asm.nom}</span>` : '<span class="apda-client-asm" style="color:var(--orange)">Non affecté</span>'}
+        <span class="apda-count-badge">${pda.length} action${pda.length>1?'s':''}</span>
+        ${cRetard>0?`<span style="background:rgba(220,38,38,.12);color:var(--red);font-family:'DM Mono',monospace;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px">⚠️ ${cRetard} retard${cRetard>1?'s':''}</span>`:''}
+        <div style="display:flex;align-items:center;gap:6px;margin-left:auto;">
+          <div style="background:#e5e7eb;border-radius:4px;height:6px;width:60px;overflow:hidden;"><div style="height:6px;background:${barCol};width:${cPct}%;transition:width .3s"></div></div>
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:${barCol};font-weight:700">${cPct}%</span>
+          ${canWrite()?`<button class="btn-add" onclick="event.stopPropagation();apdaAdd('${c.id}')">+ Ajouter</button>`:''}
+        </div>
+      </div>
+      <div id="apda-body-${c.id}" class="apda-cb-open">
+        <div class="tbl-wrap" style="border-radius:0;border:none;">
+          <table class="tbl">
+            <thead><tr>
+              <th class="tbl-th" style="width:28px"></th>
+              <th class="tbl-th">Date</th><th class="tbl-th">Type</th>
+              <th class="tbl-th">Tâche à réaliser</th>
+              <th class="tbl-th">Délai / Retard</th>
+              <th class="tbl-th">Porteur</th><th class="tbl-th">Statut</th>
+              <th class="tbl-th" style="width:70px"></th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  if (!clientsHtml) {
+    clientsHtml = `<div style="text-align:center;padding:40px 20px;font-family:'DM Mono',monospace;font-size:13px;color:var(--text3);">
+      <div style="font-size:40px;margin-bottom:12px">📭</div>Aucune action PDA trouvée</div>`;
+  }
+
+  document.getElementById('all-pda-body').innerHTML = kpiHtml + porteurSection + clientsHtml;
+  document.getElementById('all-pda-badge').textContent = `${totalFiltrees} / ${kpiTotal} action${kpiTotal>1?'s':''}`;
+};
+
+window.apdaAdd = function(clientId) {
+  const c = clients.find(x=>x.id===clientId); if (!c) return;
+  currentClientId = clientId;
+  openAddPda();
+  document.getElementById('modal-pda').addEventListener('hide', renderAllPda, {once:true});
+};
+
+window.apdaEdit = function(clientId, i) {
+  const c = clients.find(x=>x.id===clientId); if (!c) return;
+  currentClientId = clientId;
+  editPda(i);
+};
+
+// Override savePda to also refresh modal if open
+const _origSavePda = window.savePda;
+window.savePda = async function() {
+  await _origSavePda();
+  if (document.getElementById('modal-all-pda').style.display !== 'none') renderAllPda();
+};
+
+// Supprimer et rafraîchir le modal global
+window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
+  currentClientId = clientId;
+  await deletePda(i);
+  renderAllPda();
+};
+
 </script>
 
 <style>
@@ -1633,6 +1900,62 @@ function renderBilan() {
   #no-client p{font-family:'DM Mono',monospace;font-size:13px;}
   .empty-state{text-align:center;padding:36px 20px;color:var(--text3);font-size:13px;font-family:'DM Mono',monospace;}
   .empty-state .icon{font-size:32px;margin-bottom:10px;}
+
+  /* ALL PDA MODAL */
+  .apda-client-block { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  .apda-client-header { display:flex; align-items:center; gap:10px; padding:13px 16px; background:var(--surface2); border-bottom:1px solid var(--border); }
+  .apda-client-avatar { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-family:'Syne',sans-serif; font-weight:800; font-size:12px; flex-shrink:0; }
+  .apda-client-nom { font-family:'Syne',sans-serif; font-weight:700; font-size:14px; flex:1; }
+  .apda-client-asm { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:2px 8px; }
+  .apda-count-badge { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:2px 8px; }
+  .apda-empty { font-family:'DM Mono',monospace; font-size:12px; color:var(--text3); padding:14px 16px; }
+  .pda-statut { display:inline-block; padding:2px 8px; border-radius:4px; font-family:'DM Mono',monospace; font-size:10px; font-weight:700; }
+  .pda-encours { background:rgba(37,99,235,.1); color:var(--accent); }
+  .pda-realise { background:rgba(22,163,74,.1); color:var(--green); }
+  .pda-retard  { background:rgba(220,38,38,.1); color:var(--red); }
+  .pda-annule  { background:rgba(155,163,184,.12); color:var(--text3); }
+
+  /* SUIVI PDA — KPIs */
+  .apda-kpi-bar { display:flex; gap:10px; flex-wrap:wrap; align-items:stretch; padding:0 0 14px 0; margin-bottom:14px; border-bottom:1px solid var(--border); }
+  .apda-kpi-card { flex:1; min-width:90px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; text-align:center; }
+  .apda-kpi-val { font-family:'Syne',sans-serif; font-weight:800; font-size:22px; }
+  .apda-kpi-lbl { font-family:'DM Mono',monospace; font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; margin-top:3px; }
+  .apda-kpi-total  .apda-kpi-val { color:var(--accent); }
+  .apda-kpi-encours .apda-kpi-val { color:#0891b2; }
+  .apda-kpi-retard  .apda-kpi-val { color:var(--red); }
+  .apda-kpi-realise .apda-kpi-val { color:var(--green); }
+  .apda-kpi-annule  .apda-kpi-val { color:var(--text3); }
+  .apda-kpi-progress { flex:2; min-width:160px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 16px; display:flex; flex-direction:column; justify-content:center; }
+
+  /* SUIVI PDA — Section accordéon */
+  .apda-section-accordion { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; margin-bottom:14px; }
+  .apda-section-head { display:flex; justify-content:space-between; align-items:center; padding:11px 16px; cursor:pointer; font-family:'Syne',sans-serif; font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--text2); background:var(--surface2); user-select:none; transition:background .15s; }
+  .apda-section-head:hover { background:#e8edf5; }
+  .apda-accord-body { display:none; }
+  .apda-accord-open { display:block !important; }
+
+  /* SUIVI PDA — Porteurs */
+  .apda-porteur-row { display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .apda-porteur-row:last-child { border-bottom:none; }
+  .apda-porteur-nom { font-family:'Syne',sans-serif; font-weight:700; font-size:12px; min-width:140px; }
+  .apda-porteur-stat { font-family:'DM Mono',monospace; font-size:10px; padding:2px 8px; border-radius:20px; white-space:nowrap; }
+  .apda-porteur-stat.encours { background:rgba(8,145,178,.1); color:#0891b2; }
+  .apda-porteur-stat.retard  { background:rgba(220,38,38,.1); color:var(--red); }
+  .apda-porteur-stat.realise { background:rgba(22,163,74,.1); color:var(--green); }
+  .apda-porteur-stat.annule  { background:rgba(155,163,184,.1); color:var(--text3); }
+  .apda-porteur-bar-wrap { flex:1; min-width:80px; background:#e5e7eb; border-radius:4px; height:6px; overflow:hidden; }
+  .apda-porteur-bar { height:6px; border-radius:4px; transition:width .3s; }
+  .apda-porteur-pct { font-family:'Syne',sans-serif; font-weight:800; font-size:11px; min-width:32px; text-align:right; }
+
+  /* SUIVI PDA — Badges retard */
+  .apda-retard-badge { display:inline-block; background:rgba(220,38,38,.12); color:var(--red); font-family:'DM Mono',monospace; font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; margin-left:4px; }
+  .apda-soon-badge   { display:inline-block; background:rgba(217,119,6,.12); color:var(--orange); font-family:'DM Mono',monospace; font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; margin-left:4px; }
+
+  /* SUIVI PDA — Fiche détail dépliable */
+  .apda-detail-field { background:white; border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .apda-detail-label { font-family:'DM Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text3); margin-bottom:4px; }
+  .apda-detail-val { font-size:13px; color:var(--text); line-height:1.4; }
+  .apda-main-row:hover { background:var(--surface2) !important; }
 </style>
 </head>
 <body>
@@ -1661,6 +1984,9 @@ function renderBilan() {
       <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;">Total clients</span>
       <span id="sidebar-total-num" style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--accent);">—</span>
     </div>
+    <button onclick="openAllPda()" id="btn-all-pda" style="width:100%;margin-top:6px;background:linear-gradient(135deg,#0891b2,#0e7490);border:none;border-radius:8px;color:#fff;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;padding:8px 10px;cursor:pointer;letter-spacing:.05em;transition:opacity .2s;display:flex;align-items:center;justify-content:center;gap:6px;" onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+      📌 Suivi PDA — Tous les clients
+    </button>
   </div>
   <div class="client-list" id="client-list"></div>
   <div class="sidebar-footer" id="sidebar-count">Chargement…</div>
@@ -2060,6 +2386,38 @@ function renderBilan() {
     </div>
     <div id="login-err" style="color:var(--red);font-size:12px;font-family:'DM Mono',monospace;min-height:18px;margin-bottom:8px;"></div>
     <button class="btn-primary" style="width:100%;padding:12px;font-size:13px;" onclick="doLogin()">Connexion</button>
+  </div>
+</div>
+
+
+<!-- ══ MODAL PDA TOUS CLIENTS ══ -->
+<div id="modal-all-pda" style="display:none;position:fixed;inset:0;background:rgba(10,15,30,.55);z-index:9990;overflow:auto;">
+  <div style="background:var(--surface);min-height:100vh;display:flex;flex-direction:column;">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:12px;padding:16px 22px;background:linear-gradient(135deg,#0891b2,#0e7490);position:sticky;top:0;z-index:10;flex-shrink:0;">
+      <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:#fff;flex:1;">📌 Suivi PDA — Tous les clients</span>
+      <span id="all-pda-badge" style="background:rgba(255,255,255,.2);color:#fff;font-family:'DM Mono',monospace;font-size:11px;border-radius:20px;padding:3px 12px;"></span>
+      <!-- Filtres -->
+      <select id="all-pda-filter-statut" onchange="renderAllPda()" style="font-size:12px;padding:5px 8px;border-radius:6px;border:none;font-family:'DM Mono',monospace;cursor:pointer;">
+        <option value="">Tous statuts</option>
+        <option value="En cours">En cours</option>
+        <option value="En retard">En retard</option>
+        <option value="Réalisé">Réalisé</option>
+        <option value="Annulé">Annulé</option>
+      </select>
+      <select id="all-pda-filter-liste" onchange="renderAllPda()" style="font-size:12px;padding:5px 8px;border-radius:6px;border:none;font-family:'DM Mono',monospace;cursor:pointer;">
+        <option value="">Tous types</option>
+        <option value="COMEX">COMEX</option>
+        <option value="Hors COMEX">Hors COMEX</option>
+      </select>
+      <select id="all-pda-filter-porteur" onchange="renderAllPda()" style="font-size:12px;padding:5px 8px;border-radius:6px;border:none;font-family:'DM Mono',monospace;cursor:pointer;max-width:140px;">
+        <option value="">Tous porteurs</option>
+      </select>
+      <input id="all-pda-search" oninput="renderAllPda()" placeholder="🔍 Rechercher…" style="font-size:12px;padding:5px 10px;border-radius:6px;border:none;font-family:'DM Mono',monospace;width:140px;">
+      <button onclick="closeAllPda()" style="background:rgba(255,255,255,.2);border:none;border-radius:8px;color:#fff;font-size:18px;width:34px;height:34px;cursor:pointer;line-height:1;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,.35)'" onmouseout="this.style.background='rgba(255,255,255,.2)'">✕</button>
+    </div>
+    <!-- Body -->
+    <div id="all-pda-body" style="padding:20px 22px;flex:1;overflow:auto;"></div>
   </div>
 </div>
 
