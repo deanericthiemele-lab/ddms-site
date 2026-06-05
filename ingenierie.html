@@ -1114,6 +1114,121 @@ function fermerPopupPourcentage2Mois() {
   document.getElementById('popup-pourcentage-2mois').style.display = 'none';
 }
     </script>
+    <script>
+    // ===== FILTRE SEMAINE ISO 2026 — GLOBAL (tableau + graphes + cartes) =====
+
+    // Variable globale : semaine active
+    window._semaineActive = null;
+
+    // Construire le select avec S1..S52 de 2026 — après chargement du DOM
+    document.addEventListener('DOMContentLoaded', function buildSemaineOptions() {
+      const sel = document.getElementById('select-semaine-graphes');
+      if (!sel) return;
+      function getLundiDimanche(annee, isoSem) {
+        // Trouver le lundi de la semaine ISO isoSem de l'année annee
+        // ISO week 1 = semaine contenant le 4 janvier
+        const jan4 = new Date(Date.UTC(annee, 0, 4));
+        const dayOfWeek = jan4.getUTCDay() || 7; // lundi=1
+        const lundi = new Date(jan4);
+        lundi.setUTCDate(jan4.getUTCDate() - dayOfWeek + 1 + (isoSem - 1) * 7);
+        const dimanche = new Date(lundi);
+        dimanche.setUTCDate(lundi.getUTCDate() + 6);
+        return { lundi, dimanche };
+      }
+      const semaines = [];
+      for (let s = 1; s <= 52; s++) {
+        const { lundi, dimanche } = getLundiDimanche(2026, s);
+        if (lundi.getUTCFullYear() > 2026) break;
+        const fmt = dd => `${String(dd.getUTCDate()).padStart(2,'0')}/${String(dd.getUTCMonth()+1).padStart(2,'0')}`;
+        const label = `S${s} — ${fmt(lundi)} au ${fmt(dimanche)}`;
+        semaines.push({ key: String(s), label, lundi, dimanche, iso: s });
+        const opt = document.createElement('option');
+        opt.value = String(s);
+        opt.textContent = label;
+        sel.appendChild(opt);
+      }
+      window._semaines2026 = semaines;
+    }); // fin DOMContentLoaded
+
+    // Récupérer la semaine choisie
+    function getSemaineSelectionnee() {
+      const val = document.getElementById('select-semaine-graphes').value;
+      if (!val) return null;
+      return window._semaines2026.find(s => s.key === val) || null;
+    }
+
+    // Filtrer un tableau d'items selon la semaine active (sur datesCreation)
+    // Retourne un tableau où chaque item contient uniquement les incidents de la semaine,
+    // avec mois et total recalculés pour ne refléter que la semaine.
+    function appliquerFiltreSemaine(tableau) {
+      const sem = window._semaineActive;
+      if (!sem) return tableau;
+
+      const lundiMs = sem.lundi.getTime();
+      const dimancheMs = sem.dimanche.getTime() + 86400000 - 1; // fin de journée dimanche
+
+      const result = [];
+      tableau.forEach(item => {
+        if (!item.datesCreation || !item.datesCreation.length) return;
+
+        // Garder uniquement les dates de création dans la semaine
+        const datesSemaine = item.datesCreation.filter(d => {
+          const ms = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).getTime();
+          return ms >= lundiMs && ms <= dimancheMs;
+        });
+
+        if (!datesSemaine.length) return;
+
+        // Recalculer mois et total uniquement sur les dates de la semaine
+        const moisSem = {};
+        datesSemaine.forEach(d => {
+          const m = d.getMonth() + 1;
+          moisSem[m] = (moisSem[m] || 0) + 1;
+        });
+        const totalSem = datesSemaine.length;
+        const moisActuel = new Date().getMonth() + 1;
+        const moisPrecedent = moisActuel === 1 ? 12 : moisActuel - 1;
+        const total2Mois = (moisSem[moisActuel] || 0) + (moisSem[moisPrecedent] || 0);
+
+        result.push({
+          ...item,
+          mois: moisSem,
+          total: totalSem,
+          critiques: total2Mois >= 2,
+          datesCreation: datesSemaine
+        });
+      });
+      return result;
+    }
+
+    // Appelé quand le select change
+    function onSemaineGlobaleChange() {
+      const sem = getSemaineSelectionnee();
+      window._semaineActive = sem;
+      const info = document.getElementById('semaine-plage-info');
+      if (!sem) {
+        info.textContent = '';
+      } else {
+        const fmt = d => `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()}`;
+        info.textContent = `📆 ${fmt(sem.lundi)} → ${fmt(sem.dimanche)}`;
+      }
+      // Déclencher un rafraîchissement complet de la page
+      filtrerTableau();
+      // Si les cartes P1/P2/P3 existent, les mettre à jour aussi
+      if (typeof mettreAJourCasesVertes === 'function') {
+        mettreAJourCasesVertes(appliquerFiltreSemaine(tableauActuel));
+      }
+    }
+
+    // Reset semaine : vider le select et relancer
+    function resetSemaineGlobale() {
+      document.getElementById('select-semaine-graphes').value = '';
+      window._semaineActive = null;
+      document.getElementById('semaine-plage-info').textContent = '';
+      filtrerTableau();
+    }
+    </script>
+
     <h4 style="margin:0;color:#546e7a;font-size:14px;font-weight:700;">
      📊 Incidents répétitifs sur 2 Mois
     </h4>
@@ -1370,6 +1485,12 @@ function fermerPopupPourcentageFusionne() {
    <button id="btn-reset-date" onclick="resetDates()">
     Effacer les dates
    </button>
+   <!-- ===== SÉLECTEUR SEMAINE ISO 2026 ===== -->
+   <select id="select-semaine-graphes" onchange="onSemaineGlobaleChange()" style="padding:5px 8px;border:1px solid #90a4ae;border-radius:4px;font-size:12px;color:#37474f;background:white;cursor:pointer;margin-left:4px;" title="Filtrer toute la page par semaine ISO 2026">
+     <option value="">📅 Semaine 2026…</option>
+   </select>
+   <button onclick="resetSemaineGlobale()" style="background:#78909c;color:white;border:none;border-radius:4px;padding:5px 8px;cursor:pointer;font-size:12px;" title="Effacer le filtre semaine">✕ Sem.</button>
+   <span id="semaine-plage-info" style="font-size:11px;color:#e65100;font-weight:600;font-style:italic;margin-left:2px;"></span>
    <button onclick="exporterTableauComplet()" style="background-color:#546e7a;color:white;padding:6px 14px;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
     📥 Exporter
    </button>
@@ -1812,35 +1933,37 @@ function setVueAffichage() {
   document.getElementById("retour-principal").style.display = modeTop20 ? "inline-block" : "none";
   document.getElementById("top20-indicateur").style.display = modeTop20 ? "block" : "none";
   document.querySelector('h2').textContent = "Analyse des incidents";
-  afficherTableau(tableauActuel);
-  afficherStats(tableauActuel);
-  afficherGraphiqueIncidentsND2(tableauActuel);
-  afficherGraphiqueFusionne(tableauActuel);
+  // Appliquer filtre semaine si actif
+  const srcVue = window._semaineActive ? appliquerFiltreSemaine(tableauActuel) : tableauActuel;
+  afficherTableau(srcVue);
+  afficherStats(srcVue);
+  afficherGraphiqueIncidentsND2(srcVue);
+  afficherGraphiqueFusionne(srcVue);
   if (filtreDateActive) {
     setChartContainerVisibility(false);
   } else {
     setChartContainerVisibility(true);
-    afficherGraphique(tableauActuel);
+    afficherGraphique(srcVue);
   }
-  afficherBarCritiquesPourSelection(tableauActuel);
+  afficherBarCritiquesPourSelection(srcVue);
   afficherNDCritiquesParClient();
-  document.getElementById("info-resultats").textContent = `👥 Total : ${tableauActuel.length} ND analysés | Total lignes : ${donneesExcel.length}`;
+  document.getElementById("info-resultats").textContent = `👥 Total : ${srcVue.length} ND analysés | Total lignes : ${donneesExcel.length}`;
   const accueilSpan = document.getElementById("total-lignes-accueil");
   if (accueilSpan) accueilSpan.textContent = `Total lignes : ${donneesExcel.length}`;
   document.getElementById("recherche").value = "";
   document.getElementById("resume-douleurs").innerHTML = "";
-  afficherGraphiqueNDRécurrents(tableauActuel);
-  afficherGraphiqueNDparMois(tableauActuel);
-  afficherGraphiqueFusionND(tableauActuel);
+  afficherGraphiqueNDRécurrents(srcVue);
+  afficherGraphiqueNDparMois(srcVue);
+  afficherGraphiqueFusionND(srcVue);
   (function () {
     const aujourdHui = new Date();
     const moisActuel = aujourdHui.getMonth() + 1;
     const moisN1 = moisActuel === 1 ? 12 : moisActuel - 1;
     const moisN2 = moisActuel === 1 ? 11 : (moisActuel === 2 ? 12 : moisActuel - 2);
 
-    const ndDeuxMois = tableauActuel.filter(item => (item.mois[moisN1] || 0) > 0 && (item.mois[moisN2] || 0) > 0);
-    const ndMoisCourant = tableauActuel.filter(item => (item.mois[moisActuel] || 0) >= 2);
-    const ndAnnuel = tableauActuel.filter(item => {
+    const ndDeuxMois = srcVue.filter(item => (item.mois[moisN1] || 0) > 0 && (item.mois[moisN2] || 0) > 0);
+    const ndMoisCourant = srcVue.filter(item => (item.mois[moisActuel] || 0) >= 2);
+    const ndAnnuel = srcVue.filter(item => {
       let total = 0;
       for (let i = 1; i <= moisActuel; i++) total += item.mois[i] || 0;
       return total >= 7;
@@ -2272,6 +2395,12 @@ function resetDates() {
   document.getElementById("date-debut").value = "";
   document.getElementById("date-fin").value = "";
   document.getElementById("recherche").value = "";
+  // Reset semaine aussi
+  if (document.getElementById('select-semaine-graphes')) {
+    document.getElementById('select-semaine-graphes').value = '';
+    window._semaineActive = null;
+    document.getElementById('semaine-plage-info').textContent = '';
+  }
   filtrerTableau();
 }
 
@@ -2279,6 +2408,8 @@ function filtrerTableau() {
   const filtre = document.getElementById("recherche").value.toLowerCase();
   const motsCles = filtre.split(',').map(f => f.trim()).filter(f => f);
   let tableauSource = filtreDateActive ? appliquerFiltreDate(tableauActuel) : [...tableauActuel];
+  // Appliquer le filtre semaine si actif (filtre sur datesCreation + recalcul mois/total)
+  if (window._semaineActive) tableauSource = appliquerFiltreSemaine(tableauSource);
   let filtres = [];
 
   // Mise à jour label export dynamique
@@ -2291,6 +2422,7 @@ function filtrerTableau() {
     const parts = [];
     if (f) parts.push('🔍 ' + f);
     if (d1 || d2) parts.push('📅 ' + (d1 || '…') + ' → ' + (d2 || '…'));
+    if (window._semaineActive) parts.push('📅 S' + window._semaineActive.iso);
     lbl.textContent = parts.length ? '(' + parts.join(' · ') + ')' : '';
   }
 
@@ -4142,265 +4274,7 @@ async function genererRapportPDF(clientNom) {
   });
 }
   </script>
-  <script>
-   });
-
-    dataVolume.push(totalIncidents);
-    dataDistincts.push(ndSet.size);
-  }
-
-  const ctx = document.getElementById('graphique-nd-fusionne');
-  if (!ctx) return;
-  if (window.graphiqueNDFusionne) window.graphiqueNDFusionne.destroy();
-
-  window.graphiqueNDFusionne = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Volume total incidents (ND concernés)',
-          data: dataVolume,
-          backgroundColor: '#42a5f5',
-          borderColor: '#42a5f5',
-          borderWidth: 1
-        },
-        {
-          label: 'ND distincts présents sur 2 mois',
-          data: dataDistincts,
-          backgroundColor: '#42a5f5',
-          borderColor: '#42a5f5',
-          borderWidth: 1
-        }
-      ]
-    },
-    options: {
-      devicePixelRatio: 2,
-      responsive: true,
-      plugins: {
-        legend: { position: 'top' },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top',
-          formatter: function(value){ return value; }
-        }
-      },
-      scales: { y: { beginAtZero: true } }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-  });
-  const moisPresents = Array.from(moisPresentsSet).sort((a,b)=>a-b);
-  if (moisPresents.length < 2) {
-    // Pas de paires consécutives possibles, on affiche un graphe vide avec un label neutre
-    const ctx = document.getElementById('graphique-nd-fusionne').getContext('2d');
-    if (window.graphiqueNDFusionne) window.graphiqueNDFusionne.destroy();
-    window.graphiqueNDFusionne = new Chart(ctx, {
-      type: 'bar',
-      data: { labels: [], datasets: [
-        { label: 'Volume total incidents (ND concernés)', data: [], backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 },
-        { label: 'ND distincts présents sur 2 mois', data: [], backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
-      ]},
-      options: {
-      devicePixelRatio: 2, plugins: { legend: { position: 'top' }, datalabels: { display: false }}, scales: { y: { beginAtZero: true }}},
-      plugins: [ChartDataLabels]
-    });
-    return;
-  }
-
-  const labels = [];
-  const dataVolume = [];
-  const dataDistincts = [];
-
-  for (let i = 0; i < moisPresents.length - 1; i++) {
-    const m1 = moisPresents[i];
-    const m2 = moisPresents[i + 1];
-    // garder seulement des paires consécutives m2 = m1 + 1
-    if (m2 !== m1 + 1) continue;
-
-    let totalIncidents = 0;
-    const ndSet = new Set();
-
-    tableauActuel.forEach(item => {
-      const incidentsM1 = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
-      const incidentsM2 = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
-      if (incidentsM1 > 0 && incidentsM2 > 0) {
-        totalIncidents += incidentsM1 + incidentsM2;    // bleu = volume total incidents
-        ndSet.add(item.nd);                              // vert = ND distincts
-      }
-    });
-
-    labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
-    dataVolume.push(totalIncidents);
-    dataDistincts.push(ndSet.size);
-  }
-
-  const ctx = document.getElementById('graphique-nd-fusionne').getContext('2d');
-  if (window.graphiqueNDFusionne) window.graphiqueNDFusionne.destroy();
-  window.graphiqueNDFusionne = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          label: 'Volume total incidents (ND concernés)',
-          data: dataVolume,
-          backgroundColor: '#42a5f5',
-          borderColor: '#42a5f5',
-          borderWidth: 1
-        },
-        {
-          label: 'ND distincts présents sur 2 mois',
-          data: dataDistincts,
-          backgroundColor: '#42a5f5',
-          borderColor: '#42a5f5',
-          borderWidth: 1
-        }
-      ]
-    },
-    options: {
-      devicePixelRatio: 2,
-      responsive: true,
-      plugins: {
-        legend: { position: 'top' },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top',
-          formatter: function(value){ return value; }
-        }
-      },
-      scales: { y: { beginAtZero: true } }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-    });
-
-    parPaireMois_Volume[label] = totalIncidents;
-    parPaireMois_NDdistincts[label] = ndSet.size;
-  }
-
-  const labels = Object.keys(parPaireMois_Volume);
-  const dataVolume = Object.values(parPaireMois_Volume);
-  const dataDistincts = Object.values(parPaireMois_NDdistincts);
-
-  if (window.graphiqueNDFusionne) {
-    window.graphiqueNDFusionne.destroy();
-  }
-
-  const ctx = document.getElementById('graphique-nd-fusionne').getContext('2d');
-  window.graphiqueNDFusionne = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          label: 'Volume total incidents (ND concernés)',
-          data: dataVolume,
-          backgroundColor: '#42a5f5',
-          borderColor: '#42a5f5',
-          borderWidth: 1
-        },
-        {
-          label: 'ND distincts présents sur 2 mois',
-          data: dataDistincts,
-          backgroundColor: '#42a5f5',
-          borderColor: '#42a5f5',
-          borderWidth: 1
-        }
-      ]
-    },
-    options: {
-      devicePixelRatio: 2,
-      responsive: true,
-      plugins: {
-        legend: { position: 'top' },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top'
-        }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-    });
-
-    const moisList = Object.keys(item.mois).map(m => parseInt(m)).sort((a, b) => a - b);
-    for (let i = 0; i < moisList.length - 1; i++) {
-      const m1 = moisList[i];
-      const m2 = moisList[i + 1];
-      if (item.mois[m1] && item.mois[m2]) {
-        const key = m1 + "-" + m2;
-        parMoisDeuxMois[key] = (parMoisDeuxMois[key] || 0) + 1;
-      }
-    }
-  });
-
-  const labels = [];
-  const data1 = [];
-  const data2 = [];
-
-  for (let m = 1; m <= 11; m++) {
-    const label = moisNoms[m] + " → " + moisNoms[m + 1];
-    labels.push(label);
-    const key = m + "-" + (m + 1);
-    data1.push(parMoisRepetitifs[m + 1] || 0);
-    data2.push(parMoisDeuxMois[key] || 0);
-  }
-
-  const ctx = document.getElementById('graphique-nd-fusionne').getContext('2d');
-  if (window.graphiqueNDfusionne) window.graphiqueNDfusionne.destroy();
-
-  window.graphiqueNDfusionne = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
-        {
-          label: 'ND présent sur les 2 mois',
-          data: data1,
-          backgroundColor: '#42a5f5'
-        },
-        {
-          label: 'Total des incidents',
-          data: data2,
-          backgroundColor: '#66bb6a'
-        }
-      ]
-    },
-    options: {
-      devicePixelRatio: 2,
-      responsive: true,
-      plugins: {
-        legend: { position: 'top' },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 12 },
-          anchor: 'end',
-          align: 'top'
-        }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-  </script>
+  
   <script>
    function exporterGraphiqueFusionND() {
   const aujourdHui = new Date();
@@ -4451,7 +4325,8 @@ async function genererRapportPDF(clientNom) {
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script>
-   document.getElementById('excelFile').addEventListener('change', function (e) {
+   const _excelFileEl = document.getElementById('excelFile');
+   if (_excelFileEl) _excelFileEl.addEventListener('change', function (e) {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -4496,264 +4371,7 @@ async function genererRapportPDF(clientNom) {
     reader.readAsArrayBuffer(file);
 });
   </script>
-  <script>
-   // Redéfinition finale. Source = tableauActuel issu de l'Excel chargé.
-
-
-return;
-  }
-
-  const labels = [];
-  const dataTotalAll = [];     // ORANGE: total incidents tous ND confondus (m1+m2)
-  const dataVolume = [];       // BLEU: volume incidents pour ND présents sur les 2 mois
-  const dataDistincts = [];    // VERT: ND distincts présents sur les 2 mois
-
-  for (let m1 = 1; m1 <= 11; m1++) {
-    const m2 = m1 + 1;
-    labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
-
-    let totalTousND = 0;
-    let totalIncidentsDeuxMoisSurNDRecurrents = 0;
-    const ndSet = new Set();
-
-    tableauActuel.forEach(item => {
-      const a = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
-      const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
-
-      totalTousND += a + b;  // ORANGE: tout confondu
-
-      if (a > 0 && b > 0) {
-        totalIncidentsDeuxMoisSurNDRecurrents += a + b; // BLEU
-        ndSet.add(item.nd);                              // VERT
-      }
-    });
-
-    dataTotalAll.push(totalTousND);
-    dataVolume.push(totalIncidentsDeuxMoisSurNDRecurrents);
-    dataDistincts.push(ndSet.size);
-  }
-
-  const el = document.getElementById('graphique-nd-fusionne');
-  if (!el) return;
-
-  // Essai Chart.js
-  try {
-    if (window.graphiqueNDFusionne) { try { window.graphiqueNDFusionne.destroy(); } catch(e){} }
-    window.graphiqueNDFusionne = new Chart(el, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [
-        { label: 'Total Signalisations (2 mois)', data: dataTotalAll, backgroundColor: 'orange', borderColor: 'orange', borderWidth: 1 },
-        {
-            label: 'ND total',
-            data: dataNdTotal,
-            backgroundColor: '#66bb6a',
-            borderColor: '#66bb6a',
-            borderWidth: 1
-        },
-        { label: 'Volume incidents (ND présents 2 mois)', data: dataVolume, backgroundColor: '#ef5350', borderColor: '#ef5350', borderWidth: 1 },
-        { label: 'ND distincts présents 2 mois', data: dataDistincts, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
-        ]
-      },
-      options: {
-      devicePixelRatio: 2,
-        responsive: true,
-        plugins: {
-          legend: { display: true, position: 'top' },
-          datalabels: {
-            color: "#333",
-            font: { weight: "bold", size: 11 },
-            anchor: 'end',
-            align: 'top',
-            formatter: function(v){ return v; }
-          }
-        },
-        scales: { y: { beginAtZero: true } }
-      },
-      plugins: [ChartDataLabels]
-    });
-    return;
-  } catch(e) {
-    // fallback 2D
-  }
-
-  // Fallback 2D si Chart.js ne rend pas
-  const ctx = el.getContext('2d');
-  const W = el.width, H = el.height;
-  ctx.clearRect(0, 0, W, H);
-
-  const margin = {left: 40, right: 10, top: 16, bottom: 40};
-  const plotW = W - margin.left - margin.right;
-  const plotH = H - margin.top - margin.bottom;
-  const maxVal = Math.max(1, ...dataTotalAll, ...dataVolume, ...dataDistincts);
-  const n = labels.length;
-  const groupW = plotW / n;
-  const barW = Math.max(4, Math.floor(groupW * 0.22));
-
-  ctx.strokeStyle = '#666'; ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(margin.left, margin.top);
-  ctx.lineTo(margin.left, margin.top + plotH);
-  ctx.lineTo(margin.left + plotW, margin.top + plotH);
-  ctx.stroke();
-
-  ctx.fillStyle = '#000'; ctx.font = '11px Arial';
-  ctx.fillText('Orange: total', margin.left, 12);
-  ctx.fillText('Bleu: volume', margin.left + 120, 12);
-  ctx.fillText('Vert: ND', margin.left + 220, 12);
-
-  function drawBar(x, val, color) {
-    const h = (val / maxVal) * plotH;
-    ctx.fillStyle = color;
-    ctx.fillRect(x, margin.top + plotH - h, barW, h);
-    if (h > 12) {
-      ctx.fillStyle = '#000';
-      ctx.font = '10px Arial';
-      ctx.fillText(String(val), x, margin.top + plotH - h - 2);
-    }
-  }
-
-  for (let i = 0; i < n; i++) {
-    const gx = margin.left + i * groupW + (groupW - 3*barW - 8) / 2;
-    drawBar(gx, dataTotalAll[i], 'orange');
-    drawBar(gx + barW + 4, dataVolume[i], 'blue');
-    drawBar(gx + 2*(barW + 4), dataDistincts[i], 'green');
-  }
-}
-
-    return;
-  }
-
-  const labels = [];
-  const dataTotalAll = [];     // ORANGE: total incidents tous ND confondus (m1+m2)
-  const dataVolume = [];       // BLEU: volume incidents pour ND présents sur les 2 mois
-  const dataDistincts = [];    // VERT: ND distincts présents sur les 2 mois
-
-  for (let m1 = 1; m1 <= 11; m1++) {
-    const m2 = m1 + 1;
-    labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
-
-    let totalTousND = 0;
-    let totalIncidentsDeuxMoisSurNDRecurrents = 0;
-    const ndSet = new Set();
-
-    tableauActuel.forEach(item => {
-      const a = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
-      const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
-
-      totalTousND += a + b;  // ORANGE: tout confondu
-
-      if (a > 0 && b > 0) {
-        totalIncidentsDeuxMoisSurNDRecurrents += a + b; // BLEU
-        ndSet.add(item.nd);                              // VERT
-      }
-    });
-
-    dataTotalAll.push(totalTousND);
-    dataVolume.push(totalIncidentsDeuxMoisSurNDRecurrents);
-    dataDistincts.push(ndSet.size);
-  }
-
-  const el = document.getElementById('graphique-nd-fusionne');
-  if (!el) return;
-  if (window.graphiqueNDFusionne) { try { window.graphiqueNDFusionne.destroy(); } catch(e){} }
-
-  window.graphiqueNDFusionne = new Chart(el, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Total Signalisations (2 mois)', data: dataTotalAll, backgroundColor: 'orange', borderColor: 'orange', borderWidth: 1 },
-        {
-            label: 'ND total',
-            data: dataNdTotal,
-            backgroundColor: '#66bb6a',
-            borderColor: '#66bb6a',
-            borderWidth: 1
-        },
-        { label: 'Volume incidents (ND présents 2 mois)', data: dataVolume, backgroundColor: '#ef5350', borderColor: '#ef5350', borderWidth: 1 },
-        { label: 'ND distincts présents 2 mois', data: dataDistincts, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
-        ]
-    },
-    options: {
-      devicePixelRatio: 2,
-      responsive: true,
-      plugins: {
-        legend: { display: true, position: 'top' },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 11 },
-          anchor: 'end',
-          align: 'top',
-          formatter: function(v){ return v; }
-        }
-      },
-      scales: { y: { beginAtZero: true } }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-
-    return;
-  }
-
-  const labels = [];
-  const dataVolume = [];
-  const dataDistincts = [];
-
-  for (let m1 = 1; m1 <= 11; m1++) {
-    const m2 = m1 + 1;
-    labels.push(moisNoms[m1] + " - " + moisNoms[m2]);
-
-    let totalIncidents = 0;
-    const ndSet = new Set();
-
-    tableauActuel.forEach(item => {
-      const a = (item.mois && item.mois[m1]) ? item.mois[m1] : 0;
-      const b = (item.mois && item.mois[m2]) ? item.mois[m2] : 0;
-      if (a > 0 && b > 0) {
-        totalIncidents += a + b;   // Bleu = volume d'incidents
-        ndSet.add(item.nd);        // Vert = ND distincts
-      }
-    });
-
-    dataVolume.push(totalIncidents);
-    dataDistincts.push(ndSet.size);
-  }
-
-  const el = document.getElementById('graphique-nd-fusionne');
-  if (!el) return;
-  if (window.graphiqueNDFusionne) try { window.graphiqueNDFusionne.destroy(); } catch(e) {}
-
-  window.graphiqueNDFusionne = new Chart(el, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        { label: 'Volume total incidents', data: dataVolume, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 },
-        { label: 'ND distincts sur 2 mois', data: dataDistincts, backgroundColor: '#42a5f5', borderColor: '#42a5f5', borderWidth: 1 }
-      ]
-    },
-    options: {
-      devicePixelRatio: 2,
-      responsive: true,
-      plugins: {
-        legend: { display: true, position: 'top' },
-        datalabels: {
-          color: "#333",
-          font: { weight: "bold", size: 11 },
-          anchor: 'end',
-          align: 'top',
-          formatter: function(v){ return v; }
-        }
-      },
-      scales: { y: { beginAtZero: true } }
-    },
-    plugins: [ChartDataLabels]
-  });
-}
-  </script>
+  
   <script>
    function afficherGraphiqueFusionND(dataParam) {
   const src = dataParam || tableauActuel;
@@ -5861,42 +5479,7 @@ document.addEventListener("DOMContentLoaded", () => {
     Fermer
    </button>
   </div>
-  <script>
-   // Fonctions copiées depuis ingenierie2.html (blocs P1/P2/P3)
-function exporterIncidentsRepetitifs() {
-  if (typeof XLSX === "undefined") {
-    alert("Erreur : la bibliothèque XLSX n'est pas chargée.");
-    return;
-  }
-function exporterNDsDeuxMois() {
-  const aujourdHui = new Date();
-  const moisActuel = aujourdHui.getMonth() + 1;
-  const moisN1 = moisActuel === 1 ? 12 : moisActuel - 1;
-  const moisN2 = moisActuel === 1 ? 11 : (moisActuel === 2 ? 12 : moisActuel - 2);
-
-  const ndFiltres = tableauActuel.filter(item =>
-    (item.mois[moisN1] || 0) > 0 && (item.mois[moisN2] || 0) > 0
-  );
-
-  if (ndFiltres.length === 0) {
-    alert("Aucun ND trouvé avec des incidents à la fois sur les mois N-1 et N-2.");
-    return;
-  }
-function exporterNDsAnnuelCritiques() {
-  const aujourdHui = new Date();
-  const moisActuel = aujourdHui.getMonth() + 1;
-
-  const moisNomsLocal = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"}
-function afficherNDCompletsMensuels() {
-  try {
-    const moisActuel = new Date().getMonth() + 1;
-    if (!Array.isArray(tableauActuel)) { 
-      document.getElementById('titre-nd-complets').innerText = "ND revenus tous les mois jusqu'au mois en cours (0)";
-      document.getElementById("contenu-nd-complets").innerHTML = "<div style='padding:8px;'>Aucun ND présent chaque mois YTD.</div>";
-      document.getElementById("modal-nd-complets").style.display = "block";
-      return;
-    }
-  </script>
+  
   <script>
    function exporterND_M1_M() {
   if (!tableauActuel || !tableauActuel.length) return;
