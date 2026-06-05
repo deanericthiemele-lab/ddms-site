@@ -2337,6 +2337,19 @@ async function deleteContact(id){
             </div>
           </div>
 
+          <div class="fgrp" style="margin:0">
+            <label>Destinataire *</label>
+            <div style="display:flex;gap:6px">
+              <label id="tk-dest-sav" onclick="tkSetDest('SAV B2B')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 10px;border-radius:4px;border:2px solid var(--n5);cursor:pointer;font-size:12px;font-weight:700;transition:.15s;background:#fff;color:var(--n2)">
+                🔧 SAV B2B
+              </label>
+              <label id="tk-dest-qp" onclick="tkSetDest('Qualité & Performance')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:7px 10px;border-radius:4px;border:2px solid var(--n5);cursor:pointer;font-size:12px;font-weight:700;transition:.15s;background:#fff;color:var(--n2)">
+                📊 Qualité &amp; Perf.
+              </label>
+              <input type="hidden" id="tk-destinataire" value="">
+            </div>
+          </div>
+
           <!-- Boutons -->
           <div style="display:flex;gap:8px;padding-top:4px">
             <button class="btn btn-out btn-sm" onclick="ticketResetForm()" style="flex:1">↺ Réinitialiser</button>
@@ -2376,6 +2389,11 @@ async function deleteContact(id){
           <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:7px">Moyenne / agent</div>
           <div id="tk-kpi-avg" style="display:flex;flex-wrap:wrap;gap:5px"></div>
         </div>
+        <!-- ligne 5 : répartition SAV vs Qualité -->
+        <div style="border-top:1px solid var(--n5);padding-top:9px;margin-top:9px">
+          <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:7px">Répartition destinataire</div>
+          <div id="tk-kpi-dest" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
       </div>
 
     </div>
@@ -2405,6 +2423,11 @@ async function deleteContact(id){
           <option value="VSAT">VSAT</option>
           <option value="VPN">VPN</option>
           <option value="Autre">Autre</option>
+        </select>
+        <select id="tk-filter-dest" onchange="ticketRender()" style="border:1px solid var(--n5);border-radius:3px;padding:5px 8px;font-size:15px">
+          <option value="">Tous destinataires</option>
+          <option value="SAV B2B">🔧 SAV B2B</option>
+          <option value="Qualité & Performance">📊 Qualité &amp; Perf.</option>
         </select>
       </div>
 
@@ -6031,6 +6054,7 @@ function ticketRender(){
   const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
   const fStatut = document.getElementById('tk-filter-statut')?.value||'';
   const fType   = document.getElementById('tk-filter-type')?.value||'';
+  const fDest   = document.getElementById('tk-filter-dest')?.value||'';
   const all     = DB.tickets||[];
 
   // KPI total + par agent filtrés par période
@@ -6101,10 +6125,43 @@ function ticketRender(){
   const badge = document.getElementById('b-tickets');
   if(badge){ const n=all.filter(t=>t.statut==='Ouvert'||t.statut==='En cours').length; badge.textContent=n; badge.style.display=n>0?'':'none'; }
 
+  // KPI destinataire SAV vs Qualité
+  const destBox = document.getElementById('tk-kpi-dest');
+  if(destBox){
+    const nSAV = kpiTickets.filter(t=>t.destinataire==='SAV B2B').length;
+    const nQP  = kpiTickets.filter(t=>t.destinataire==='Qualité & Performance').length;
+    const nNR  = kpiTickets.filter(t=>!t.destinataire).length;
+    const tot  = kpiTickets.length||1;
+    destBox.innerHTML = `
+      <div style="flex:1;background:var(--rl);border-radius:5px;padding:8px 12px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:17px">🔧</span>
+        <div>
+          <div style="font-family:var(--cond);font-size:22px;font-weight:800;color:var(--r);line-height:1">${nSAV}</div>
+          <div style="font-size:9px;font-weight:700;color:var(--r);text-transform:uppercase;letter-spacing:.4px">SAV B2B</div>
+          <div style="font-size:9px;color:var(--n3);margin-top:1px">${Math.round(nSAV/tot*100)}%</div>
+        </div>
+      </div>
+      <div style="flex:1;background:var(--bl);border-radius:5px;padding:8px 12px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:17px">📊</span>
+        <div>
+          <div style="font-family:var(--cond);font-size:22px;font-weight:800;color:var(--b);line-height:1">${nQP}</div>
+          <div style="font-size:9px;font-weight:700;color:var(--b);text-transform:uppercase;letter-spacing:.4px">Qualité &amp; Perf.</div>
+          <div style="font-size:9px;color:var(--n3);margin-top:1px">${Math.round(nQP/tot*100)}%</div>
+        </div>
+      </div>
+      ${nNR>0?`<div style="flex:1;background:var(--n6);border-radius:5px;padding:8px 12px;display:flex;align-items:center;gap:8px">
+        <span style="font-size:17px">❓</span>
+        <div>
+          <div style="font-family:var(--cond);font-size:22px;font-weight:800;color:var(--n3);line-height:1">${nNR}</div>
+          <div style="font-size:9px;font-weight:700;color:var(--n3);text-transform:uppercase;letter-spacing:.4px">Non renseigné</div>
+        </div>
+      </div>`:''}`;
+  }
+
   // Filtrage
   const items = all.filter(t=>{
     const txt=((t.client||'')+(t.ref||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
-    return (!search||txt.includes(search))&&(!fStatut||t.statut===fStatut)&&(!fType||t.type===fType);
+    return (!search||txt.includes(search))&&(!fStatut||t.statut===fStatut)&&(!fType||t.type===fType)&&(!fDest||t.destinataire===fDest);
   });
 
   const countLbl = document.getElementById('tk-count-lbl');
@@ -6123,7 +6180,7 @@ function ticketRender(){
     const debut = t.debut ? new Date(t.debut).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
     const contact = [t.contact_nom, t.contact_tel].filter(Boolean).join(' · ')||'—';
     const agentCol = TK_AGENT_COLORS[Object.keys(Object.fromEntries((DB.tickets||[]).map(x=>[x.ouvert_par||'Inconnu',1]))).indexOf(t.ouvert_par||'Inconnu') % TK_AGENT_COLORS.length];
-    return `<div style="background:#fff;border:1px solid var(--n5);border-radius:5px;padding:10px 12px;border-left:3px solid ${t.statut==='Ouvert'?'var(--r)':t.statut==='Résolu'?'var(--g)':t.statut==='Escaladé'?'#7B0000':'var(--a)'}">
+    return `<div style="background:${t.destinataire==='SAV B2B'?'#FFF5F0':t.destinataire==='Qualité & Performance'?'#F0F5FF':'#fff'};border:1px solid var(--n5);border-radius:5px;padding:10px 12px;border-left:3px solid ${t.statut==='Ouvert'?'var(--r)':t.statut==='Résolu'?'var(--g)':t.statut==='Escaladé'?'#7B0000':'var(--a)'}">
       <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
         <div style="flex:1">
           <div style="font-weight:700;font-size:13px;color:var(--n1)">${t.client||'—'}</div>
@@ -6158,6 +6215,8 @@ function ticketResetForm(){
     const el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('tk-type').value='';
+  document.getElementById('tk-destinataire').value='';
+  tkSetDest('');
   const now=new Date(); now.setSeconds(0,0);
   document.getElementById('tk-debut').value=now.toISOString().slice(0,16);
 }
@@ -6174,6 +6233,7 @@ function ticketEditInline(id){
   document.getElementById('tk-contact-tel').value=t.contact_tel||'';
   document.getElementById('tk-contact-mail').value=t.contact_mail||'';
   document.getElementById('tk-ouvert-par').value=t.ouvert_par||'';
+  tkSetDest(t.destinataire||'');
   // Scroll vers le haut du formulaire
   document.getElementById('page-tickets-indispo').scrollIntoView({behavior:'smooth',block:'start'});
   toast('Ticket chargé — modifiez puis cliquez Enregistrer','info');
@@ -6182,6 +6242,22 @@ function ticketEditInline(id){
 // Garder ticketEdit et ticketOpenModal pour compatibilité modale si besoin
 function ticketOpenModal(){ ticketResetForm(); }
 function ticketEdit(id){ ticketEditInline(id); }
+
+function tkSetDest(val){
+  const elSAV = document.getElementById('tk-dest-sav');
+  const elQP  = document.getElementById('tk-dest-qp');
+  const hid   = document.getElementById('tk-destinataire');
+  if(!elSAV||!elQP||!hid) return;
+  const isSAV = val==='SAV B2B';
+  const isQP  = val==='Qualité & Performance';
+  elSAV.style.border   = isSAV ? '2px solid var(--r)'  : '2px solid var(--n5)';
+  elSAV.style.background = isSAV ? 'var(--rl)' : '#fff';
+  elSAV.style.color    = isSAV ? 'var(--r)'  : 'var(--n2)';
+  elQP.style.border    = isQP  ? '2px solid var(--b)'  : '2px solid var(--n5)';
+  elQP.style.background  = isQP  ? 'var(--bl)' : '#fff';
+  elQP.style.color     = isQP  ? 'var(--b)'  : 'var(--n2)';
+  hid.value = val;
+}
 
 
 function ticketBuildMailto(t){
@@ -6240,7 +6316,12 @@ function ticketShowPreview(t){
   </table>
 
   <table width="958" cellpadding="0" cellspacing="0" style="border:1px solid #e0e0e0;border-top:none;border-radius:0 0 5px 5px">
-    <tr><td style="padding:14px 20px 6px;font-size:15px;font-family:'Helvetica 55 Roman',Helvetica,Arial,sans-serif;color:#333">Bonjour AT,<br><br>
+    <tr><td style="padding:10px 20px 4px">
+      <span style="display:inline-block;padding:4px 12px;border-radius:3px;font-size:12px;font-weight:700;font-family:'Helvetica 55 Roman',Helvetica,Arial,sans-serif;background:${t.destinataire==='SAV B2B'?'#FBEAEA':'#EBF3FA'};color:${t.destinataire==='SAV B2B'?'#B22222':'#1B4F72'}">
+        ${t.destinataire==='SAV B2B'?'🔧 Destinataire : SAV B2B':'📊 Destinataire : Qualité &amp; Performance'}
+      </span>
+    </td></tr>
+    <tr><td style="padding:8px 20px 6px;font-size:15px;font-family:'Helvetica 55 Roman',Helvetica,Arial,sans-serif;color:#333">Bonjour,<br><br>
     Nous vous informons qu\u2019une indisponibilit\u00e9 du lien ci-dessous est observ\u00e9e.</td></tr>
 
     <tr><td style="padding:8px 20px">
@@ -6309,8 +6390,11 @@ async function tkCopyHtml(){
 
 function tkOpenMailto(){
   const t = window._tkPreviewData; if(!t) return;
+  const mailTo = t.destinataire==='Qualité & Performance'
+    ? 'qualite.performance.b2b.oci@orange.com'
+    : 'assistancetechniqueb2b.oci@orange.com';
   const subj = encodeURIComponent('Indisponibilité du lien ' + (t.ref||'') + ' — ' + (t.client||''));
-  const href = 'mailto:assistancetechniqueb2b.oci@orange.com?subject=' + subj;
+  const href = 'mailto:' + mailTo + '?subject=' + subj;
   let fr = document.getElementById('_mailto_frame');
   if(!fr){
     fr = document.createElement('iframe');
@@ -6334,6 +6418,7 @@ async function ticketSave(){
   const contNom    = v('tk-contact-nom');
   const contTel    = v('tk-contact-tel');
   const ouvertPar  = v('tk-ouvert-par');
+  const destinat   = document.getElementById('tk-destinataire').value;
   if(!client)    { toast('Client obligatoire','err');           return null; }
   if(!tkRef)     { toast('Référence lien obligatoire','err');   return null; }
   if(!debut)     { toast('Date de début obligatoire','err');    return null; }
@@ -6341,6 +6426,7 @@ async function ticketSave(){
   if(!contNom)   { toast('Nom contact obligatoire','err');      return null; }
   if(!contTel)   { toast('Téléphone contact obligatoire','err');return null; }
   if(!ouvertPar) { toast('Ouvert par obligatoire','err');       return null; }
+  if(!destinat)  { toast('Destinataire obligatoire (SAV B2B ou Qualité & Performance)','err'); return null; }
 
   const data = {
     client,
@@ -6353,6 +6439,7 @@ async function ticketSave(){
     contact_tel : contTel,
     contact_mail: v('tk-contact-mail'),
     ouvert_par  : ouvertPar,
+    destinataire: destinat,
     notes       : '',
     fin         : null
   };
@@ -6395,11 +6482,11 @@ async function ticketDelete(id){
 function ticketExportCSV(){
   const all = DB.tickets||[];
   if(!all.length){ toast('Aucun ticket à exporter','err'); return; }
-  const cols = ['Client','Référence','Type','Date début','Localisation','Statut','Contact Nom','Contact Tél','Contact Mail','Ouvert par','Notes','Date résolution'];
+  const cols = ['Client','Référence','Type','Date début','Localisation','Statut','Destinataire','Contact Nom','Contact Tél','Contact Mail','Ouvert par','Notes','Date résolution'];
   const rows = all.map(t=>[
     t.client||'', t.ref||'', t.type||'',
     t.debut ? new Date(t.debut).toLocaleString('fr-FR') : '',
-    t.localisation||'', t.statut||'',
+    t.localisation||'', t.statut||'', t.destinataire||'',
     t.contact_nom||'', t.contact_tel||'', t.contact_mail||'',
     t.ouvert_par||'', t.notes||'',
     t.fin ? new Date(t.fin).toLocaleString('fr-FR') : ''
