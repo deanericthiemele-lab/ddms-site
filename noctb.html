@@ -2364,7 +2364,8 @@ async function deleteContact(id){
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
           <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4)">Tickets par agent</div>
           <div style="display:flex;gap:4px">
-            <button id="tkp-semaine" onclick="tkSetPeriode('semaine')" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;border:1px solid var(--v);background:var(--v);color:#fff;cursor:pointer">Semaine</button>
+            <button id="tkp-jour" onclick="tkSetPeriode('jour')" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;border:1px solid var(--v);background:var(--v);color:#fff;cursor:pointer">Aujourd'hui</button>
+            <button id="tkp-semaine" onclick="tkSetPeriode('semaine')" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;border:1px solid var(--n5);background:#fff;color:var(--n3);cursor:pointer">Semaine</button>
             <button id="tkp-mois" onclick="tkSetPeriode('mois')" style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;border:1px solid var(--n5);background:#fff;color:var(--n3);cursor:pointer">Mois</button>
           </div>
         </div>
@@ -2405,6 +2406,12 @@ async function deleteContact(id){
       <div style="padding:10px 14px;border-bottom:1px solid var(--n5);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-family:var(--cond);font-size:14px;font-weight:700;color:var(--n1)">Tickets enregistrés</span>
         <span id="tk-count-lbl" style="font-size:10px;color:var(--n4);font-family:var(--mono)">—</span>
+        <!-- Filtre période liste -->
+        <div style="display:flex;gap:2px;margin-left:4px">
+          <button id="tkl-jour" onclick="tkSetListPeriode('jour')" style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px 0 0 3px;border:1px solid var(--v);background:var(--v);color:#fff;cursor:pointer" title="Tickets du jour">Aujourd'hui</button>
+          <button id="tkl-semaine" onclick="tkSetListPeriode('semaine')" style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:0;border:1px solid var(--n5);background:#fff;color:var(--n3);cursor:pointer" title="Tickets de la semaine">Semaine</button>
+          <button id="tkl-mois" onclick="tkSetListPeriode('mois')" style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:0 3px 3px 0;border:1px solid var(--n5);background:#fff;color:var(--n3);cursor:pointer" title="Tickets du mois">Mois</button>
+        </div>
         <div style="flex:1"></div>
         <input type="text" id="tk-search" placeholder="🔍 Rechercher…" style="border:1px solid var(--n5);border-radius:3px;padding:5px 9px;font-size:15px;width:160px" oninput="ticketRender()">
         <select id="tk-filter-statut" onchange="ticketRender()" style="border:1px solid var(--n5);border-radius:3px;padding:5px 8px;font-size:15px">
@@ -5918,8 +5925,9 @@ const TK_STATUT_CLS = {
   'Ouvert':'bp-open','En cours':'bp-prog','Escaladé':'bp-late','Résolu':'bp-done','Fermé':'bp-ok'
 };
 const TK_AGENT_COLORS = ['var(--v)','var(--b)','var(--g)','var(--p)','var(--a)','var(--r)'];
-window._tkPeriode  = 'semaine'; // 'semaine' | 'mois'
+window._tkPeriode  = 'jour'; // 'jour' | 'semaine' | 'mois'
 window._tkOffset   = 0;         // 0 = période courante, -1 = précédente, etc.
+window._tkListPeriode = 'jour'; // filtre liste tickets : 'jour' | 'semaine' | 'mois' | 'tous'
 
 // ── Helpers date ──────────────────────────────────────────────────────────────
 function tkGetRange(){
@@ -5927,7 +5935,14 @@ function tkGetRange(){
   const p   = window._tkPeriode;
   const off = window._tkOffset||0;
 
-  if(p==='semaine'){
+  if(p==='jour'){
+    // jour courant + décalage en jours
+    const d = new Date(now);
+    d.setDate(now.getDate() + off);
+    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0,0,0,0);
+    const end   = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23,59,59,999);
+    return {start, end};
+  } else if(p==='semaine'){
     // lundi de la semaine courante
     const mon = new Date(now);
     mon.setHours(0,0,0,0);
@@ -5948,13 +5963,21 @@ function tkGetRange(){
 function tkFormatLabel(range){
   const p    = window._tkPeriode;
   const MOIS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  const JOURS = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
   const fmt  = (d,short)=> {
     const day = d.getDate();
     const mon = MOIS[d.getMonth()];
     const yr  = d.getFullYear();
     return short ? `${day} ${mon.slice(0,3)}.` : `${day===1?'1er':day} ${mon} ${yr}`;
   };
-  if(p==='semaine'){
+  if(p==='jour'){
+    const d = range.start;
+    const now = new Date();
+    const isToday = d.toDateString()===now.toDateString();
+    const isYest  = new Date(now.getFullYear(),now.getMonth(),now.getDate()-1).toDateString()===d.toDateString();
+    const dayName = isToday ? 'Aujourd'hui' : isYest ? 'Hier' : JOURS[d.getDay()];
+    return `${dayName} — ${d.getDate()===1?'1er':d.getDate()} ${MOIS[d.getMonth()]} ${d.getFullYear()}`;
+  } else if(p==='semaine'){
     const s = range.start, e = range.end;
     const sameYear  = s.getFullYear()===e.getFullYear();
     const sameMon   = sameYear && s.getMonth()===e.getMonth();
@@ -6013,13 +6036,43 @@ async function tkAddAgent(){
 function tkSetPeriode(p){
   window._tkPeriode = p;
   window._tkOffset  = 0;
-  ['semaine','mois'].forEach(k=>{
+  ['jour','semaine','mois'].forEach(k=>{
     const btn = document.getElementById('tkp-'+k);
     if(!btn) return;
     if(k===p){ btn.style.background='var(--v)'; btn.style.borderColor='var(--v)'; btn.style.color='#fff'; }
     else      { btn.style.background='#fff';     btn.style.borderColor='var(--n5)'; btn.style.color='var(--n3)'; }
   });
   ticketRender();
+}
+
+function tkSetListPeriode(p){
+  window._tkListPeriode = p;
+  ['jour','semaine','mois'].forEach(k=>{
+    const btn = document.getElementById('tkl-'+k);
+    if(!btn) return;
+    if(k===p){ btn.style.background='var(--v)'; btn.style.borderColor='var(--v)'; btn.style.color='#fff'; }
+    else      { btn.style.background='#fff';     btn.style.borderColor='var(--n5)'; btn.style.color='var(--n3)'; }
+  });
+  ticketRender();
+}
+
+function tkGetListRange(){
+  const now = new Date();
+  const p = window._tkListPeriode||'jour';
+  if(p==='jour'){
+    return { start: new Date(now.getFullYear(),now.getMonth(),now.getDate(),0,0,0,0),
+             end:   new Date(now.getFullYear(),now.getMonth(),now.getDate(),23,59,59,999) };
+  } else if(p==='semaine'){
+    const mon = new Date(now);
+    mon.setHours(0,0,0,0);
+    mon.setDate(now.getDate()-((now.getDay()+6)%7));
+    const sun = new Date(mon); sun.setDate(mon.getDate()+6); sun.setHours(23,59,59,999);
+    return {start:mon, end:sun};
+  } else if(p==='mois'){
+    return { start: new Date(now.getFullYear(),now.getMonth(),1,0,0,0,0),
+             end:   new Date(now.getFullYear(),now.getMonth()+1,0,23,59,59,999) };
+  }
+  return {start: new Date(0), end: new Date(9999,0,1)};
 }
 
 function tkNavigate(dir){
@@ -6080,7 +6133,7 @@ function ticketRender(){
     agentBox.innerHTML = Object.entries(agentMap).sort((a,b)=>b[1]-a[1]).map(([nom,cnt],i)=>{
       const col = TK_AGENT_COLORS[i%TK_AGENT_COLORS.length];
       const ini = nom.split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2);
-      const unit = window._tkPeriode==='mois' ? '/mois' : '/semaine';
+      const unit = window._tkPeriode==='mois' ? '/mois' : window._tkPeriode==='jour' ? '/jour' : '/semaine';
       return `<div style="display:flex;align-items:center;gap:5px;background:var(--n6);border-radius:4px;padding:4px 8px;min-width:100px">
         <div style="width:20px;height:20px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;flex-shrink:0">${ini}</div>
         <div>
@@ -6099,7 +6152,7 @@ function ticketRender(){
       avgBox.innerHTML = `<div style="font-size:11px;color:var(--n4)">Aucun ticket sur cette période</div>`;
     } else {
       const total = kpiTickets.length;
-      const unit  = window._tkPeriode==='mois' ? '/mois' : '/semaine';
+      const unit  = window._tkPeriode==='mois' ? '/mois' : window._tkPeriode==='jour' ? '/jour' : '/semaine';
       const agentsHtml = Object.entries(agentMap).sort((a,b)=>b[1]-a[1]).map(([nom,cnt],i)=>{
         const col = TK_AGENT_COLORS[i%TK_AGENT_COLORS.length];
         const ini = nom.split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2);
@@ -6158,14 +6211,31 @@ function ticketRender(){
       </div>`:''}`;
   }
 
-  // Filtrage
+  // Filtrage (période liste + autres filtres)
+  const listRange = tkGetListRange();
   const items = all.filter(t=>{
     const txt=((t.client||'')+(t.ref||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
-    return (!search||txt.includes(search))&&(!fStatut||t.statut===fStatut)&&(!fType||t.type===fType)&&(!fDest||t.destinataire===fDest);
+    const okSearch = (!search||txt.includes(search));
+    const okStatut = (!fStatut||t.statut===fStatut);
+    const okType   = (!fType||t.type===fType);
+    const okDest   = (!fDest||t.destinataire===fDest);
+    // filtre période liste
+    let okPeriode = true;
+    if(window._tkListPeriode && window._tkListPeriode!=='tous'){
+      if(!t.debut){ okPeriode=false; }
+      else {
+        const d = new Date(t.debut);
+        okPeriode = d>=listRange.start && d<=listRange.end;
+      }
+    }
+    return okSearch&&okStatut&&okType&&okDest&&okPeriode;
   });
 
   const countLbl = document.getElementById('tk-count-lbl');
-  if(countLbl) countLbl.textContent = items.length+' ticket'+(items.length!==1?'s':'');
+  if(countLbl){
+    const pLabel = {'jour':'aujourd\'hui','semaine':'cette semaine','mois':'ce mois'}[window._tkListPeriode||'jour']||'';
+    countLbl.textContent = items.length+' ticket'+(items.length!==1?'s':'')+( pLabel ? ' — '+pLabel : '');
+  }
 
   if(!items.length){
     panel.innerHTML = `<div style="text-align:center;padding:40px 20px;color:var(--n4)">
