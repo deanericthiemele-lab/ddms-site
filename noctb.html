@@ -2401,6 +2401,18 @@ async function deleteContact(id){
           <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:7px">Clients</div>
           <div id="tk-kpi-client" style="display:flex;flex-direction:column;gap:4px;max-height:280px;overflow-y:auto;padding-right:4px"></div>
         </div>
+        <!-- ligne 8 : KPI tickets par semaine / mois -->
+        <div style="border-top:1px solid var(--n5);padding-top:9px;margin-top:9px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4)">Volume tickets</div>
+            <div style="display:flex;gap:2px">
+              <button id="tkvol-semaine" onclick="tkSetVolMode('semaine')" style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:3px 0 0 3px;border:1px solid var(--v);background:var(--v);color:#fff;cursor:pointer">Semaine</button>
+              <button id="tkvol-mois" onclick="tkSetVolMode('mois')" style="font-size:9px;font-weight:700;padding:2px 7px;border-radius:0 3px 3px 0;border:1px solid var(--n5);background:#fff;color:var(--n3);cursor:pointer">Mois</button>
+            </div>
+          </div>
+          <div id="tk-kpi-volume" style="display:flex;flex-direction:column;gap:3px;max-height:220px;overflow-y:auto;padding-right:2px"></div>
+          <div id="tk-kpi-volume-avg" style="margin-top:8px;padding:7px 10px;background:var(--bl);border-radius:5px;font-size:11px;color:var(--b);font-weight:700;display:none"></div>
+        </div>
       </div>
 
     </div>
@@ -5932,6 +5944,7 @@ window._tkOffset   = 0;         // 0 = période courante, -1 = précédente, etc
 window._tkListPeriode = 'jour'; // filtre liste tickets : 'jour' | 'semaine' | 'mois' | 'tous'
 window._tkAgentFilter = null; // nom agent filtré ou null
 window._tkClientFilter = null; // nom client filtré ou null
+window._tkVolMode = 'semaine'; // 'semaine' | 'mois'
 
 // ── Helpers date ──────────────────────────────────────────────────────────────
 function tkGetRange(){
@@ -6119,6 +6132,80 @@ function tkFilterAgent(nom){
   window._tkAgentFilter = (window._tkAgentFilter === nom) ? null : nom;
   if(window._tkAgentFilter) window._tkClientFilter = null;
   ticketRender();
+}
+
+function tkSetVolMode(mode){
+  window._tkVolMode = mode;
+  ['semaine','mois'].forEach(k=>{
+    const btn = document.getElementById('tkvol-'+k);
+    if(!btn) return;
+    if(k===mode){ btn.style.background='var(--v)'; btn.style.borderColor='var(--v)'; btn.style.color='#fff'; }
+    else        { btn.style.background='#fff';     btn.style.borderColor='var(--n5)'; btn.style.color='var(--n3)'; }
+  });
+  tkRenderVolume();
+}
+
+function tkRenderVolume(){
+  const volBox = document.getElementById('tk-kpi-volume');
+  const avgBox = document.getElementById('tk-kpi-volume-avg');
+  if(!volBox) return;
+  const all = DB.tickets||[];
+  const mode = window._tkVolMode||'semaine';
+  const MOIS_NOM = ['','Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+
+  // Grouper tous les tickets par semaine ISO ou par mois
+  const buckets = {};
+  all.forEach(t=>{
+    if(!t.debut) return;
+    const d = new Date(t.debut);
+    if(isNaN(d)) return;
+    let key;
+    if(mode==='semaine'){
+      // Semaine ISO
+      const tmp = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+      const day = tmp.getUTCDay()||7;
+      tmp.setUTCDate(tmp.getUTCDate()+4-day);
+      const yr = tmp.getUTCFullYear();
+      const jan1 = new Date(Date.UTC(yr,0,1));
+      const wk = Math.ceil(((tmp-jan1)/86400000+1)/7);
+      key = `${yr}-S${String(wk).padStart(2,'0')}`;
+    } else {
+      key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    }
+    buckets[key] = (buckets[key]||0)+1;
+  });
+
+  const sorted = Object.entries(buckets).sort((a,b)=>a[0]<b[0]?1:-1); // plus récent en tête
+  if(!sorted.length){ volBox.innerHTML='<div style="font-size:11px;color:var(--n4)">Aucun ticket</div>'; avgBox.style.display='none'; return; }
+
+  const maxVal = Math.max(...sorted.map(s=>s[1]))||1;
+  const colors = ['var(--v)','var(--b)','var(--g)','var(--p)','var(--a)','var(--r)'];
+
+  volBox.innerHTML = sorted.map(([key,cnt],i)=>{
+    const bar = Math.round(cnt/maxVal*100);
+    const col = colors[i%colors.length];
+    let label;
+    if(mode==='semaine'){
+      label = key.replace(/^\d{4}-/,''); // S01, S02…
+    } else {
+      const [yr,mo] = key.split('-');
+      label = MOIS_NOM[parseInt(mo)]+' '+yr;
+    }
+    return `<div style="display:flex;align-items:center;gap:7px;padding:3px 0">
+      <span style="font-size:10px;font-weight:700;color:var(--n2);min-width:58px;flex-shrink:0">${label}</span>
+      <div style="flex:1;height:14px;background:var(--n6);border-radius:3px;overflow:hidden">
+        <div style="height:100%;width:${bar}%;background:${col};border-radius:3px;transition:width .3s"></div>
+      </div>
+      <span style="font-size:11px;font-weight:800;color:${col};min-width:22px;text-align:right;flex-shrink:0">${cnt}</span>
+    </div>`;
+  }).join('');
+
+  // Moyenne
+  const total = sorted.reduce((s,[,v])=>s+v,0);
+  const moy = (total/sorted.length).toFixed(1);
+  const unit = mode==='semaine' ? 'semaine' : 'mois';
+  avgBox.style.display='block';
+  avgBox.innerHTML = `📊 Moyenne : <b>${moy}</b> tickets / ${unit} &nbsp;·&nbsp; Total : <b>${total}</b>`;
 }
 
 function ticketRender(){
@@ -6338,6 +6425,9 @@ function ticketRender(){
     const suffix = tags.length ? ' — '+tags.join(' · ') : '';
     countLbl.innerHTML = `<b style="font-size:12px;color:var(--n1)">${items.length}</b> ticket${items.length!==1?'s':''}${suffix}`;
   }
+
+  // Render volume chart
+  tkRenderVolume();
 
   // Badge agent actif + bouton reset
   const agentBadgeId = 'tk-agent-filter-badge';
