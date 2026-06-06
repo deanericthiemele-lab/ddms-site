@@ -2287,7 +2287,8 @@ async function deleteContact(id){
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="fgrp" style="margin:0">
               <label>Client *</label>
-              <input type="text" id="tk-client" placeholder="Ex: SGBCI…">
+              <input type="text" id="tk-client" placeholder="Ex: SGBCI…" list="tk-client-list" autocomplete="off" oninput="tkClientFilter(this.value)">
+              <datalist id="tk-client-list"></datalist>
             </div>
             <div class="fgrp" style="margin:0">
               <label>Référence lien *</label>
@@ -2395,6 +2396,16 @@ async function deleteContact(id){
           <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:7px">Répartition destinataire</div>
           <div id="tk-kpi-dest" style="display:flex;gap:8px;flex-wrap:wrap"></div>
         </div>
+        <!-- ligne 6 : KPI par type de lien -->
+        <div style="border-top:1px solid var(--n5);padding-top:9px;margin-top:9px">
+          <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:7px">Par type de lien</div>
+          <div id="tk-kpi-type" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        </div>
+        <!-- ligne 7 : KPI par client -->
+        <div style="border-top:1px solid var(--n5);padding-top:9px;margin-top:9px">
+          <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:7px">Clients</div>
+          <div id="tk-kpi-client" style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;padding-right:4px"></div>
+        </div>
       </div>
 
     </div>
@@ -2414,14 +2425,7 @@ async function deleteContact(id){
         </div>
         <div style="flex:1"></div>
         <input type="text" id="tk-search" placeholder="🔍 Rechercher…" style="border:1px solid var(--n5);border-radius:3px;padding:5px 9px;font-size:15px;width:160px" oninput="ticketRender()">
-        <select id="tk-filter-statut" onchange="ticketRender()" style="border:1px solid var(--n5);border-radius:3px;padding:5px 8px;font-size:15px">
-          <option value="">Tous</option>
-          <option value="Ouvert">Ouvert</option>
-          <option value="En cours">En cours</option>
-          <option value="Escaladé">Escaladé</option>
-          <option value="Résolu">Résolu</option>
-          <option value="Fermé">Fermé</option>
-        </select>
+
         <select id="tk-filter-type" onchange="ticketRender()" style="border:1px solid var(--n5);border-radius:3px;padding:5px 8px;font-size:15px">
           <option value="">Tous types</option>
           <option value="LSI">LSI</option>
@@ -3318,6 +3322,8 @@ async function loadAll(){
     ]);
     DB.reunions=r; DB.cr=c; DB.plans=p; DB.incidents=inc;
     DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi; DB.kb=kb; DB.tickets=tickets; DB.agentsExtra=agExtra;
+    // Mémoriser tous les clients existants
+    if(DB.tickets) DB.tickets.forEach(t=>{ if(t.client) tkSaveClient(t.client); });
     dot.className='ok';
     renderAll();
     loadN1(); loadN2();
@@ -3452,7 +3458,7 @@ function renderDashboard(){
   if(sel('k-plans')) sel('k-plans').textContent = DB.plans.filter(p=>p.statut==='en_cours').length;
   if(sel('k-late'))  sel('k-late').textContent  = late.length;
   const di = sel('dash-incidents');
-  if(di){ const recent=DB.incidents.slice(0,8); di.innerHTML=recent.length?recent.map(i=>`<tr><td>${i.ref||i.id.slice(-6)}</td><td>${i.client||'—'}</td><td>${prioBadge(i.priorite)}</td><td>${statutBadge(i.statut)}</td></tr>`).join(''):'<tr><td colspan="4">—</td></tr>'; }
+  if(di){ const recent=DB.incidents.slice(0,10); di.innerHTML=recent.length?recent.map(i=>`<tr><td>${i.ref||i.id.slice(-6)}</td><td>${i.client||'—'}</td><td>${prioBadge(i.priorite)}</td><td>${statutBadge(i.statut)}</td></tr>`).join(''):'<tr><td colspan="4">—</td></tr>'; }
   const dl = sel('dash-late');
   if(dl){ dl.innerHTML=late.length?late.map(a=>`<tr><td>${a.titre||'—'}</td><td>${a.responsable||'—'}</td><td>${a.echeance||'—'}</td><td>${a.source||'—'}</td></tr>`).join(''):'<tr><td colspan="4">Aucune action en retard ✓</td></tr>'; }
   const dr = sel('dash-reunions');
@@ -5928,6 +5934,8 @@ const TK_AGENT_COLORS = ['var(--v)','var(--b)','var(--g)','var(--p)','var(--a)',
 window._tkPeriode  = 'jour'; // 'jour' | 'semaine' | 'mois'
 window._tkOffset   = 0;         // 0 = période courante, -1 = précédente, etc.
 window._tkListPeriode = 'jour'; // filtre liste tickets : 'jour' | 'semaine' | 'mois' | 'tous'
+window._tkAgentFilter = null; // nom agent filtré ou null
+window._tkClientFilter = null; // nom client filtré ou null
 
 // ── Helpers date ──────────────────────────────────────────────────────────────
 function tkGetRange(){
@@ -6100,9 +6108,25 @@ function tkWeeksInRange(range){
   return Math.max(1, Math.round(ms/(7*24*3600*1000)));
 }
 
+function tkFilterClientList(nom){
+  // Toggle : même client = reset, sinon filtre
+  window._tkClientFilter = (window._tkClientFilter === nom) ? null : nom;
+  // Reset agent filter pour éviter double filtre
+  if(window._tkClientFilter) window._tkAgentFilter = null;
+  ticketRender();
+}
+
+function tkFilterAgent(nom){
+  // Toggle : clic sur le même agent = reset
+  window._tkAgentFilter = (window._tkAgentFilter === nom) ? null : nom;
+  if(window._tkAgentFilter) window._tkClientFilter = null;
+  ticketRender();
+}
+
 function ticketRender(){
   const panel = document.getElementById('tk-list-panel');
   if(!panel) return;
+  tkBuildClientList();
 
   const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
   const fStatut = document.getElementById('tk-filter-statut')?.value||'';
@@ -6134,7 +6158,9 @@ function ticketRender(){
       const col = TK_AGENT_COLORS[i%TK_AGENT_COLORS.length];
       const ini = nom.split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2);
       const unit = window._tkPeriode==='mois' ? '/mois' : window._tkPeriode==='jour' ? '/jour' : '/semaine';
-      return `<div style="display:flex;align-items:center;gap:5px;background:var(--n6);border-radius:4px;padding:4px 8px;min-width:100px">
+      const isSelected = window._tkAgentFilter === nom;
+      const nomEsc = nom.replace(/'/g,"\\'");
+      return `<div onclick="tkFilterAgent('${nomEsc}')" style="display:flex;align-items:center;gap:5px;background:${isSelected?col+'22':'var(--n6)'};border-radius:4px;padding:4px 8px;min-width:100px;cursor:pointer;border:2px solid ${isSelected?col:'transparent'};transition:.15s" title="Filtrer tickets de ${nomEsc}">
         <div style="width:20px;height:20px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;flex-shrink:0">${ini}</div>
         <div>
           <div style="font-size:9px;color:var(--n3);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px">${nom}</div>
@@ -6156,7 +6182,9 @@ function ticketRender(){
       const agentsHtml = Object.entries(agentMap).sort((a,b)=>b[1]-a[1]).map(([nom,cnt],i)=>{
         const col = TK_AGENT_COLORS[i%TK_AGENT_COLORS.length];
         const ini = nom.split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2);
-        return `<div style="display:flex;align-items:center;gap:5px;background:var(--n6);border-radius:4px;padding:4px 8px;min-width:100px">
+        const isSelected = window._tkAgentFilter === nom;
+        const nomEsc = nom.replace(/'/g,"\\'");
+        return `<div onclick="tkFilterAgent('${nomEsc}')" style="display:flex;align-items:center;gap:5px;background:${isSelected?col+'22':'var(--n6)'};border-radius:4px;padding:4px 8px;min-width:100px;cursor:pointer;border:2px solid ${isSelected?col:'transparent'};transition:.15s" title="Filtrer tickets de ${nomEsc}">
           <div style="width:20px;height:20px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;flex-shrink:0">${ini}</div>
           <div>
             <div style="font-size:9px;color:var(--n3);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px">${nom}</div>
@@ -6211,6 +6239,69 @@ function ticketRender(){
       </div>`:''}`;
   }
 
+  // KPI par Type de lien
+  const typeBox = document.getElementById('tk-kpi-type');
+  if(typeBox){
+    const typeMap = {};
+    kpiTickets.forEach(t=>{ const tp=(t.type||'Autre').trim(); typeMap[tp]=(typeMap[tp]||0)+1; });
+    const TYPE_STYLES = {
+      'LSI':   {col:'var(--b)',  bg:'var(--bl)'},
+      'FH':    {col:'var(--g)',  bg:'var(--gl)'},
+      'FTTH':  {col:'var(--v)',  bg:'var(--vl)'},
+      'VSAT':  {col:'var(--p)',  bg:'#f3e8ff'},
+      'VPN':   {col:'var(--a)',  bg:'#fff8e1'},
+      'Autre': {col:'var(--n3)', bg:'var(--n6)'},
+    };
+    const tot2 = kpiTickets.length||1;
+    if(!Object.keys(typeMap).length){
+      typeBox.innerHTML='<div style="font-size:11px;color:var(--n4)">Aucun ticket</div>';
+    } else {
+      typeBox.innerHTML = Object.entries(typeMap).sort((a,b)=>b[1]-a[1]).map(([tp,cnt])=>{
+        const st = TYPE_STYLES[tp]||TYPE_STYLES['Autre'];
+        const pct = Math.round(cnt/tot2*100);
+        return `<div style="display:flex;align-items:center;gap:6px;background:${st.bg};border-radius:4px;padding:5px 10px;flex:1;min-width:70px;max-width:110px">
+          <div>
+            <div style="font-family:var(--cond);font-size:18px;font-weight:800;color:${st.col};line-height:1">${cnt}</div>
+            <div style="font-size:9px;font-weight:700;color:${st.col};text-transform:uppercase;letter-spacing:.4px">${tp}</div>
+            <div style="font-size:9px;color:var(--n3);margin-top:1px">${pct}%</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
+  // KPI par Client (top clients)
+  const clientBox = document.getElementById('tk-kpi-client');
+  if(clientBox){
+    const clientMap = {};
+    kpiTickets.forEach(t=>{ const cl=(t.client||'—').trim(); clientMap[cl]=(clientMap[cl]||0)+1; });
+    const sorted = Object.entries(clientMap).sort((a,b)=>b[1]-a[1]);
+    const maxVal = sorted[0]?.[1]||1;
+    const tot3   = kpiTickets.length||1;
+    if(!sorted.length){
+      clientBox.innerHTML='<div style="font-size:11px;color:var(--n4)">Aucun ticket</div>';
+    } else {
+      clientBox.innerHTML = sorted.map(([cl,cnt],i)=>{
+        const pct   = Math.round(cnt/tot3*100);
+        const bar   = Math.round(cnt/maxVal*100);
+        const col   = TK_AGENT_COLORS[i%TK_AGENT_COLORS.length];
+        const ini   = cl.split(/[\s_\-]+/).map(w=>w[0]||'').join('').toUpperCase().slice(0,2)||'?';
+        return `<div style="display:flex;align-items:center;gap:7px;cursor:pointer" onclick="tkFilterClientList('${cl.replace(/'/g,"\\'")}')" title="Filtrer tickets de ${cl}">
+          <div style="width:22px;height:22px;border-radius:50%;background:${col};display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;flex-shrink:0">${ini}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="font-size:10px;font-weight:700;color:var(--n1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px">${cl}</span>
+              <span style="font-size:10px;font-weight:800;color:${col};margin-left:4px;flex-shrink:0">${cnt} <span style="font-weight:400;color:var(--n4)">(${pct}%)</span></span>
+            </div>
+            <div style="height:5px;background:var(--n6);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${bar}%;background:${col};border-radius:3px;transition:width .3s"></div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+
   // Filtrage (période liste + autres filtres)
   const listRange = tkGetListRange();
   const items = all.filter(t=>{
@@ -6228,13 +6319,34 @@ function ticketRender(){
         okPeriode = d>=listRange.start && d<=listRange.end;
       }
     }
-    return okSearch&&okStatut&&okType&&okDest&&okPeriode;
+    // filtre agent
+    const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
+    const okClient = !window._tkClientFilter || (t.client||'').trim() === window._tkClientFilter;
+    return okSearch&&okStatut&&okType&&okDest&&okPeriode&&okAgent&&okClient;
   });
 
   const countLbl = document.getElementById('tk-count-lbl');
   if(countLbl){
-    const pLabel = {'jour':'aujourd\'hui','semaine':'cette semaine','mois':'ce mois'}[window._tkListPeriode||'jour']||'';
-    countLbl.textContent = items.length+' ticket'+(items.length!==1?'s':'')+( pLabel ? ' — '+pLabel : '');
+    const pLabel = {'jour':"aujourd'hui",'semaine':'cette semaine','mois':'ce mois'}[window._tkListPeriode||'jour']||'';
+    const aLabel = window._tkAgentFilter ? ` · 👤 ${window._tkAgentFilter}` : '';
+    countLbl.textContent = items.length+' ticket'+(items.length!==1?'s':'')+( pLabel ? ' — '+pLabel : '')+aLabel;
+  }
+
+  // Badge agent actif + bouton reset
+  const agentBadgeId = 'tk-agent-filter-badge';
+  let agentBadgeEl = document.getElementById(agentBadgeId);
+  if(!agentBadgeEl){
+    agentBadgeEl = document.createElement('div');
+    agentBadgeEl.id = agentBadgeId;
+    agentBadgeEl.style.cssText = 'display:none;align-items:center;gap:6px;padding:4px 10px;background:var(--vl);border:1px solid var(--v);border-radius:4px;font-size:11px;font-weight:700;color:var(--v);margin:6px 10px 0 10px;';
+    panel.parentElement.insertBefore(agentBadgeEl, panel);
+  }
+  if(window._tkAgentFilter){
+    agentBadgeEl.style.display='flex';
+    agentBadgeEl.innerHTML = `👤 ${window._tkAgentFilter} <button onclick="tkFilterAgent(window._tkAgentFilter)" style="background:none;border:none;color:var(--v);font-size:13px;cursor:pointer;line-height:1;padding:0 0 0 4px" title="Réinitialiser filtre agent">✕</button>`;
+  } else {
+    agentBadgeEl.style.display='none';
+    agentBadgeEl.innerHTML='';
   }
 
   if(!items.length){
@@ -6280,6 +6392,35 @@ function ticketRender(){
       </div>
     </div>`;
   }).join('');
+}
+
+// ── Clients mémorisés ────────────────────────────────────────────────
+const TK_CLIENTS_KEY = 'noc_tk_clients';
+
+function tkGetSavedClients(){
+  try { return JSON.parse(localStorage.getItem(TK_CLIENTS_KEY)||'[]'); } catch(e){ return []; }
+}
+
+function tkSaveClient(nom){
+  if(!nom || nom.trim().length<2) return;
+  const list = tkGetSavedClients();
+  const n = nom.trim().toUpperCase();
+  if(!list.includes(n)){ list.unshift(n); localStorage.setItem(TK_CLIENTS_KEY, JSON.stringify(list.slice(0,200))); }
+}
+
+function tkBuildClientList(){
+  const dl = document.getElementById('tk-client-list');
+  if(!dl) return;
+  // Fusionner DB.tickets + localStorage, dédoublonner, trier
+  const fromDB = (DB.tickets||[]).map(t=>(t.client||'').trim().toUpperCase()).filter(Boolean);
+  const fromLS = tkGetSavedClients();
+  const all = [...new Set([...fromLS, ...fromDB])].sort();
+  dl.innerHTML = all.map(n=>`<option value="${n}"></option>`).join('');
+}
+
+function tkClientFilter(val){
+  // Rebuild with filter (browser handles it natively via datalist, but keep list fresh)
+  tkBuildClientList();
 }
 
 function ticketResetForm(){
@@ -6524,10 +6665,12 @@ async function ticketSave(){
       const idx = DB.tickets.findIndex(x=>x.id===editId);
       if(idx>=0) DB.tickets[idx]={id:editId,...data};
       toast('Ticket mis à jour ✓','ok');
+      tkSaveClient(client);
     } else {
       const r = await window._add(window._col(window._db,'noc_tickets_indispo'),{...data,createdAt:new Date().toISOString()});
       DB.tickets.unshift({id:r.id,...data,createdAt:new Date().toISOString()});
       toast('Ticket enregistré ✓','ok');
+      tkSaveClient(client);
     }
     closeModal('mo-ticket');
     ticketRender();
