@@ -1115,117 +1115,112 @@ function fermerPopupPourcentage2Mois() {
 }
     </script>
     <script>
-    // ===== FILTRE SEMAINE ISO 2026 — GLOBAL (tableau + graphes + cartes) =====
+    // ===== TOGGLE VUE SEMAINE / MOIS — graphique "Incidents répétitifs par Mois" uniquement =====
 
-    // Variable globale : semaine active
+    // Vue active : 'mois' (défaut) ou 'semaine'
+    window._vueGraphFusionne = 'mois';
+
+    // Stub: _semaineActive reste null (plus utilisé pour le filtre global)
     window._semaineActive = null;
 
-    // Construire le select avec S1..S52 de 2026 — après chargement du DOM
-    document.addEventListener('DOMContentLoaded', function buildSemaineOptions() {
-      const sel = document.getElementById('select-semaine-graphes');
-      if (!sel) return;
-      function getLundiDimanche(annee, isoSem) {
-        // Trouver le lundi de la semaine ISO isoSem de l'année annee
-        // ISO week 1 = semaine contenant le 4 janvier
-        const jan4 = new Date(Date.UTC(annee, 0, 4));
-        const dayOfWeek = jan4.getUTCDay() || 7; // lundi=1
-        const lundi = new Date(jan4);
-        lundi.setUTCDate(jan4.getUTCDate() - dayOfWeek + 1 + (isoSem - 1) * 7);
-        const dimanche = new Date(lundi);
-        dimanche.setUTCDate(lundi.getUTCDate() + 6);
-        return { lundi, dimanche };
-      }
-      const semaines = [];
-      for (let s = 1; s <= 52; s++) {
-        const { lundi, dimanche } = getLundiDimanche(2026, s);
-        if (lundi.getUTCFullYear() > 2026) break;
-        const fmt = dd => `${String(dd.getUTCDate()).padStart(2,'0')}/${String(dd.getUTCMonth()+1).padStart(2,'0')}`;
-        const label = `S${s} — ${fmt(lundi)} au ${fmt(dimanche)}`;
-        semaines.push({ key: String(s), label, lundi, dimanche, iso: s });
-        const opt = document.createElement('option');
-        opt.value = String(s);
-        opt.textContent = label;
-        sel.appendChild(opt);
-      }
-      window._semaines2026 = semaines;
-    }); // fin DOMContentLoaded
+    // Compat stub pour les appels existants référençant appliquerFiltreSemaine
+    function appliquerFiltreSemaine(tableau) { return tableau; }
 
-    // Récupérer la semaine choisie
-    function getSemaineSelectionnee() {
-      const val = document.getElementById('select-semaine-graphes').value;
-      if (!val) return null;
-      return window._semaines2026.find(s => s.key === val) || null;
+    // Stub pour les appels existants référençant resetSemaineGlobale / onSemaineGlobaleChange
+    function resetSemaineGlobale() {}
+    function onSemaineGlobaleChange() {}
+
+    // Basculer vue
+    function setVueGraphFusionne(vue) {
+      window._vueGraphFusionne = vue;
+      const btnSem = document.getElementById('btn-vue-semaine');
+      const btnMois = document.getElementById('btn-vue-mois');
+      const titre = document.getElementById('titre-graphique-fusionne');
+      if (vue === 'semaine') {
+        btnSem.style.background = '#546e7a'; btnSem.style.color = 'white';
+        btnSem.style.border = '1px solid #546e7a'; btnSem.style.fontWeight = '600';
+        btnMois.style.background = '#eceff1'; btnMois.style.color = '#546e7a';
+        btnMois.style.border = '1px solid #b0bec5'; btnMois.style.fontWeight = 'normal';
+        if (titre) titre.textContent = '📊 Incidents répétitifs par Semaine';
+        afficherGraphiqueFusionneParSemaine();
+      } else {
+        btnMois.style.background = '#546e7a'; btnMois.style.color = 'white';
+        btnMois.style.border = '1px solid #546e7a'; btnMois.style.fontWeight = '600';
+        btnSem.style.background = '#eceff1'; btnSem.style.color = '#546e7a';
+        btnSem.style.border = '1px solid #b0bec5'; btnSem.style.fontWeight = 'normal';
+        if (titre) titre.textContent = '📊 Incidents répétitifs par Mois';
+        if (typeof afficherGraphiqueFusionne === 'function' && typeof tableauActuel !== 'undefined') {
+          afficherGraphiqueFusionne(tableauActuel);
+        }
+      }
     }
 
-    // Filtrer un tableau d'items selon la semaine active (sur datesCreation)
-    // Retourne un tableau où chaque item contient uniquement les incidents de la semaine,
-    // avec mois et total recalculés pour ne refléter que la semaine.
-    function appliquerFiltreSemaine(tableau) {
-      const sem = window._semaineActive;
-      if (!sem) return tableau;
+    // Fonction vue par semaine pour graphique-fusionne
+    function afficherGraphiqueFusionneParSemaine() {
+      if (typeof tableauActuel === 'undefined' || !tableauActuel.length) return;
 
-      const lundiMs = sem.lundi.getTime();
-      const dimancheMs = sem.dimanche.getTime() + 86400000 - 1; // fin de journée dimanche
+      // Construire les semaines à partir des datesCreation
+      function getISOWeek(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return { annee: d.getUTCFullYear(), sem: Math.ceil((((d - yearStart) / 86400000) + 1) / 7) };
+      }
 
-      const result = [];
-      tableau.forEach(item => {
-        if (!item.datesCreation || !item.datesCreation.length) return;
+      const signalisations = {}, ndSup2 = {}, ndTotal = {}, incidentsND2 = {};
 
-        // Garder uniquement les dates de création dans la semaine
-        const datesSemaine = item.datesCreation.filter(d => {
-          const ms = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).getTime();
-          return ms >= lundiMs && ms <= dimancheMs;
+      tableauActuel.forEach(item => {
+        if (!item.datesCreation) return;
+        const compteurParSemaine = {};
+        item.datesCreation.forEach(date => {
+          const { annee, sem } = getISOWeek(date);
+          const key = `${annee}-S${String(sem).padStart(2,'0')}`;
+          signalisations[key] = (signalisations[key] || 0) + 1;
+          compteurParSemaine[key] = (compteurParSemaine[key] || 0) + 1;
         });
-
-        if (!datesSemaine.length) return;
-
-        // Recalculer mois et total uniquement sur les dates de la semaine
-        const moisSem = {};
-        datesSemaine.forEach(d => {
-          const m = d.getMonth() + 1;
-          moisSem[m] = (moisSem[m] || 0) + 1;
-        });
-        const totalSem = datesSemaine.length;
-        const moisActuel = new Date().getMonth() + 1;
-        const moisPrecedent = moisActuel === 1 ? 12 : moisActuel - 1;
-        const total2Mois = (moisSem[moisActuel] || 0) + (moisSem[moisPrecedent] || 0);
-
-        result.push({
-          ...item,
-          mois: moisSem,
-          total: totalSem,
-          critiques: total2Mois >= 2,
-          datesCreation: datesSemaine
+        // Par semaine : compter les ND
+        Object.entries(compteurParSemaine).forEach(([key, nb]) => {
+          ndTotal[key] = (ndTotal[key] || 0) + 1;
+          if (nb >= 2) {
+            ndSup2[key] = (ndSup2[key] || 0) + 1;
+            incidentsND2[key] = (incidentsND2[key] || 0) + nb;
+          }
         });
       });
-      return result;
-    }
 
-    // Appelé quand le select change
-    function onSemaineGlobaleChange() {
-      const sem = getSemaineSelectionnee();
-      window._semaineActive = sem;
-      const info = document.getElementById('semaine-plage-info');
-      if (!sem) {
-        info.textContent = '';
-      } else {
-        const fmt = d => `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()}`;
-        info.textContent = `📆 ${fmt(sem.lundi)} → ${fmt(sem.dimanche)}`;
-      }
-      // Déclencher un rafraîchissement complet de la page
-      filtrerTableau();
-      // Si les cartes P1/P2/P3 existent, les mettre à jour aussi
-      if (typeof mettreAJourCasesVertes === 'function') {
-        mettreAJourCasesVertes(appliquerFiltreSemaine(tableauActuel));
-      }
-    }
+      const keys = Object.keys(signalisations).sort();
+      const labels = keys.map(k => k.replace(/^\d{4}-/, ''));
+      const dataSignalisations = keys.map(k => signalisations[k] || 0);
+      const dataNDtotal = keys.map(k => ndTotal[k] || 0);
+      const dataNDsup2 = keys.map(k => ndSup2[k] || 0);
+      const dataIncidentsND2 = keys.map(k => incidentsND2[k] || 0);
 
-    // Reset semaine : vider le select et relancer
-    function resetSemaineGlobale() {
-      document.getElementById('select-semaine-graphes').value = '';
-      window._semaineActive = null;
-      document.getElementById('semaine-plage-info').textContent = '';
-      filtrerTableau();
+      const ctx = document.getElementById('graphique-fusionne').getContext('2d');
+      if (window.graphiqueFusionne) window.graphiqueFusionne.destroy();
+
+      window.graphiqueFusionne = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'Total Signalisations', data: dataSignalisations, backgroundColor: 'orange' },
+            { label: 'ND total', data: dataNDtotal, backgroundColor: '#66bb6a' },
+            { label: 'ND ≥ 2', data: dataNDsup2, backgroundColor: '#42a5f5' },
+            { label: 'Incidents ND ≥ 2', data: dataIncidentsND2, backgroundColor: '#ef5350' }
+          ]
+        },
+        options: {
+          devicePixelRatio: 2,
+          plugins: {
+            legend: { position: 'top' },
+            datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, color: '#333' }
+          },
+          responsive: true,
+          scales: { y: { beginAtZero: true } }
+        },
+        plugins: [ChartDataLabels]
+      });
     }
     </script>
 
@@ -1245,7 +1240,7 @@ function fermerPopupPourcentage2Mois() {
    </div>
    <div style="margin-top:30px;background-color:#ffffff;border:1px solid #b0bec5;padding:14px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
 
-    <h4 style="margin:0;color:#546e7a;font-size:14px;font-weight:700;">
+    <h4 id="titre-graphique-fusionne" style="margin:0;color:#546e7a;font-size:14px;font-weight:700;">
      📊 Incidents répétitifs par Mois
     </h4>
     <canvas height="250" id="graphique-fusionne" width="600">
@@ -1485,12 +1480,11 @@ function fermerPopupPourcentageFusionne() {
    <button id="btn-reset-date" onclick="resetDates()">
     Effacer les dates
    </button>
-   <!-- ===== SÉLECTEUR SEMAINE ISO 2026 ===== -->
-   <select id="select-semaine-graphes" onchange="onSemaineGlobaleChange()" style="padding:5px 8px;border:1px solid #90a4ae;border-radius:4px;font-size:12px;color:#37474f;background:white;cursor:pointer;margin-left:4px;" title="Filtrer toute la page par semaine ISO 2026">
-     <option value="">📅 Semaine 2026…</option>
-   </select>
-   <button onclick="resetSemaineGlobale()" style="background:#78909c;color:white;border:none;border-radius:4px;padding:5px 8px;cursor:pointer;font-size:12px;" title="Effacer le filtre semaine">✕ Sem.</button>
-   <span id="semaine-plage-info" style="font-size:11px;color:#e65100;font-weight:600;font-style:italic;margin-left:2px;"></span>
+   <!-- ===== TOGGLE SEMAINE / MOIS pour graphique "Incidents répétitifs par Mois" ===== -->
+   <span style="margin-left:8px;font-size:12px;color:#546e7a;font-weight:600;">Vue :</span>
+   <button id="btn-vue-semaine" onclick="setVueGraphFusionne('semaine')" style="background:#eceff1;color:#546e7a;border:1px solid #b0bec5;border-radius:4px 0 0 4px;padding:5px 10px;cursor:pointer;font-size:12px;margin-left:4px;" title="Afficher les incidents par semaine">📅 Semaine</button>
+   <button id="btn-vue-mois" onclick="setVueGraphFusionne('mois')" style="background:#546e7a;color:white;border:1px solid #546e7a;border-radius:0 4px 4px 0;padding:5px 10px;cursor:pointer;font-size:12px;font-weight:600;" title="Afficher les incidents par mois">📊 Mois</button>
+   <span id="semaine-plage-info" style="font-size:11px;color:#e65100;font-weight:600;font-style:italic;margin-left:4px;"></span>
    <button onclick="exporterTableauComplet()" style="background-color:#546e7a;color:white;padding:6px 14px;border:none;border-radius:4px;cursor:pointer;font-weight:600;">
     📥 Exporter
    </button>
@@ -2395,12 +2389,9 @@ function resetDates() {
   document.getElementById("date-debut").value = "";
   document.getElementById("date-fin").value = "";
   document.getElementById("recherche").value = "";
-  // Reset semaine aussi
-  if (document.getElementById('select-semaine-graphes')) {
-    document.getElementById('select-semaine-graphes').value = '';
-    window._semaineActive = null;
-    document.getElementById('semaine-plage-info').textContent = '';
-  }
+  // Reset vue graphique fusionne aussi
+  window._semaineActive = null;
+  document.getElementById('semaine-plage-info').textContent = '';
   filtrerTableau();
 }
 
@@ -3749,6 +3740,11 @@ function exporterIncidentsND2ParMois() {
   </script>
   <script>
    function afficherGraphiqueFusionne(dataParam) {
+  // Si vue semaine active, déléguer
+  if (window._vueGraphFusionne === 'semaine') {
+    afficherGraphiqueFusionneParSemaine();
+    return;
+  }
   const src = dataParam || tableauActuel;
   const moisLabels = [];
   const signalisations = {};
