@@ -6146,20 +6146,28 @@ function tkRenderVolume(){
   const avgBox = document.getElementById('tk-kpi-volume-avg');
   if(!volBox) return;
   const all = DB.tickets||[];
-  // Suivre le filtre principal : jour → semaine, semaine → semaine, mois → mois
-  const lp = window._tkListPeriode||'jour';
+  const lp   = window._tkListPeriode||'jour';
   const mode = lp==='mois' ? 'mois' : 'semaine';
   const MOIS_NOM = ['','Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
 
-  // Grouper tous les tickets par semaine ISO ou par mois
+  // Si navigation active (offset != 0 ou période KPI agents),
+  // filtrer selon la plage tkGetRange() pour rester cohérent avec la navigation
+  const {start, end} = tkGetRange();
+  const off = window._tkOffset||0;
+
+  // Grouper les tickets : si offset actif → filtrer sur la période naviguée
+  // sinon → historique complet (pour voir la tendance)
+  const ticketsSource = (off !== 0)
+    ? all.filter(t=>{ if(!t.debut) return false; const d=new Date(t.debut); return d>=start&&d<=end; })
+    : all;
+
   const buckets = {};
-  all.forEach(t=>{
+  ticketsSource.forEach(t=>{
     if(!t.debut) return;
     const d = new Date(t.debut);
     if(isNaN(d)) return;
     let key;
     if(mode==='semaine'){
-      // Semaine ISO
       const tmp = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
       const day = tmp.getUTCDay()||7;
       tmp.setUTCDate(tmp.getUTCDate()+4-day);
@@ -6173,7 +6181,7 @@ function tkRenderVolume(){
     buckets[key] = (buckets[key]||0)+1;
   });
 
-  const sorted = Object.entries(buckets).sort((a,b)=>a[0]<b[0]?1:-1); // plus récent en tête
+  const sorted = Object.entries(buckets).sort((a,b)=>a[0]<b[0]?1:-1);
   if(!sorted.length){ volBox.innerHTML='<div style="font-size:11px;color:var(--n4)">Aucun ticket</div>'; avgBox.style.display='none'; return; }
 
   const maxVal = Math.max(...sorted.map(s=>s[1]))||1;
@@ -6181,16 +6189,18 @@ function tkRenderVolume(){
 
   volBox.innerHTML = sorted.map(([key,cnt],i)=>{
     const bar = Math.round(cnt/maxVal*100);
-    const col = colors[i%colors.length];
+    // Mettre en surbrillance la période courante (offset=0 = semaine/mois en cours)
+    const isActive = off===0 && i===0;
+    const col = isActive ? 'var(--v)' : colors[(i+1)%colors.length];
     let label;
     if(mode==='semaine'){
-      label = key.replace(/^\d{4}-/,''); // S01, S02…
+      label = key.replace(/^\d{4}-/,'');
     } else {
       const [yr,mo] = key.split('-');
       label = MOIS_NOM[parseInt(mo)]+' '+yr;
     }
-    return `<div style="display:flex;align-items:center;gap:7px;padding:3px 0">
-      <span style="font-size:10px;font-weight:700;color:var(--n2);min-width:58px;flex-shrink:0">${label}</span>
+    return `<div style="display:flex;align-items:center;gap:7px;padding:3px 0${isActive?';background:var(--vl);border-radius:4px;padding-left:4px;padding-right:4px':''}">
+      <span style="font-size:10px;font-weight:${isActive?'800':'700'};color:${isActive?'var(--v)':'var(--n2)'};min-width:58px;flex-shrink:0">${label}</span>
       <div style="flex:1;height:14px;background:var(--n6);border-radius:3px;overflow:hidden">
         <div style="height:100%;width:${bar}%;background:${col};border-radius:3px;transition:width .3s"></div>
       </div>
@@ -6198,10 +6208,9 @@ function tkRenderVolume(){
     </div>`;
   }).join('');
 
-  // Moyenne
   const total = sorted.reduce((s,[,v])=>s+v,0);
-  const moy = (total/sorted.length).toFixed(1);
-  const unit = mode==='mois' ? 'mois' : 'semaine';
+  const moy   = (total/sorted.length).toFixed(1);
+  const unit  = mode==='mois' ? 'mois' : 'semaine';
   avgBox.style.display='block';
   avgBox.innerHTML = `📊 Moyenne : <b>${moy}</b> tickets / ${unit} &nbsp;·&nbsp; Total : <b>${total}</b>`;
 }
