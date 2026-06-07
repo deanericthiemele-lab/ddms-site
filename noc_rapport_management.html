@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Rapport Réseau — NOC B2B</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
   :root {
@@ -366,7 +366,22 @@
         <button class="btn-generate" onclick="generate()">Générer le rapport</button>
       </div>
     </div>
-  </div>
+
+    <!-- OPTION PDF -->
+    <div class="paste-card" style="margin-top:-8px">
+      <div class="paste-title" style="font-size:14px">Ou joindre un rapport PDF SolarWinds</div>
+      <div class="paste-sub">Joignez le PDF exporté depuis SolarWinds — le rapport sera généré automatiquement à partir des données extraites.</div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <label for="pdf-input" style="display:inline-flex;align-items:center;gap:8px;background:var(--bg);border:1px dashed var(--border2);border-radius:8px;padding:10px 20px;cursor:pointer;font-size:12px;color:var(--text2);transition:border-color .15s" onmouseover="this.style.borderColor='var(--orange)';this.style.color='var(--orange)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text2)'">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 18 15 15"/></svg>
+          Choisir un fichier PDF
+        </label>
+        <input type="file" id="pdf-input" accept=".pdf" style="display:none" onchange="handlePdfUpload(this)">
+        <span id="pdf-filename" style="font-size:12px;color:var(--text3)">Aucun fichier sélectionné</span>
+        <button class="btn-generate" id="btn-generate-pdf" onclick="generateFromPdf()" style="display:none">Générer depuis PDF</button>
+      </div>
+      <div class="parse-error" id="parse-error-pdf" style="display:none;margin-top:8px">Impossible de lire le PDF. Vérifiez que c'est un rapport SolarWinds NOC B2B.</div>
+    </div>
 
   <!-- RAPPORT -->
   <div id="rapport">
@@ -1927,6 +1942,128 @@ function exportPdf(){
   window._doc=doc; window._del=deleteDoc; window._set=setDoc;
   // Firebase prêt — toutes les fonctions JS sont déjà définies
   sbRenderList();
+</script>
+
+<script>
+// ── PDF UPLOAD ────────────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+let _pdfText = '';
+
+function handlePdfUpload(input){
+  const file = input.files[0];
+  if(!file) return;
+  document.getElementById('pdf-filename').textContent = file.name;
+  document.getElementById('btn-generate-pdf').style.display = 'none';
+  document.getElementById('parse-error-pdf').style.display = 'none';
+  _pdfText = '';
+
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try{
+      const pdf = await pdfjsLib.getDocument({data: e.target.result}).promise;
+      let text = '';
+      for(let i=1; i<=pdf.numPages; i++){
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map(it=>it.str).join(' ') + '\n';
+      }
+      _pdfText = text;
+      document.getElementById('btn-generate-pdf').style.display = 'inline-flex';
+    } catch(err){
+      document.getElementById('parse-error-pdf').style.display = 'block';
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function parsePdfText(text){
+  // Extraire date et horaire
+  const dateM = text.match(/PÉRIODE COUVERTE\s+([\d\/]+)/);
+  const heureM = text.match(/HORAIRE\s+([\d:]+\s*[–-]\s*[\d:]+)/);
+  const date = dateM ? dateM[1] : new Date().toLocaleDateString('fr-FR');
+  const horaire = heureM ? heureM[1].trim() : '';
+
+  // Parser les tableaux IF (Coupures de câble)
+  const ifData = [];
+  const ifSection = text.match(/Coupures de câble[\s\S]*?(?=Coupures de service|$)/);
+  if(ifSection){
+    const rows = ifSection[0].matchAll(/([A-Z][A-Z0-9_\-\.]{3,})\s+(\d+)\s+([\d:]+|—)\s+([\d:]+|—)\s+([\d\.]+\s*(?:min|h)|—)\s+(\S+)\s+(Rétabli|Instable|Indisponible)\s+(Haute|Moyenne|Faible)/g);
+    for(const r of rows){
+      const dureeStr = r[5]==='—'?null:r[5].trim();
+      const dureeVal = dureeStr ? (dureeStr.includes('h') ? parseFloat(dureeStr)*60 : parseInt(dureeStr)) : null;
+      ifData.push({
+        site: r[1], nb: parseInt(r[2]),
+        down: r[3]==='—'?'—':r[3], up: r[4]==='—'?null:r[4],
+        duree: {str: dureeStr||'—', val: dureeVal},
+        iface: r[6], statut: r[7], prio: r[8],
+        isFlapping: r[7]==='Instable', isDown: r[4]==='—'||!r[4],
+        rawEvents:[]
+      });
+    }
+  }
+
+  // Parser les tableaux ND (Coupures de service)
+  const ndData = [];
+  const ndSection = text.match(/Coupures de service[\s\S]*?(?=Sites prioritaires|$)/);
+  if(ndSection){
+    const rows = ndSection[0].matchAll(/([A-Z][A-Z0-9_\-\.]{3,})\s+(\d+)\s+([\d:]+|—)\s+([\d:]+|—)\s+([\d\.]+\s*(?:min|h)|—)\s+(Coupure de service|Redémarrage|Signalé dans groupe)\s+(Rétabli|Instable|Indisponible)\s+(Haute|Moyenne|Faible)/g);
+    for(const r of rows){
+      const dureeStr = r[5]==='—'?null:r[5].trim();
+      const dureeVal = dureeStr ? (dureeStr.includes('h') ? parseFloat(dureeStr)*60 : parseInt(dureeStr)) : null;
+      ndData.push({
+        site: r[1], nb: parseInt(r[2]),
+        down: r[3]==='—'?'—':r[3], up: r[4]==='—'?null:r[4],
+        duree: {str: dureeStr||'—', val: dureeVal},
+        cause: r[6], statut: r[7], prio: r[8],
+        isFlapping: r[7]==='Instable', isDown: !r[4]||r[4]==='—',
+        rawEvents:[]
+      });
+    }
+  }
+
+  return {ifData, ndData, date, horaire};
+}
+
+function generateFromPdf(){
+  if(!_pdfText){ alert('Aucun PDF chargé.'); return; }
+  document.getElementById('parse-error-pdf').style.display='none';
+
+  const {ifData, ndData, date, horaire} = parsePdfText(_pdfText);
+
+  if(!ifData.length && !ndData.length){
+    document.getElementById('parse-error-pdf').style.display='block';
+    return;
+  }
+
+  IF_DATA = ifData;
+  ND_DATA = ndData;
+
+  // Header
+  document.getElementById('hdr-date').textContent = date;
+  document.getElementById('hdr-period').textContent = 'Période : ' + horaire;
+  document.getElementById('footer-date').textContent = 'Généré le ' + new Date().toLocaleString('fr-FR');
+
+  const allSites = new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
+  document.getElementById('k-sites').textContent = allSites.size;
+
+  setKpi(IF_DATA,'if'); setKpi(ND_DATA,'nd');
+  setGlobalKpis(IF_DATA,ND_DATA);
+  document.getElementById('k-open').textContent = ND_DATA.filter(d=>d.isDown).length;
+  document.getElementById('k-flap').textContent = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
+  setNote(IF_DATA,'if'); setNote(ND_DATA,'nd');
+
+  document.getElementById('tc-if').textContent = IF_DATA.length;
+  document.getElementById('tc-nd').textContent = ND_DATA.length;
+
+  buildChart('chartIf','cc-if','ctag-if',IF_DATA);
+  buildChart('chartNd','cc-nd','ctag-nd',ND_DATA);
+  renderTbl('if'); renderTbl('nd');
+
+  document.getElementById('paste-section').style.display='none';
+  document.getElementById('rapport').style.display='block';
+  const _hbr=document.getElementById('hdr-btn-reset'); if(_hbr) _hbr.style.display='flex';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
 </script>
 </body>
 </html>
