@@ -429,18 +429,27 @@
     <div class="kpi-group kpi-cols-3" style="margin-bottom:8px">
       <div class="kpi kpi-if">
         <div class="kpi-label">Sites primaire + backup coupés</div>
-        <div class="kpi-val c-red clickable" id="k-double-down" onclick="ddDoubleDown()" title="Voir le détail">—</div>
-        <div class="kpi-sub">Les 2 liens sont Down — service totalement coupé</div>
+        <div class="kpi-val c-red" id="k-double-down" style="display:flex;align-items:baseline;gap:4px">
+          <input type="number" id="inp-double-down" min="0" value="" placeholder="—"
+            style="width:60px;font-size:22px;font-weight:300;color:var(--red);border:none;border-bottom:2px solid var(--red-bd);background:transparent;outline:none;text-align:center;padding:0">
+        </div>
+        <div class="kpi-sub">Les 2 liens Down — saisie manuelle</div>
       </div>
       <div class="kpi kpi-if">
         <div class="kpi-label">Liens primaires coupés</div>
-        <div class="kpi-val c-red clickable" id="k-primaires-down" onclick="ddPrimairesDown()" title="Voir le détail">—</div>
-        <div class="kpi-sub">Interfaces PRIMAIRE en Down</div>
+        <div class="kpi-val c-red" id="k-primaires-down" style="display:flex;align-items:baseline;gap:4px">
+          <input type="number" id="inp-primaires-down" min="0" value="" placeholder="—"
+            style="width:60px;font-size:22px;font-weight:300;color:var(--red);border:none;border-bottom:2px solid var(--red-bd);background:transparent;outline:none;text-align:center;padding:0">
+        </div>
+        <div class="kpi-sub">Interfaces PRIMAIRE en Down — saisie manuelle</div>
       </div>
       <div class="kpi kpi-nd">
         <div class="kpi-label">Liens backup coupés</div>
-        <div class="kpi-val c-amber clickable" id="k-backups-down" onclick="ddBackupsDown()" title="Voir le détail">—</div>
-        <div class="kpi-sub">Interfaces BACKUP en Down</div>
+        <div class="kpi-val c-amber" id="k-backups-down" style="display:flex;align-items:baseline;gap:4px">
+          <input type="number" id="inp-backups-down" min="0" value="" placeholder="—"
+            style="width:60px;font-size:22px;font-weight:300;color:var(--amber);border:none;border-bottom:2px solid var(--amber-bd);background:transparent;outline:none;text-align:center;padding:0">
+        </div>
+        <div class="kpi-sub">Interfaces BACKUP en Down — saisie manuelle</div>
       </div>
     </div>
 
@@ -1021,13 +1030,15 @@ function generate(){
 
   // total événements header
   const totalEvt = IF_DATA.reduce((s,d)=>s+d.nb,0) + ND_DATA.reduce((s,d)=>s+d.nb,0);
-  const _sep=document.getElementById("hdr-sep"); if(_sep) _sep.style.display="block";
+  
+  
+  { const _s=document.getElementById("hdr-sep"); if(_s) _s.style.display="block"; }
   const allSites=new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
   document.getElementById("k-sites").textContent=allSites.size;
   setKpi(IF_DATA,"if"); setKpi(ND_DATA,"nd");
   setGlobalKpis(IF_DATA,ND_DATA);
   // k-open et k-flap mis à jour après setGlobalKpis (qui calcule _vraimentsDown)
-  document.getElementById("k-open").textContent=(window._vraimentsDown||[]).length;
+  document.getElementById("k-open").textContent=ND_DATA.filter(d=>d.isDown).length;
   document.getElementById("k-flap").textContent=[...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
   setNote(IF_DATA,"if"); setNote(ND_DATA,"nd");
 
@@ -1071,43 +1082,21 @@ function setKpi(data,p){
   }
 }
 // ── KPIs GLOBAUX CALCULÉS ────────────────────────────────────────────────────
-// Retourne true si un site IF Down a un lien BACKUP actif (= site toujours joignable)
-function siteHasBackup(site, ifData){
-  // Cherche un enregistrement du même site avec BACKUP dans le nom de l'interface et non Down
-  return ifData.some(d=>
-    d.site===site &&
-    /BACKUP/i.test(d.iface) &&
-    !d.isDown
-  );
-}
-
 function setGlobalKpis(ifData,ndData){
   const all=[...ifData,...ndData];
 
-  // Sites vraiment indisponibles : Coupure de service OU (Interface Down sans backup actif)
-  const vraimentsDown = all.filter(d=>{
-    if(!d.isDown) return false;
-    if(ndData.includes(d)) return true; // Coupure de service = toujours indispo
-    // Interface Down : indispo seulement si pas de backup actif
-    return !siteHasBackup(d.site, ifData);
-  });
-
-  // Sites avec backup actif (primaire coupé mais backup OK)
-  const avecBackup = ifData.filter(d=>d.isDown && siteHasBackup(d.site, ifData));
-
-  const totalSites=new Set([...ifData.map(d=>d.site),...ndData.map(d=>d.site)]).size;
-  const nbIndispo = vraimentsDown.length;
-  const taux = totalSites>0 ? Math.round(((totalSites-nbIndispo)/totalSites)*100) : null;
+  // Taux de dispo basé uniquement sur les nodes Down (ND_DATA)
+  const nodesDown = ndData.filter(d=>d.isDown);
+  const totalSites = new Set([...ifData.map(d=>d.site),...ndData.map(d=>d.site)]).size;
+  const taux = totalSites>0 ? Math.round(((totalSites-nodesDown.length)/totalSites)*100) : null;
 
   const tauxEl=document.getElementById("k-taux-dispo");
   if(tauxEl) tauxEl.innerHTML=taux!==null?taux+'<span>%</span>':"—";
 
   const incOuv=document.getElementById("k-inc-ouverts");
   if(incOuv) incOuv.textContent=all.length||"0";
-  const incClos=document.getElementById("k-inc-clos");
-  if(incClos) incClos.textContent=all.filter(d=>d.statut==="Rétabli").length||"0";
   const incEnc=document.getElementById("k-inc-encours");
-  if(incEnc) incEnc.textContent=vraimentsDown.length||"0";
+  if(incEnc) incEnc.textContent=all.filter(d=>d.isDown).length||"0";
 
   const wd=all.filter(d=>d.duree.val!==null);
   const mttr=wd.length?Math.round(wd.reduce((s,d)=>s+d.duree.val,0)/wd.length):null;
@@ -1115,65 +1104,24 @@ function setGlobalKpis(ifData,ndData){
   if(mttrEl) mttrEl.innerHTML=mttr!==null?(mttr>=60?(mttr/60).toFixed(1)+'<span>h</span>':mttr+'<span> min</span>'):"—";
 
   const hpEl=document.getElementById("k-hp-anomalie");
-  if(hpEl) hpEl.textContent=vraimentsDown.filter(d=>d.prio==="Haute").length||"0";
+  if(hpEl) hpEl.textContent=all.filter(d=>d.prio==="Haute"&&d.isDown).length||"0";
 
-  const backEl=document.getElementById("k-backup-actifs");
-  if(backEl) backEl.textContent=avecBackup.length||"0";
-
-  // KPIs réseau : primaires coupés, backups coupés, double down
-  const primairesDown = ifData.filter(d=>d.isDown && /PRIMAIRE/i.test(d.iface));
-  const backupsDown   = ifData.filter(d=>d.isDown && /BACKUP/i.test(d.iface));
-  // Sites avec les 2 liens (primaire ET backup) ET les 2 Down
-  const sitesPrimaireDown = new Set(primairesDown.map(d=>d.site));
-  const sitesBackupDown   = new Set(backupsDown.map(d=>d.site));
-  const doubleDown = ifData.filter(d=>sitesPrimaireDown.has(d.site) && sitesBackupDown.has(d.site) && d.isDown);
-  const doubleDownSites = [...new Set(doubleDown.map(d=>d.site))];
-  const doubleDownRows  = doubleDownSites.map(site=>ifData.find(d=>d.site===site&&d.isDown)).filter(Boolean);
-
-  window._primairesDown = primairesDown;
-  window._backupsDown   = backupsDown;
-  window._doubleDownRows = doubleDownRows;
-
-  const ddEl=document.getElementById("k-double-down");
-  if(ddEl) ddEl.textContent=doubleDownRows.length||"0";
-  const pdEl=document.getElementById("k-primaires-down");
-  if(pdEl) pdEl.textContent=primairesDown.length||"0";
-  const bdEl=document.getElementById("k-backups-down");
-  if(bdEl) bdEl.textContent=backupsDown.length||"0";
-
-  // ── SLA : hors SLA = Coupure de service OU Primaire sans backup OU Primaire+Backup Down
-  // Sites avec coupure primaire sans backup (pas de lien backup dans les données)
-  const sitesSansBckup = ifData.filter(d=>
-    d.isDown &&
-    /PRIMAIRE/i.test(d.iface) &&
-    !ifData.some(x=>x.site===d.site && /BACKUP/i.test(x.iface))
-  );
-  // Sites double down (primaire ET backup coupés) — déjà calculé
-  // Sites Coupure de service
-  const horsSlaRows = [
-    ...ndData.filter(d=>d.isDown),         // Coupure de service
-    ...sitesSansBckup,                      // Primaire sans backup
-    ...doubleDownRows                        // Primaire + backup coupés
-  ].filter((v,i,a)=>a.findIndex(x=>x.site===v.site)===i);
-
-  // Durée cumulée hors SLA (en minutes sur 24h = 1440 min)
+  // SLA : basé sur nodes Down uniquement
   const JOUR = 1440;
-  const horsSlaAvecDuree = horsSlaRows.map(d=>{
-    const dureeMin = d.duree.val !== null ? d.duree.val : JOUR; // si encore ouvert = toute la journée
-    const pctDispo = Math.max(0, Math.round(((JOUR - dureeMin) / JOUR) * 100));
+  const horsSlaRows = ndData.filter(d=>d.isDown).map(d=>{
+    const dureeMin = d.duree.val !== null ? d.duree.val : JOUR;
+    const pctDispo = Math.max(0, Math.round(((JOUR-dureeMin)/JOUR)*100));
     return {...d, dureeMin, pctDispo};
   });
-
-  window._horsSlaRows = horsSlaAvecDuree;
-
-  const slaRisqueEl=document.getElementById("k-sla-risque");
-  if(slaRisqueEl) slaRisqueEl.textContent=horsSlaAvecDuree.length||"0";
+  window._horsSlaRows = horsSlaRows;
+  const slaEl=document.getElementById("k-sla-risque");
+  if(slaEl) slaEl.textContent=horsSlaRows.length||"0";
   const horsSlaEl=document.getElementById("k-hors-sla");
-  if(horsSlaEl) horsSlaEl.textContent=horsSlaAvecDuree.length||"0";
+  if(horsSlaEl) horsSlaEl.textContent=horsSlaRows.length||"0";
 
-  // Stocker pour réutilisation dans les popups
-  window._vraimentsDown = vraimentsDown;
-  window._avecBackup = avecBackup;
+  // Stocker pour popups
+  window._vraimentsDown = all.filter(d=>d.isDown);
+  window._avecBackup = [];
 }
 
 // ── NOTES ─────────────────────────────────────────────────────────────────────
@@ -1429,7 +1377,7 @@ function reset(){
   document.getElementById("raw-input").value="";
   document.getElementById("line-count").textContent="0 ligne(s) collée(s)";
   
-  const _sep2=document.getElementById("hdr-sep"); if(_sep2) _sep2.style.display="none";
+  { const _s=document.getElementById("hdr-sep"); if(_s) _s.style.display="none"; }
   Object.values(charts).forEach(c=>c.destroy()); charts={};
   IF_DATA=[]; ND_DATA=[];
   const _hbs2=document.getElementById("hdr-btn-save"); if(_hbs2) _hbs2.disabled=true;
@@ -1447,7 +1395,6 @@ const SB_KEY = "noc_rapports_v1";
 let _rjCache = null; // cache local
 
 async function getSaved(){
-  if(!window._col || !window._db) return [];
   if(_rjCache) return _rjCache;
   try{
     const snap = await window._gets(window._col(window._db,'noc_rapport_journalier'));
@@ -1573,7 +1520,7 @@ async function loadSavedReport(id){
   document.getElementById("footer-date").textContent = "Généré le "+r.savedAt;
   
   
-  const _sep3=document.getElementById("hdr-sep"); if(_sep3) _sep3.style.display="block";
+  { const _s=document.getElementById("hdr-sep"); if(_s) _s.style.display="block"; }
 
   const allSites=new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
   document.getElementById("k-sites").textContent = allSites.size;
