@@ -268,19 +268,18 @@
   .btn-save:disabled{opacity:.45;cursor:not-allowed}
   .btn-save svg{width:13px;height:13px}
   .sb-count{font-size:10px;color:var(--text3);text-align:center;margin-top:6px}
-  /* Mode sélection */
-  .sb-sel-bar{display:none;padding:8px 12px;border-top:1px solid var(--border);background:var(--bg)}
-  .sb-sel-bar.active{display:block}
-  .btn-merge{width:100%;background:#1e40af;color:#fff;border:none;border-radius:6px;padding:8px 0;font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:6px}
-  .btn-merge:hover{opacity:.88}
-  .btn-merge:disabled{opacity:.45;cursor:not-allowed}
-  .btn-sel-cancel{width:100%;background:none;border:1px solid var(--border2);border-radius:6px;padding:6px 0;font-size:12px;color:var(--text2);cursor:pointer;font-family:'Inter',sans-serif}
-  .btn-sel-cancel:hover{border-color:var(--orange);color:var(--orange)}
-  .sb-sel-count{font-size:10px;color:var(--text3);text-align:center;margin-top:4px}
-  .sb-item-cb{flex-shrink:0;width:15px;height:15px;accent-color:var(--orange);cursor:pointer;display:none}
-  .sb-sel-mode .sb-item-cb{display:block}
-  .btn-sel-mode{background:none;border:1px solid var(--border2);border-radius:6px;padding:6px 0;font-size:11px;color:var(--text2);cursor:pointer;font-family:'Inter',sans-serif;width:100%;margin-top:6px}
-  .btn-sel-mode:hover{border-color:var(--orange);color:var(--orange)}
+  /* Sélection pour fusion */
+  .sb-item.sb-selected{background:#eff6ff;border-left-color:#1e40af}
+  .sb-item.sb-selected .sb-item-date{color:#1e40af}
+  .btn-fusion{width:100%;background:#1e40af;color:#fff;border:none;border-radius:6px;padding:8px 0;font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:6px}
+  .btn-fusion:hover{opacity:.88}
+  .btn-fusion:disabled{opacity:.4;cursor:not-allowed}
+  .btn-fusion-cancel{width:100%;background:none;border:1px solid var(--border2);border-radius:6px;padding:6px 0;font-size:11px;color:var(--text2);cursor:pointer;font-family:'Inter',sans-serif;margin-top:4px}
+  .btn-fusion-cancel:hover{border-color:var(--orange);color:var(--orange)}
+  .sb-sel-hint{font-size:10px;color:var(--text3);text-align:center;margin-top:4px;line-height:1.4}
+  .btn-sel-toggle{width:100%;background:none;border:1px solid var(--border2);border-radius:6px;padding:7px 0;font-size:11px;color:var(--text2);cursor:pointer;font-family:'Inter',sans-serif;margin-top:6px;display:none}
+  .btn-sel-toggle:hover{border-color:var(--orange);color:var(--orange)}
+  .sb-fusion-zone{display:none;padding:8px 12px;border-top:1px solid var(--border);background:var(--bg)}
 
   /* MAIN CONTENT (ajustement) */
   .content{flex:1;min-width:0;overflow:auto}
@@ -354,18 +353,15 @@
     </div>
     <div class="sb-footer">
       <div class="sb-count" id="sb-count"></div>
-      <button class="btn-sel-mode" id="btn-sel-mode" onclick="sbToggleSelMode()" style="display:none">
-        ☑ Sélectionner pour fusionner
-      </button>
+      <button class="btn-sel-toggle" id="btn-sel-toggle" onclick="sbToggleSel()">☑ Sélectionner pour fusionner</button>
     </div>
-    <!-- barre fusion (visible en mode sélection) -->
-    <div class="sb-sel-bar" id="sb-sel-bar">
-      <button class="btn-merge" id="btn-merge" onclick="mergeAndGenerate()" disabled>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+    <div class="sb-fusion-zone" id="sb-fusion-zone">
+      <div class="sb-sel-hint" id="sb-sel-hint">0 rapport sélectionné</div>
+      <button class="btn-fusion" id="btn-fusion" onclick="sbFusionner()" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
         Fusionner &amp; générer
       </button>
-      <div class="sb-sel-count" id="sb-sel-count">0 rapport sélectionné</div>
-      <button class="btn-sel-cancel" onclick="sbToggleSelMode()">Annuler</button>
+      <button class="btn-fusion-cancel" onclick="sbToggleSel()">Annuler</button>
     </div>
   </aside>
 
@@ -1036,7 +1032,7 @@ function buildRows(events, type){
 function generate(){
   const raw=document.getElementById("raw-input").value;
   if(!raw.trim()) return;
-  window._lastRawText = raw;
+  window._lastRawText = raw; // mémoriser pour sauvegarde
   const events=parseEvents(raw);
   document.getElementById("parse-error").style.display="none";
   if(!events.length){document.getElementById("parse-error").style.display="block";return;}
@@ -1450,35 +1446,34 @@ async function sbRenderList(){
   const ul = document.getElementById("sb-list");
   const empty = document.getElementById("sb-empty");
   const count = document.getElementById("sb-count");
-  const btnSelMode = document.getElementById("btn-sel-mode");
+  const btnSel = document.getElementById("btn-sel-toggle");
 
-  // remove existing items (not the empty state)
   ul.querySelectorAll(".sb-item").forEach(el=>el.remove());
 
   if(!list.length){
     empty.style.display="block";
     count.textContent="";
-    if(btnSelMode) btnSelMode.style.display="none";
+    if(btnSel) btnSel.style.display="none";
     return;
   }
   empty.style.display="none";
   count.textContent = list.length+" rapport"+(list.length>1?"s":"")+" stocké"+(list.length>1?"s":"");
-  if(btnSelMode) btnSelMode.style.display="block";
+  if(btnSel) btnSel.style.display="block";
 
-  const selMode = ul.classList.contains("sb-sel-mode");
+  const selMode = window._sbSelMode||false;
 
-  list.slice().reverse().forEach((r,revIdx)=>{
-    const idx = list.length - 1 - revIdx;
+  list.slice().reverse().forEach((r)=>{
     const item = document.createElement("div");
-    item.className="sb-item"+(r.id===window._currentSavedId?" active":"");
+    const isSelected = (window._sbSelected||[]).includes(r.id);
+    item.className="sb-item"+(isSelected?" sb-selected":"");
     item.dataset.id = r.id;
-    // badge type rapport (rawText présent = données brutes disponibles)
     const hasRaw = !!(r.rawText && r.rawText.trim());
-    const rawBadge = hasRaw ? `<span style="font-size:9px;color:var(--green);background:var(--green-bg);border:1px solid var(--green-bd);border-radius:3px;padding:1px 5px;margin-left:4px">✓ brut</span>` : '';
+    const badge = hasRaw
+      ? `<span style="font-size:9px;color:var(--green);background:var(--green-bg);border:1px solid var(--green-bd);border-radius:3px;padding:1px 5px;margin-left:4px">✓</span>`
+      : '';
     item.innerHTML=`
-      <input type="checkbox" class="sb-item-cb" data-id="${r.id}" onchange="sbUpdateSelCount()" ${selMode?'':'style="display:none"'}>
       <div class="sb-item-info" onclick="sbItemClick('${r.id}')">
-        <div class="sb-item-date">${r.label}${rawBadge}</div>
+        <div class="sb-item-date">${r.label}${badge}</div>
         <div class="sb-item-meta">${r.sites} site${r.sites>1?"s":""} · ${r.total} événement${r.total>1?"s":""}</div>
       </div>
       <button class="sb-item-del" onclick="deleteSavedReport('${r.id}',event)" title="Supprimer">
@@ -1489,132 +1484,126 @@ async function sbRenderList(){
 }
 
 function sbItemClick(id){
-  const ul = document.getElementById("sb-list");
-  if(ul.classList.contains("sb-sel-mode")){
-    // En mode sélection : toggler la checkbox
-    const cb = ul.querySelector(`.sb-item-cb[data-id="${id}"]`);
-    if(cb){ cb.checked = !cb.checked; sbUpdateSelCount(); }
+  if(window._sbSelMode){
+    // mode sélection : toggle
+    if(!window._sbSelected) window._sbSelected=[];
+    const idx = window._sbSelected.indexOf(id);
+    if(idx>=0) window._sbSelected.splice(idx,1);
+    else window._sbSelected.push(id);
+    sbUpdateFusionBtn();
+    sbRenderList();
   } else {
     loadSavedReport(id);
   }
 }
 
-function sbToggleSelMode(){
-  const ul = document.getElementById("sb-list");
-  const bar = document.getElementById("sb-sel-bar");
-  const isNow = ul.classList.toggle("sb-sel-mode");
-  // toggle checkboxes visibility
-  ul.querySelectorAll(".sb-item-cb").forEach(cb=>{ cb.style.display = isNow?"block":"none"; cb.checked=false; });
-  if(bar) bar.classList.toggle("active", isNow);
-  sbUpdateSelCount();
-  const btn = document.getElementById("btn-sel-mode");
-  if(btn) btn.textContent = isNow ? "✕ Quitter la sélection" : "☑ Sélectionner pour fusionner";
+function sbToggleSel(){
+  window._sbSelMode = !window._sbSelMode;
+  if(!window._sbSelMode) window._sbSelected=[];
+  const zone = document.getElementById("sb-fusion-zone");
+  const btn  = document.getElementById("btn-sel-toggle");
+  if(zone) zone.style.display = window._sbSelMode ? "block" : "none";
+  if(btn)  btn.textContent    = window._sbSelMode ? "✕ Quitter la sélection" : "☑ Sélectionner pour fusionner";
+  sbUpdateFusionBtn();
+  sbRenderList();
 }
 
-function sbUpdateSelCount(){
-  const checked = document.querySelectorAll(".sb-item-cb:checked");
-  const c = checked.length;
-  const el = document.getElementById("sb-sel-count");
-  if(el) el.textContent = c+" rapport"+(c>1?"s":"")+" sélectionné"+(c>1?"s":"");
-  const btn = document.getElementById("btn-merge");
-  if(btn) btn.disabled = c < 1;
+function sbUpdateFusionBtn(){
+  const n = (window._sbSelected||[]).length;
+  const hint = document.getElementById("sb-sel-hint");
+  const btn  = document.getElementById("btn-fusion");
+  if(hint) hint.textContent = n+" rapport"+(n>1?"s":"")+" sélectionné"+(n>1?"s":"");
+  if(btn)  btn.disabled = n<2;
 }
 
-async function mergeAndGenerate(){
-  const checked = [...document.querySelectorAll(".sb-item-cb:checked")];
-  if(!checked.length) return;
-  const ids = checked.map(cb=>cb.dataset.id);
+async function sbFusionner(){
+  const ids = window._sbSelected||[];
+  if(ids.length<2) return;
   const list = await getSaved();
   const selected = ids.map(id=>list.find(r=>r.id===id)).filter(Boolean);
-  if(!selected.length) return;
 
-  // Fusionner les textes bruts si disponibles, sinon fallback sur if_data/nd_data
-  const allHaveRaw = selected.every(r=>r.rawText && r.rawText.trim());
+  // Concaténer les rawText de tous les rapports sélectionnés
+  const allHaveRaw = selected.every(r=>r.rawText&&r.rawText.trim());
 
   if(allHaveRaw){
-    // Concaténer les rawText et réanalyser
     const merged = selected.map(r=>r.rawText.trim()).join("\n");
+    // Charger dans la textarea et générer
     document.getElementById("raw-input").value = merged;
     window._lastRawText = merged;
+    // Mettre à jour compteur lignes
+    const n = merged.split("\n").filter(l=>l.trim()).length;
+    document.getElementById("line-count").textContent = n+" ligne(s) collée(s)";
+    // Afficher la zone de collage
+    document.getElementById("paste-section").style.display="block";
+    document.getElementById("rapport").style.display="none";
     // Quitter mode sélection
-    sbToggleSelMode();
+    sbToggleSel();
+    // Générer automatiquement
     generate();
-    // Mettre à jour le header pour indiquer la fusion
-    const dates = selected.map(r=>r.hdrDate||r.label).join(" + ");
-    document.getElementById("hdr-date").textContent = "Fusion : "+dates;
-    document.getElementById("hdr-period").textContent = "Rapport consolidé — "+selected.length+" périodes fusionnées";
+    // Mettre à jour le header période
+    const dates = selected.map(r=>r.hdrDate||r.label.split(" — ")[0]).join(" · ");
+    document.getElementById("hdr-date").textContent = dates;
+    document.getElementById("hdr-period").textContent = "Rapport fusionné — "+selected.length+" journée"+(selected.length>1?"s":"");
   } else {
-    // Fallback : fusion des données parsées (if_data + nd_data)
-    const mergedIf = [];
-    const mergedNd = [];
-    const siteMapIf = {};
-    const siteMapNd = {};
-
+    // Fallback fusion des données parsées pour les anciens rapports sans rawText
+    const siteMapIf={}, siteMapNd={};
     for(const r of selected){
       for(const d of (r.if_data||[])){
-        if(!siteMapIf[d.site]){ siteMapIf[d.site]={...d}; }
+        if(!siteMapIf[d.site]){ siteMapIf[d.site]={...d, duree:{...d.duree}}; }
         else {
           const s=siteMapIf[d.site];
-          s.nb += d.nb;
-          if(d.down && d.down!=="—" && (!s.down||s.down==="—"||d.down<s.down)) s.down=d.down;
-          if(d.up && d.up!=="—" && d.up>s.up) s.up=d.up;
+          s.nb+=d.nb;
+          if(d.down&&d.down!=="—"&&(s.down==="—"||d.down<s.down)) s.down=d.down;
+          if(d.up&&d.up!=="—"&&d.up>s.up) s.up=d.up;
           if(d.duree.val!==null&&s.duree.val!==null) s.duree=fmtMin(s.duree.val+d.duree.val);
-          else if(d.duree.val!==null) s.duree=d.duree;
-          s.isFlapping = s.nb>=5;
-          s.isDown = s.up==="—";
-          s.statut = s.isFlapping?"Instable":s.isDown?"Indisponible":"Rétabli";
-          s.prio = s.isFlapping||s.isDown||s.nb>=3?"Haute":s.nb>=2||(s.duree.val&&s.duree.val>=60)?"Moyenne":"Faible";
+          else if(d.duree.val!==null) s.duree={...d.duree};
+          s.isFlapping=s.nb>=5; s.isDown=s.up==="—";
+          s.statut=s.isFlapping?"Instable":s.isDown?"Indisponible":"Rétabli";
+          s.prio=s.isFlapping||s.isDown||s.nb>=3?"Haute":s.nb>=2||(s.duree.val&&s.duree.val>=60)?"Moyenne":"Faible";
         }
       }
       for(const d of (r.nd_data||[])){
-        if(!siteMapNd[d.site]){ siteMapNd[d.site]={...d}; }
+        if(!siteMapNd[d.site]){ siteMapNd[d.site]={...d, duree:{...d.duree}}; }
         else {
           const s=siteMapNd[d.site];
-          s.nb += d.nb;
-          if(d.down && d.down!=="—" && (!s.down||s.down==="—"||d.down<s.down)) s.down=d.down;
-          if(d.up && d.up!=="—" && d.up>s.up) s.up=d.up;
+          s.nb+=d.nb;
+          if(d.down&&d.down!=="—"&&(s.down==="—"||d.down<s.down)) s.down=d.down;
+          if(d.up&&d.up!=="—"&&d.up>s.up) s.up=d.up;
           if(d.duree.val!==null&&s.duree.val!==null) s.duree=fmtMin(s.duree.val+d.duree.val);
-          else if(d.duree.val!==null) s.duree=d.duree;
-          s.isFlapping = s.nb>=5;
-          s.isDown = s.up==="—";
-          s.statut = s.isFlapping?"Instable":s.isDown?"Indisponible":"Rétabli";
-          s.prio = s.isFlapping||s.isDown||s.nb>=3?"Haute":s.nb>=2||(s.duree.val&&s.duree.val>=60)?"Moyenne":"Faible";
+          else if(d.duree.val!==null) s.duree={...d.duree};
+          s.isFlapping=s.nb>=5; s.isDown=s.up==="—";
+          s.statut=s.isFlapping?"Instable":s.isDown?"Indisponible":"Rétabli";
+          s.prio=s.isFlapping||s.isDown||s.nb>=3?"Haute":s.nb>=2||(s.duree.val&&s.duree.val>=60)?"Moyenne":"Faible";
         }
       }
     }
+    IF_DATA=Object.values(siteMapIf).sort((a,b)=>b.nb-a.nb);
+    ND_DATA=Object.values(siteMapNd).sort((a,b)=>b.nb-a.nb);
 
-    IF_DATA = Object.values(siteMapIf).sort((a,b)=>b.nb-a.nb);
-    ND_DATA = Object.values(siteMapNd).sort((a,b)=>b.nb-a.nb);
-
-    const dates = selected.map(r=>r.hdrDate||r.label).join(" + ");
-    document.getElementById("hdr-date").textContent = "Fusion : "+dates;
-    document.getElementById("hdr-period").textContent = "Rapport consolidé — "+selected.length+" périodes";
-    document.getElementById("footer-date").textContent = "Généré le "+new Date().toLocaleString("fr-FR");
+    const dates=selected.map(r=>r.hdrDate||r.label.split(" — ")[0]).join(" · ");
+    document.getElementById("hdr-date").textContent=dates;
+    document.getElementById("hdr-period").textContent="Rapport fusionné — "+selected.length+" journée"+(selected.length>1?"s":"");
+    document.getElementById("footer-date").textContent="Généré le "+new Date().toLocaleString("fr-FR");
     { const _s=document.getElementById("hdr-sep"); if(_s) _s.style.display="block"; }
 
     const allSites=new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
     document.getElementById("k-sites").textContent=allSites.size;
     document.getElementById("k-open").textContent=[...IF_DATA,...ND_DATA].filter(d=>d.isDown).length;
     document.getElementById("k-flap").textContent=[...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
-
     setKpi(IF_DATA,"if"); setKpi(ND_DATA,"nd");
     setGlobalKpis(IF_DATA,ND_DATA);
     setNote(IF_DATA,"if"); setNote(ND_DATA,"nd");
-
     document.getElementById("tc-if").textContent=IF_DATA.length;
     document.getElementById("tc-nd").textContent=ND_DATA.length;
-
     Object.values(charts).forEach(c=>c.destroy()); charts={};
     buildChart("chartIf","cc-if","ctag-if",IF_DATA);
     buildChart("chartNd","cc-nd","ctag-nd",ND_DATA);
     renderTbl("if"); renderTbl("nd");
-
     document.getElementById("paste-section").style.display="none";
     document.getElementById("rapport").style.display="block";
     const _hbr=document.getElementById("hdr-btn-reset"); if(_hbr){_hbr.style.display="flex";}
-    const _hbs=document.getElementById("hdr-btn-save"); if(_hbs){ _hbs.disabled=false; _hbs.style.opacity="1"; }
-
-    sbToggleSelMode();
+    const _hbs=document.getElementById("hdr-btn-save"); if(_hbs){_hbs.disabled=false;_hbs.style.opacity="1";}
+    sbToggleSel();
     window.scrollTo({top:0,behavior:"smooth"});
   }
 }
@@ -1630,7 +1619,7 @@ async function saveCurrentReport(){
   const _heure    = _now.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
   const label     = dateLabel + " — " + _heure;
 
-  const rawText = document.getElementById("raw-input").value || window._lastRawText || "";
+  const rawText = window._lastRawText || "";
   const entry = {
     id, label, period,
     sites: allSites.size,
