@@ -1229,16 +1229,17 @@ function fermerPopupPourcentage2Mois() {
       const entries = window._semaineItemsMap[semKey] || [];
       if (!entries.length) return;
 
-      // Regrouper par client
-      const parClient = {};
+      // Regrouper par ND
+      const parND = {};
       entries.forEach(({ item, date }) => {
-        const client = item.client || item.nd || item.ND || '(inconnu)';
-        if (!parClient[client]) parClient[client] = { count: 0, nd: item.nd || item.ND || '', dates: [] };
-        parClient[client].count++;
-        parClient[client].dates.push(date instanceof Date ? date.toLocaleDateString('fr-FR') : date);
+        const nd = (item.nd || item.ND || '(inconnu)').trim();
+        const raison = (item.raison || item.raisonSociale || item.client || '').trim();
+        if (!parND[nd]) parND[nd] = { raison, count: 0, dates: [] };
+        parND[nd].count++;
+        parND[nd].dates.push(date instanceof Date ? date.toLocaleDateString('fr-FR') : date);
       });
 
-      const rows = Object.entries(parClient).sort((a,b) => b[1].count - a[1].count);
+      const rows = Object.entries(parND).sort((a,b) => b[1].count - a[1].count);
       const total = entries.length;
 
       let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -1248,14 +1249,16 @@ function fermerPopupPourcentage2Mois() {
       html += `<div style="max-height:400px;overflow-y:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:#37474f;color:white;">
-            <th style="padding:8px;text-align:left;">Client / ND</th>
+            <th style="padding:8px;text-align:left;">RAISON SOCIALE</th>
+            <th style="padding:8px;text-align:left;">ND</th>
             <th style="padding:8px;text-align:center;">Nb incidents</th>
             <th style="padding:8px;text-align:left;">Dates</th>
           </tr></thead><tbody>`;
-      rows.forEach(([client, d], i) => {
+      rows.forEach(([nd, d], i) => {
         const bg = i % 2 === 0 ? '#fff' : '#f5f7f8';
         html += `<tr style="background:${bg};">
-          <td style="padding:7px 8px;border-bottom:1px solid #eee;">${client}</td>
+          <td style="padding:7px 8px;border-bottom:1px solid #eee;">${d.raison || '—'}</td>
+          <td style="padding:7px 8px;border-bottom:1px solid #eee;font-weight:600;color:#1565c0;">${nd}</td>
           <td style="padding:7px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;color:#e65100;">${d.count}</td>
           <td style="padding:7px 8px;border-bottom:1px solid #eee;font-size:11px;color:#546e7a;">${d.dates.join(', ')}</td>
         </tr>`;
@@ -1266,8 +1269,9 @@ function fermerPopupPourcentage2Mois() {
       document.getElementById('popup-sem-clients').style.display = 'flex';
 
       // Stocker pour export
-      window._popupSemaineExportData = rows.map(([client, d]) => ({
-        'Client / ND': client,
+      window._popupSemaineExportData = rows.map(([nd, d]) => ({
+        'RAISON SOCIALE': d.raison || '',
+        'ND': nd,
         'Nb incidents': d.count,
         'Dates': d.dates.join(', '),
         'Semaine': semKey
@@ -3816,6 +3820,9 @@ function exporterIncidentsND2ParMois() {
   const moisDebut = debut ? debut.getMonth() + 1 : null;
   const moisFin = fin ? fin.getMonth() + 1 : null;
 
+  // Map mois -> liste items pour click
+  window._moisItemsMap = {};
+
   src.forEach(item => {
     Object.entries(item.mois).forEach(([mois, nbIncidents]) => {
       const m = parseInt(mois);
@@ -3828,6 +3835,10 @@ function exporterIncidentsND2ParMois() {
       if (nbIncidents >= 2) {
         ndSup2[m] = (ndSup2[m] || 0) + 1;
         incidentsND2[m] = (incidentsND2[m] || 0) + nbIncidents;
+      }
+      if (nbIncidents > 0) {
+        if (!window._moisItemsMap[m]) window._moisItemsMap[m] = [];
+        window._moisItemsMap[m].push({ nd: item.nd || '', raison: item.raison || '', count: nbIncidents });
       }
     });
   });
@@ -3871,6 +3882,12 @@ function exporterIncidentsND2ParMois() {
     },
     options: {
       devicePixelRatio: 2,
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const idx = elements[0].index;
+        const mNum = moisTriés[idx];
+        afficherPopupMoisClients(mNum);
+      },
       plugins: {
         legend: { position: 'top' },
         datalabels: {
@@ -3890,6 +3907,53 @@ function exporterIncidentsND2ParMois() {
     plugins: [ChartDataLabels]
   });
 }
+
+  function afficherPopupMoisClients(mNum) {
+    const moisNomsFull = {1:'Janvier',2:'Février',3:'Mars',4:'Avril',5:'Mai',6:'Juin',7:'Juillet',8:'Août',9:'Septembre',10:'Octobre',11:'Novembre',12:'Décembre'};
+    const entries = (window._moisItemsMap[mNum] || []).sort((a,b) => b.count - a.count);
+    if (!entries.length) return;
+    const total = entries.reduce((s,e) => s + e.count, 0);
+    const moisLabel = moisNomsFull[mNum] || ('Mois '+mNum);
+
+    let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <b style="font-size:15px;">📊 ${moisLabel} — ${total} signalisation(s)</b>
+      <button onclick="exportMoisClients('${moisLabel}')" style="background:#e65100;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;">📤 Exporter Excel</button>
+    </div>`;
+    html += `<div style="max-height:420px;overflow-y:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#37474f;color:white;">
+          <th style="padding:8px;text-align:left;">RAISON SOCIALE</th>
+          <th style="padding:8px;text-align:left;">ND</th>
+          <th style="padding:8px;text-align:center;">Nb incidents</th>
+        </tr></thead><tbody>`;
+    entries.forEach((e, i) => {
+      const bg = i % 2 === 0 ? '#fff' : '#f5f7f8';
+      html += `<tr style="background:${bg};">
+        <td style="padding:7px 8px;border-bottom:1px solid #eee;">${e.raison || '—'}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #eee;font-weight:600;color:#1565c0;">${e.nd}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;color:#e65100;">${e.count}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+
+    document.getElementById('popup-sem-clients-body').innerHTML = html;
+    document.getElementById('popup-sem-clients').style.display = 'flex';
+
+    window._popupMoisExportData = entries.map(e => ({
+      'RAISON SOCIALE': e.raison || '',
+      'ND': e.nd,
+      'Nb incidents': e.count,
+      'Mois': moisLabel
+    }));
+  }
+
+  function exportMoisClients(moisLabel) {
+    if (!window._popupMoisExportData) return;
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(window._popupMoisExportData);
+    XLSX.utils.book_append_sheet(wb, ws, 'Mois');
+    XLSX.writeFile(wb, `Incidents_${moisLabel}.xlsx`);
+  }
   </script>
   <script>
    function ouvrirPlanningND() {
