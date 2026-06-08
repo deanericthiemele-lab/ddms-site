@@ -3885,8 +3885,11 @@ function exporterIncidentsND2ParMois() {
       onClick: (evt, elements) => {
         if (!elements.length) return;
         const idx = elements[0].index;
+        const dsIdx = elements[0].datasetIndex;
         const mNum = moisTriés[idx];
-        afficherPopupMoisClients(mNum);
+        // 0=Total Signalisations, 1=ND total, 2=ND≥2, 3=Incidents ND≥2
+        const dsLabels = ['Total Signalisations','ND total','ND ≥ 2','Incidents ND ≥ 2'];
+        afficherPopupMoisClients(mNum, dsIdx, dsLabels[dsIdx]);
       },
       plugins: {
         legend: { position: 'top' },
@@ -3908,16 +3911,33 @@ function exporterIncidentsND2ParMois() {
   });
 }
 
-  function afficherPopupMoisClients(mNum) {
+  function afficherPopupMoisClients(mNum, dsIdx, dsLabel) {
     const moisNomsFull = {1:'Janvier',2:'Février',3:'Mars',4:'Avril',5:'Mai',6:'Juin',7:'Juillet',8:'Août',9:'Septembre',10:'Octobre',11:'Novembre',12:'Décembre'};
-    const entries = (window._moisItemsMap[mNum] || []).sort((a,b) => b.count - a.count);
-    if (!entries.length) return;
-    const total = entries.reduce((s,e) => s + e.count, 0);
     const moisLabel = moisNomsFull[mNum] || ('Mois '+mNum);
+    const dsColors = ['#e65100','#2e7d32','#1565c0','#b71c1c'];
+    const color = dsColors[dsIdx] || '#e65100';
+
+    // Filtrer selon le dataset
+    let entries = (window._moisItemsMap[mNum] || []);
+    if (dsIdx === 1) {
+      // ND total : tous avec count > 0 mais dédupliqué par ND (1 ligne = 1 ND)
+      entries = entries.map(e => ({...e}));
+    } else if (dsIdx === 2) {
+      // ND ≥ 2 : seulement les ND avec count >= 2
+      entries = entries.filter(e => e.count >= 2);
+    } else if (dsIdx === 3) {
+      // Incidents ND ≥ 2 : idem ND ≥ 2
+      entries = entries.filter(e => e.count >= 2);
+    }
+    entries = entries.sort((a,b) => b.count - a.count);
+    if (!entries.length) return;
+
+    const total = entries.reduce((s,e) => s + e.count, 0);
+    const exportKey = moisLabel+'_'+dsLabel.replace(/[^a-zA-Z0-9]/g,'_');
 
     let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <b style="font-size:15px;">📊 ${moisLabel} — ${total} signalisation(s)</b>
-      <button onclick="exportMoisClients('${moisLabel}')" style="background:#e65100;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;">📤 Exporter Excel</button>
+      <b style="font-size:15px;">📊 ${moisLabel} — <span style="color:${color}">${dsLabel}</span> — ${total} signalisation(s)</b>
+      <button onclick="exportMoisClients('${exportKey}')" style="background:${color};color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;">📤 Exporter Excel</button>
     </div>`;
     html += `<div style="max-height:420px;overflow-y:auto;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -3931,7 +3951,7 @@ function exporterIncidentsND2ParMois() {
       html += `<tr style="background:${bg};">
         <td style="padding:7px 8px;border-bottom:1px solid #eee;">${e.raison || '—'}</td>
         <td style="padding:7px 8px;border-bottom:1px solid #eee;font-weight:600;color:#1565c0;">${e.nd}</td>
-        <td style="padding:7px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;color:#e65100;">${e.count}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;color:${color};">${e.count}</td>
       </tr>`;
     });
     html += `</tbody></table></div>`;
@@ -3943,16 +3963,18 @@ function exporterIncidentsND2ParMois() {
       'RAISON SOCIALE': e.raison || '',
       'ND': e.nd,
       'Nb incidents': e.count,
-      'Mois': moisLabel
+      'Mois': moisLabel,
+      'Série': dsLabel
     }));
+    window._popupMoisExportKey = exportKey;
   }
 
-  function exportMoisClients(moisLabel) {
+  function exportMoisClients(key) {
     if (!window._popupMoisExportData) return;
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(window._popupMoisExportData);
     XLSX.utils.book_append_sheet(wb, ws, 'Mois');
-    XLSX.writeFile(wb, `Incidents_${moisLabel}.xlsx`);
+    XLSX.writeFile(wb, `Incidents_${key||'export'}.xlsx`);
   }
   </script>
   <script>
