@@ -268,6 +268,19 @@
   .btn-save:disabled{opacity:.45;cursor:not-allowed}
   .btn-save svg{width:13px;height:13px}
   .sb-count{font-size:10px;color:var(--text3);text-align:center;margin-top:6px}
+  /* Mode sélection */
+  .sb-sel-bar{display:none;padding:8px 12px;border-top:1px solid var(--border);background:var(--bg)}
+  .sb-sel-bar.active{display:block}
+  .btn-merge{width:100%;background:#1e40af;color:#fff;border:none;border-radius:6px;padding:8px 0;font-size:12px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:6px}
+  .btn-merge:hover{opacity:.88}
+  .btn-merge:disabled{opacity:.45;cursor:not-allowed}
+  .btn-sel-cancel{width:100%;background:none;border:1px solid var(--border2);border-radius:6px;padding:6px 0;font-size:12px;color:var(--text2);cursor:pointer;font-family:'Inter',sans-serif}
+  .btn-sel-cancel:hover{border-color:var(--orange);color:var(--orange)}
+  .sb-sel-count{font-size:10px;color:var(--text3);text-align:center;margin-top:4px}
+  .sb-item-cb{flex-shrink:0;width:15px;height:15px;accent-color:var(--orange);cursor:pointer;display:none}
+  .sb-sel-mode .sb-item-cb{display:block}
+  .btn-sel-mode{background:none;border:1px solid var(--border2);border-radius:6px;padding:6px 0;font-size:11px;color:var(--text2);cursor:pointer;font-family:'Inter',sans-serif;width:100%;margin-top:6px}
+  .btn-sel-mode:hover{border-color:var(--orange);color:var(--orange)}
 
   /* MAIN CONTENT (ajustement) */
   .content{flex:1;min-width:0;overflow:auto}
@@ -341,6 +354,18 @@
     </div>
     <div class="sb-footer">
       <div class="sb-count" id="sb-count"></div>
+      <button class="btn-sel-mode" id="btn-sel-mode" onclick="sbToggleSelMode()" style="display:none">
+        ☑ Sélectionner pour fusionner
+      </button>
+    </div>
+    <!-- barre fusion (visible en mode sélection) -->
+    <div class="sb-sel-bar" id="sb-sel-bar">
+      <button class="btn-merge" id="btn-merge" onclick="mergeAndGenerate()" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+        Fusionner &amp; générer
+      </button>
+      <div class="sb-sel-count" id="sb-sel-count">0 rapport sélectionné</div>
+      <button class="btn-sel-cancel" onclick="sbToggleSelMode()">Annuler</button>
     </div>
   </aside>
 
@@ -1011,6 +1036,7 @@ function buildRows(events, type){
 function generate(){
   const raw=document.getElementById("raw-input").value;
   if(!raw.trim()) return;
+  window._lastRawText = raw;
   const events=parseEvents(raw);
   document.getElementById("parse-error").style.display="none";
   if(!events.length){document.getElementById("parse-error").style.display="block";return;}
@@ -1424,6 +1450,7 @@ async function sbRenderList(){
   const ul = document.getElementById("sb-list");
   const empty = document.getElementById("sb-empty");
   const count = document.getElementById("sb-count");
+  const btnSelMode = document.getElementById("btn-sel-mode");
 
   // remove existing items (not the empty state)
   ul.querySelectorAll(".sb-item").forEach(el=>el.remove());
@@ -1431,19 +1458,27 @@ async function sbRenderList(){
   if(!list.length){
     empty.style.display="block";
     count.textContent="";
+    if(btnSelMode) btnSelMode.style.display="none";
     return;
   }
   empty.style.display="none";
   count.textContent = list.length+" rapport"+(list.length>1?"s":"")+" stocké"+(list.length>1?"s":"");
+  if(btnSelMode) btnSelMode.style.display="block";
+
+  const selMode = ul.classList.contains("sb-sel-mode");
 
   list.slice().reverse().forEach((r,revIdx)=>{
-    const idx = list.length - 1 - revIdx; // real index in array
+    const idx = list.length - 1 - revIdx;
     const item = document.createElement("div");
     item.className="sb-item"+(r.id===window._currentSavedId?" active":"");
     item.dataset.id = r.id;
+    // badge type rapport (rawText présent = données brutes disponibles)
+    const hasRaw = !!(r.rawText && r.rawText.trim());
+    const rawBadge = hasRaw ? `<span style="font-size:9px;color:var(--green);background:var(--green-bg);border:1px solid var(--green-bd);border-radius:3px;padding:1px 5px;margin-left:4px">✓ brut</span>` : '';
     item.innerHTML=`
-      <div class="sb-item-info" onclick="loadSavedReport('${r.id}')">
-        <div class="sb-item-date">${r.label}</div>
+      <input type="checkbox" class="sb-item-cb" data-id="${r.id}" onchange="sbUpdateSelCount()" ${selMode?'':'style="display:none"'}>
+      <div class="sb-item-info" onclick="sbItemClick('${r.id}')">
+        <div class="sb-item-date">${r.label}${rawBadge}</div>
         <div class="sb-item-meta">${r.sites} site${r.sites>1?"s":""} · ${r.total} événement${r.total>1?"s":""}</div>
       </div>
       <button class="sb-item-del" onclick="deleteSavedReport('${r.id}',event)" title="Supprimer">
@@ -1451,6 +1486,137 @@ async function sbRenderList(){
       </button>`;
     ul.appendChild(item);
   });
+}
+
+function sbItemClick(id){
+  const ul = document.getElementById("sb-list");
+  if(ul.classList.contains("sb-sel-mode")){
+    // En mode sélection : toggler la checkbox
+    const cb = ul.querySelector(`.sb-item-cb[data-id="${id}"]`);
+    if(cb){ cb.checked = !cb.checked; sbUpdateSelCount(); }
+  } else {
+    loadSavedReport(id);
+  }
+}
+
+function sbToggleSelMode(){
+  const ul = document.getElementById("sb-list");
+  const bar = document.getElementById("sb-sel-bar");
+  const isNow = ul.classList.toggle("sb-sel-mode");
+  // toggle checkboxes visibility
+  ul.querySelectorAll(".sb-item-cb").forEach(cb=>{ cb.style.display = isNow?"block":"none"; cb.checked=false; });
+  if(bar) bar.classList.toggle("active", isNow);
+  sbUpdateSelCount();
+  const btn = document.getElementById("btn-sel-mode");
+  if(btn) btn.textContent = isNow ? "✕ Quitter la sélection" : "☑ Sélectionner pour fusionner";
+}
+
+function sbUpdateSelCount(){
+  const checked = document.querySelectorAll(".sb-item-cb:checked");
+  const c = checked.length;
+  const el = document.getElementById("sb-sel-count");
+  if(el) el.textContent = c+" rapport"+(c>1?"s":"")+" sélectionné"+(c>1?"s":"");
+  const btn = document.getElementById("btn-merge");
+  if(btn) btn.disabled = c < 1;
+}
+
+async function mergeAndGenerate(){
+  const checked = [...document.querySelectorAll(".sb-item-cb:checked")];
+  if(!checked.length) return;
+  const ids = checked.map(cb=>cb.dataset.id);
+  const list = await getSaved();
+  const selected = ids.map(id=>list.find(r=>r.id===id)).filter(Boolean);
+  if(!selected.length) return;
+
+  // Fusionner les textes bruts si disponibles, sinon fallback sur if_data/nd_data
+  const allHaveRaw = selected.every(r=>r.rawText && r.rawText.trim());
+
+  if(allHaveRaw){
+    // Concaténer les rawText et réanalyser
+    const merged = selected.map(r=>r.rawText.trim()).join("\n");
+    document.getElementById("raw-input").value = merged;
+    window._lastRawText = merged;
+    // Quitter mode sélection
+    sbToggleSelMode();
+    generate();
+    // Mettre à jour le header pour indiquer la fusion
+    const dates = selected.map(r=>r.hdrDate||r.label).join(" + ");
+    document.getElementById("hdr-date").textContent = "Fusion : "+dates;
+    document.getElementById("hdr-period").textContent = "Rapport consolidé — "+selected.length+" périodes fusionnées";
+  } else {
+    // Fallback : fusion des données parsées (if_data + nd_data)
+    const mergedIf = [];
+    const mergedNd = [];
+    const siteMapIf = {};
+    const siteMapNd = {};
+
+    for(const r of selected){
+      for(const d of (r.if_data||[])){
+        if(!siteMapIf[d.site]){ siteMapIf[d.site]={...d}; }
+        else {
+          const s=siteMapIf[d.site];
+          s.nb += d.nb;
+          if(d.down && d.down!=="—" && (!s.down||s.down==="—"||d.down<s.down)) s.down=d.down;
+          if(d.up && d.up!=="—" && d.up>s.up) s.up=d.up;
+          if(d.duree.val!==null&&s.duree.val!==null) s.duree=fmtMin(s.duree.val+d.duree.val);
+          else if(d.duree.val!==null) s.duree=d.duree;
+          s.isFlapping = s.nb>=5;
+          s.isDown = s.up==="—";
+          s.statut = s.isFlapping?"Instable":s.isDown?"Indisponible":"Rétabli";
+          s.prio = s.isFlapping||s.isDown||s.nb>=3?"Haute":s.nb>=2||(s.duree.val&&s.duree.val>=60)?"Moyenne":"Faible";
+        }
+      }
+      for(const d of (r.nd_data||[])){
+        if(!siteMapNd[d.site]){ siteMapNd[d.site]={...d}; }
+        else {
+          const s=siteMapNd[d.site];
+          s.nb += d.nb;
+          if(d.down && d.down!=="—" && (!s.down||s.down==="—"||d.down<s.down)) s.down=d.down;
+          if(d.up && d.up!=="—" && d.up>s.up) s.up=d.up;
+          if(d.duree.val!==null&&s.duree.val!==null) s.duree=fmtMin(s.duree.val+d.duree.val);
+          else if(d.duree.val!==null) s.duree=d.duree;
+          s.isFlapping = s.nb>=5;
+          s.isDown = s.up==="—";
+          s.statut = s.isFlapping?"Instable":s.isDown?"Indisponible":"Rétabli";
+          s.prio = s.isFlapping||s.isDown||s.nb>=3?"Haute":s.nb>=2||(s.duree.val&&s.duree.val>=60)?"Moyenne":"Faible";
+        }
+      }
+    }
+
+    IF_DATA = Object.values(siteMapIf).sort((a,b)=>b.nb-a.nb);
+    ND_DATA = Object.values(siteMapNd).sort((a,b)=>b.nb-a.nb);
+
+    const dates = selected.map(r=>r.hdrDate||r.label).join(" + ");
+    document.getElementById("hdr-date").textContent = "Fusion : "+dates;
+    document.getElementById("hdr-period").textContent = "Rapport consolidé — "+selected.length+" périodes";
+    document.getElementById("footer-date").textContent = "Généré le "+new Date().toLocaleString("fr-FR");
+    { const _s=document.getElementById("hdr-sep"); if(_s) _s.style.display="block"; }
+
+    const allSites=new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
+    document.getElementById("k-sites").textContent=allSites.size;
+    document.getElementById("k-open").textContent=[...IF_DATA,...ND_DATA].filter(d=>d.isDown).length;
+    document.getElementById("k-flap").textContent=[...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
+
+    setKpi(IF_DATA,"if"); setKpi(ND_DATA,"nd");
+    setGlobalKpis(IF_DATA,ND_DATA);
+    setNote(IF_DATA,"if"); setNote(ND_DATA,"nd");
+
+    document.getElementById("tc-if").textContent=IF_DATA.length;
+    document.getElementById("tc-nd").textContent=ND_DATA.length;
+
+    Object.values(charts).forEach(c=>c.destroy()); charts={};
+    buildChart("chartIf","cc-if","ctag-if",IF_DATA);
+    buildChart("chartNd","cc-nd","ctag-nd",ND_DATA);
+    renderTbl("if"); renderTbl("nd");
+
+    document.getElementById("paste-section").style.display="none";
+    document.getElementById("rapport").style.display="block";
+    const _hbr=document.getElementById("hdr-btn-reset"); if(_hbr){_hbr.style.display="flex";}
+    const _hbs=document.getElementById("hdr-btn-save"); if(_hbs){ _hbs.disabled=false; _hbs.style.opacity="1"; }
+
+    sbToggleSelMode();
+    window.scrollTo({top:0,behavior:"smooth"});
+  }
 }
 
 async function saveCurrentReport(){
@@ -1464,6 +1630,7 @@ async function saveCurrentReport(){
   const _heure    = _now.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
   const label     = dateLabel + " — " + _heure;
 
+  const rawText = document.getElementById("raw-input").value || window._lastRawText || "";
   const entry = {
     id, label, period,
     sites: allSites.size,
@@ -1473,7 +1640,8 @@ async function saveCurrentReport(){
     nd_data: ND_DATA,
     hdrDate: dateLabel,
     hdrPeriod: period,
-    hdrTotal: total
+    hdrTotal: total,
+    rawText
   };
 
   const list = await getSaved();
