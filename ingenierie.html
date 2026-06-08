@@ -3917,26 +3917,34 @@ function exporterIncidentsND2ParMois() {
     const dsColors = ['#e65100','#2e7d32','#1565c0','#b71c1c'];
     const color = dsColors[dsIdx] || '#e65100';
 
-    // Filtrer selon le dataset
-    let entries = (window._moisItemsMap[mNum] || []);
-    if (dsIdx === 1) {
-      // ND total : tous avec count > 0 mais dédupliqué par ND (1 ligne = 1 ND)
-      entries = entries.map(e => ({...e}));
+    const all = (window._moisItemsMap[mNum] || []).sort((a,b) => b.count - a.count);
+    if (!all.length) return;
+
+    // Filtrer + calculer le bon total selon dataset
+    let entries, totalLabel;
+    if (dsIdx === 0) {
+      // Total Signalisations = somme de tous les incidents
+      entries = all;
+      totalLabel = all.reduce((s,e) => s + e.count, 0) + ' signalisation(s)';
+    } else if (dsIdx === 1) {
+      // ND total = nb de ND distincts (count > 0)
+      entries = all;
+      totalLabel = all.length + ' ND';
     } else if (dsIdx === 2) {
-      // ND ≥ 2 : seulement les ND avec count >= 2
-      entries = entries.filter(e => e.count >= 2);
-    } else if (dsIdx === 3) {
-      // Incidents ND ≥ 2 : idem ND ≥ 2
-      entries = entries.filter(e => e.count >= 2);
+      // ND ≥ 2 = ND ayant count >= 2
+      entries = all.filter(e => e.count >= 2);
+      totalLabel = entries.length + ' ND';
+    } else {
+      // Incidents ND ≥ 2 = incidents des ND avec count >= 2
+      entries = all.filter(e => e.count >= 2);
+      totalLabel = entries.reduce((s,e) => s + e.count, 0) + ' incidents';
     }
-    entries = entries.sort((a,b) => b.count - a.count);
     if (!entries.length) return;
 
-    const total = entries.reduce((s,e) => s + e.count, 0);
     const exportKey = moisLabel+'_'+dsLabel.replace(/[^a-zA-Z0-9]/g,'_');
 
     let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-      <b style="font-size:15px;">📊 ${moisLabel} — <span style="color:${color}">${dsLabel}</span> — ${total} signalisation(s)</b>
+      <b style="font-size:15px;">📊 ${moisLabel} — <span style="color:${color}">${dsLabel}</span> — ${totalLabel}</b>
       <button onclick="exportMoisClients('${exportKey}')" style="background:${color};color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;">📤 Exporter Excel</button>
     </div>`;
     html += `<div style="max-height:420px;overflow-y:auto;">
