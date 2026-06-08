@@ -1186,6 +1186,18 @@ function fermerPopupPourcentage2Mois() {
       const ctx = document.getElementById('graphique-fusionne').getContext('2d');
       if (window.graphiqueFusionne) window.graphiqueFusionne.destroy();
 
+      // Stocker la map semaine->items pour le click
+      window._semaineItemsMap = {};
+      tableauActuel.forEach(item => {
+        if (!item.datesCreation) return;
+        item.datesCreation.forEach(date => {
+          const { annee, sem } = getISOWeek(date);
+          const key = `${annee}-S${String(sem).padStart(2,'0')}`;
+          if (!window._semaineItemsMap[key]) window._semaineItemsMap[key] = [];
+          window._semaineItemsMap[key].push({ item, date });
+        });
+      });
+
       window.graphiqueFusionne = new Chart(ctx, {
         type: 'bar',
         data: {
@@ -1196,6 +1208,12 @@ function fermerPopupPourcentage2Mois() {
         },
         options: {
           devicePixelRatio: 2,
+          onClick: (evt, elements) => {
+            if (!elements.length) return;
+            const idx = elements[0].index;
+            const semKey = keys[idx];
+            afficherPopupSemaineClients(semKey);
+          },
           plugins: {
             legend: { display: false },
             datalabels: { anchor: 'end', align: 'top', font: { weight: 'bold' }, color: '#333' }
@@ -1205,6 +1223,63 @@ function fermerPopupPourcentage2Mois() {
         },
         plugins: [ChartDataLabels]
       });
+    }
+
+    function afficherPopupSemaineClients(semKey) {
+      const entries = window._semaineItemsMap[semKey] || [];
+      if (!entries.length) return;
+
+      // Regrouper par client
+      const parClient = {};
+      entries.forEach(({ item, date }) => {
+        const client = item.client || item.nd || item.ND || '(inconnu)';
+        if (!parClient[client]) parClient[client] = { count: 0, nd: item.nd || item.ND || '', dates: [] };
+        parClient[client].count++;
+        parClient[client].dates.push(date instanceof Date ? date.toLocaleDateString('fr-FR') : date);
+      });
+
+      const rows = Object.entries(parClient).sort((a,b) => b[1].count - a[1].count);
+      const total = entries.length;
+
+      let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <b style="font-size:15px;">📊 Semaine ${semKey} — ${total} signalisation(s)</b>
+        <button onclick="exportSemaineClients('${semKey}')" style="background:#e65100;color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;">📤 Exporter Excel</button>
+      </div>`;
+      html += `<div style="max-height:400px;overflow-y:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#37474f;color:white;">
+            <th style="padding:8px;text-align:left;">Client / ND</th>
+            <th style="padding:8px;text-align:center;">Nb incidents</th>
+            <th style="padding:8px;text-align:left;">Dates</th>
+          </tr></thead><tbody>`;
+      rows.forEach(([client, d], i) => {
+        const bg = i % 2 === 0 ? '#fff' : '#f5f7f8';
+        html += `<tr style="background:${bg};">
+          <td style="padding:7px 8px;border-bottom:1px solid #eee;">${client}</td>
+          <td style="padding:7px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;color:#e65100;">${d.count}</td>
+          <td style="padding:7px 8px;border-bottom:1px solid #eee;font-size:11px;color:#546e7a;">${d.dates.join(', ')}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+
+      document.getElementById('popup-sem-clients-body').innerHTML = html;
+      document.getElementById('popup-sem-clients').style.display = 'flex';
+
+      // Stocker pour export
+      window._popupSemaineExportData = rows.map(([client, d]) => ({
+        'Client / ND': client,
+        'Nb incidents': d.count,
+        'Dates': d.dates.join(', '),
+        'Semaine': semKey
+      }));
+    }
+
+    function exportSemaineClients(semKey) {
+      if (!window._popupSemaineExportData) return;
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(window._popupSemaineExportData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Semaine');
+      XLSX.writeFile(wb, `Incidents_${semKey}.xlsx`);
     }
     </script>
 
@@ -5763,5 +5838,16 @@ function exporterNDsDeuxMoisExcel() {
 }
 </script>
 
+
+  <!-- Popup semaine clients -->
+  <div id="popup-sem-clients" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;justify-content:center;align-items:center;">
+    <div style="background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.25);width:90%;max-width:800px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
+      <div style="background:linear-gradient(135deg,#e65100,#bf360c);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+        <span style="color:white;font-size:16px;font-weight:bold;">📊 Incidents répétitifs — Détail par client</span>
+        <button onclick="document.getElementById('popup-sem-clients').style.display='none'" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:30px;height:30px;font-size:15px;cursor:pointer;">✕</button>
+      </div>
+      <div id="popup-sem-clients-body" style="overflow:auto;flex:1;padding:16px 20px;background:#f5f7f8;"></div>
+    </div>
+  </div>
 </body>
 </html>
