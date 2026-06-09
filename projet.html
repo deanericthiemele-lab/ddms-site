@@ -9,6 +9,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
@@ -21,6 +22,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db  = getFirestore(app);
+const storage = getStorage(app);
 const COL = 'projets';
 
 let projets = [];
@@ -168,13 +170,14 @@ function renderTaches() {
         <th>Fin</th>
         <th>Statut</th>
         <th class="hide-mobile">Commentaire</th>
+        <th class="hide-mobile col-pj">Pièces jointes</th>
         <th style="width:64px"></th>
       </tr></thead>
       <tbody>`;
 
   Object.entries(groups).forEach(([grp,items])=>{
     if(!items.length) return;
-    html+=`<tr class="t-group-row"><td colspan="12" style="color:${gcol[grp]};font-family:'DM Mono',monospace;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px">${gicon[grp]} ${grp} <span style="opacity:.5">(${items.length})</span></td></tr>`;
+    html+=`<tr class="t-group-row"><td colspan="13" style="color:${gcol[grp]};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px">${gicon[grp]} ${grp} <span style="opacity:.5">(${items.length})</span></td></tr>`;
     items.forEach(t=>{
       const i=t._i;
       const sc=gcol[t.statut]||'var(--text3)';
@@ -190,6 +193,12 @@ function renderTaches() {
         <td class="t-cell-date">${t.dateFin?formatDate(t.dateFin):'—'}</td>
         <td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${t.statut}</span></td>
         <td class="t-cell-comment hide-mobile">${t.description||'—'}</td>
+        <td class="t-cell-pj hide-mobile">
+          <div class="pj-wrap">
+            ${(t.fichiers||[]).map((f,fi)=>`<a class="pj-chip" href="${f.url}" target="_blank" title="${f.nom}"><span class="pj-icon">${pjIcon(f.nom)}</span><span class="pj-name">${f.nom.length>16?f.nom.substring(0,14)+'…':f.nom}</span><button class="pj-del" onclick="deleteFichier(event,${i},${fi})" title="Supprimer">✕</button></a>`).join('')}
+            <label class="pj-add" title="Ajouter un fichier"><input type="file" style="display:none" multiple onchange="uploadFichiers(event,${i})">＋</label>
+          </div>
+        </td>
         <td class="t-cell-actions">
           <button class="btn-icon" onclick="editTache(${i})" title="Modifier">✏️</button>
           <button class="btn-icon del" onclick="deleteTache(${i})" title="Supprimer">✕</button>
@@ -329,6 +338,51 @@ function formatDate(s){
   catch(e){ return s; }
 }
 
+function pjIcon(nom){
+  const ext=(nom.split('.').pop()||'').toLowerCase();
+  if(['xlsx','xls','csv'].includes(ext)) return '📊';
+  if(['pdf'].includes(ext)) return '📄';
+  if(['ppt','pptx'].includes(ext)) return '📑';
+  if(['doc','docx'].includes(ext)) return '📝';
+  if(['png','jpg','jpeg','gif','webp'].includes(ext)) return '🖼️';
+  if(['zip','rar','7z'].includes(ext)) return '🗜️';
+  return '📎';
+}
+
+window.uploadFichiers=async function(e,i){
+  const p=proj(); if(!p) return;
+  const files=Array.from(e.target.files); if(!files.length) return;
+  if(!p.taches[i].fichiers) p.taches[i].fichiers=[];
+  toast('Upload en cours…');
+  try{
+    for(const file of files){
+      const path=`projets/${p.id}/taches/${i}/${Date.now()}_${file.name}`;
+      const storageRef=ref(storage,path);
+      await uploadBytes(storageRef,file);
+      const url=await getDownloadURL(storageRef);
+      p.taches[i].fichiers.push({nom:file.name,url,path});
+    }
+    await fsSave(p);
+    renderTaches();
+    toast(`${files.length} fichier(s) ajouté(s) ✓`,'success');
+  }catch(err){ toast('Erreur upload : '+err.message,'error'); }
+  e.target.value='';
+};
+
+window.deleteFichier=async function(e,i,fi){
+  e.preventDefault(); e.stopPropagation();
+  const p=proj(); if(!p) return;
+  if(!confirm('Supprimer ce fichier ?')) return;
+  const f=p.taches[i].fichiers[fi];
+  try{
+    if(f.path){ try{ await deleteObject(ref(storage,f.path)); }catch(_){} }
+    p.taches[i].fichiers.splice(fi,1);
+    await fsSave(p);
+    renderTaches();
+    toast('Fichier supprimé','success');
+  }catch(err){ toast('Erreur : '+err.message,'error'); }
+};
+
 init();
 
 // Calcul temps réel "Reste à faire" dans la modal
@@ -355,7 +409,7 @@ document.addEventListener('input', function(e){
     --sw:260px;
   }
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden;}
+  body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:12px;background:var(--bg);color:var(--text);height:100vh;display:flex;overflow:hidden;}
 
   #loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.93);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:14px;}
   .spinner{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;}
@@ -439,7 +493,7 @@ document.addEventListener('input', function(e){
   .btn-add-t{background:var(--surface2);border:1px solid var(--border);color:var(--accent);border-radius:8px;padding:6px 14px;font-size:12px;font-family:'Syne',sans-serif;font-weight:700;cursor:pointer;transition:background .2s;}
   .btn-add-t:hover{background:rgba(37,99,235,.08);}
   .t-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:12px;background:var(--surface);margin-bottom:20px;}
-  .t-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .t-table{width:100%;border-collapse:collapse;font-size:12px;}
   .t-table thead tr{border-bottom:2px solid var(--border);}
   .t-table th{padding:10px 12px;text-align:left;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);white-space:nowrap;}
   .t-group-row td{background:var(--surface2);}
@@ -461,7 +515,7 @@ document.addEventListener('input', function(e){
   .t-chk{width:17px;height:17px;border-radius:50%;border:2px solid var(--border);display:inline-block;cursor:pointer;transition:all .15s;background:var(--surface2);}
   .t-chk:hover{border-color:var(--accent);}
   .t-chk.checked{background:var(--green);border-color:var(--green);background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6.5 11.5L3 8l1-1 2.5 2.5 5-5 1 1z'/%3E%3C/svg%3E");background-size:cover;}
-  .struck{text-decoration:line-through;color:var(--text3);}
+  .struck{color:var(--text3);}
   .btn-icon{background:none;border:none;cursor:pointer;font-size:12px;padding:3px 5px;border-radius:5px;transition:background .15s;}
   .btn-icon:hover{background:var(--surface2);}
   .btn-icon.del:hover{background:rgba(220,38,38,.08);}
@@ -508,7 +562,20 @@ document.addEventListener('input', function(e){
   .btn-primary:hover{opacity:.85;}
   .btn-cancel{background:none;border:1px solid var(--border);border-radius:8px;color:var(--text2);font-family:'DM Sans',sans-serif;font-size:13px;padding:9px 20px;cursor:pointer;}
 
-  .empty-state{text-align:center;padding:32px 20px;color:var(--text3);font-size:13px;font-family:'DM Mono',monospace;}
+  .empty-state{text-align:center;padding:32px 20px;color:var(--text3);font-size:12px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}
+
+  /* PIÈCES JOINTES */
+  .col-pj{min-width:120px;}
+  .t-cell-pj{padding:8px 10px;vertical-align:middle;}
+  .pj-wrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center;}
+  .pj-chip{display:inline-flex;align-items:center;gap:3px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;padding:2px 6px;text-decoration:none;color:var(--text2);font-size:11px;max-width:130px;transition:background .15s;cursor:pointer;}
+  .pj-chip:hover{background:rgba(37,99,235,.08);border-color:var(--accent);}
+  .pj-icon{font-size:11px;flex-shrink:0;}
+  .pj-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;}
+  .pj-del{background:none;border:none;color:var(--text3);font-size:10px;cursor:pointer;padding:0 0 0 3px;flex-shrink:0;line-height:1;}
+  .pj-del:hover{color:var(--red);}
+  .pj-add{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:5px;border:1px dashed var(--border);color:var(--text3);font-size:14px;cursor:pointer;transition:all .15s;flex-shrink:0;line-height:1;}
+  .pj-add:hover{border-color:var(--accent);color:var(--accent);background:rgba(37,99,235,.05);}
 </style>
 </head>
 <body>
