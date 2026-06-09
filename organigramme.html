@@ -170,6 +170,37 @@ body{font-family:'DM Sans',Arial,sans-serif;background:var(--bg);min-height:100v
 .edit-mode .editable-block:hover::after{opacity:1}
 .edit-mode .editable-block:hover{outline:2px dashed #3B82C4;outline-offset:2px;border-radius:4px}
 
+
+/* ── POPOVER MOT DE PASSE ── */
+.pwd-popover{
+  position:absolute; top:calc(100% + 8px); right:0;
+  background:#fff; border:1px solid #dde2ea;
+  border-radius:10px; padding:14px 16px;
+  box-shadow:0 4px 20px rgba(0,0,0,.13);
+  z-index:999; min-width:220px;
+  display:none; flex-direction:column; gap:8px;
+}
+.pwd-popover.open{display:flex}
+.pwd-popover label{font-size:11px;font-weight:600;color:#555}
+.pwd-popover-row{display:flex;gap:6px}
+.pwd-popover input{
+  flex:1; font-family:'DM Sans',Arial,sans-serif;
+  font-size:12px; border:1px solid #dde2ea;
+  border-radius:6px; padding:5px 9px; color:#111;
+  outline:none; transition:border-color .15s;
+}
+.pwd-popover input:focus{border-color:#3B82C4}
+.pwd-popover input.error{border-color:#e03;animation:shake .25s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.pwd-popover-ok{
+  background:#003366;color:#fff;border:none;
+  border-radius:6px;padding:5px 12px;
+  font-size:12px;font-weight:600;cursor:pointer;
+  transition:opacity .15s;white-space:nowrap;
+}
+.pwd-popover-ok:hover{opacity:.8}
+.pwd-error-msg{font-size:11px;color:#e03;display:none}
+.pwd-error-msg.show{display:block}
 @media print{.page-header{display:none}body{background:#fff;padding:0}}
 </style>
 </head>
@@ -184,7 +215,19 @@ body{font-family:'DM Sans',Arial,sans-serif;background:var(--bg);min-height:100v
     </div>
   </div>
   <div class="edit-bar">
-    <button class="btn btn-edit" id="editToggle" onclick="toggleEdit()">✏️ Modifier</button>
+    <div style="position:relative">
+      <button class="btn btn-edit" id="editToggle" onclick="openPwdPopover(event)">✏️ Modifier</button>
+      <div class="pwd-popover" id="pwdPopover">
+        <label>Mot de passe requis</label>
+        <div class="pwd-popover-row">
+          <input type="password" id="pwdInput" placeholder="••••••"
+            onkeydown="if(event.key==='Enter')checkPwd()"
+            oninput="document.getElementById('pwdInput').classList.remove('error');document.getElementById('pwdErrorMsg').classList.remove('show')">
+          <button class="pwd-popover-ok" onclick="checkPwd()">OK</button>
+        </div>
+        <div class="pwd-error-msg" id="pwdErrorMsg">Mot de passe incorrect</div>
+      </div>
+    </div>
     <button class="btn btn-save" id="saveBtn" onclick="saveData()">💾 Enregistrer</button>
     <button class="btn btn-excel" onclick="exportExcel()">📥 Exporter Excel</button>
     <button class="btn btn-pptx" onclick="exportPPTX()" id="pptxBtn">📊 Exporter PowerPoint</button>
@@ -493,6 +536,49 @@ function esc(s) {
 // ══════════════════════════════════════════
 // MODE ÉDITION
 // ══════════════════════════════════════════
+
+// ── PROTECTION MOT DE PASSE ──
+const EDIT_PASSWORD = 'ok';
+
+function openPwdPopover(e) {
+  e.stopPropagation();
+  // Si déjà en mode édition, désactiver directement
+  if (editMode) { toggleEdit(); return; }
+  const pop = document.getElementById('pwdPopover');
+  pop.classList.toggle('open');
+  if (pop.classList.contains('open')) {
+    const inp = document.getElementById('pwdInput');
+    inp.value = '';
+    inp.classList.remove('error');
+    document.getElementById('pwdErrorMsg').classList.remove('show');
+    setTimeout(() => inp.focus(), 50);
+  }
+}
+
+function checkPwd() {
+  const inp = document.getElementById('pwdInput');
+  if (inp.value === EDIT_PASSWORD) {
+    document.getElementById('pwdPopover').classList.remove('open');
+    inp.value = '';
+    toggleEdit();
+  } else {
+    inp.classList.add('error');
+    document.getElementById('pwdErrorMsg').classList.add('show');
+    inp.value = '';
+    setTimeout(() => inp.focus(), 50);
+  }
+}
+
+// Fermer le popover si clic ailleurs
+document.addEventListener('click', function(e) {
+  const pop = document.getElementById('pwdPopover');
+  if (pop && pop.classList.contains('open')) {
+    if (!pop.contains(e.target)) {
+      pop.classList.remove('open');
+    }
+  }
+});
+
 function toggleEdit() {
   editMode = !editMode;
   const btn = document.getElementById('editToggle');
