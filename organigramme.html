@@ -5,6 +5,7 @@
 <title>Organigramme DDMS B2B</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -29,6 +30,7 @@ body{font-family:'DM Sans',Arial,sans-serif;background:var(--bg);min-height:100v
 .btn-save{background:#3A8C60;color:#fff;display:none}
 .btn-pptx{background:var(--orange);color:#fff}
 .btn-print{background:#555;color:#fff}
+.btn-excel{background:#1D6F42;color:#fff}
 
 /* ── LAYOUT ── */
 .main-grid{display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start}
@@ -184,6 +186,7 @@ body{font-family:'DM Sans',Arial,sans-serif;background:var(--bg);min-height:100v
   <div class="edit-bar">
     <button class="btn btn-edit" id="editToggle" onclick="toggleEdit()">✏️ Modifier</button>
     <button class="btn btn-save" id="saveBtn" onclick="saveData()">💾 Enregistrer</button>
+    <button class="btn btn-excel" onclick="exportExcel()">📥 Exporter Excel</button>
     <button class="btn btn-pptx" onclick="exportPPTX()" id="pptxBtn">📊 Exporter PowerPoint</button>
     <button class="btn btn-print" onclick="window.print()">🖨️ Imprimer</button>
   </div>
@@ -225,13 +228,13 @@ const DEFAULT_DATA = {
   deptTitle: "Département « Delivery & Management des services B2B »",
   deptSubtitle: "Enjeux clés : Accélérer la transformation du CAS en CAF, Améliorer la résilience des réseaux, Assurer la satisfaction 100% des clients High Value",
   deptBoxTitle: "Delivery & Management des Services B2B",
-  directorName: "Dean COFFI",
+  directorName: "Dean COFFI", directorType: "CDI",
   sideNode: "Gestion de stock et du budget",
   sideNodeName: "Annick ADON",
   services: [
     {
       id:"s1", title:"Qualité & Performance", color:"green", count:6,
-      head:"Anotchi ASSEMIEN",
+      head:"Anotchi ASSEMIEN", headType:"CDI",
       poles:[
         {id:"p1a", title:"Amélioration continue (QOS)", color:"yellow", persons:[{name:"Bato KOUASSI",type:"CDI"},{name:"Christophe GUE",type:"CDI"}]},
         {id:"p1b", title:"Analyse & Traitement des Incidents répétitifs", color:"yellow", persons:[{name:"Fred-Alain TIAYA",type:"CDI"},{name:"Abdoul TOURE",type:"CDI"},{name:"Franck-Alain N'GUESSAN",type:"CDI"}]},
@@ -239,7 +242,7 @@ const DEFAULT_DATA = {
     },
     {
       id:"s2", title:"Centre de service client B2B", color:"green", count:9,
-      head:"Karamoko TOURE",
+      head:"Karamoko TOURE", headType:"CDI",
       poles:[
         {id:"p2a", title:"Pôle ASM", color:"yellow", persons:[{name:"Naminata BAMBA",type:"CDI"},{name:"Phineas DAMBO",type:"CDI"},{name:"Jacques DJIGBENOU",type:"CDI"},{name:"Eric KOUASSI",type:"CDI"},{name:"Michelle KOYE",type:"CDI"},{name:"Arnaud N'DRAMAN",type:"CDI"},{name:"Marie-Claire ABO Epse KONE",type:"CDI"}]},
         {id:"p2b", title:"NOC", color:"yellow", persons:[{name:"Jean Jacques NOGBOU",type:"CDI"}]},
@@ -247,7 +250,7 @@ const DEFAULT_DATA = {
     },
     {
       id:"s3", title:"Production et plateforme", color:"orange", count:14,
-      head:"Freddy N'GUESSAN",
+      head:"Freddy N'GUESSAN", headType:"CDI",
       poles:[
         {id:"p3a", title:"Pilotage Production", color:"yellow", persons:[{name:"Edith BAH",type:"CDI"},{name:"Franck KOUAKOU",type:"CDI"},{name:"Innocent Avi N'DABIAN",type:"CDI"},{name:"Judicaël ADON",type:"CDI"},{name:"Anicette BOLI",type:"CDI"},{name:"Philomène MOUNOU",type:"CDI"}]},
         {id:"p3b", title:"Intégration B2B, ICT", color:"yellow", persons:[{name:"Cynthia BLASSONI",type:"CDI"},{name:"Gnagne GAUTHIER",type:"CDI"}]},
@@ -291,9 +294,13 @@ function loadData() {
   if (raw) try {
     D = JSON.parse(raw);
     // Migration: convertir strings en objets {name,type}
-    D.services.forEach(s => s.poles.forEach(p => {
-      p.persons = p.persons.map(x => typeof x==='string' ? {name:x,type:'CDI'} : x);
-    }));
+    if (!D.directorType) D.directorType = 'CDI';
+    D.services.forEach(s => {
+      if (!s.headType) s.headType = 'CDI';
+      s.poles.forEach(p => {
+        p.persons = p.persons.map(x => typeof x==='string' ? {name:x,type:'CDI'} : x);
+      });
+    });
   } catch(e) {}
 }
 
@@ -439,10 +446,17 @@ function svcCount(si) {
 }
 function countType(type) {
   let n = 0;
-  D.services.forEach(s => s.poles.forEach(p => p.persons.forEach(per => {
-    const t = typeof per==='object' ? (per.type||'CDI') : 'CDI';
-    if (t === type) n++;
-  })));
+  // Directeur
+  if ((D.directorType||'CDI') === type) n++;
+  // Chefs de service
+  D.services.forEach(s => {
+    if ((s.headType||'CDI') === type) n++;
+    // Membres des pôles
+    s.poles.forEach(p => p.persons.forEach(per => {
+      const t = typeof per==='object' ? (per.type||'CDI') : 'CDI';
+      if (t === type) n++;
+    }));
+  });
   return n;
 }
 function updateCounts() {
@@ -691,6 +705,88 @@ function closeModal() {
 }
 function closeModalOutside(e) {
   if (e.target === document.getElementById('modalOverlay')) closeModal();
+}
+
+// ══════════════════════════════════════════
+// EXPORT EXCEL
+// ══════════════════════════════════════════
+function exportExcel() {
+  // Construire les lignes : Nom | Département/Service | Pôle | Type contrat
+  const rows = [
+    ["Nom", "Département / Service", "Pôle", "Type contrat"]
+  ];
+
+  // 1. Chef de département
+  rows.push([
+    D.directorName,
+    D.deptBoxTitle,
+    "Direction",
+    D.directorType || "CDI"
+  ]);
+
+  // 2. Nœud latéral (Gestion stock)
+  if (D.sideNodeName && D.sideNodeName.trim()) {
+    rows.push([
+      D.sideNodeName,
+      D.deptBoxTitle,
+      D.sideNode,
+      "CDI"
+    ]);
+  }
+
+  // 3. Chefs de service + membres des pôles
+  D.services.forEach(svc => {
+    // Chef de service
+    rows.push([
+      svc.head,
+      svc.title,
+      "Responsable de service",
+      svc.headType || "CDI"
+    ]);
+    // Membres
+    svc.poles.forEach(pole => {
+      pole.persons.forEach(per => {
+        const name = typeof per === 'object' ? per.name : per;
+        const type = typeof per === 'object' ? (per.type || 'CDI') : 'CDI';
+        if (name && name.trim()) {
+          rows.push([name, svc.title, pole.title, type]);
+        }
+      });
+    });
+  });
+
+  // Créer le workbook
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  // Style colonne widths
+  ws['!cols'] = [
+    { wch: 32 },  // Nom
+    { wch: 36 },  // Service
+    { wch: 38 },  // Pôle
+    { wch: 14 },  // Type
+  ];
+
+  // Figer la première ligne (en-tête)
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+  XLSX.utils.book_append_sheet(wb, ws, "Personnel DDMS B2B");
+
+  // Feuille récapitulatif CDI/CDD
+  const nCDI = countType('CDI');
+  const nCDD = countType('CDD');
+  const recap = [
+    ["Type contrat", "Effectif"],
+    ["CDI", nCDI],
+    ["CDD / Intérim", nCDD],
+    ["Total", nCDI + nCDD],
+  ];
+  const ws2 = XLSX.utils.aoa_to_sheet(recap);
+  ws2['!cols'] = [{ wch: 18 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws2, "Récapitulatif");
+
+  // Téléchargement
+  XLSX.writeFile(wb, "Personnel_DDMS_B2B.xlsx");
 }
 
 // ══════════════════════════════════════════
