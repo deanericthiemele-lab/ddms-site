@@ -1058,7 +1058,7 @@ function buildRows(events, type){
 function generate(){
   const raw=document.getElementById("raw-input").value;
   if(!raw.trim()) return;
-  window._lastRawText = raw; // mémoriser pour sauvegarde
+  window._lastRawText = raw;
   const events=parseEvents(raw);
   document.getElementById("parse-error").style.display="none";
   if(!events.length){document.getElementById("parse-error").style.display="block";return;}
@@ -1067,40 +1067,231 @@ function generate(){
   ND_DATA=buildRows(events,"nd");
   if(!IF_DATA.length&&!ND_DATA.length){document.getElementById("parse-error").style.display="block";return;}
 
-  // header
+  // ── Calculs KPI ──
   const dates=[...new Set(events.map(e=>e.date))].sort();
   const times=events.map(e=>e.time).sort();
-  document.getElementById("hdr-date").textContent=dates.join(" – ");
-  document.getElementById("hdr-period").textContent="Période : "+(times[0]||"")+" – "+(times[times.length-1]||"");
-  document.getElementById("footer-date").textContent="Généré le "+new Date().toLocaleString("fr-FR");
+  const periodLabel = dates.join(" – ");
+  const heureDebut = times[0]||"";
+  const heureFin   = times[times.length-1]||"";
 
-  // total événements header
-  const totalEvt = IF_DATA.reduce((s,d)=>s+d.nb,0) + ND_DATA.reduce((s,d)=>s+d.nb,0);
-  
-  
-  { const _s=document.getElementById("hdr-sep"); if(_s) _s.style.display="block"; }
-  const allSites=new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
-  document.getElementById("k-sites").textContent=allSites.size;
-  setKpi(IF_DATA,"if"); setKpi(ND_DATA,"nd");
-  setGlobalKpis(IF_DATA,ND_DATA);
-  // k-open et k-flap mis à jour après setGlobalKpis (qui calcule _vraimentsDown)
-  document.getElementById("k-open").textContent=ND_DATA.filter(d=>d.isDown).length;
-  document.getElementById("k-flap").textContent=[...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
-  setNote(IF_DATA,"if"); setNote(ND_DATA,"nd");
+  const allSitesSet = new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
+  const nbLiens      = allSitesSet.size;
+  const nbDown       = ND_DATA.filter(d=>d.isDown).length;
+  const nbInstables  = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
+  const tauxDispo    = nbLiens>0 ? Math.round(((nbLiens-nbDown)/nbLiens)*100) : 0;
+  const nbCoupuresN1 = ND_DATA.reduce((s,d)=>s+d.nb,0);
+  const nbAnomalies  = IF_DATA.reduce((s,d)=>s+d.nb,0);
+  const nbReboots    = ND_DATA.filter(d=>d.cause==="Redémarrage").length;
 
-  document.getElementById("tc-if").textContent=IF_DATA.length;
-  document.getElementById("tc-nd").textContent=ND_DATA.length;
+  // Top 10 instables (par nb d'événements)
+  const topInstables = [...IF_DATA,...ND_DATA]
+    .sort((a,b)=>b.nb-a.nb).slice(0,10);
 
-  buildChart("chartIf","cc-if","ctag-if",IF_DATA);
-  buildChart("chartNd","cc-nd","ctag-nd",ND_DATA);
-  renderTbl("if"); renderTbl("nd");
+  // Top 10 coupures (ND down)
+  const topCoupures = [...ND_DATA]
+    .sort((a,b)=>b.nb-a.nb).slice(0,10);
+
+  // Clients impactés (extraire préfixe client depuis nom de node)
+  function clientFrom(site){
+    const m=site.match(/^([A-Z][A-Z0-9]+)_/);
+    return m?m[1]:site.substring(0,8);
+  }
+  const clientsImpactes=new Set([...ND_DATA.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
+  const nbClients=clientsImpactes.size;
+
+  // header date
+  document.getElementById("hdr-date").textContent=periodLabel;
+  document.getElementById("hdr-period").textContent="Période : "+heureDebut+" – "+heureFin;
+
+  // ── Injection du dashboard DG ──
+  const rapport=document.getElementById("rapport");
+  rapport.innerHTML=`
+  <style>
+  .dg-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#fff;border:1px solid #e4e7ed;border-radius:10px;margin-bottom:16px}
+  .dg-title{font-size:14px;font-weight:600;color:#1a1d23}
+  .dg-sub{font-size:11px;color:#9aa0ae;margin-top:2px}
+  .dg-status{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:500;background:#fdf2f1;color:#c0392b}
+  .dg-dot{width:7px;height:7px;border-radius:50%;background:#c0392b}
+  .dg-section{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#9aa0ae;margin:18px 0 10px;padding-left:2px}
+  .dg-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}
+  .dg-grid4b{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}
+  .dg-kpi{background:#f7f8fa;border-radius:8px;padding:12px 14px}
+  .dg-kpi-label{font-size:11px;color:#9aa0ae;margin-bottom:5px;line-height:1.3}
+  .dg-kpi-val{font-size:24px;font-weight:300;line-height:1}
+  .dg-kpi-val.red{color:#c0392b}
+  .dg-kpi-val.amber{color:#b45309}
+  .dg-kpi-val.green{color:#166534}
+  .dg-kpi-val.orange{color:#E05A00}
+  .dg-kpi-sub{font-size:10px;color:#9aa0ae;margin-top:4px}
+  .dg-tops{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+  .dg-top-card{background:#fff;border:1px solid #e4e7ed;border-radius:8px;overflow:hidden}
+  .dg-top-head{padding:9px 14px;border-bottom:1px solid #e4e7ed;font-size:12px;font-weight:600;color:#1a1d23}
+  .dg-top-row{display:flex;align-items:center;gap:8px;padding:5px 14px;border-bottom:1px solid #f1f3f6;font-size:11px}
+  .dg-top-row:last-child{border-bottom:none}
+  .dg-top-rank{color:#9aa0ae;min-width:16px;font-weight:500}
+  .dg-top-name{flex:1;color:#1a1d23;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .dg-top-bar{flex:1;height:3px;background:#e4e7ed;border-radius:2px}
+  .dg-top-fill-r{height:3px;border-radius:2px;background:#c0392b}
+  .dg-top-fill-a{height:3px;border-radius:2px;background:#b45309}
+  .dg-top-count{min-width:28px;text-align:right;font-weight:500}
+  .dg-top-count.red{color:#c0392b}
+  .dg-top-count.amber{color:#b45309}
+  .dg-pda{background:#fff;border:1px solid #e4e7ed;border-radius:8px;overflow:hidden;margin-bottom:10px}
+  .dg-pda-head{padding:9px 14px;border-bottom:1px solid #e4e7ed;display:flex;align-items:center;justify-content:space-between}
+  .dg-pda-title{font-size:12px;font-weight:600;color:#1a1d23}
+  .dg-pda-hrow{display:grid;grid-template-columns:2.2fr 2fr 0.8fr 0.9fr;gap:8px;padding:6px 14px;border-bottom:1px solid #e4e7ed;background:#f7f8fa}
+  .dg-pda-col{font-size:10px;font-weight:500;color:#9aa0ae}
+  .dg-pda-row{display:grid;grid-template-columns:2.2fr 2fr 0.8fr 0.9fr;gap:8px;padding:7px 14px;border-bottom:1px solid #f1f3f6;align-items:center}
+  .dg-pda-row:last-child{border-bottom:none}
+  .dg-pda-site{font-size:11px;color:#1a1d23;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .dg-pda-action{font-size:11px;color:#5a6070}
+  .dg-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:500}
+  .dg-b-red{background:#fdf2f1;color:#c0392b;border:1px solid #f2c4be}
+  .dg-b-amber{background:#fffbeb;color:#b45309;border:1px solid #fde68a}
+  .dg-b-green{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+  .dg-b-blue{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe}
+  .dg-sep{height:1px;background:#e4e7ed;margin:14px 0}
+  </style>
+
+  <div class="dg-header">
+    <div>
+      <div class="dg-title">Rapport NOC B2B — Pilotage réseau</div>
+      <div class="dg-sub">${periodLabel} · ${heureDebut} – ${heureFin} · Orange Côte d'Ivoire · DDMS</div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+      <span class="dg-status"><span class="dg-dot"></span>Statut global : critique</span>
+      <span style="font-size:10px;color:#9aa0ae">Généré le ${new Date().toLocaleString("fr-FR")}</span>
+    </div>
+  </div>
+
+  <div class="dg-section">Bloc 1 — KPI disponibilité réseau</div>
+
+  <div class="dg-grid4">
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Liens supervisés<br>(nodes actifs détectés)</div>
+      <div class="dg-kpi-val orange">${nbLiens}</div>
+      <div class="dg-kpi-sub">nodes distincts analysés</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Taux de disponibilité<br>estimé (période)</div>
+      <div class="dg-kpi-val green">${tauxDispo}%</div>
+      <div class="dg-kpi-sub">Cible : 99%</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Sites instables<br>(oscillations répétées)</div>
+      <div class="dg-kpi-val amber">${nbInstables}</div>
+      <div class="dg-kpi-sub">Warning/Critical cycliques</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Coupures signalées N1<br>(Node Down confirmé)</div>
+      <div class="dg-kpi-val red">${nbCoupuresN1}</div>
+      <div class="dg-kpi-sub">événements Node Down</div>
+    </div>
+  </div>
+
+  <div class="dg-grid4b">
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Anomalies & dégradations N2<br>(Interface Down / IF)</div>
+      <div class="dg-kpi-val amber">${nbAnomalies}</div>
+      <div class="dg-kpi-sub">événements Interface Down</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Sites encore Down<br>(non rétablis)</div>
+      <div class="dg-kpi-val red">${nbDown}</div>
+      <div class="dg-kpi-sub">Dispo lien primaire estimée ${nbLiens>0?Math.round(((nbLiens-nbDown)/nbLiens)*100):0}%</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Clients impactés<br>(avec au moins 1 incident)</div>
+      <div class="dg-kpi-val red">${nbClients}</div>
+      <div class="dg-kpi-sub">${[...clientsImpactes].slice(0,3).join(", ")}${clientsImpactes.size>3?"…":""}</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Reboots détectés<br>(instabilité équipement)</div>
+      <div class="dg-kpi-val amber">${nbReboots}</div>
+      <div class="dg-kpi-sub">redémarrages enregistrés</div>
+    </div>
+  </div>
+
+  <div class="dg-sep"></div>
+  <div class="dg-section">Bloc 2 — Top 10 sites instables · Top 10 coupures</div>
+
+  <div class="dg-tops">
+    <div class="dg-top-card">
+      <div class="dg-top-head">Top 10 — Sites instables (oscillations)</div>
+      ${topInstables.map((d,i)=>{
+        const pct=topInstables[0].nb>0?Math.round((d.nb/topInstables[0].nb)*100):0;
+        const nm=d.site.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,32);
+        return `<div class="dg-top-row">
+          <span class="dg-top-rank">${i+1}</span>
+          <span class="dg-top-name" title="${d.site}">${nm}</span>
+          <span class="dg-top-bar"><span class="dg-top-fill-a" style="width:${pct}%;display:block"></span></span>
+          <span class="dg-top-count amber">${d.nb}×</span>
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="dg-top-card">
+      <div class="dg-top-head">Top 10 — Coupures confirmées (Down)</div>
+      ${topCoupures.map((d,i)=>{
+        const pct=topCoupures[0].nb>0?Math.round((d.nb/topCoupures[0].nb)*100):0;
+        const nm=d.site.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,32);
+        return `<div class="dg-top-row">
+          <span class="dg-top-rank">${i+1}</span>
+          <span class="dg-top-name" title="${d.site}">${nm}</span>
+          <span class="dg-top-bar"><span class="dg-top-fill-r" style="width:${pct}%;display:block"></span></span>
+          <span class="dg-top-count red">${d.nb}×</span>
+        </div>`;
+      }).join("")}
+    </div>
+  </div>
+
+  <div class="dg-sep"></div>
+  <div class="dg-section">Bloc 3 — Plan d'actions N2 (PDA)</div>
+
+  <div class="dg-pda">
+    <div class="dg-pda-head">
+      <span class="dg-pda-title">Actions correctives niveau 2 — ${periodLabel}</span>
+      <span class="dg-badge dg-b-red">${ND_DATA.filter(d=>d.isDown&&d.prio==="Haute").length} critiques</span>
+    </div>
+    <div class="dg-pda-hrow">
+      <span class="dg-pda-col">Site / Lien</span>
+      <span class="dg-pda-col">Action N2 recommandée</span>
+      <span class="dg-pda-col">Priorité</span>
+      <span class="dg-pda-col">Statut</span>
+    </div>
+    ${[...ND_DATA,...IF_DATA].filter(d=>d.prio==="Haute").slice(0,8).map(d=>{
+      const action = d.isFlapping
+        ? "Instabilité persistante — vérif qualité liaison WAN"
+        : d.cause==="Redémarrage"
+          ? "Analyse reboot — supervision renforcée, ticket SAV"
+          : "Escalade ingénierie — coupure non rétablie";
+      const statut = d.isDown
+        ? `<span class="dg-badge dg-b-amber">En cours</span>`
+        : `<span class="dg-badge dg-b-green">Rétabli</span>`;
+      const prio = d.prio==="Haute"
+        ? `<span class="dg-badge dg-b-red">Haute</span>`
+        : `<span class="dg-badge dg-b-amber">Moyenne</span>`;
+      return `<div class="dg-pda-row">
+        <span class="dg-pda-site" title="${d.site}">${d.site.substring(0,38)}</span>
+        <span class="dg-pda-action">${action}</span>
+        ${prio}
+        ${statut}
+      </div>`;
+    }).join("")}
+  </div>
+
+  <div class="footer">
+    <span>Orange Côte d'Ivoire · DDMS NOC B2B · Données SolarWinds NPM</span>
+    <span id="footer-date">Généré le ${new Date().toLocaleString("fr-FR")}</span>
+  </div>
+  `;
 
   document.getElementById("paste-section").style.display="none";
-  document.getElementById("rapport").style.display="block";
+  rapport.style.display="block";
   const _hbr=document.getElementById("hdr-btn-reset"); if(_hbr){_hbr.style.display="flex";}
   window._currentSavedId=null;
-  const _hbs=document.getElementById("hdr-btn-save");
-  if(_hbs){ _hbs.disabled=false; _hbs.style.opacity="1"; _hbs.title=""; }
+  window._vraimentsDown=ND_DATA.filter(d=>d.isDown);
+  window._avecBackup=[];
+  window._horsSlaRows=[];
   sbRenderList();
   window.scrollTo({top:0,behavior:"smooth"});
 }
