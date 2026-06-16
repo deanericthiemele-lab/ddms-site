@@ -2420,7 +2420,7 @@ function _mailCopyFeedback(){
 }
 
 // ── EXPORT PDF ────────────────────────────────────────────────────────────────
-function exportPdf(){
+async function exportPdf(){
   if(!IF_DATA.length && !ND_DATA.length) return;
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
@@ -2461,28 +2461,32 @@ function exportPdf(){
   const clientsSet  = new Set([...ND_DATA.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
   const nbClients   = clientsSet.size;
 
-  const topInstables = [...IF_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);  // IF uniquement : oscillations
-  const topCoupures  = [...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);  // ND uniquement : coupures
-  // PDA depuis Firebase (lignes chargées dans pda-rows)
-  const pdaHaute = (()=>{
-    const rows = document.querySelectorAll('#pda-rows .pda-editable-row');
-    const items = [];
-    rows.forEach(row=>{
-      const site     = row.querySelector('.pda-site-input')?.value?.trim() || "";
-      const date     = row.querySelector('.pda-date-input')?.value?.trim() || "";
-      const routeur  = row.querySelector('.pda-routeur-input')?.value?.trim() || "";
-      const ip       = row.querySelector('.pda-ip-input')?.value?.trim() || "";
-      const defaut   = row.querySelector('.pda-defaut-input')?.value?.trim() || "";
-      const ifaces   = row.querySelector('.pda-interfaces-input')?.value?.trim() || "";
-      const action   = row.querySelector('.pda-action-input')?.value?.trim() || "";
-      const acteur   = row.querySelector('.pda-acteur-input')?.value?.trim() || "";
-      const remarque = row.querySelector('.pda-remarque-input')?.value?.trim() || "";
-      const prio     = row.querySelector('.pda-prio-select')?.value || "";
-      const statut   = row.querySelector('.pda-statut-select')?.value || "";
-      if(site) items.push({site,date,routeur,ip,defaut,ifaces,action,acteur,remarque,prio,statut});
-    });
-    return items;
-  })();
+  const topInstables = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).sort((a,b)=>b.nb-a.nb).slice(0,10);
+  const topCoupures  = [...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);
+  // PDA — lecture directe Firebase, filtre par plage de dates du rapport
+  const hdrDateForPda = document.getElementById("hdr-date").textContent || "";
+  const pdaDateMatches = hdrDateForPda.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+  const toTs = s => { const [d,m,y]=s.split("/"); return new Date(+y,+m-1,+d).getTime(); };
+  const tsMin = pdaDateMatches.length ? Math.min(...pdaDateMatches.map(toTs)) : null;
+  const tsMax = pdaDateMatches.length ? Math.max(...pdaDateMatches.map(toTs)) : null;
+  let pdaHaute = [];
+  try{
+    if(window._db && window._col && window._gets){
+      const snap = await window._gets(window._col(window._db,"noc_pda_n2"));
+      const all  = snap.docs.map(d=>({id:d.id,...d.data()}));
+      pdaHaute = all.filter(d=>{
+        if(!d.period) return false;
+        const entryDates = d.period.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+        if(!entryDates.length) return false;
+        if(tsMin===null) return true;
+        return entryDates.some(ed=>{ const t=toTs(ed); return t>=tsMin && t<=tsMax; });
+      }).map(d=>({
+        site:d.site||"",date:d.date||"",routeur:d.routeur||"",ip:d.ip||"",
+        defaut:d.defaut||"",ifaces:d.interfaces||"",action:d.action||"",
+        acteur:d.acteur||"",remarque:d.remarque||"",prio:d.prio||"",statut:d.statut||""
+      })).filter(d=>d.site);
+    }
+  }catch(e){ console.warn("PDA Firebase erreur:",e); }
 
   function shortName(s){ return s.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,36); }
 
@@ -2664,11 +2668,11 @@ function exportPdf(){
   // Statut global
   const statusColor = nbDown>0 ? RED_T : GREEN_T;
   const statusBg    = nbDown>0 ? RED_BG : GRN_BG;
-  const statusTxt   = nbDown>0 ? "⚠  INCIDENTS EN COURS — SUIVI REQUIS" : "✓  RÉSEAU OPÉRATIONNEL";
+  const statusTxt   = nbDown>0 ? "INCIDENTS EN COURS - SUIVI REQUIS" : "RESEAU OPERATIONNEL";
   doc.setFillColor(...statusBg); doc.setDrawColor(...statusColor); doc.setLineWidth(0.5);
   doc.roundedRect(ML, y, CW, 12, 2, 2, "FD");
   doc.setFontSize(10); doc.setFont("helvetica","bold"); doc.setTextColor(...statusColor);
-  doc.text(statusTxt, PW/2, y+8, {align:"center"});
+  doc.text(statusTxt, ML + CW/2, y+8, {align:"center"});
   y += 17;
 
   // Introduction
