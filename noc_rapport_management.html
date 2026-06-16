@@ -1279,31 +1279,6 @@ function generate(){
       <span class="dg-pda-col"></span>
     </div>
     <div id="pda-rows">
-    ${[...ND_DATA,...IF_DATA].filter(d=>d.prio==="Haute").slice(0,8).map((d,i)=>{
-      const defAction = d.isFlapping
-        ? "Instabilité persistante — vérif qualité liaison WAN"
-        : d.cause==="Redémarrage"
-          ? "Analyse reboot — supervision renforcée, ticket SAV"
-          : "Escalade ingénierie — coupure non rétablie";
-      const defStatut = d.isDown ? "En cours" : "Rétabli";
-      const defPrio   = d.prio || "Haute";
-      return `<div class="dg-pda-row pda-editable-row" id="pda-row-${i}" data-site="${d.site}" style="grid-template-columns:1.8fr 2.4fr 1fr 1fr 0.4fr;align-items:center">
-        <input type="text" class="pda-site-input" value="${d.site.substring(0,40)}" title="${d.site}" style="font-size:11px;padding:4px 7px;border:1px solid #d8dce4;border-radius:5px;width:100%;font-family:'Inter',sans-serif;color:#0d0f14;background:#fff;outline:none">
-        <input type="text" class="pda-action-input" value="${defAction}" style="font-size:11px;padding:4px 7px;border:1px solid #d8dce4;border-radius:5px;width:100%;font-family:'Inter',sans-serif;color:#0d0f14;background:#fff;outline:none">
-        <select class="pda-prio-select" style="font-size:11px;padding:4px 6px;border:1px solid #d8dce4;border-radius:5px;width:100%;font-family:'Inter',sans-serif;background:#fff;color:#0d0f14;outline:none;cursor:pointer">
-          <option value="Haute" ${defPrio==="Haute"?"selected":""}>🔴 Haute</option>
-          <option value="Moyenne" ${defPrio==="Moyenne"?"selected":""}>🟠 Moyenne</option>
-          <option value="Faible" ${defPrio==="Faible"?"selected":""}>🟢 Faible</option>
-        </select>
-        <select class="pda-statut-select" style="font-size:11px;padding:4px 6px;border:1px solid #d8dce4;border-radius:5px;width:100%;font-family:'Inter',sans-serif;background:#fff;color:#0d0f14;outline:none;cursor:pointer">
-          <option value="En cours" ${defStatut==="En cours"?"selected":""}>⏳ En cours</option>
-          <option value="Planifié" ${defStatut==="Planifié"?"selected":""}>📅 Planifié</option>
-          <option value="Rétabli" ${defStatut==="Rétabli"?"selected":""}>✅ Rétabli</option>
-          <option value="Escaladé" ${defStatut==="Escaladé"?"selected":""}>🚨 Escaladé</option>
-        </select>
-        <button onclick="pdaDeleteRow(this,'pda-row-${i}','${d.site.replace(/'/g,"\\'")}')" title="Supprimer" style="background:none;border:none;padding:3px 7px;cursor:pointer;font-size:14px;color:#9aa0ae" onmouseover="this.style.color='#c0392b'" onmouseout="this.style.color='#9aa0ae'">✕</button>
-      </div>`;
-    }).join("")}
     </div>
   </div>
 
@@ -2166,7 +2141,26 @@ function exportPdf(){
 
   const topInstables = [...IF_DATA,...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);
   const topCoupures  = [...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);
-  const pdaHaute     = [...ND_DATA,...IF_DATA].filter(d=>d.prio==="Haute").slice(0,8);
+  // PDA depuis Firebase (lignes chargées dans pda-rows)
+  const pdaHaute = (()=>{
+    const rows = document.querySelectorAll('#pda-rows .pda-editable-row');
+    const items = [];
+    rows.forEach(row=>{
+      const site     = row.querySelector('.pda-site-input')?.value?.trim() || "";
+      const date     = row.querySelector('.pda-date-input')?.value?.trim() || "";
+      const routeur  = row.querySelector('.pda-routeur-input')?.value?.trim() || "";
+      const ip       = row.querySelector('.pda-ip-input')?.value?.trim() || "";
+      const defaut   = row.querySelector('.pda-defaut-input')?.value?.trim() || "";
+      const ifaces   = row.querySelector('.pda-interfaces-input')?.value?.trim() || "";
+      const action   = row.querySelector('.pda-action-input')?.value?.trim() || "";
+      const acteur   = row.querySelector('.pda-acteur-input')?.value?.trim() || "";
+      const remarque = row.querySelector('.pda-remarque-input')?.value?.trim() || "";
+      const prio     = row.querySelector('.pda-prio-select')?.value || "";
+      const statut   = row.querySelector('.pda-statut-select')?.value || "";
+      if(site) items.push({site,date,routeur,ip,defaut,ifaces,action,acteur,remarque,prio,statut});
+    });
+    return items;
+  })();
 
   function shortName(s){ return s.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,36); }
 
@@ -2391,44 +2385,43 @@ function exportPdf(){
   sectionBar("TOP 10 COUPURES CONFIRMÉES (Node Down)");
   topTable(topCoupures, "nd");
 
-  // ─── PAGE 3 : BLOC 3 — PDA N2 ─────────────────────────────────────────────
+  // ─── PLAN D'ACTIONS N2 — données Firebase ────────────────────────────────────
   checkPage(40);
-  sectionBar("PLAN D'ACTIONS N2 — PRIORITÉ HAUTE");
+  sectionBar("PLAN D'ACTIONS N2");
 
   if(!pdaHaute.length){
     doc.setFontSize(9); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY);
-    doc.text("Aucune action prioritaire en cours.", ML, y+6); y+=12;
+    doc.text("Aucune action N2 enregistrée pour cette période.", ML, y+6); y+=12;
   } else {
     doc.autoTable({
-      head:[["Site / Lien","Action N2 recommandée","Statut","Priorité"]],
-      body: pdaHaute.map(d=>{
-        const action = d.isFlapping
-          ? "Instabilité persistante — investigation qualité liaison WAN"
-          : d.cause==="Redémarrage"
-            ? "Analyse reboot répétitif — supervision renforcée, ticket SAV"
-            : "Coupure non rétablie — escalade ingénierie requise";
-        return [shortName(d.site), action, d.statut, d.prio];
-      }),
+      head:[["Date","Site / Lien","Routeur","IP","Défaut constaté","Interfaces","Action N2","Acteur","Remarque","Statut"]],
+      body: pdaHaute.map(d=>[
+        d.date||"—", shortName(d.site)||"—", d.routeur||"—", d.ip||"—",
+        d.defaut||"—", d.ifaces||"—", d.action||"—", d.acteur||"—",
+        d.remarque||"—", d.statut||"—"
+      ]),
       startY:y, margin:{left:ML,right:MR}, tableWidth:CW,
-      styles:{fontSize:8, cellPadding:2.5, font:"helvetica", textColor:DARK, lineColor:LGRAY, lineWidth:0.2, overflow:'ellipsize'},
-      headStyles:{fillColor:DARK, textColor:WHITE, fontStyle:"bold", fontSize:8},
+      styles:{fontSize:7, cellPadding:2, font:"helvetica", textColor:DARK, lineColor:LGRAY, lineWidth:0.2, overflow:'ellipsize'},
+      headStyles:{fillColor:DARK, textColor:WHITE, fontStyle:"bold", fontSize:7},
       columnStyles:{
-        0:{cellWidth:Math.round(CW*0.30)},
-        1:{cellWidth:Math.round(CW*0.46)},
-        2:{cellWidth:Math.round(CW*0.13)},
-        3:{cellWidth:CW-Math.round(CW*0.30)-Math.round(CW*0.46)-Math.round(CW*0.13)},
+        0:{cellWidth:Math.round(CW*0.08)},
+        1:{cellWidth:Math.round(CW*0.14)},
+        2:{cellWidth:Math.round(CW*0.09)},
+        3:{cellWidth:Math.round(CW*0.09)},
+        4:{cellWidth:Math.round(CW*0.13)},
+        5:{cellWidth:Math.round(CW*0.09)},
+        6:{cellWidth:Math.round(CW*0.14)},
+        7:{cellWidth:Math.round(CW*0.08)},
+        8:{cellWidth:Math.round(CW*0.10)},
+        9:{cellWidth:CW-Math.round(CW*0.08)-Math.round(CW*0.14)-Math.round(CW*0.09)-Math.round(CW*0.09)-Math.round(CW*0.13)-Math.round(CW*0.09)-Math.round(CW*0.14)-Math.round(CW*0.08)-Math.round(CW*0.10)},
       },
       alternateRowStyles:{fillColor:[250,251,253]},
       didParseCell(data){
         if(data.section!=="body") return;
-        if(data.column.index===2){
-          if(data.cell.raw==="Indisponible"){data.cell.styles.textColor=RED_T;data.cell.styles.fontStyle="bold";}
-          else if(data.cell.raw==="Instable"){data.cell.styles.textColor=AMBER_T;data.cell.styles.fontStyle="bold";}
-          else{data.cell.styles.textColor=GREEN_T;data.cell.styles.fontStyle="bold";}
-        }
-        if(data.column.index===3){
-          if(data.cell.raw==="Haute"){data.cell.styles.textColor=RED_T;data.cell.styles.fontStyle="bold";}
-          else if(data.cell.raw==="Moyenne"){data.cell.styles.textColor=AMBER_T;data.cell.styles.fontStyle="bold";}
+        if(data.column.index===9){
+          if(data.cell.raw==="Indisponible"||data.cell.raw==="En cours"){data.cell.styles.textColor=RED_T;data.cell.styles.fontStyle="bold";}
+          else if(data.cell.raw==="Escaladé"){data.cell.styles.textColor=AMBER_T;data.cell.styles.fontStyle="bold";}
+          else if(data.cell.raw==="Rétabli"){data.cell.styles.textColor=GREEN_T;data.cell.styles.fontStyle="bold";}
         }
       },
       didDrawPage(){ drawFooter(); }
