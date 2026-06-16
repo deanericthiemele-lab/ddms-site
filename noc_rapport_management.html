@@ -318,6 +318,17 @@
   .ev-badge-other{display:inline-block;background:#f0f2f5;color:#3d4250;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700}
   .ev-empty{padding:32px;text-align:center;color:#9aa0ae;font-size:12px}
 
+  /* GROUPES SEMAINE sidebar */
+  .sb-week{border-bottom:1px solid var(--border)}
+  .sb-week-hdr{display:flex;align-items:center;padding:0 10px 0 4px;min-height:36px;gap:6px}
+  .sb-week-toggle{background:none;border:1px solid var(--border2);border-radius:4px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;color:var(--text2);flex-shrink:0;line-height:1;padding:0;font-family:'Inter',sans-serif}
+  .sb-week-toggle:hover{border-color:var(--orange);color:var(--orange)}
+  .sb-week-label{flex:1;font-size:11px;font-weight:600;color:var(--text2);cursor:pointer;padding:8px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:3px;transition:color .12s}
+  .sb-week-label:hover{color:var(--orange)}
+  .sb-week-label.all-sel{color:#1e40af}
+  .sb-week-count{font-size:9px;color:var(--text3);flex-shrink:0}
+  .sb-week-items .sb-item{padding-left:32px}
+
   /* MAIN CONTENT (ajustement) */
   .content{flex:1;min-width:0;overflow:auto}
   .main{padding:28px 40px;max-width:1280px;margin:0 auto}
@@ -1777,7 +1788,7 @@ async function sbRenderList(){
   const count = document.getElementById("sb-count");
   const btnSel = document.getElementById("btn-sel-toggle");
 
-  ul.querySelectorAll(".sb-item").forEach(el=>el.remove());
+  ul.querySelectorAll(".sb-item,.sb-week").forEach(el=>el.remove());
 
   if(!list.length){
     empty.style.display="block";
@@ -1789,40 +1800,125 @@ async function sbRenderList(){
   count.textContent = list.length+" rapport"+(list.length>1?"s":"")+" stocké"+(list.length>1?"s":"");
   if(btnSel) btnSel.style.display="block";
 
+  // ── Extraire la date principale d'un rapport ───────────────────────────────
   const parseDate = r => {
-    // hdrDate = "08/06/2026" ou "08/06/2026 – 09/06/2026"
     const src = r.hdrDate || r.label || '';
     const m = src.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    if(m) return new Date(+m[3],+m[2]-1,+m[1]).getTime();
-    // fallback id timestamp
+    if(m) return new Date(+m[3], +m[2]-1, +m[1]);
     const t = parseInt((r.id||'').replace('r_',''));
-    return t||0;
+    return new Date(t||0);
   };
 
-  list.slice().sort((a,b)=> parseDate(b)-parseDate(a)).forEach((r)=>{
-    const item = document.createElement("div");
-    const isSelected = (window._sbSelected||[]).includes(r.id);
-    item.className="sb-item"+(isSelected?" sb-selected":"");
-    item.dataset.id = r.id;
-    const hasRaw = !!(r.rawText && r.rawText.trim());
-    const badge = hasRaw
-      ? `<span style="font-size:9px;color:var(--green);background:var(--green-bg);border:1px solid var(--green-bd);border-radius:3px;padding:1px 5px;margin-left:4px">✓</span>`
-      : '';
-    item.innerHTML=`
-      <div class="sb-item-info" onclick="sbItemClick('${r.id}')">
-        <div class="sb-item-date">${r.label}${badge}</div>
-        <div class="sb-item-meta">${r.sites} site${r.sites>1?"s":""} · ${r.total} événement${r.total>1?"s":""}</div>
-      </div>
-      <button class="sb-item-del" onclick="deleteSavedReport('${r.id}',event)" title="Supprimer">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-      </button>`;
-    ul.appendChild(item);
+  // ── Clé semaine = date du lundi (lundi→dimanche) ──────────────────────────
+  const getMondayKey = d => {
+    const dt = new Date(d); dt.setHours(0,0,0,0);
+    const day = dt.getDay();           // 0=dim, 1=lun…6=sam
+    const diff = day===0 ? -6 : 1-day; // ramener au lundi
+    dt.setDate(dt.getDate()+diff);
+    return dt.toISOString().slice(0,10);
+  };
+
+  // ── Label : "Lun. 09/06/2026 — Dim. 15/06/2026" ─────────────────────────
+  const weekLabel = key => {
+    const lun = new Date(key);
+    const dim = new Date(lun); dim.setDate(lun.getDate()+6);
+    const fmt = d => d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"});
+    return "Lun. "+fmt(lun)+" — Dim. "+fmt(dim);
+  };
+
+  // ── Grouper par semaine, trier du plus récent ────────────────────────────
+  const sorted = list.slice().sort((a,b)=> parseDate(b)-parseDate(a));
+  const weeksMap = new Map();
+  sorted.forEach(r=>{
+    const k = getMondayKey(parseDate(r));
+    if(!weeksMap.has(k)) weeksMap.set(k,[]);
+    weeksMap.get(k).push(r);
+  });
+
+  // État ouvert/fermé (semaine la plus récente ouverte par défaut)
+  if(!window._sbWeekOpen) window._sbWeekOpen={};
+  let first=true;
+  weeksMap.forEach((_,k)=>{ if(!(k in window._sbWeekOpen)){ window._sbWeekOpen[k]=first; } first=false; });
+
+  const sel = ()=>window._sbSelected||[];
+
+  weeksMap.forEach((reports, key)=>{
+    const isOpen  = !!window._sbWeekOpen[key];
+    const weekIds = reports.map(r=>r.id);
+    const allSel  = weekIds.length>0 && weekIds.every(id=>sel().includes(id));
+
+    const grp = document.createElement("div");
+    grp.className = "sb-week";
+
+    // En-tête groupe
+    const hdr = document.createElement("div");
+    hdr.className = "sb-week-hdr";
+    hdr.innerHTML =
+      `<button class="sb-week-toggle" title="${isOpen?'Réduire':'Déplier'}">${isOpen?'−':'+'}</button>`+
+      `<span class="sb-week-label${allSel?' all-sel':''}">${weekLabel(key)}</span>`+
+      `<span class="sb-week-count">${reports.length}j</span>`;
+
+    // Bouton +/− : déplie/replie UNIQUEMENT
+    hdr.querySelector(".sb-week-toggle").addEventListener("click", e=>{
+      e.stopPropagation();
+      window._sbWeekOpen[key] = !window._sbWeekOpen[key];
+      sbRenderList();
+    });
+
+    // Clic label → sélectionne/désélectionne tous les rapports de la semaine
+    hdr.querySelector(".sb-week-label").addEventListener("click", e=>{
+      e.stopPropagation();
+      if(!window._sbSelected) window._sbSelected=[];
+      if(allSel){
+        window._sbSelected = window._sbSelected.filter(id=>!weekIds.includes(id));
+      } else {
+        weekIds.forEach(id=>{ if(!window._sbSelected.includes(id)) window._sbSelected.push(id); });
+      }
+      // Activer le mode fusion automatiquement si pas encore actif
+      if(!window._sbSelMode && window._sbSelected.length>0){
+        window._sbSelMode=true;
+        const zone=document.getElementById("sb-fusion-zone");
+        const btn=document.getElementById("btn-sel-toggle");
+        const hdrFusion=document.getElementById("hdr-btn-fusion");
+        const hdrSelGroup=document.getElementById("hdr-sel-group");
+        if(zone) zone.style.display="block";
+        if(btn)  btn.textContent="✕ Annuler la sélection";
+        if(hdrFusion)   hdrFusion.style.display="none";
+        if(hdrSelGroup) hdrSelGroup.style.display="flex";
+      }
+      sbUpdateFusionBtn();
+      sbRenderList();
+    });
+
+    grp.appendChild(hdr);
+
+    // Items rapports (affichés/masqués selon état)
+    const itemsWrap = document.createElement("div");
+    itemsWrap.className = "sb-week-items";
+    itemsWrap.style.display = isOpen ? "block" : "none";
+
+    reports.forEach(r=>{
+      const item = document.createElement("div");
+      const isSelected = sel().includes(r.id);
+      item.className = "sb-item"+(isSelected?" sb-selected":"");
+      item.dataset.id = r.id;
+      const hasRaw = !!(r.rawText && r.rawText.trim());
+      const badge = hasRaw
+        ? `<span style="font-size:9px;color:var(--green);background:var(--green-bg);border:1px solid var(--green-bd);border-radius:3px;padding:1px 5px;margin-left:4px">✓</span>`
+        : '';
+      item.innerHTML=
+        `<div class="sb-item-info" onclick="sbItemClick('${r.id}')"><div class="sb-item-date">${r.label}${badge}</div><div class="sb-item-meta">${r.sites} site${r.sites>1?"s":""} · ${r.total} événement${r.total>1?"s":""}</div></div>`+
+        `<button class="sb-item-del" onclick="deleteSavedReport('${r.id}',event)" title="Supprimer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>`;
+      itemsWrap.appendChild(item);
+    });
+
+    grp.appendChild(itemsWrap);
+    ul.appendChild(grp);
   });
 }
 
 function sbItemClick(id){
   if(window._sbSelMode){
-    // mode sélection : toggle
     if(!window._sbSelected) window._sbSelected=[];
     const idx = window._sbSelected.indexOf(id);
     if(idx>=0) window._sbSelected.splice(idx,1);
