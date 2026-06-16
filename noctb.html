@@ -2443,6 +2443,10 @@ async function deleteContact(id){
         <option>Résolue</option>
         <option>Clôturée</option>
       </select>
+      <button class="btn btn-sm" onclick="plExportXlsx()" id="pl-btn-export"
+        style="background:#166534;color:#fff;border:none;gap:5px;display:flex;align-items:center;gap:5px">
+        📊 Exporter Excel
+      </button>
       <button class="btn btn-v btn-sm" onclick="plOpenAdd()" style="gap:5px">+ Nouvelle plainte</button>
     </div>
   </div>
@@ -3832,7 +3836,71 @@ async function plDelete(id){
     updateBadges();
     toast('Plainte supprimée');
   }catch(e){ console.error(e); toast('Erreur suppression','err'); }
+}
 
+async function plExportXlsx(){
+  // Appliquer les mêmes filtres que plRender
+  const search  = (document.getElementById('pl-search')||{}).value?.toLowerCase()||'';
+  const fType   = (document.getElementById('pl-filter-type')||{}).value||'';
+  const fStatut = (document.getElementById('pl-filter-statut')||{}).value||'';
+
+  const list = (DB.plaintes||[]).filter(p=>{
+    if(fType   && p.type!==fType)     return false;
+    if(fStatut && p.statut!==fStatut) return false;
+    if(search){
+      const hay = [p.client,p.contact,p.nature,p.concerne,p.commentaire].join(' ').toLowerCase();
+      if(!hay.includes(search)) return false;
+    }
+    return true;
+  }).sort((a,b)=>new Date(b.date||b.createdAt||0)-new Date(a.date||a.createdAt||0));
+
+  if(!list.length){ toast('Aucune plainte à exporter','err'); return; }
+
+  const btn = document.getElementById('pl-btn-export');
+  if(btn){ btn.textContent='⏳ Chargement…'; btn.disabled=true; }
+
+  // Lazy-load SheetJS
+  if(!window.XLSX){
+    await new Promise((res,rej)=>{
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload=res; s.onerror=rej;
+      document.head.appendChild(s);
+    });
+  }
+
+  // Construire les lignes
+  const rows = list.map(p=>({
+    'Date'                    : p.date ? new Date(p.date+'T00:00:00').toLocaleDateString('fr-CI') : '',
+    'Client(s)'               : Array.isArray(p.clients) ? p.clients.join(', ') : (p.client||''),
+    'Nbre Signalisation SAV'  : p.nbreSav||'0',
+    'Contact'                 : p.contact||'',
+    'Nature de la plainte'    : p.nature||'',
+    'Durée'                   : p.duree||'',
+    'Type(s)'                 : Array.isArray(p.types) ? p.types.join(', ') : (p.type||''),
+    'Statut'                  : p.statut||'',
+    'Priorité'                : p.prio||'',
+    'Personne(s) concernée(s)': Array.isArray(p.concernes) ? p.concernes.join(', ') : (p.concerne||''),
+    'Commentaire / Actions'   : p.commentaire||'',
+  }));
+
+  const ws = window.XLSX.utils.json_to_sheet(rows);
+
+  // Largeurs colonnes
+  ws['!cols'] = [
+    {wch:12},{wch:28},{wch:22},{wch:25},{wch:45},
+    {wch:12},{wch:22},{wch:12},{wch:14},{wch:35},{wch:45}
+  ];
+
+  const wb = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Plaintes Clients');
+
+  const today = new Date().toISOString().slice(0,10);
+  const suffix = (fType||fStatut||search) ? '_filtre' : '';
+  window.XLSX.writeFile(wb, `Plaintes_NOC_B2B_${today}${suffix}.xlsx`);
+
+  toast('Export Excel téléchargé ✅');
+  if(btn){ btn.textContent='📊 Exporter Excel'; btn.disabled=false; }
 }
 // ─── fin PLAINTES ───────────────────────────────────────────
 
