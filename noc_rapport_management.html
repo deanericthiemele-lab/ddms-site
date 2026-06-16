@@ -2032,8 +2032,8 @@ async function openMailPopup(){
     } catch(e){ tkTotal=tkRaw.total; tkSav=tkRaw.sav; tkQp=tkRaw.qp; }
   }
 
-  const topInstables = [...IF_DATA,...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,5);
-  const topCoupures  = [...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,5);
+  const topInstables = [...IF_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);  // IF uniquement : oscillations
+  const topCoupures  = [...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);  // ND uniquement : coupures
   function shortName(s){ return s.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,44); }
 
   function topTableRows(data, colorNb){
@@ -2278,8 +2278,8 @@ function exportPdf(){
   const clientsSet  = new Set([...ND_DATA.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
   const nbClients   = clientsSet.size;
 
-  const topInstables = [...IF_DATA,...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,5);
-  const topCoupures  = [...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,5);
+  const topInstables = [...IF_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);  // IF uniquement : oscillations
+  const topCoupures  = [...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,10);  // ND uniquement : coupures
   // PDA depuis Firebase (lignes chargées dans pda-rows)
   const pdaHaute = (()=>{
     const rows = document.querySelectorAll('#pda-rows .pda-editable-row');
@@ -2450,8 +2450,13 @@ function exportPdf(){
   doc.setFillColor(...BGLIGHT);
   doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
   doc.roundedRect(ML, y, CW, 32, 2, 2, "FD");
+  // Calcul libellé période : une date = date seule, plusieurs = "Période du X au Y"
+  const _pdfDates = dateLabel.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+  const _pdfPeriodLabel = _pdfDates.length > 1
+    ? "Période du " + _pdfDates[0] + " au " + _pdfDates[_pdfDates.length - 1]
+    : dateLabel;
   const metas=[
-    ["Période couverte", dateLabel],
+    ["Période couverte", _pdfPeriodLabel],
     ["Horaire", heures],
     ["Date de génération", genDate+" à "+genTime],
     ["Classification", "Confidentiel — Usage DOBB"],
@@ -2478,10 +2483,10 @@ function exportPdf(){
   const statusBg    = nbDown>0 ? RED_BG : GRN_BG;
   const statusTxt   = nbDown>0 ? "⚠  INCIDENTS EN COURS — SUIVI REQUIS" : "✓  RÉSEAU OPÉRATIONNEL";
   doc.setFillColor(...statusBg); doc.setDrawColor(...statusColor); doc.setLineWidth(0.5);
-  doc.roundedRect(ML, y, CW, 9, 1.5, 1.5, "FD");
-  doc.setFontSize(9); doc.setFont("helvetica","bold"); doc.setTextColor(...statusColor);
-  doc.text(statusTxt, PW/2, y+6, {align:"center"});
-  y += 14;
+  doc.roundedRect(ML, y, CW, 12, 2, 2, "FD");
+  doc.setFontSize(10); doc.setFont("helvetica","bold"); doc.setTextColor(...statusColor);
+  doc.text(statusTxt, PW/2, y+8, {align:"center"});
+  y += 17;
 
   // Introduction
   doc.setFontSize(8); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
@@ -2490,16 +2495,8 @@ function exportPdf(){
   doc.text(introLines, ML, y);
   y+=introLines.length*4.5+4;
 
-  // Footer page 1
-  doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
-  doc.line(ML, PH-12, PW-MR, PH-12);
-  doc.setFontSize(7.5); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
-  doc.text("Orange Côte d'Ivoire · NOC B2B OCI NOC B2B · Document confidentiel", ML, PH-7);
-  doc.text("Page 1", PW-MR, PH-7, {align:"right"});
-
-  // ─── PAGE 2 : BLOC 1 — KPI DÉTAILLÉS ──────────────────────────────────────
-  doc.addPage(); y=MT; drawFooter();
-
+  // KPI DISPONIBILITÉ — suite page 1 (ou saut auto si nécessaire)
+  y += 8;
   sectionBar("KPI DISPONIBILITÉ RÉSEAU");
   kpiBlock([
     {label:"Liens supervisés",         value:nbLiens,            color:ORANGE, accent:ORANGE, sub:"nodes détectés"},
@@ -2528,7 +2525,7 @@ function exportPdf(){
 
   y += 4;
   sectionBar("TOP 10 SITES INSTABLES (oscillations)");
-  topTable(topInstables, "mix");
+  topTable(topInstables, "if");
 
   checkPage(12);
   sectionBar("TOP 10 COUPURES CONFIRMÉES (Node Down)");
