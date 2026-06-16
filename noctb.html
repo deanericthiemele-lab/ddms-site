@@ -2352,7 +2352,7 @@ async function deleteContact(id){
     </div>
   </div>
 
-  <!-- Tableau PDA -->
+  <!-- Tableau PDA — Actions actives -->
   <div class="tbl-wrap">
     <table style="width:100%;border-collapse:collapse">
       <thead>
@@ -2376,6 +2376,43 @@ async function deleteContact(id){
         <tr><td colspan="13" style="text-align:center;padding:28px;color:var(--n4);font-size:12px">Chargement…</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <!-- Bloc Rétablis -->
+  <div id="pda-retabli-block" style="margin-top:20px;display:none">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;cursor:pointer" onclick="pdaToggleRetabli()">
+      <div style="height:1px;flex:1;background:#D0D0D0"></div>
+      <div style="display:flex;align-items:center;gap:7px;background:#F0F0EE;border:1px solid #D8D8D6;border-radius:4px;padding:5px 14px">
+        <span style="font-size:13px">✅</span>
+        <span style="font-family:var(--mono);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:#888" id="pda-retabli-toggle-lbl">Rétablis — <span id="pda-retabli-count">0</span></span>
+        <span style="font-size:9px;color:#AAA" id="pda-retabli-arrow">▼</span>
+      </div>
+      <div style="height:1px;flex:1;background:#D0D0D0"></div>
+    </div>
+    <div id="pda-retabli-body" style="display:none">
+      <div style="background:#F5F5F3;border:1px solid #DDDDD9;border-radius:5px;overflow:hidden;opacity:.82">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:#EBEBEA">
+              <th style="width:10%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Date</th>
+              <th style="width:12%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Site / Lien</th>
+              <th style="width:10%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Routeur</th>
+              <th style="width:10%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">IP Adresse</th>
+              <th style="width:16%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Défaut constaté</th>
+              <th style="width:10%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Interfaces</th>
+              <th style="width:14%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Action N2</th>
+              <th style="width:8%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Acteur</th>
+              <th style="width:10%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Remarque</th>
+              <th style="width:7%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Priorité</th>
+              <th style="width:7%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Statut</th>
+              <th style="width:4%;padding:7px 8px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:#999;text-align:left;border-bottom:1px solid #DDDDD9">Enr.</th>
+              <th style="width:2%;border-bottom:1px solid #DDDDD9"></th>
+            </tr>
+          </thead>
+          <tbody id="pda-tbody-retabli"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 <!-- /PDA N2 -->
@@ -6879,14 +6916,23 @@ function pdaRender(){
   const fr = document.getElementById("pda-filter-prio")?.value   || "";
   const fs = document.getElementById("pda-filter-statut")?.value || "";
 
-  let rows = _pdaAll.filter(d=>
+  const sortPrio = (a,b)=>{ const po={Haute:0,Moyenne:1,Faible:2}; return (po[a.prio]||1)-(po[b.prio]||1); };
+
+  // Séparer actifs vs rétablis AVANT le filtre statut (sauf si filtre = Rétabli)
+  const allFiltered = _pdaAll.filter(d=>
     (!fp || d.period===fp) &&
-    (!fr || d.prio===fr)   &&
-    (!fs || d.statut===fs)
-  ).sort((a,b)=>{
-    const po={Haute:0,Moyenne:1,Faible:2};
-    return (po[a.prio]||1)-(po[b.prio]||1);
-  });
+    (!fr || d.prio===fr)
+  );
+
+  let activeRows, retabliRows;
+  if(fs === "Rétabli"){
+    // filtre explicite → montrer uniquement dans le bloc rétablis, tableau vide
+    activeRows  = [];
+    retabliRows = allFiltered.filter(d=>d.statut==="Rétabli").sort(sortPrio);
+  } else {
+    activeRows  = allFiltered.filter(d=>(!fs || d.statut===fs) && d.statut!=="Rétabli").sort(sortPrio);
+    retabliRows = allFiltered.filter(d=>d.statut==="Rétabli").sort(sortPrio);
+  }
 
   // KPI
   document.getElementById("pda-kpi-total").textContent   = _pdaAll.length;
@@ -6894,32 +6940,60 @@ function pdaRender(){
   document.getElementById("pda-kpi-haute").textContent   = _pdaAll.filter(d=>d.prio==="Haute").length;
   document.getElementById("pda-kpi-retabli").textContent = _pdaAll.filter(d=>d.statut==="Rétabli").length;
 
-  if(!rows.length){
-    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:28px;color:#B0B0B0;font-size:12px">Aucune action pour ces filtres.</td></tr>';
-    return;
-  }
-
   const prioOpts=[{v:"Haute",l:"🔴 Haute"},{v:"Moyenne",l:"🟠 Moyenne"},{v:"Faible",l:"🟢 Faible"}];
   const statOpts=[{v:"En cours",l:"⏳ En cours"},{v:"Planifié",l:"📅 Planifié"},{v:"Escaladé",l:"🚨 Escaladé"},{v:"Rétabli",l:"✅ Rétabli"}];
-
   const inpS = "font-size:11px;border:1px solid #e4e4e4;border-radius:3px;padding:3px 5px;width:100%;font-family:inherit;color:#1A1A1A";
-  tbody.innerHTML = rows.map(d=>`
-    <tr id="pda-tr-${d._fbId}" style="border-bottom:1px solid #E4E4E4">
-      <td style="padding:6px 8px"><input class="pda-date-inp" value="${(d.date||'').replace(/"/g,'&quot;')}" style="${inpS}" placeholder="JJ/MM/AAAA"></td>
-      <td style="padding:6px 8px"><input class="pda-site-inp" value="${(d.site||'').replace(/"/g,'&quot;')}" style="${inpS}"></td>
-      <td style="padding:6px 8px"><input class="pda-routeur-inp" value="${(d.routeur||'').replace(/"/g,'&quot;')}" style="${inpS}" placeholder="Routeur"></td>
-      <td style="padding:6px 8px"><input class="pda-ip-inp" value="${(d.ip||'').replace(/"/g,'&quot;')}" style="${inpS}" placeholder="0.0.0.0"></td>
-      <td style="padding:6px 8px"><input class="pda-defaut-inp" value="${(d.defaut||'').replace(/"/g,'&quot;')}" style="${inpS}" placeholder="Défaut constaté"></td>
-      <td style="padding:6px 8px"><input class="pda-interfaces-inp" value="${(d.interfaces||'').replace(/"/g,'&quot;')}" style="${inpS}" placeholder="Interfaces"></td>
-      <td style="padding:6px 8px"><input class="pda-action-inp" value="${(d.action||'').replace(/"/g,'&quot;')}" style="${inpS}"></td>
-      <td style="padding:6px 8px"><input class="pda-acteur-inp" value="${(d.acteur||'').replace(/"/g,'&quot;')}" style="${inpS}" placeholder="Acteur"></td>
-      <td style="padding:6px 8px"><input class="pda-remarque-inp" value="${(d.remarque||'').replace(/"/g,'&quot;')}" style="${inpS}" placeholder="Remarque"></td>
+  const inpSG = "font-size:11px;border:1px solid #DDDDD9;border-radius:3px;padding:3px 5px;width:100%;font-family:inherit;color:#888;background:#EFEFE9";
+
+  const buildRow = (d, dimmed) => {
+    const s = dimmed ? inpSG : inpS;
+    return `<tr id="pda-tr-${d._fbId}" style="border-bottom:1px solid ${dimmed?'#E8E8E5':'#E4E4E4'}${dimmed?';background:#F8F8F6':''}">
+      <td style="padding:6px 8px"><input class="pda-date-inp" value="${(d.date||'').replace(/"/g,'&quot;')}" style="${s}" placeholder="JJ/MM/AAAA"></td>
+      <td style="padding:6px 8px"><input class="pda-site-inp" value="${(d.site||'').replace(/"/g,'&quot;')}" style="${s}"></td>
+      <td style="padding:6px 8px"><input class="pda-routeur-inp" value="${(d.routeur||'').replace(/"/g,'&quot;')}" style="${s}" placeholder="Routeur"></td>
+      <td style="padding:6px 8px"><input class="pda-ip-inp" value="${(d.ip||'').replace(/"/g,'&quot;')}" style="${s}" placeholder="0.0.0.0"></td>
+      <td style="padding:6px 8px"><input class="pda-defaut-inp" value="${(d.defaut||'').replace(/"/g,'&quot;')}" style="${s}" placeholder="Défaut constaté"></td>
+      <td style="padding:6px 8px"><input class="pda-interfaces-inp" value="${(d.interfaces||'').replace(/"/g,'&quot;')}" style="${s}" placeholder="Interfaces"></td>
+      <td style="padding:6px 8px"><input class="pda-action-inp" value="${(d.action||'').replace(/"/g,'&quot;')}" style="${s}"></td>
+      <td style="padding:6px 8px"><input class="pda-acteur-inp" value="${(d.acteur||'').replace(/"/g,'&quot;')}" style="${s}" placeholder="Acteur"></td>
+      <td style="padding:6px 8px"><input class="pda-remarque-inp" value="${(d.remarque||'').replace(/"/g,'&quot;')}" style="${s}" placeholder="Remarque"></td>
       <td style="padding:6px 8px">${pdaSelectHtml("pda-prio-sel",prioOpts,d.prio)}</td>
       <td style="padding:6px 8px">${pdaSelectHtml("pda-stat-sel",statOpts,d.statut)}</td>
-      <td style="padding:6px 8px"><button onclick="pdaNocbSaveRow('${d._fbId}')" title="Enregistrer" style="background:none;border:1px solid #e4e4e4;border-radius:3px;padding:3px 8px;cursor:pointer;font-size:13px" onmouseover="this.style.borderColor='#E05A00'" onmouseout="this.style.borderColor='#e4e4e4'">💾</button></td>
-      <td style="padding:6px 8px"><button onclick="pdaNocbDelete('${d._fbId}')" title="Supprimer" style="background:none;border:none;cursor:pointer;font-size:14px;color:#B0B0B0" onmouseover="this.style.color='#c0392b'" onmouseout="this.style.color='#B0B0B0'">✕</button></td>
-    </tr>`).join("") +
-    '<tr id="pda-new-rows"></tr>';
+      <td style="padding:6px 8px"><button onclick="pdaNocbSaveRow('${d._fbId}')" title="Enregistrer" style="background:none;border:1px solid #e4e4e4;border-radius:3px;padding:3px 8px;cursor:pointer;font-size:13px;opacity:${dimmed?.6:1}" onmouseover="this.style.borderColor='#E05A00'" onmouseout="this.style.borderColor='#e4e4e4'">💾</button></td>
+      <td style="padding:6px 8px"><button onclick="pdaNocbDelete('${d._fbId}')" title="Supprimer" style="background:none;border:none;cursor:pointer;font-size:14px;color:#C0C0C0" onmouseover="this.style.color='#c0392b'" onmouseout="this.style.color='#C0C0C0'">✕</button></td>
+    </tr>`;
+  };
+
+  // Tableau principal (actifs)
+  if(!activeRows.length){
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:28px;color:#B0B0B0;font-size:12px">Aucune action active pour ces filtres.</td></tr>';
+  } else {
+    tbody.innerHTML = activeRows.map(d=>buildRow(d,false)).join("") + '<tr id="pda-new-rows"></tr>';
+  }
+
+  // Bloc Rétablis
+  const retabliBlock = document.getElementById("pda-retabli-block");
+  const tbodyR = document.getElementById("pda-tbody-retabli");
+  const countEl = document.getElementById("pda-retabli-count");
+  if(retabliBlock && tbodyR){
+    if(retabliRows.length > 0){
+      retabliBlock.style.display = "block";
+      if(countEl) countEl.textContent = retabliRows.length;
+      tbodyR.innerHTML = retabliRows.map(d=>buildRow(d,true)).join("");
+    } else {
+      retabliBlock.style.display = "none";
+      tbodyR.innerHTML = "";
+    }
+  }
+}
+
+function pdaToggleRetabli(){
+  const body  = document.getElementById("pda-retabli-body");
+  const arrow = document.getElementById("pda-retabli-arrow");
+  if(!body) return;
+  const open = body.style.display !== "none";
+  body.style.display  = open ? "none" : "block";
+  if(arrow) arrow.textContent = open ? "▼" : "▲";
 }
 
 function pdaNocbAddRow(){
