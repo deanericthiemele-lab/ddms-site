@@ -614,6 +614,7 @@ function applyRole(){
   <div class="si" data-page="fiches" onclick="nav(this)"><span class="si-ico">📖</span>Fiches Procédures</div>
   <div class="si" data-page="tickets-indispo" onclick="nav(this)"><span class="si-ico">🎫</span>Ouverture de ticket<span class="si-badge" id="b-tickets">0</span></div>
   <div class="si" data-page="pda-n2" onclick="nav(this)"><span class="si-ico">📋</span>PDA Niveau 2<span class="si-badge" id="b-pda">0</span></div>
+  <div class="si" data-page="plaintes" onclick="nav(this)"><span class="si-ico">📣</span>Plaintes Clients<span class="si-badge" id="b-plaintes">0</span></div>
   <div class="si" onclick="window.location.href='noc_rapport_management.html'"><span class="si-ico">📅</span>Rapport journalier</div>
   <div class="si" data-page="contacts" onclick="nav(this)"><span class="si-ico">📋</span>Contact client</div>
   <div class="si" data-page="architectures" onclick="nav(this)"><span class="si-ico">🗂️</span>Architecture</div>
@@ -2416,12 +2417,179 @@ async function deleteContact(id){
   </div>
 </div>
 <!-- /PDA N2 -->
+
+<!-- ═══════════════════════════════════════════════════════ PAGE PLAINTES CLIENTS -->
+<div class="page" id="page-plaintes">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:18px">
+    <div>
+      <div style="font-size:19px;font-weight:700;color:var(--n1)">📣 Plaintes Clients</div>
+      <div style="font-size:12px;color:var(--n4);margin-top:2px">Suivi et remontée des plaintes reçues par le NOC B2B</div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input id="pl-search" type="text" placeholder="🔍 Rechercher…" oninput="plRender()"
+        style="border:1px solid var(--n5);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--n2);width:160px">
+      <select id="pl-filter-type" onchange="plRender()"
+        style="border:1px solid var(--n5);border-radius:4px;padding:6px 10px;font-size:12px;color:var(--n2);background:#fff">
+        <option value="">Tous les types</option>
+        <option>SAV</option>
+        <option>Production</option>
+        <option>Transfert</option>
+      </select>
+      <select id="pl-filter-statut" onchange="plRender()"
+        style="border:1px solid var(--n5);border-radius:4px;padding:6px 10px;font-size:12px;color:var(--n2);background:#fff">
+        <option value="">Tous statuts</option>
+        <option>Ouverte</option>
+        <option>En cours</option>
+        <option>Résolue</option>
+        <option>Clôturée</option>
+      </select>
+      <button class="btn btn-v btn-sm" onclick="plOpenAdd()" style="gap:5px">+ Nouvelle plainte</button>
+    </div>
+  </div>
+
+  <!-- KPI Cards -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px">
+    <div class="kpi-card">
+      <div style="font-size:11px;font-weight:600;color:var(--n3);text-transform:uppercase;letter-spacing:.6px">Total</div>
+      <div style="font-size:28px;font-weight:300;margin-top:4px" id="pl-kpi-total">—</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:11px;font-weight:600;color:#b45309;text-transform:uppercase;letter-spacing:.6px">Ouvertes</div>
+      <div style="font-size:28px;font-weight:300;margin-top:4px;color:#b45309" id="pl-kpi-ouvertes">—</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:11px;font-weight:600;color:#c0392b;text-transform:uppercase;letter-spacing:.6px">En cours</div>
+      <div style="font-size:28px;font-weight:300;margin-top:4px;color:#c0392b" id="pl-kpi-encours">—</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:11px;font-weight:600;color:#166534;text-transform:uppercase;letter-spacing:.6px">Résolues</div>
+      <div style="font-size:28px;font-weight:300;margin-top:4px;color:#166534" id="pl-kpi-resolues">—</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:11px;font-weight:600;color:var(--n3);text-transform:uppercase;letter-spacing:.6px">SAV</div>
+      <div style="font-size:28px;font-weight:300;margin-top:4px" id="pl-kpi-sav">—</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:11px;font-weight:600;color:var(--n3);text-transform:uppercase;letter-spacing:.6px">Production</div>
+      <div style="font-size:28px;font-weight:300;margin-top:4px" id="pl-kpi-prod">—</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:11px;font-weight:600;color:var(--n3);text-transform:uppercase;letter-spacing:.6px">Transfert</div>
+      <div style="font-size:28px;font-weight:300;margin-top:4px" id="pl-kpi-transf">—</div>
+    </div>
+  </div>
+
+  <!-- Liste plaintes -->
+  <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+      <thead>
+        <tr style="background:var(--n6);color:var(--n3);text-transform:uppercase;font-size:10.5px;letter-spacing:.6px">
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap">Date</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap">Client</th>
+          <th style="padding:8px 10px;text-align:center;white-space:nowrap">Nbre Signal. SAV</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap">Contact</th>
+          <th style="padding:8px 10px;text-align:left;min-width:160px">Nature de la plainte</th>
+          <th style="padding:8px 10px;text-align:center;white-space:nowrap">Durée</th>
+          <th style="padding:8px 10px;text-align:center;white-space:nowrap">Type</th>
+          <th style="padding:8px 10px;text-align:center;white-space:nowrap">Statut</th>
+          <th style="padding:8px 10px;text-align:left;white-space:nowrap">Concerné / Commentaire</th>
+          <th style="padding:8px 10px;text-align:center;white-space:nowrap">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="pl-tbody">
+        <tr id="pl-empty-row">
+          <td colspan="10" style="text-align:center;padding:30px;color:var(--n4);font-size:13px">
+            Aucune plainte enregistrée
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+<!-- /PLAINTES CLIENTS -->
+
 </div><!-- /main -->
 </div><!-- /wrap -->
 
 <!-- ═══════════════════════════════════════════════════════ PAGE PDA NIVEAU 2 -->
 
 <!-- ═══════════════════════════════════════════════════════ MODALES BASE DE CONNAISSANCES -->
+
+<!-- ═══════════════════════════════════════════════════════ MODALE PLAINTE -->
+<div class="overlay" id="mo-plainte">
+  <div class="modal" style="width:720px;max-width:97vw">
+    <div class="modal-hdr">
+      <span style="font-size:20px">📣</span>
+      <span id="mo-plainte-title">Nouvelle Plainte Client</span>
+      <button class="modal-close" onclick="closeModal('mo-plainte')">✕</button>
+    </div>
+    <div class="modal-body" style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Date *</label>
+        <input type="date" id="pl-f-date" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Client *</label>
+        <input type="text" id="pl-f-client" placeholder="Nom du client" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Nbre de signalisation SAV</label>
+        <input type="number" id="pl-f-nbre-sav" min="0" placeholder="0" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Contact</label>
+        <input type="text" id="pl-f-contact" placeholder="Nom / Tél / Email du contact" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px">
+      </div>
+      <div style="grid-column:1/-1">
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Nature de la plainte *</label>
+        <textarea id="pl-f-nature" rows="3" placeholder="Décrivez la nature de la plainte…" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px;resize:vertical"></textarea>
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Durée de la plainte</label>
+        <input type="text" id="pl-f-duree" placeholder="ex: 2h30, 3 jours…" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Type de plainte *</label>
+        <select id="pl-f-type" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px;background:#fff">
+          <option value="">— Sélectionner —</option>
+          <option>SAV</option>
+          <option>Production</option>
+          <option>Transfert</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Statut</label>
+        <select id="pl-f-statut" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px;background:#fff">
+          <option>Ouverte</option>
+          <option>En cours</option>
+          <option>Résolue</option>
+          <option>Clôturée</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Priorité</label>
+        <select id="pl-f-prio" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px;background:#fff">
+          <option>P1 – Critique</option>
+          <option>P2 – Haute</option>
+          <option>P3 – Normale</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Personne concernée</label>
+        <input type="text" id="pl-f-concerne" placeholder="Responsable / équipe concernée" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px">
+      </div>
+      <div style="grid-column:1/-1">
+        <label style="font-size:11px;font-weight:600;color:var(--n3);display:block;margin-bottom:4px">Commentaire / Actions menées</label>
+        <textarea id="pl-f-commentaire" rows="3" placeholder="Commentaires, actions déjà menées, escalades…" style="width:100%;border:1px solid var(--n5);border-radius:6px;padding:7px 10px;font-size:13px;resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-out" onclick="closeModal('mo-plainte')">Annuler</button>
+      <button class="btn btn-v" onclick="plSave()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+<!-- /MODALE PLAINTE -->
 
 <!-- Modale Créer / Éditer article KB -->
 <div class="overlay" id="mo-kb">
@@ -3217,6 +3385,7 @@ function nav(el){
   if(el.dataset.page==='rapport-hebdo') rInitPage();
   if(el.dataset.page==='tickets-indispo') ticketResetForm();
   if(el.dataset.page==='pda-n2') pdaLoad();
+  if(el.dataset.page==='plaintes') plRender();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3287,14 +3456,14 @@ async function loadAll(){
   const dot = document.getElementById('fb-dot');
   dot.className='load';
   try{
-    const [r,c,p,inc,chg,ag,docs,crises,psi,kb,tickets,agExtra] = await Promise.all([
+    const [r,c,p,inc,chg,ag,docs,crises,psi,kb,tickets,agExtra,plaintes] = await Promise.all([
       fbLoad('noc_reunions'), fbLoad('noc_cr'), fbLoad('noc_actions'),
       fbLoad('noc_incidents'), fbLoad('noc_chg'), fbLoad('noc_agents'), fbLoad('noc_docs'),
       fbLoad('noc_crises'), fbLoad('noc_psi'), fbLoad('noc_kb'), fbLoad('noc_tickets_indispo'),
-      fbLoad('noc_agents_extra')
+      fbLoad('noc_agents_extra'), fbLoad('noc_plaintes')
     ]);
     DB.reunions=r; DB.cr=c; DB.plans=p; DB.incidents=inc;
-    DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi; DB.kb=kb; DB.tickets=tickets; DB.agentsExtra=agExtra;
+    DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi; DB.kb=kb; DB.tickets=tickets; DB.agentsExtra=agExtra; DB.plaintes=plaintes||[];
     // Mémoriser tous les clients existants
     if(DB.tickets) DB.tickets.forEach(t=>{ if(t.client) tkSaveClient(t.client); });
     dot.className='ok';
@@ -3406,7 +3575,181 @@ function updateBadges(){
   set('b-psi', (DB.psi||[]).length);
   set('b-kb',  (DB.kb||[]).length);
   set('b-tickets', (DB.tickets||[]).filter(t=>t.statut==='Ouvert'||t.statut==='En cours').length);
+  set('b-plaintes', (DB.plaintes||[]).filter(p=>p.statut==='Ouverte'||p.statut==='En cours').length);
 }
+
+// ═══════════════════════════════════════════════════════════
+// PLAINTES CLIENTS
+// ═══════════════════════════════════════════════════════════
+let plEditId = null;
+
+const PL_TYPE_COLORS = {
+  'SAV':        { bg:'#FEF3C7', color:'#92400E', border:'#FCD34D' },
+  'Production': { bg:'#DBEAFE', color:'#1E3A8A', border:'#93C5FD' },
+  'Transfert':  { bg:'#D1FAE5', color:'#065F46', border:'#6EE7B7' },
+};
+const PL_STATUT_COLORS = {
+  'Ouverte':   { bg:'#FEE2E2', color:'#991B1B' },
+  'En cours':  { bg:'#FEF3C7', color:'#92400E' },
+  'Résolue':   { bg:'#D1FAE5', color:'#065F46' },
+  'Clôturée':  { bg:'#F3F4F6', color:'#6B7280' },
+};
+const PL_PRIO_COLORS = {
+  'P1 – Critique': { color:'#DC2626' },
+  'P2 – Haute':    { color:'#D97706' },
+  'P3 – Normale':  { color:'#059669' },
+};
+
+function plTypeBadge(t){
+  const s = PL_TYPE_COLORS[t]||{bg:'#F3F4F6',color:'#374151',border:'#D1D5DB'};
+  return `<span style="background:${s.bg};color:${s.color};border:1px solid ${s.border||s.bg};border-radius:4px;padding:2px 7px;font-size:10.5px;font-weight:600;white-space:nowrap">${t||'—'}</span>`;
+}
+function plStatutBadge(s){
+  const c = PL_STATUT_COLORS[s]||{bg:'#F3F4F6',color:'#374151'};
+  return `<span style="background:${c.bg};color:${c.color};border-radius:4px;padding:2px 7px;font-size:10.5px;font-weight:600;white-space:nowrap">${s||'—'}</span>`;
+}
+function plPrioBadge(p){
+  const c = PL_PRIO_COLORS[p]||{color:'var(--n3)'};
+  return `<span style="color:${c.color};font-weight:700;font-size:11px">${p||'—'}</span>`;
+}
+
+function plRender(){
+  DB.plaintes = DB.plaintes||[];
+  const search  = (document.getElementById('pl-search')||{}).value?.toLowerCase()||'';
+  const fType   = (document.getElementById('pl-filter-type')||{}).value||'';
+  const fStatut = (document.getElementById('pl-filter-statut')||{}).value||'';
+
+  const list = DB.plaintes.filter(p=>{
+    if(fType   && p.type!==fType)     return false;
+    if(fStatut && p.statut!==fStatut) return false;
+    if(search){
+      const hay = [p.client,p.contact,p.nature,p.concerne,p.commentaire].join(' ').toLowerCase();
+      if(!hay.includes(search)) return false;
+    }
+    return true;
+  }).sort((a,b)=>new Date(b.date||b.createdAt||0)-new Date(a.date||a.createdAt||0));
+
+  // KPIs
+  const all = DB.plaintes;
+  document.getElementById('pl-kpi-total').textContent   = all.length||'0';
+  document.getElementById('pl-kpi-ouvertes').textContent= all.filter(p=>p.statut==='Ouverte').length||'0';
+  document.getElementById('pl-kpi-encours').textContent = all.filter(p=>p.statut==='En cours').length||'0';
+  document.getElementById('pl-kpi-resolues').textContent= all.filter(p=>p.statut==='Résolue'||p.statut==='Clôturée').length||'0';
+  document.getElementById('pl-kpi-sav').textContent     = all.filter(p=>p.type==='SAV').length||'0';
+  document.getElementById('pl-kpi-prod').textContent    = all.filter(p=>p.type==='Production').length||'0';
+  document.getElementById('pl-kpi-transf').textContent  = all.filter(p=>p.type==='Transfert').length||'0';
+
+  const tbody = document.getElementById('pl-tbody');
+  if(!list.length){
+    tbody.innerHTML=`<tr id="pl-empty-row"><td colspan="10" style="text-align:center;padding:30px;color:var(--n4);font-size:13px">Aucune plainte enregistrée</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(p=>{
+    const dateStr = p.date ? new Date(p.date+'T00:00:00').toLocaleDateString('fr-CI') : '—';
+    const trBg = p.statut==='Clôturée'||p.statut==='Résolue' ? 'background:#FAFAFA' : '';
+    return `<tr style="border-bottom:1px solid var(--n6);${trBg}">
+      <td style="padding:8px 10px;white-space:nowrap;color:var(--n3);font-size:12px">${dateStr}</td>
+      <td style="padding:8px 10px;font-weight:600;color:var(--n1)">${p.client||'—'}</td>
+      <td style="padding:8px 10px;text-align:center;font-weight:700;color:var(--v)">${p.nbreSav||'0'}</td>
+      <td style="padding:8px 10px;color:var(--n2);font-size:12px">${p.contact||'—'}</td>
+      <td style="padding:8px 10px;max-width:200px;color:var(--n2);font-size:12px">${p.nature||'—'}</td>
+      <td style="padding:8px 10px;text-align:center;white-space:nowrap;color:var(--n3);font-size:12px">${p.duree||'—'}</td>
+      <td style="padding:8px 10px;text-align:center">${plTypeBadge(p.type)}</td>
+      <td style="padding:8px 10px;text-align:center">${plStatutBadge(p.statut)}</td>
+      <td style="padding:8px 10px;color:var(--n2);font-size:12px;max-width:180px">${p.concerne||''}${p.concerne&&p.commentaire?' — ':''}${p.commentaire||''}</td>
+      <td style="padding:8px 10px;text-align:center;white-space:nowrap">
+        <button class="btn btn-sm btn-out" onclick="plOpenEdit('${p.id}')" style="margin-right:4px;padding:3px 8px">✏️</button>
+        <button class="btn btn-sm" onclick="plDelete('${p.id}')" style="background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;padding:3px 8px">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function plClearForm(){
+  ['pl-f-date','pl-f-client','pl-f-nbre-sav','pl-f-contact','pl-f-nature','pl-f-duree','pl-f-concerne','pl-f-commentaire'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  const type=document.getElementById('pl-f-type'); if(type) type.value='';
+  const statut=document.getElementById('pl-f-statut'); if(statut) statut.value='Ouverte';
+  const prio=document.getElementById('pl-f-prio'); if(prio) prio.value='P3 – Normale';
+  document.getElementById('pl-f-date').value = new Date().toISOString().slice(0,10);
+}
+
+function plOpenAdd(){
+  plEditId=null;
+  document.getElementById('mo-plainte-title').textContent='Nouvelle Plainte Client';
+  plClearForm();
+  openModal('mo-plainte');
+}
+
+function plOpenEdit(id){
+  const p = (DB.plaintes||[]).find(x=>x.id===id);
+  if(!p) return;
+  plEditId = id;
+  document.getElementById('mo-plainte-title').textContent='Modifier la Plainte';
+  document.getElementById('pl-f-date').value       = p.date||'';
+  document.getElementById('pl-f-client').value     = p.client||'';
+  document.getElementById('pl-f-nbre-sav').value   = p.nbreSav||'';
+  document.getElementById('pl-f-contact').value    = p.contact||'';
+  document.getElementById('pl-f-nature').value     = p.nature||'';
+  document.getElementById('pl-f-duree').value      = p.duree||'';
+  document.getElementById('pl-f-type').value       = p.type||'';
+  document.getElementById('pl-f-statut').value     = p.statut||'Ouverte';
+  document.getElementById('pl-f-prio').value       = p.prio||'P3 – Normale';
+  document.getElementById('pl-f-concerne').value   = p.concerne||'';
+  document.getElementById('pl-f-commentaire').value= p.commentaire||'';
+  openModal('mo-plainte');
+}
+
+async function plSave(){
+  const client = document.getElementById('pl-f-client').value.trim();
+  const nature = document.getElementById('pl-f-nature').value.trim();
+  const type   = document.getElementById('pl-f-type').value;
+  if(!client){ toast('Le nom du client est obligatoire','err'); return; }
+  if(!nature){ toast('La nature de la plainte est obligatoire','err'); return; }
+  if(!type)  { toast('Le type de plainte est obligatoire','err'); return; }
+  const data = {
+    date:        document.getElementById('pl-f-date').value,
+    client,
+    nbreSav:     document.getElementById('pl-f-nbre-sav').value||'0',
+    contact:     document.getElementById('pl-f-contact').value.trim(),
+    nature,
+    duree:       document.getElementById('pl-f-duree').value.trim(),
+    type,
+    statut:      document.getElementById('pl-f-statut').value||'Ouverte',
+    prio:        document.getElementById('pl-f-prio').value||'P3 – Normale',
+    concerne:    document.getElementById('pl-f-concerne').value.trim(),
+    commentaire: document.getElementById('pl-f-commentaire').value.trim(),
+  };
+  try{
+    if(plEditId){
+      await fbUpdate('noc_plaintes', plEditId, data);
+      const idx = (DB.plaintes||[]).findIndex(x=>x.id===plEditId);
+      if(idx>=0) DB.plaintes[idx]={...DB.plaintes[idx],...data};
+      toast('Plainte mise à jour');
+    } else {
+      const ref = await fbSave('noc_plaintes', data);
+      DB.plaintes = DB.plaintes||[];
+      DB.plaintes.unshift({id:ref.id,...data});
+      toast('Plainte enregistrée');
+    }
+    closeModal('mo-plainte');
+    plRender();
+    updateBadges();
+  }catch(e){ console.error(e); toast('Erreur Firebase','err'); }
+}
+
+async function plDelete(id){
+  if(!confirm('Supprimer cette plainte ?')) return;
+  try{
+    await fbDelete('noc_plaintes', id);
+    DB.plaintes = (DB.plaintes||[]).filter(x=>x.id!==id);
+    plRender();
+    updateBadges();
+    toast('Plainte supprimée');
+  }catch(e){ console.error(e); toast('Erreur suppression','err'); }
+}
+// ─── fin PLAINTES ───────────────────────────────────────────
 
 // ═══════════════════════════════════════════════════════════
 // DASHBOARD
