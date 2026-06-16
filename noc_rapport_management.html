@@ -2542,7 +2542,7 @@ async function loadKpiTickets(){
   ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="…"; });
   if(!window._db){ ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="—"; }); return; }
   try{
-    const colRef = window._col(window._db, "noc_tickets");
+    const colRef = window._col(window._db, "noc_tickets_indispo");
     const snap   = await window._gets(colRef);
     const tickets = snap.docs.map(d=>({id:d.id,...d.data()}));
 
@@ -2551,19 +2551,19 @@ async function loadKpiTickets(){
     const hdrDate = document.getElementById("hdr-date")?.textContent || "";
     // Extraire toutes les dates DD/MM/YYYY présentes dans le label de période
     const dateMatches = hdrDate.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
-    const rapportDates = new Set(dateMatches); // ex: {"16/06/2026"} ou {"15/06/2026","16/06/2026"}
+    const rapportDatesISO = new Set(dateMatches.map(d=>{ const [dd,mm,yyyy]=d.split("/"); return yyyy+"-"+mm+"-"+dd; }));
 
     const filtered = tickets.filter(t=>{
-      if(!t.dateDebut) return false;
-      // t.dateDebut format attendu : "16/06/2026 08:57" ou "16/06/2026"
-      const ticketDate = t.dateDebut.substring(0, 10); // "16/06/2026"
-      return rapportDates.has(ticketDate);
+      if(!t.debut) return false;
+      // t.debut format ISO : "2026-06-16T08:57" (datetime-local)
+      const ticketDateISO = t.debut.substring(0, 10); // "2026-06-16"
+      return rapportDatesISO.has(ticketDateISO);
     });
     const total   = filtered.length;
     const srcData = filtered;
     const sav     = srcData.filter(t=>t.destinataire==="SAV B2B").length;
     const qp      = srcData.filter(t=>t.destinataire==="QUALITÉ & PERF.").length;
-    const ouverts = srcData.filter(t=>!t.closedAt && !t.statut?.toLowerCase().includes("clôtur")).length;
+    const ouverts = srcData.filter(t=>t.statut==="Ouvert").length;
 
     const set=(id,val)=>{ const el=document.getElementById(id); if(el) el.textContent=val; };
     set("kpi-tickets-total",  total   || "0");
@@ -2577,7 +2577,7 @@ async function loadKpiTickets(){
     if(ouvertEl) ouvertEl.className="dg-kpi-val "+(ouverts>3?"red":ouverts>0?"amber":"green");
 
     const hint=document.getElementById("kpi-noc-hint");
-    const datesLabel = [...rapportDates].join(", ") || hdrDate;
+    const datesLabel = dateMatches.join(", ") || hdrDate;
     if(hint) hint.innerHTML=`ⓘ ${total} ticket(s) du <strong>${datesLabel}</strong> chargé(s) depuis Firebase · noctb.html · actualisé à ${new Date().toLocaleTimeString("fr-FR")}${total===0?" — <span style='color:#c0392b'>Aucun ticket trouvé pour cette date</span>":""}`;
   } catch(err){
     console.warn("KPI tickets error:", err);
