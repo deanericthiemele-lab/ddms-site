@@ -2217,38 +2217,53 @@ function exportPdf(){
 
   function topTable(data, type){
     if(!data.length){ checkPage(8); doc.setFontSize(8); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY); doc.text("Aucun événement.", ML, y+4); y+=8; return; }
-    const isIf = type==="if";
+    const isIf  = type==="if";
     const isMix = type==="mix";
+    // Disponibilité : node disponible si pas isDown (rétabli malgré incident)
+    const dispCol = (d) => !d.isDown ? "Disponible" : "Indisponible";
     doc.autoTable({
       head:[isIf
-        ? ["#","Site client","Coupures","Statut","Priorité"]
+        ? ["#","Site client","Incidents","Cause","Disponibilité","Statut","Priorité"]
         : isMix
-          ? ["#","Site client","Événements","Cause","Statut","Priorité"]
-          : ["#","Site client","Incidents","Cause","Statut","Priorité"]],
-      body: data.map((d,i)=> isIf
-        ? [String(i+1), shortName(d.site), String(d.nb), d.statut, d.prio]
-        : [String(i+1), shortName(d.site), String(d.nb), d.cause||"—", d.statut, d.prio]
-      ),
+          ? ["#","Site client","Incidents","Cause","Disponibilité","Statut","Priorité"]
+          : ["#","Site client","Incidents","Cause","Disponibilité","Statut","Priorité"]],
+      body: data.map((d,i)=> [
+        String(i+1), shortName(d.site), String(d.nb),
+        isIf ? (d.iface||"—") : (d.cause||"—"),
+        dispCol(d), d.statut, d.prio
+      ]),
       startY:y, margin:{left:ML,right:MR}, tableWidth:CW,
       styles:{fontSize:7.5, cellPadding:2, font:"helvetica", textColor:DARK, lineColor:LGRAY, lineWidth:0.2, overflow:'ellipsize'},
       headStyles:{fillColor:DARK, textColor:WHITE, fontStyle:"bold", fontSize:7.5},
-      columnStyles: isIf
-        ? {0:{cellWidth:8,halign:"center"},1:{cellWidth:Math.round(CW*0.50)},2:{cellWidth:16,halign:"center"},3:{cellWidth:Math.round(CW*0.22)},4:{cellWidth:CW-8-Math.round(CW*0.50)-16-Math.round(CW*0.22)}}
-        : {0:{cellWidth:8,halign:"center"},1:{cellWidth:Math.round(CW*0.40)},2:{cellWidth:14,halign:"center"},3:{cellWidth:Math.round(CW*0.18)},4:{cellWidth:Math.round(CW*0.18)},5:{cellWidth:CW-8-Math.round(CW*0.40)-14-Math.round(CW*0.18)*2}},
+      columnStyles:{
+        0:{cellWidth:8,halign:"center"},
+        1:{cellWidth:Math.round(CW*0.34)},
+        2:{cellWidth:14,halign:"center"},
+        3:{cellWidth:Math.round(CW*0.17)},
+        4:{cellWidth:Math.round(CW*0.14)},
+        5:{cellWidth:Math.round(CW*0.14)},
+        6:{cellWidth:CW-8-Math.round(CW*0.34)-14-Math.round(CW*0.17)-Math.round(CW*0.14)-Math.round(CW*0.14)},
+      },
       alternateRowStyles:{fillColor:[250,251,253]},
       didParseCell(data){
         if(data.section!=="body") return;
-        const isStatutCol = (type==="if"&&data.column.index===3)||((type==="nd"||type==="mix")&&data.column.index===4);
-        const isPrioCol   = (type==="if"&&data.column.index===4)||((type==="nd"||type==="mix")&&data.column.index===5);
-        if(isStatutCol){
+        // col 4 = Disponibilité
+        if(data.column.index===4){
+          if(data.cell.raw==="Disponible"){data.cell.styles.textColor=GREEN_T;data.cell.styles.fontStyle="bold";}
+          else{data.cell.styles.textColor=RED_T;data.cell.styles.fontStyle="bold";}
+        }
+        // col 5 = Statut
+        if(data.column.index===5){
           if(data.cell.raw==="Instable"){data.cell.styles.textColor=RED_T;data.cell.styles.fontStyle="bold";}
           else if(data.cell.raw==="Indisponible"){data.cell.styles.textColor=AMBER_T;data.cell.styles.fontStyle="bold";}
           else{data.cell.styles.textColor=GREEN_T;data.cell.styles.fontStyle="bold";}
         }
-        if(isPrioCol){
+        // col 6 = Priorité
+        if(data.column.index===6){
           if(data.cell.raw==="Haute"){data.cell.styles.textColor=RED_T;data.cell.styles.fontStyle="bold";}
           else if(data.cell.raw==="Moyenne"){data.cell.styles.textColor=AMBER_T;data.cell.styles.fontStyle="bold";}
         }
+        // col 2 = nb incidents
         if(data.column.index===2){
           const n=parseInt(data.cell.raw);
           if(n>=5)data.cell.styles.textColor=RED_T;
