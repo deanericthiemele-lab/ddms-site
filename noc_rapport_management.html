@@ -1191,9 +1191,9 @@ function generate(){
       <div class="dg-kpi-sub">Warning/Critical cycliques</div>
     </div>
     <div class="dg-kpi">
-      <div class="dg-kpi-label">Coupures signalées N1<br>(Node Down confirmé)</div>
+      <div class="dg-kpi-label">Coupure de liens<br></div>
       <div class="dg-kpi-val red">${nbCoupuresN1}</div>
-      <div class="dg-kpi-sub">événements Node Down</div>
+      <div class="dg-kpi-sub">événements Node Down confirmés</div>
     </div>
   </div>
 
@@ -1218,6 +1218,35 @@ function generate(){
       <div class="dg-kpi-val amber">${nbReboots}</div>
       <div class="dg-kpi-sub">redémarrages enregistrés</div>
     </div>
+  </div>
+
+  <div class="dg-sep"></div>
+  <div class="dg-section">KPI NOC — Ouverture de tickets</div>
+
+  <div class="dg-grid4" id="kpi-noc-tickets">
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Tickets ouverts (total)<br></div>
+      <div class="dg-kpi-val red" id="kpi-tickets-total">—</div>
+      <div class="dg-kpi-sub">SAV B2B + Qualité &amp; Performance</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Tickets SAV B2B<br></div>
+      <div class="dg-kpi-val amber" id="kpi-tickets-sav">—</div>
+      <div class="dg-kpi-sub">Indisponibilités transmises SAV</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Tickets Qualité &amp; Perf.<br></div>
+      <div class="dg-kpi-val amber" id="kpi-tickets-qp">—</div>
+      <div class="dg-kpi-sub">Incidents transmis Q&amp;P</div>
+    </div>
+    <div class="dg-kpi">
+      <div class="dg-kpi-label">Tickets encore ouverts<br></div>
+      <div class="dg-kpi-val red" id="kpi-tickets-ouverts">—</div>
+      <div class="dg-kpi-sub">Non clôturés en fin de journée</div>
+    </div>
+  </div>
+  <div style="font-size:10px;color:#9aa0ae;margin:-8px 0 8px 2px;font-style:italic" id="kpi-noc-hint">
+    ⓘ Ces données sont issues de <strong>noctb.html</strong> — partagées via Firebase en temps réel.
   </div>
 
   <div class="dg-sep"></div>
@@ -1297,6 +1326,7 @@ function generate(){
   window._horsSlaRows=[];
   sbRenderList();
   pdaLoadFromFirebase();
+  loadKpiTickets();
   window.scrollTo({top:0,behavior:"smooth"});
 }
 
@@ -2503,6 +2533,58 @@ async function pdaDeleteRow(btn, rowId, site){
   }
   row.style.opacity="0"; row.style.transition="opacity .2s";
   setTimeout(()=>row.remove(), 200);
+}
+
+
+// ── KPI TICKETS depuis Firebase (noctb) ──────────────────────────────────────
+async function loadKpiTickets(){
+  const ids = ["kpi-tickets-total","kpi-tickets-sav","kpi-tickets-qp","kpi-tickets-ouverts"];
+  ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="…"; });
+  if(!window._db){ ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="—"; }); return; }
+  try{
+    const colRef = window._col(window._db, "noc_tickets");
+    const snap   = await window._gets(colRef);
+    const tickets = snap.docs.map(d=>({id:d.id,...d.data()}));
+
+    // Utiliser la date du rapport (hdr-date), pas la date système
+    // hdr-date peut être "16/06/2026" ou "15/06/2026 – 16/06/2026" (fusion)
+    const hdrDate = document.getElementById("hdr-date")?.textContent || "";
+    // Extraire toutes les dates DD/MM/YYYY présentes dans le label de période
+    const dateMatches = hdrDate.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+    const rapportDates = new Set(dateMatches); // ex: {"16/06/2026"} ou {"15/06/2026","16/06/2026"}
+
+    const filtered = tickets.filter(t=>{
+      if(!t.dateDebut) return false;
+      // t.dateDebut format attendu : "16/06/2026 08:57" ou "16/06/2026"
+      const ticketDate = t.dateDebut.substring(0, 10); // "16/06/2026"
+      return rapportDates.has(ticketDate);
+    });
+    const total   = filtered.length;
+    const srcData = filtered;
+    const sav     = srcData.filter(t=>t.destinataire==="SAV B2B").length;
+    const qp      = srcData.filter(t=>t.destinataire==="QUALITÉ & PERF.").length;
+    const ouverts = srcData.filter(t=>!t.closedAt && !t.statut?.toLowerCase().includes("clôtur")).length;
+
+    const set=(id,val)=>{ const el=document.getElementById(id); if(el) el.textContent=val; };
+    set("kpi-tickets-total",  total   || "0");
+    set("kpi-tickets-sav",    sav     || "0");
+    set("kpi-tickets-qp",     qp      || "0");
+    set("kpi-tickets-ouverts",ouverts || "0");
+
+    const totalEl=document.getElementById("kpi-tickets-total");
+    if(totalEl) totalEl.className="dg-kpi-val "+(total>5?"red":total>2?"amber":"green");
+    const ouvertEl=document.getElementById("kpi-tickets-ouverts");
+    if(ouvertEl) ouvertEl.className="dg-kpi-val "+(ouverts>3?"red":ouverts>0?"amber":"green");
+
+    const hint=document.getElementById("kpi-noc-hint");
+    const datesLabel = [...rapportDates].join(", ") || hdrDate;
+    if(hint) hint.innerHTML=`ⓘ ${total} ticket(s) du <strong>${datesLabel}</strong> chargé(s) depuis Firebase · noctb.html · actualisé à ${new Date().toLocaleTimeString("fr-FR")}${total===0?" — <span style='color:#c0392b'>Aucun ticket trouvé pour cette date</span>":""}`;
+  } catch(err){
+    console.warn("KPI tickets error:", err);
+    ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="—"; });
+    const hint=document.getElementById("kpi-noc-hint");
+    if(hint) hint.textContent="⚠ Impossible de charger les tickets depuis Firebase.";
+  }
 }
 
 async function pdaSaveRow(rowId, origSite, period){
