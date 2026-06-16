@@ -293,17 +293,30 @@
   .btn-sel-toggle:hover{border-color:var(--orange);color:var(--orange)}
   .sb-fusion-zone{display:none;padding:8px 12px;border-top:1px solid var(--border);background:var(--bg)}
 
-  /* GROUPES SEMAINE */
-  .sb-week{border-bottom:1px solid var(--border)}
-  .sb-week-hdr{display:flex;align-items:center;padding:0 10px 0 4px;min-height:36px;gap:6px}
-  .sb-week-toggle{background:none;border:1px solid var(--border2);border-radius:4px;width:20px;height:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;font-weight:700;color:var(--text2);flex-shrink:0;line-height:1;padding:0;font-family:'Inter',sans-serif}
-  .sb-week-toggle:hover{border-color:var(--orange);color:var(--orange)}
-  .sb-week-label{flex:1;font-size:11px;font-weight:600;color:var(--text2);cursor:pointer;padding:8px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:3px;transition:color .12s}
-  .sb-week-label:hover{color:var(--orange)}
-  .sb-week-label.all-sel{color:#1e40af}
-  .sb-week-count{font-size:9px;color:var(--text3);flex-shrink:0}
-  .sb-week-items{overflow:hidden}
-  .sb-week-items .sb-item{padding-left:32px}
+  .dg-top-count.dg-ev-btn{cursor:pointer;text-decoration:underline;text-underline-offset:2px;transition:opacity .12s}
+  .dg-top-count.dg-ev-btn:hover{opacity:.65}
+
+  /* POPUP ÉVÉNEMENTS */
+  .ev-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2000;display:flex;align-items:center;justify-content:center;padding:24px}
+  .ev-modal{background:#fff;border-radius:12px;width:100%;max-width:680px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.25);font-family:'Inter',sans-serif}
+  .ev-head{padding:18px 22px;border-bottom:1px solid #e4e7ed;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-shrink:0}
+  .ev-head-left{min-width:0}
+  .ev-title{font-size:14px;font-weight:700;color:#0d0f14;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ev-sub{font-size:11px;color:#9aa0ae;margin-top:3px}
+  .ev-close{background:none;border:none;cursor:pointer;color:#9aa0ae;padding:4px;border-radius:4px;display:flex;flex-shrink:0}
+  .ev-close:hover{background:#f0f2f5;color:#0d0f14}
+  .ev-body{overflow-y:auto;flex:1}
+  .ev-table{width:100%;border-collapse:collapse}
+  .ev-table thead th{padding:9px 14px;text-align:left;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#9aa0ae;background:#f7f8fa;border-bottom:1px solid #e4e7ed;white-space:nowrap;position:sticky;top:0}
+  .ev-table tbody tr{border-bottom:1px solid #f0f2f5}
+  .ev-table tbody tr:last-child{border-bottom:none}
+  .ev-table tbody tr:hover{background:#fafbfc}
+  .ev-table tbody td{padding:8px 14px;font-size:12px;color:#2a2e3a;vertical-align:middle}
+  .ev-badge-down{display:inline-block;background:#fde8e8;color:#8b0000;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700}
+  .ev-badge-up{display:inline-block;background:#e6f4eb;color:#0a4a1e;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700}
+  .ev-badge-reboot{display:inline-block;background:#fef3cd;color:#7c3d00;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700}
+  .ev-badge-other{display:inline-block;background:#f0f2f5;color:#3d4250;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700}
+  .ev-empty{padding:32px;text-align:center;color:#9aa0ae;font-size:12px}
 
   /* MAIN CONTENT (ajustement) */
   .content{flex:1;min-width:0;overflow:auto}
@@ -736,6 +749,22 @@
 
 <!-- DRILL-DOWN MODAL -->
 <div class="dd-overlay" id="dd-overlay" style="display:none" onclick="if(event.target===this)closeDd()">
+
+<!-- POPUP ÉVÉNEMENTS TOP 10 -->
+<div class="ev-overlay" id="ev-overlay" style="display:none" onclick="if(event.target===this)closeEvPopup()">
+  <div class="ev-modal">
+    <div class="ev-head">
+      <div class="ev-head-left">
+        <div class="ev-title" id="ev-title">—</div>
+        <div class="ev-sub" id="ev-sub"></div>
+      </div>
+      <button class="ev-close" onclick="closeEvPopup()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="ev-body" id="ev-body"></div>
+  </div>
+</div>
   <div class="dd-modal">
     <div class="dd-head">
       <div>
@@ -775,7 +804,53 @@ function openDd(title, sub, rows, cols){
   document.getElementById("dd-overlay").style.display = "flex";
 }
 function closeDd(){ document.getElementById("dd-overlay").style.display = "none"; }
-document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeDd(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ closeDd(); closeEvPopup(); } });
+
+// ── POPUP ÉVÉNEMENTS TOP 10 ───────────────────────────────────────────────────
+function showTopEvents(d){
+  if(!d) return;
+  const evs = d.rawEvents || [];
+  document.getElementById("ev-title").textContent = d.site;
+  document.getElementById("ev-sub").textContent =
+    d.nb+" événement"+(d.nb>1?"s":"")
+    +" · Statut : "+d.statut
+    +(d.duree && d.duree.txt && d.duree.txt!=="—" ? " · Durée cumulée : "+d.duree.txt : "")
+    +(d.iface && d.iface!=="—" ? " · Interface : "+d.iface : "");
+
+  const body = document.getElementById("ev-body");
+  if(!evs.length){
+    body.innerHTML = '<div class="ev-empty">Aucun événement brut disponible pour ce site.</div>';
+  } else {
+    const rows = evs.map(ev=>{
+      const ml = ev.msg.toLowerCase();
+      let type, badgeCls, typeLabel;
+      if(/\bdown\b|stopped responding|timed out/i.test(ml)){
+        type="down"; badgeCls="ev-badge-down"; typeLabel="▼ Down";
+      } else if(/\bup\b|responding again/i.test(ml)){
+        type="up"; badgeCls="ev-badge-up"; typeLabel="▲ Up";
+      } else if(/rebooted/i.test(ml)){
+        type="reboot"; badgeCls="ev-badge-reboot"; typeLabel="↺ Reboot";
+      } else {
+        type="other"; badgeCls="ev-badge-other"; typeLabel="Info";
+      }
+      const shortMsg = ev.msg.length>90 ? ev.msg.substring(0,90)+"…" : ev.msg;
+      return `<tr>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#5a6070;white-space:nowrap">${ev.date||"—"}</td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#5a6070;white-space:nowrap">${ev.time||"—"}</td>
+        <td><span class="${badgeCls}">${typeLabel}</span></td>
+        <td style="font-size:11px;color:#3d4250;line-height:1.4">${shortMsg}</td>
+      </tr>`;
+    }).join("");
+    body.innerHTML = `<table class="ev-table">
+      <thead><tr>
+        <th>Date</th><th>Heure</th><th>Type</th><th>Message</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+  document.getElementById("ev-overlay").style.display = "flex";
+}
+function closeEvPopup(){ document.getElementById("ev-overlay").style.display = "none"; }
 
 // Colonnes réutilisables
 const COL_SITE  = {key:"site",  label:"Site client"};
@@ -1103,8 +1178,8 @@ function generate(){
   const nbAnomalies  = IF_DATA.reduce((s,d)=>s+d.nb,0);
   const nbReboots    = ND_DATA.filter(d=>d.cause==="Redémarrage").length;
 
-  // Top 10 instables (par nb d'événements)
-  const topInstables = [...IF_DATA,...ND_DATA]
+  // Top 10 instables — IF uniquement (oscillations Interface Down)
+  const topInstables = [...IF_DATA]
     .sort((a,b)=>b.nb-a.nb).slice(0,10);
 
   // Top 10 (ND down)
@@ -1258,11 +1333,11 @@ function generate(){
   </div>
 
   <div class="dg-sep"></div>
-  <div class="dg-section">Top 10 · Top 10</div>
+  <div class="dg-section">Top 10</div>
 
   <div class="dg-tops">
     <div class="dg-top-card">
-      <div class="dg-top-head">Top 5 — Sites instables (oscillations)</div>
+      <div class="dg-top-head">Top 10 — Sites instables (oscillations)</div>
       ${topInstables.map((d,i)=>{
         const pct=topInstables[0].nb>0?Math.round((d.nb/topInstables[0].nb)*100):0;
         const nm=d.site.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,32);
@@ -1270,7 +1345,7 @@ function generate(){
           <span class="dg-top-rank">${i+1}</span>
           <span class="dg-top-name" title="${d.site}">${nm}</span>
           <span class="dg-top-bar"><span class="dg-top-fill-a" style="width:${pct}%;display:block"></span></span>
-          <span class="dg-top-count amber">${d.nb}×</span>
+          <span class="dg-top-count amber dg-ev-btn" title="Voir les événements" onclick="showTopEvents(topInstables[${i}])">${d.nb}×</span>
         </div>`;
       }).join("")}
     </div>
@@ -1283,7 +1358,7 @@ function generate(){
           <span class="dg-top-rank">${i+1}</span>
           <span class="dg-top-name" title="${d.site}">${nm}</span>
           <span class="dg-top-bar"><span class="dg-top-fill-r" style="width:${pct}%;display:block"></span></span>
-          <span class="dg-top-count red">${d.nb}×</span>
+          <span class="dg-top-count red dg-ev-btn" title="Voir les événements" onclick="showTopEvents(topCoupures[${i}])">${d.nb}×</span>
         </div>`;
       }).join("")}
     </div>
@@ -1702,8 +1777,7 @@ async function sbRenderList(){
   const count = document.getElementById("sb-count");
   const btnSel = document.getElementById("btn-sel-toggle");
 
-  // Vider complètement la liste
-  ul.querySelectorAll(".sb-item, .sb-week").forEach(el=>el.remove());
+  ul.querySelectorAll(".sb-item").forEach(el=>el.remove());
 
   if(!list.length){
     empty.style.display="block";
@@ -1715,133 +1789,34 @@ async function sbRenderList(){
   count.textContent = list.length+" rapport"+(list.length>1?"s":"")+" stocké"+(list.length>1?"s":"");
   if(btnSel) btnSel.style.display="block";
 
-  // ── Extraire la date principale d'un rapport ──────────────────────────────
   const parseDate = r => {
+    // hdrDate = "08/06/2026" ou "08/06/2026 – 09/06/2026"
     const src = r.hdrDate || r.label || '';
     const m = src.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-    if(m) return new Date(+m[3], +m[2]-1, +m[1]);
+    if(m) return new Date(+m[3],+m[2]-1,+m[1]).getTime();
+    // fallback id timestamp
     const t = parseInt((r.id||'').replace('r_',''));
-    return new Date(t||0);
+    return t||0;
   };
 
-  // ── Clé semaine = date du lundi (ISO string) ──────────────────────────────
-  // Semaine lundi→dimanche : lundi = getDay()==1, dimanche = getDay()==0
-  const getMondayKey = d => {
-    const dt = new Date(d); dt.setHours(0,0,0,0);
-    const day = dt.getDay();                       // 0=dim, 1=lun … 6=sam
-    const diff = day===0 ? -6 : 1-day;            // ramener au lundi
-    dt.setDate(dt.getDate()+diff);
-    return dt.toISOString().slice(0,10);           // "2026-06-09"
-  };
-
-  // ── Label affiché : "Lun. 09/06/2026 — Dim. 15/06/2026" ────────────────
-  const weekLabel = mondayKey => {
-    const lun = new Date(mondayKey);
-    const dim = new Date(lun); dim.setDate(lun.getDate()+6);
-    const fmt = d => d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"});
-    return "Lun. "+fmt(lun)+" — Dim. "+fmt(dim);
-  };
-
-  // ── Grouper par semaine, trier du plus récent ────────────────────────────
-  const sorted = list.slice().sort((a,b)=> parseDate(b)-parseDate(a));
-  const weeksMap = new Map();
-  sorted.forEach(r=>{
-    const k = getMondayKey(parseDate(r));
-    if(!weeksMap.has(k)) weeksMap.set(k,[]);
-    weeksMap.get(k).push(r);
-  });
-
-  // État ouvert/fermé persisté (semaine la plus récente ouverte par défaut)
-  if(!window._sbWeekOpen) window._sbWeekOpen={};
-  let first=true;
-  weeksMap.forEach((_,k)=>{
-    if(!(k in window._sbWeekOpen)) window._sbWeekOpen[k]=first;
-    first=false;
-  });
-
-  const sel = ()=> window._sbSelected||[];
-
-  // ── Rendu ────────────────────────────────────────────────────────────────
-  weeksMap.forEach((reports, key)=>{
-    const isOpen   = !!window._sbWeekOpen[key];
-    const weekIds  = reports.map(r=>r.id);
-    const allSel   = weekIds.length>0 && weekIds.every(id=>sel().includes(id));
-
-    const grp = document.createElement("div");
-    grp.className = "sb-week";
-    grp.dataset.wkey = key;
-
-    // En-tête du groupe
-    const hdr = document.createElement("div");
-    hdr.className = "sb-week-hdr";
-    hdr.innerHTML = `
-      <button class="sb-week-toggle" title="${isOpen?'Réduire':'Déplier'}">${isOpen?'−':'+'}</button>
-      <span class="sb-week-label${allSel?' all-sel':''}" title="Cliquer pour sélectionner tous les rapports">${weekLabel(key)}</span>
-      <span class="sb-week-count">${reports.length}j</span>`;
-
-    // Clic sur le bouton +/− → déplie/replie UNIQUEMENT
-    hdr.querySelector(".sb-week-toggle").addEventListener("click", e=>{
-      e.stopPropagation();
-      window._sbWeekOpen[key] = !window._sbWeekOpen[key];
-      sbRenderList();
-    });
-
-    // Clic sur le label → sélectionne/désélectionne tous les rapports de la semaine
-    hdr.querySelector(".sb-week-label").addEventListener("click", e=>{
-      e.stopPropagation();
-      if(!window._sbSelected) window._sbSelected=[];
-      if(allSel){
-        // Tout désélectionner
-        window._sbSelected = window._sbSelected.filter(id=>!weekIds.includes(id));
-      } else {
-        // Tout sélectionner (ajoute ceux manquants)
-        weekIds.forEach(id=>{ if(!window._sbSelected.includes(id)) window._sbSelected.push(id); });
-      }
-      // Activer le mode fusion si pas encore actif et qu'on vient de sélectionner
-      if(!window._sbSelMode && window._sbSelected.length>0){
-        window._sbSelMode=true;
-        const zone=document.getElementById("sb-fusion-zone");
-        const btn=document.getElementById("btn-sel-toggle");
-        const hdrFusion=document.getElementById("hdr-btn-fusion");
-        const hdrSelGroup=document.getElementById("hdr-sel-group");
-        if(zone) zone.style.display="block";
-        if(btn)  btn.textContent="✕ Annuler la sélection";
-        if(hdrFusion)   hdrFusion.style.display="none";
-        if(hdrSelGroup) hdrSelGroup.style.display="flex";
-      }
-      sbUpdateFusionBtn();
-      sbRenderList();
-    });
-
-    grp.appendChild(hdr);
-
-    // Conteneur des items (affiché ou masqué)
-    const itemsWrap = document.createElement("div");
-    itemsWrap.className = "sb-week-items";
-    itemsWrap.style.display = isOpen ? "block" : "none";
-
-    reports.forEach(r=>{
-      const item = document.createElement("div");
-      const isSelected = sel().includes(r.id);
-      item.className = "sb-item"+(isSelected?" sb-selected":"");
-      item.dataset.id = r.id;
-      const hasRaw = !!(r.rawText && r.rawText.trim());
-      const badge = hasRaw
-        ? `<span style="font-size:9px;color:var(--green);background:var(--green-bg);border:1px solid var(--green-bd);border-radius:3px;padding:1px 5px;margin-left:4px">✓</span>`
-        : '';
-      item.innerHTML=`
-        <div class="sb-item-info" onclick="sbItemClick('${r.id}')">
-          <div class="sb-item-date">${r.label}${badge}</div>
-          <div class="sb-item-meta">${r.sites} site${r.sites>1?"s":""} · ${r.total} événement${r.total>1?"s":""}</div>
-        </div>
-        <button class="sb-item-del" onclick="deleteSavedReport('${r.id}',event)" title="Supprimer">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-        </button>`;
-      itemsWrap.appendChild(item);
-    });
-
-    grp.appendChild(itemsWrap);
-    ul.appendChild(grp);
+  list.slice().sort((a,b)=> parseDate(b)-parseDate(a)).forEach((r)=>{
+    const item = document.createElement("div");
+    const isSelected = (window._sbSelected||[]).includes(r.id);
+    item.className="sb-item"+(isSelected?" sb-selected":"");
+    item.dataset.id = r.id;
+    const hasRaw = !!(r.rawText && r.rawText.trim());
+    const badge = hasRaw
+      ? `<span style="font-size:9px;color:var(--green);background:var(--green-bg);border:1px solid var(--green-bd);border-radius:3px;padding:1px 5px;margin-left:4px">✓</span>`
+      : '';
+    item.innerHTML=`
+      <div class="sb-item-info" onclick="sbItemClick('${r.id}')">
+        <div class="sb-item-date">${r.label}${badge}</div>
+        <div class="sb-item-meta">${r.sites} site${r.sites>1?"s":""} · ${r.total} événement${r.total>1?"s":""}</div>
+      </div>
+      <button class="sb-item-del" onclick="deleteSavedReport('${r.id}',event)" title="Supprimer">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+      </button>`;
+    ul.appendChild(item);
   });
 }
 
@@ -2242,10 +2217,10 @@ async function openMailPopup(){
   </div>
 
   <!-- TOP 10 INSTABLES -->
-  ${topTableHtml("Top 5 — Sites instables (oscillations)", topInstables, "#b45309", "Aucun site instable")}
+  ${topTableHtml("Top 10 — Sites instables (oscillations)", topInstables, "#b45309", "Aucun site instable")}
 
   <!-- TOP 10 COUPURES -->
-  ${topTableHtml("Top 5 — Coupures confirmées (Node Down)", topCoupures, "#c0392b", "Aucune coupure confirmée")}
+  ${topTableHtml("Top 10 — Coupures confirmées (Node Down)", topCoupures, "#c0392b", "Aucune coupure confirmée")}
 
   <!-- FOOTER -->
   <div style="background:#f7f8fa;padding:16px 18px;border-top:1px solid #e4e7ed">
