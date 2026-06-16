@@ -568,6 +568,27 @@
       </div>
     </div>
 
+    <!-- 🎫 KPI NOC TICKETS -->
+    <div class="kpi-group-label">🎫 KPI NOC — Ouverture de tickets N1 et N2</div>
+    <div class="kpi-group kpi-cols-3" style="margin-bottom:8px">
+      <div class="kpi kpi-if">
+        <div class="kpi-label">Tickets ouverts (total)</div>
+        <div class="kpi-val c-red" id="kpi-tickets-total">…</div>
+        <div class="kpi-sub">SAV B2B + Qualité &amp; Performance</div>
+      </div>
+      <div class="kpi kpi-nd">
+        <div class="kpi-label">Tickets SAV B2B — N1</div>
+        <div class="kpi-val c-amber" id="kpi-tickets-sav">…</div>
+        <div class="kpi-sub">Indisponibilités transmises SAV B2B</div>
+      </div>
+      <div class="kpi kpi-nd">
+        <div class="kpi-label">Ticket Niveau 2</div>
+        <div class="kpi-val c-amber" id="kpi-tickets-qp">…</div>
+        <div class="kpi-sub">Incidents transmis Qualité &amp; Performance</div>
+      </div>
+    </div>
+    <div id="kpi-noc-hint" style="font-size:11px;color:var(--text3);margin-bottom:16px;padding-left:2px"></div>
+
     <!-- NOTES -->
     <div class="note-box note-if" id="note-if"></div>
     <div class="note-box note-nd" id="note-nd"></div>
@@ -1320,18 +1341,6 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     <div class="dg-kpi"><div class="dg-kpi-label">Coupures N1 total</div><div class="dg-kpi-val red">${nbCoupuresN1}</div><div class="dg-kpi-sub">événements Node Down</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div class="dg-kpi-val red">${clientsImp.size}</div><div class="dg-kpi-sub">${[...clientsImp].slice(0,3).join(", ")}${clientsImp.size>3?"…":""}</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Reboots détectés</div><div class="dg-kpi-val amber">${nbReboots}</div><div class="dg-kpi-sub">redémarrages</div></div>
-  </div>
-  <div class="dg-sep"></div>
-  <div class="dg-section">Top 10</div>
-  <div class="dg-tops">
-    <div class="dg-top-card">
-      <div class="dg-top-head">Top 10 — Sites instables (oscillations)</div>
-      ${topInstables.length ? topInstables.map((d,i)=>topRow(d,i,"dg-top-fill-a","amber","topInstables")).join("") : '<div style="padding:14px;font-size:11px;color:#9aa0ae;text-align:center">Aucun site instable détecté</div>'}
-    </div>
-    <div class="dg-top-card">
-      <div class="dg-top-head">Top 10 — Coupures confirmées (Down)</div>
-      ${topCoupures.length ? topCoupures.map((d,i)=>topRow(d,i,"dg-top-fill-r","red","topCoupures")).join("") : '<div style="padding:14px;font-size:11px;color:#9aa0ae;text-align:center">Aucune coupure confirmée</div>'}
-    </div>
   </div>
   <div class="dg-sep"></div>
   <div class="dg-section">Plan d'actions Niveau 2</div>
@@ -2622,11 +2631,21 @@ async function exportPdf(){
     {label:"Reboots détectés",            value:nbReboots,      color:GRAY,   accent:GRAY,   sub:"redémarrages"},
   ], 4);
 
-  //  KPI NOC — TICKETS N1 / N2 
+  //  KPI NOC — TICKETS N1 / N2 (lecture Firebase directe)
   y += 4;
-  const tkTotal  = document.getElementById("kpi-tickets-total")?.textContent  || "—";
-  const tkSav    = document.getElementById("kpi-tickets-sav")?.textContent    || "—";
-  const tkQp     = document.getElementById("kpi-tickets-qp")?.textContent     || "—";
+  let tkTotal = "—", tkSav = "—", tkQp = "—";
+  try{
+    if(window._db && window._col && window._gets){
+      const hdrDateTk = document.getElementById("hdr-date")?.textContent || "";
+      const dateMatchesTk = hdrDateTk.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+      const rapportDatesISOtk = new Set(dateMatchesTk.map(d=>{ const [dd,mm,yyyy]=d.split("/"); return yyyy+"-"+mm+"-"+dd; }));
+      const snapTk = await window._gets(window._col(window._db,"noc_tickets_indispo"));
+      const filteredTk = snapTk.docs.map(d=>d.data()).filter(t=>t.debut && rapportDatesISOtk.has(t.debut.substring(0,10)));
+      tkTotal = String(filteredTk.length||0);
+      tkSav   = String(filteredTk.filter(t=>t.destinataire==="SAV B2B").length||0);
+      tkQp    = String(filteredTk.filter(t=>t.destinataire==="Qualité & Performance").length||0);
+    }
+  } catch(e){ console.warn("PDF tickets Firebase erreur:",e); }
   sectionBar("KPI NOC — OUVERTURE DE TICKETS NIVEAU 1 ET NIVEAU 2");
   kpiBlock([
     {label:"Tickets ouverts (total)",        value:tkTotal, color:RED_T,   accent:RED_T,   sub:"SAV B2B + Qualité & Performance"},
@@ -2769,6 +2788,12 @@ async function pdaDeleteRow(btn, rowId, site){
 async function loadKpiTickets(){
   const ids = ["kpi-tickets-total","kpi-tickets-sav","kpi-tickets-qp"];
   ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="…"; });
+  // Attendre Firebase si pas encore prêt (module chargé après le script principal)
+  if(!window._db){
+    await new Promise(resolve=>{
+      let w=0; const t=setInterval(()=>{ w+=100; if(window._db||w>8000){clearInterval(t);resolve();} },100);
+    });
+  }
   if(!window._db){ ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="—"; }); return; }
   try{
     const colRef = window._col(window._db, "noc_tickets_indispo");
