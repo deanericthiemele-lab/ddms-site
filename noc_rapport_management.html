@@ -1173,7 +1173,7 @@ function generate(){
   ND_DATA=buildRows(events,"nd");
   if(!IF_DATA.length&&!ND_DATA.length){document.getElementById("parse-error").style.display="block";return;}
 
-  // ── Calculs KPI ──
+  // ── Parser les dates/heures pour le label période ──
   const dates=[...new Set(events.map(e=>e.date))].sort();
   const times=events.map(e=>e.time).sort();
   const periodLabel = dates.length > 1
@@ -1182,164 +1182,127 @@ function generate(){
   const heureDebut = times[0]||"";
   const heureFin   = times[times.length-1]||"";
 
-  const allSitesSet = new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
-  const nbLiens      = allSitesSet.size;
-  const nbDown       = ND_DATA.filter(d=>d.isDown).length;
-  const nbInstables  = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
-  const tauxDispo    = nbLiens>0 ? Math.round(((nbLiens-nbDown)/nbLiens)*100) : 0;
-  const nbCoupuresN1 = ND_DATA.reduce((s,d)=>s+d.nb,0);
-  const nbAnomalies  = IF_DATA.reduce((s,d)=>s+d.nb,0);
-  const nbReboots    = ND_DATA.filter(d=>d.cause==="Redémarrage").length;
-
-  // Top 10 instables — IF uniquement (oscillations Interface Down)
-  const topInstables = [...IF_DATA]
-    .sort((a,b)=>b.nb-a.nb).slice(0,10);
-
-  // Top 10 (ND down)
-  const topCoupures = [...ND_DATA]
-    .sort((a,b)=>b.nb-a.nb).slice(0,10);
-
-  // Clients impactés (extraire préfixe client depuis nom de node)
-  function clientFrom(site){
-    const m=site.match(/^([A-Z][A-Z0-9]+)_/);
-    return m?m[1]:site.substring(0,8);
-  }
-  const clientsImpactes=new Set([...ND_DATA.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
-  const nbClients=clientsImpactes.size;
-
-  // header date
   document.getElementById("hdr-date").textContent=periodLabel;
   document.getElementById("hdr-period").textContent="Période : "+heureDebut+" – "+heureFin;
 
-  // ── Injection des styles DG (hors template literal pour éviter coupure parser) ──
+  renderDashboard(IF_DATA, ND_DATA, periodLabel, heureDebut+" – "+heureFin, new Date().toLocaleString("fr-FR"));
+}
+
+// ── RENDER DASHBOARD — appelé par generate(), loadSavedReport(), sbFusionner() ─
+function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
+  // ── Calculs ──
+  const allSitesSet  = new Set([...ifData.map(d=>d.site),...ndData.map(d=>d.site)]);
+  const nbLiens      = allSitesSet.size;
+  const nbDown       = ndData.filter(d=>d.isDown).length;
+  const nbInstables  = [...ifData,...ndData].filter(d=>d.isFlapping).length;
+  const tauxDispo    = nbLiens>0 ? Math.round(((nbLiens-nbDown)/nbLiens)*100) : 0;
+  const nbCoupuresN1 = ndData.reduce((s,d)=>s+d.nb,0);
+  const nbAnomalies  = ifData.reduce((s,d)=>s+d.nb,0);
+  const nbReboots    = ndData.filter(d=>d.cause==="Redémarrage").length;
+  function clientFrom(site){ const m=site.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:site.substring(0,8); }
+  const clientsImpactes = new Set([...ndData.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
+  const nbClients = clientsImpactes.size;
+
+  const topInstables = [...ifData,...ndData].filter(d=>d.isFlapping).sort((a,b)=>b.nb-a.nb).slice(0,10);
+  const topCoupures  = [...ndData].sort((a,b)=>b.nb-a.nb).slice(0,10);
+
+  // Exposer pour onclick popup
+  window._topInstables = topInstables;
+  window._topCoupures  = topCoupures;
+
+  // ── Styles DG ──
   if(!document.getElementById("dg-styles")){
-    const st=document.createElement("style");
-    st.id="dg-styles";
-    st.textContent=".dg-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#fff;border:1px solid #e4e7ed;border-radius:10px;margin-bottom:16px}" +
-    ".dg-title{font-size:15px;font-weight:700;color:#0d0f14}" +
-    ".dg-sub{font-size:12px;color:#3d4250;margin-top:2px;font-weight:500}" +
-    ".dg-status{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:#fdf2f1;color:#8b0000}" +
-    ".dg-dot{width:7px;height:7px;border-radius:50%;background:#8b0000}" +
-    ".dg-section{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#3d4250;margin:18px 0 10px;padding-left:2px}" +
-    ".dg-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}" +
-    ".dg-grid4b{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}" +
-    ".dg-kpi{background:#f0f2f5;border-radius:8px;padding:12px 14px;border:1px solid #d8dce4}" +
-    ".dg-kpi-label{font-size:11px;color:#3d4250;font-weight:600;margin-bottom:5px;line-height:1.3}" +
-    ".dg-kpi-val{font-size:26px;font-weight:500;line-height:1}" +
-    ".dg-kpi-val.red{color:#8b0000}.dg-kpi-val.amber{color:#7c3d00}.dg-kpi-val.green{color:#0a4a1e}.dg-kpi-val.orange{color:#C04D00}" +
-    ".dg-kpi-sub{font-size:11px;color:#3d4250;font-weight:500;margin-top:4px}" +
-    ".dg-tops{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}" +
-    ".dg-top-card{background:#fff;border:1px solid #d8dce4;border-radius:8px;overflow:hidden}" +
-    ".dg-top-head{padding:9px 14px;border-bottom:1px solid #d8dce4;font-size:13px;font-weight:700;color:#0d0f14}" +
-    ".dg-top-row{display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid #edf0f4;font-size:12px}" +
-    ".dg-top-row:last-child{border-bottom:none}" +
-    ".dg-top-rank{color:#3d4250;min-width:16px;font-weight:700}" +
-    ".dg-top-name{flex:1;color:#0d0f14;font-weight:500;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}" +
-    ".dg-top-bar{flex:1;height:4px;background:#d8dce4;border-radius:2px}" +
-    ".dg-top-fill-r{height:4px;border-radius:2px;background:#8b0000}" +
-    ".dg-top-fill-a{height:4px;border-radius:2px;background:#7c3d00}" +
-    ".dg-top-count{min-width:28px;text-align:right;font-weight:700;font-size:12px}" +
-    ".dg-top-count.red{color:#8b0000}.dg-top-count.amber{color:#7c3d00}" +
-    ".dg-pda{background:#fff;border:1px solid #d8dce4;border-radius:8px;overflow:hidden;margin-bottom:10px}" +
-    ".dg-pda-head{padding:9px 14px;border-bottom:1px solid #d8dce4;display:flex;align-items:center;justify-content:space-between}" +
-    ".dg-pda-title{font-size:13px;font-weight:700;color:#0d0f14}" +
-    ".dg-pda-hrow{display:grid;grid-template-columns:0.7fr 1fr 0.7fr 0.8fr 1fr 0.8fr 1.2fr 0.7fr 1fr 0.7fr 0.7fr 0.3fr;gap:6px;padding:6px 14px;border-bottom:1px solid #d8dce4;background:#edf0f4}" +
-    ".dg-pda-col{font-size:11px;font-weight:700;color:#3d4250}" +
-    ".dg-pda-row{display:grid;grid-template-columns:0.7fr 1fr 0.7fr 0.8fr 1fr 0.8fr 1.2fr 0.7fr 1fr 0.7fr 0.7fr 0.3fr;gap:6px;padding:8px 14px;border-bottom:1px solid #edf0f4;align-items:center}" +
-    ".dg-pda-row:last-child{border-bottom:none}" +
-    ".dg-pda-site{font-size:12px;color:#0d0f14;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}" +
-    ".dg-pda-action{font-size:11px;color:#2a2e3a;font-weight:500}" +
-    ".dg-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700}" +
-    ".dg-b-red{background:#fde8e8;color:#8b0000;border:1px solid #e8a0a0}" +
-    ".dg-b-amber{background:#fef3cd;color:#7c3d00;border:1px solid #f0c060}" +
-    ".dg-b-green{background:#e6f4eb;color:#0a4a1e;border:1px solid #7ec99a}" +
-    ".dg-b-blue{background:#e8f0fe;color:#0d2e8a;border:1px solid #88a8f0}" +
+    const st=document.createElement("style"); st.id="dg-styles";
+    st.textContent=".dg-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#fff;border:1px solid #e4e7ed;border-radius:10px;margin-bottom:16px}"+
+    ".dg-title{font-size:15px;font-weight:700;color:#0d0f14}"+
+    ".dg-sub{font-size:12px;color:#3d4250;margin-top:2px;font-weight:500}"+
+    ".dg-status{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;background:#fdf2f1;color:#8b0000}"+
+    ".dg-dot{width:7px;height:7px;border-radius:50%;background:#8b0000}"+
+    ".dg-section{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#3d4250;margin:18px 0 10px;padding-left:2px}"+
+    ".dg-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}"+
+    ".dg-grid4b{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}"+
+    ".dg-kpi{background:#f0f2f5;border-radius:8px;padding:12px 14px;border:1px solid #d8dce4}"+
+    ".dg-kpi-label{font-size:11px;color:#3d4250;font-weight:600;margin-bottom:5px;line-height:1.3}"+
+    ".dg-kpi-val{font-size:26px;font-weight:500;line-height:1}"+
+    ".dg-kpi-val.red{color:#8b0000}.dg-kpi-val.amber{color:#7c3d00}.dg-kpi-val.green{color:#0a4a1e}.dg-kpi-val.orange{color:#C04D00}"+
+    ".dg-kpi-sub{font-size:11px;color:#3d4250;font-weight:500;margin-top:4px}"+
+    ".dg-tops{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}"+
+    ".dg-top-card{background:#fff;border:1px solid #d8dce4;border-radius:8px;overflow:hidden}"+
+    ".dg-top-head{padding:9px 14px;border-bottom:1px solid #d8dce4;font-size:13px;font-weight:700;color:#0d0f14}"+
+    ".dg-top-row{display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid #edf0f4;font-size:12px}"+
+    ".dg-top-row:last-child{border-bottom:none}"+
+    ".dg-top-rank{color:#3d4250;min-width:16px;font-weight:700}"+
+    ".dg-top-name{flex:1;color:#0d0f14;font-weight:500;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}"+
+    ".dg-top-bar{flex:1;height:4px;background:#d8dce4;border-radius:2px}"+
+    ".dg-top-fill-r{height:4px;border-radius:2px;background:#8b0000}"+
+    ".dg-top-fill-a{height:4px;border-radius:2px;background:#7c3d00}"+
+    ".dg-top-count{min-width:28px;text-align:right;font-weight:700;font-size:12px}"+
+    ".dg-top-count.red{color:#8b0000}.dg-top-count.amber{color:#7c3d00}"+
+    ".dg-pda{background:#fff;border:1px solid #d8dce4;border-radius:8px;overflow:hidden;margin-bottom:10px}"+
+    ".dg-pda-head{padding:9px 14px;border-bottom:1px solid #d8dce4;display:flex;align-items:center;justify-content:space-between}"+
+    ".dg-pda-title{font-size:13px;font-weight:700;color:#0d0f14}"+
+    ".dg-pda-hrow{display:grid;grid-template-columns:0.7fr 1fr 0.7fr 0.8fr 1fr 0.8fr 1.2fr 0.7fr 1fr 0.7fr 0.7fr 0.3fr;gap:6px;padding:6px 14px;border-bottom:1px solid #d8dce4;background:#edf0f4}"+
+    ".dg-pda-col{font-size:11px;font-weight:700;color:#3d4250}"+
+    ".dg-pda-row{display:grid;grid-template-columns:0.7fr 1fr 0.7fr 0.8fr 1fr 0.8fr 1.2fr 0.7fr 1fr 0.7fr 0.7fr 0.3fr;gap:6px;padding:8px 14px;border-bottom:1px solid #edf0f4;align-items:center}"+
+    ".dg-pda-row:last-child{border-bottom:none}"+
+    ".dg-pda-site{font-size:12px;color:#0d0f14;font-weight:600;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}"+
+    ".dg-pda-action{font-size:11px;color:#2a2e3a;font-weight:500}"+
+    ".dg-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700}"+
+    ".dg-b-red{background:#fde8e8;color:#8b0000;border:1px solid #e8a0a0}"+
+    ".dg-b-amber{background:#fef3cd;color:#7c3d00;border:1px solid #f0c060}"+
+    ".dg-b-green{background:#e6f4eb;color:#0a4a1e;border:1px solid #7ec99a}"+
+    ".dg-b-blue{background:#e8f0fe;color:#0d2e8a;border:1px solid #88a8f0}"+
     ".dg-sep{height:1px;background:#d8dce4;margin:14px 0}";
     document.head.appendChild(st);
   }
 
-  // ── Injection du dashboard DG ──
-  const rapport=document.getElementById("rapport");
-  rapport.innerHTML=`
+  // Helper top rows
+  const topRow = (d, i, fillCls, countCls, arrName) => {
+    const arr = arrName==="topInstables" ? topInstables : topCoupures;
+    const pct = arr[0]&&arr[0].nb>0 ? Math.round((d.nb/arr[0].nb)*100) : 0;
+    const nm  = d.site.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,32);
+    return `<div class="dg-top-row">
+      <span class="dg-top-rank">${i+1}</span>
+      <span class="dg-top-name" title="${d.site}">${nm}</span>
+      <span class="dg-top-bar"><span class="${fillCls}" style="width:${pct}%;display:block"></span></span>
+      <span class="dg-top-count ${countCls} dg-ev-btn" title="Voir les événements" onclick="showTopEvents(window._${arrName}[${i}])">${d.nb}×</span>
+    </div>`;
+  };
+
+  // ── Rendu HTML ──
+  const rapport = document.getElementById("rapport");
+  rapport.innerHTML = `
   <div class="dg-header">
     <div>
       <div class="dg-title">Rapport NOC B2B — Pilotage réseau</div>
-      <div class="dg-sub">${periodLabel} · ${heureDebut} – ${heureFin} · Orange Côte d'Ivoire · NOC B2B OCI</div>
+      <div class="dg-sub">${periodLabel} · ${heures} · Orange Côte d'Ivoire · NOC B2B OCI</div>
     </div>
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-      <span class="dg-status"><span class="dg-dot"></span>Statut global : critique</span>
-      <span style="font-size:10px;color:#9aa0ae">Généré le ${new Date().toLocaleString("fr-FR")}</span>
+      <span class="dg-status"><span class="dg-dot"></span>Statut global : ${nbDown>0?"critique":"opérationnel"}</span>
+      <span style="font-size:10px;color:#9aa0ae">Généré le ${genDateStr}</span>
     </div>
   </div>
 
   <div class="dg-section">Disponibilité réseau</div>
-
   <div class="dg-grid4">
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Liens supervisés<br></div>
-      <div class="dg-kpi-val orange">${nbLiens}</div>
-      <div class="dg-kpi-sub">nodes distincts analysés</div>
-    </div>
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Taux de disponibilité<br></div>
-      <div class="dg-kpi-val green">${tauxDispo}%</div>
-      <div class="dg-kpi-sub">Cible : 99%</div>
-    </div>
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Sites instables<br></div>
-      <div class="dg-kpi-val amber">${nbInstables}</div>
-      <div class="dg-kpi-sub">Warning/Critical cycliques</div>
-    </div>
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Coupure de liens<br></div>
-      <div class="dg-kpi-val red">${nbCoupuresN1}</div>
-      <div class="dg-kpi-sub">événements Node Down confirmés</div>
-    </div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Liens supervisés</div><div class="dg-kpi-val orange">${nbLiens}</div><div class="dg-kpi-sub">nodes distincts analysés</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div class="dg-kpi-val green">${tauxDispo}%</div><div class="dg-kpi-sub">Cible : 99%</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstables}</div><div class="dg-kpi-sub">Warning/Critical cycliques</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Coupure de liens</div><div class="dg-kpi-val red">${nbCoupuresN1}</div><div class="dg-kpi-sub">événements Node Down confirmés</div></div>
   </div>
-
   <div class="dg-grid4b">
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Anomalies & dégradations N2<br></div>
-      <div class="dg-kpi-val amber">${nbAnomalies}</div>
-      <div class="dg-kpi-sub">événements Interface Down</div>
-    </div>
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Sites encore Down<br></div>
-      <div class="dg-kpi-val red">${nbDown}</div>
-      <div class="dg-kpi-sub">Dispo lien primaire estimée ${nbLiens>0?Math.round(((nbLiens-nbDown)/nbLiens)*100):0}%</div>
-    </div>
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Clients impactés<br></div>
-      <div class="dg-kpi-val red">${nbClients}</div>
-      <div class="dg-kpi-sub">${[...clientsImpactes].slice(0,3).join(", ")}${clientsImpactes.size>3?"…":""}</div>
-    </div>
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Reboots détectés<br>(instabilité équipement)</div>
-      <div class="dg-kpi-val amber">${nbReboots}</div>
-      <div class="dg-kpi-sub">redémarrages enregistrés</div>
-    </div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Anomalies & dégradations N2</div><div class="dg-kpi-val amber">${nbAnomalies}</div><div class="dg-kpi-sub">événements Interface Down</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Sites encore Down</div><div class="dg-kpi-val red">${nbDown}</div><div class="dg-kpi-sub">Dispo lien primaire estimée ${tauxDispo}%</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div class="dg-kpi-val red">${nbClients}</div><div class="dg-kpi-sub">${[...clientsImpactes].slice(0,3).join(", ")}${clientsImpactes.size>3?"…":""}</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Reboots détectés<br>(instabilité équipement)</div><div class="dg-kpi-val amber">${nbReboots}</div><div class="dg-kpi-sub">redémarrages enregistrés</div></div>
   </div>
 
   <div class="dg-sep"></div>
   <div class="dg-section">KPI NOC — Ouverture de tickets Niveau 1 et Niveau 2</div>
-
   <div class="dg-grid4" id="kpi-noc-tickets">
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Tickets ouverts (total)<br></div>
-      <div class="dg-kpi-val red" id="kpi-tickets-total">—</div>
-      <div class="dg-kpi-sub">SAV B2B + Qualité &amp; Performance</div>
-    </div>
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Tickets SAV B2B — Niveau 1<br></div>
-      <div class="dg-kpi-val amber" id="kpi-tickets-sav">—</div>
-      <div class="dg-kpi-sub">Indisponibilités transmises au SAV B2B</div>
-    </div>
-    <div class="dg-kpi">
-      <div class="dg-kpi-label">Ticket Niveau 2<br></div>
-      <div class="dg-kpi-val amber" id="kpi-tickets-qp">—</div>
-      <div class="dg-kpi-sub">Incidents transmis Qualité &amp; Performance</div>
-    </div>
-
+    <div class="dg-kpi"><div class="dg-kpi-label">Tickets ouverts (total)</div><div class="dg-kpi-val red" id="kpi-tickets-total">—</div><div class="dg-kpi-sub">SAV B2B + Qualité &amp; Performance</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Tickets SAV B2B — Niveau 1</div><div class="dg-kpi-val amber" id="kpi-tickets-sav">—</div><div class="dg-kpi-sub">Indisponibilités transmises au SAV B2B</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Ticket Niveau 2</div><div class="dg-kpi-val amber" id="kpi-tickets-qp">—</div><div class="dg-kpi-sub">Incidents transmis Qualité &amp; Performance</div></div>
   </div>
   <div style="font-size:10px;color:#9aa0ae;margin:-8px 0 8px 2px;font-style:italic" id="kpi-noc-hint">
     ⓘ Ces données sont issues de <strong>noctb.html</strong> — partagées via Firebase en temps réel.
@@ -1347,79 +1310,52 @@ function generate(){
 
   <div class="dg-sep"></div>
   <div class="dg-section">Top 10</div>
-
   <div class="dg-tops">
     <div class="dg-top-card">
       <div class="dg-top-head">Top 10 — Sites instables (oscillations)</div>
-      ${topInstables.map((d,i)=>{
-        const pct=topInstables[0].nb>0?Math.round((d.nb/topInstables[0].nb)*100):0;
-        const nm=d.site.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,32);
-        return `<div class="dg-top-row">
-          <span class="dg-top-rank">${i+1}</span>
-          <span class="dg-top-name" title="${d.site}">${nm}</span>
-          <span class="dg-top-bar"><span class="dg-top-fill-a" style="width:${pct}%;display:block"></span></span>
-          <span class="dg-top-count amber dg-ev-btn" title="Voir les événements" onclick="showTopEvents(topInstables[${i}])">${d.nb}×</span>
-        </div>`;
-      }).join("")}
+      ${topInstables.length ? topInstables.map((d,i)=>topRow(d,i,"dg-top-fill-a","amber","topInstables")).join("") : '<div style="padding:14px;font-size:11px;color:#9aa0ae;text-align:center">Aucun site instable détecté</div>'}
     </div>
     <div class="dg-top-card">
       <div class="dg-top-head">Top 10 — Coupures confirmées (Down)</div>
-      ${topCoupures.map((d,i)=>{
-        const pct=topCoupures[0].nb>0?Math.round((d.nb/topCoupures[0].nb)*100):0;
-        const nm=d.site.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,32);
-        return `<div class="dg-top-row">
-          <span class="dg-top-rank">${i+1}</span>
-          <span class="dg-top-name" title="${d.site}">${nm}</span>
-          <span class="dg-top-bar"><span class="dg-top-fill-r" style="width:${pct}%;display:block"></span></span>
-          <span class="dg-top-count red dg-ev-btn" title="Voir les événements" onclick="showTopEvents(topCoupures[${i}])">${d.nb}×</span>
-        </div>`;
-      }).join("")}
+      ${topCoupures.length ? topCoupures.map((d,i)=>topRow(d,i,"dg-top-fill-r","red","topCoupures")).join("") : '<div style="padding:14px;font-size:11px;color:#9aa0ae;text-align:center">Aucune coupure confirmée</div>'}
     </div>
   </div>
 
   <div class="dg-sep"></div>
   <div class="dg-section">Plan d'actions Niveau 2</div>
-
   <div class="dg-pda" id="pda-container">
     <div class="dg-pda-head">
       <span class="dg-pda-title">Actions correctives niveau 2 — ${periodLabel}</span>
       <div style="display:flex;align-items:center;gap:8px">
-        <span class="dg-badge dg-b-red">${ND_DATA.filter(d=>d.isDown&&d.prio==="Haute").length} critiques</span>
+        <span class="dg-badge dg-b-red">${ndData.filter(d=>d.isDown&&d.prio==="Haute").length} critiques</span>
         <button onclick="pdaAddRow()" style="display:flex;align-items:center;gap:5px;background:#fff;color:#1a1d23;border:1px solid #d8dce4;border-radius:5px;padding:4px 11px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif" onmouseover="this.style.borderColor='#E05A00';this.style.color='#E05A00'" onmouseout="this.style.borderColor='#d8dce4';this.style.color='#1a1d23'">+ Ajouter</button>
         <button onclick="pdaSaveAll()" style="background:#E05A00;color:#fff;border:none;border-radius:5px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif">Enregistrer tout</button>
       </div>
     </div>
     <div class="dg-pda-hrow" style="grid-template-columns:0.7fr 1fr 0.7fr 0.8fr 1fr 0.8fr 1.2fr 0.7fr 1fr 0.7fr 0.7fr 0.3fr">
-      <span class="dg-pda-col">Date</span>
-      <span class="dg-pda-col">Site / Lien</span>
-      <span class="dg-pda-col">Routeur</span>
-      <span class="dg-pda-col">IP Adresse</span>
-      <span class="dg-pda-col">Défaut constaté</span>
-      <span class="dg-pda-col">Interfaces</span>
-      <span class="dg-pda-col">Action N2</span>
-      <span class="dg-pda-col">Acteur</span>
-      <span class="dg-pda-col">Remarque</span>
-      <span class="dg-pda-col">Priorité</span>
-      <span class="dg-pda-col">Statut</span>
-      <span class="dg-pda-col"></span>
+      <span class="dg-pda-col">Date</span><span class="dg-pda-col">Site / Lien</span>
+      <span class="dg-pda-col">Routeur</span><span class="dg-pda-col">IP Adresse</span>
+      <span class="dg-pda-col">Défaut constaté</span><span class="dg-pda-col">Interfaces</span>
+      <span class="dg-pda-col">Action N2</span><span class="dg-pda-col">Acteur</span>
+      <span class="dg-pda-col">Remarque</span><span class="dg-pda-col">Priorité</span>
+      <span class="dg-pda-col">Statut</span><span class="dg-pda-col"></span>
     </div>
-    <div id="pda-rows">
-    </div>
+    <div id="pda-rows"></div>
   </div>
 
   <div class="footer">
     <span>Orange Côte d'Ivoire · NOC B2B OCI NOC B2B · Données SolarWinds NPM</span>
-    <span id="footer-date">Généré le ${new Date().toLocaleString("fr-FR")}</span>
-  </div>
-  `;
+    <span id="footer-date">Généré le ${genDateStr}</span>
+  </div>`;
 
-  document.getElementById("paste-section").style.display="none";
-  rapport.style.display="block";
-  const _hbr=document.getElementById("hdr-btn-reset"); if(_hbr){_hbr.style.display="flex";}
-  window._currentSavedId=null;
-  window._vraimentsDown=ND_DATA.filter(d=>d.isDown);
-  window._avecBackup=[];
-  window._horsSlaRows=[];
+  document.getElementById("paste-section").style.display = "none";
+  rapport.style.display = "block";
+  const _hbr = document.getElementById("hdr-btn-reset"); if(_hbr) _hbr.style.display="flex";
+  window._currentSavedId = null;
+  window._vraimentsDown  = ndData.filter(d=>d.isDown);
+  window._avecBackup     = [];
+  window._horsSlaRows    = [];
+
   sbRenderList();
   pdaLoadFromFirebase();
   loadKpiTickets();
@@ -2046,25 +1982,17 @@ async function sbFusionner(){
     document.getElementById("footer-date").textContent="Généré le "+new Date().toLocaleString("fr-FR");
     { const _s=document.getElementById("hdr-sep"); if(_s) _s.style.display="block"; }
 
-    const allSites=new Set([...IF_DATA.map(d=>d.site),...ND_DATA.map(d=>d.site)]);
-    document.getElementById("k-sites").textContent=allSites.size;
-    document.getElementById("k-open").textContent=[...IF_DATA,...ND_DATA].filter(d=>d.isDown).length;
-    document.getElementById("k-flap").textContent=[...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
-    setKpi(IF_DATA,"if"); setKpi(ND_DATA,"nd");
-    setGlobalKpis(IF_DATA,ND_DATA);
-    setNote(IF_DATA,"if"); setNote(ND_DATA,"nd");
-    document.getElementById("tc-if").textContent=IF_DATA.length;
-    document.getElementById("tc-nd").textContent=ND_DATA.length;
-    Object.values(charts).forEach(c=>c.destroy()); charts={};
-    buildChart("chartIf","cc-if","ctag-if",IF_DATA);
-    buildChart("chartNd","cc-nd","ctag-nd",ND_DATA);
-    renderTbl("if"); renderTbl("nd");
-    document.getElementById("paste-section").style.display="none";
-    document.getElementById("rapport").style.display="block";
-    const _hbr=document.getElementById("hdr-btn-reset"); if(_hbr){_hbr.style.display="flex";}
-    const _hbs=document.getElementById("hdr-btn-save"); if(_hbs){_hbs.disabled=false;_hbs.style.opacity="1";}
+    // Calcul période pour renderDashboard (fusion fallback)
+    const _fusDts = selected.map(r=>r.hdrDate||"").flatMap(s=>(s.match(/\d{2}\/\d{2}\/\d{4}/g)||[]));
+    const _fusU = [...new Set(_fusDts)].sort((a,b)=>{const p=s=>{const[d,m,y]=s.split("/");return new Date(+y,+m-1,+d).getTime();};return p(a)-p(b);});
+    const _fusPeriod = _fusU.length>1 ? "Période du "+_fusU[0]+" au "+_fusU[_fusU.length-1] : _fusU[0]||"—";
+    const _fusHeures = (()=>{const s=selected.map(r=>(r.hdrPeriod||"").replace("Période : ","")).filter(Boolean);return s.length?s[0]:"";})();
+
+    document.getElementById("hdr-date").textContent   = _fusPeriod;
+    document.getElementById("hdr-period").textContent = "Rapport fusionné — "+selected.length+" journée"+(selected.length>1?"s":"");
+
+    renderDashboard(IF_DATA, ND_DATA, _fusPeriod, _fusHeures, new Date().toLocaleString("fr-FR"));
     sbToggleSel();
-    window.scrollTo({top:0,behavior:"smooth"});
   }
 }
 
@@ -2143,25 +2071,17 @@ async function loadSavedReport(id){
   document.getElementById("k-open").textContent  = [...IF_DATA,...ND_DATA].filter(d=>d.isDown).length;
   document.getElementById("k-flap").textContent  = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
 
-  setKpi(IF_DATA,"if"); setKpi(ND_DATA,"nd");
-  setGlobalKpis(IF_DATA,ND_DATA);
-  setNote(IF_DATA,"if"); setNote(ND_DATA,"nd");
+  // Calcul période pour renderDashboard
+  const _ldPeriod = r.hdrDate || "—";
+  const _ldHeures = (r.hdrPeriod||"").replace("Période : ","");
+  const _ldGen    = "Généré le "+r.savedAt;
 
-  document.getElementById("tc-if").textContent = IF_DATA.length;
-  document.getElementById("tc-nd").textContent = ND_DATA.length;
+  document.getElementById("hdr-date").textContent   = _ldPeriod;
+  document.getElementById("hdr-period").textContent = r.hdrPeriod||"";
+  document.getElementById("hdr-sep") && (document.getElementById("hdr-sep").style.display="block");
 
-  Object.values(charts).forEach(c=>c.destroy()); charts={};
-  buildChart("chartIf","cc-if","ctag-if",IF_DATA);
-  buildChart("chartNd","cc-nd","ctag-nd",ND_DATA);
-  renderTbl("if"); renderTbl("nd");
-
-  document.getElementById("paste-section").style.display  = "none";
-  document.getElementById("rapport").style.display        = "block";
-  const _hbr=document.getElementById("hdr-btn-reset"); if(_hbr){_hbr.style.display="flex";}
-  const _hbs3=document.getElementById("hdr-btn-save"); if(_hbs3) _hbs3.disabled=false;
-
-  sbRenderList(); // refresh active highlight
-  window.scrollTo({top:0,behavior:"smooth"});
+  window._currentSavedId = id;
+  renderDashboard(IF_DATA, ND_DATA, _ldPeriod, _ldHeures, _ldGen);
 }
 
 async function deleteSavedReport(id, e){
