@@ -1989,7 +1989,7 @@ function toggleSidebar(){
 }
 
 // ── MAIL POPUP ────────────────────────────────────────────────────────────────
-function openMailPopup(){
+async function openMailPopup(){
   if(!IF_DATA.length && !ND_DATA.length) return;
 
   const dateLabel   = document.getElementById("hdr-date").textContent || "—";
@@ -2010,10 +2010,27 @@ function openMailPopup(){
   const clientsSet  = new Set([...ND_DATA.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
   const nbClients   = clientsSet.size;
 
-  // KPI tickets depuis le DOM (déjà chargés par Firebase)
-  const tkTotal = document.getElementById("kpi-tickets-total")?.textContent || "—";
-  const tkSav   = document.getElementById("kpi-tickets-sav")?.textContent   || "—";
-  const tkQp    = document.getElementById("kpi-tickets-qp")?.textContent    || "—";
+  // KPI tickets depuis le DOM — attendre que Firebase ait fini de charger
+  const tkRaw = {
+    total: document.getElementById("kpi-tickets-total")?.textContent || "—",
+    sav:   document.getElementById("kpi-tickets-sav")?.textContent   || "—",
+    qp:    document.getElementById("kpi-tickets-qp")?.textContent    || "—"
+  };
+  // Si encore en chargement (…), relire depuis Firebase directement
+  const tkLoading = Object.values(tkRaw).some(v=>v==="…"||v==="—");
+  let tkTotal = tkRaw.total, tkSav = tkRaw.sav, tkQp = tkRaw.qp;
+  if(tkLoading && window._db){
+    try{
+      const hdrDate = document.getElementById("hdr-date")?.textContent || "";
+      const dateMatches = hdrDate.match(/\d{2}\/\d{2}\/\d{4}/g)||[];
+      const rapportDatesISO = new Set(dateMatches.map(d=>{ const [dd,mm,yyyy]=d.split("/"); return yyyy+"-"+mm+"-"+dd; }));
+      const snap = await window._gets(window._col(window._db,"noc_tickets_indispo"));
+      const tks  = snap.docs.map(d=>({...d.data()})).filter(t=>t.debut && rapportDatesISO.has(t.debut.substring(0,10)));
+      tkTotal = String(tks.length||0);
+      tkSav   = String(tks.filter(t=>t.destinataire==="SAV B2B").length||0);
+      tkQp    = String(tks.filter(t=>t.destinataire==="Qualité & Performance").length||0);
+    } catch(e){ tkTotal=tkRaw.total; tkSav=tkRaw.sav; tkQp=tkRaw.qp; }
+  }
 
   const topSites = [...IF_DATA,...ND_DATA].sort((a,b)=>b.nb-a.nb).slice(0,5);
   function shortName(s){ return s.replace(/^(FRANCHISE_|DGTCP[_-]|CNAM_|DOUANE_|DOUANES_)/i,"").substring(0,44); }
@@ -2051,20 +2068,16 @@ function openMailPopup(){
     </tr>`;
   }).join("");
 
-  // HTML du rapport mail — inline styles Outlook-compatible
-  const mailHtml = `<div style="font-family:Arial,sans-serif;width:500px;max-width:500px;background:#ffffff;border:1px solid #e0e0e0">
+  // HTML du rapport mail — table Outlook-compatible (div width ignoré par Outlook)
+  const mailHtml = `<table width="500" cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;width:500px;background:#ffffff;border:1px solid #e0e0e0"><tr><td>
 
   <!-- HEADER -->
   <div style="background:#E05A00;padding:12px 16px">
-    <table style="width:100%;border-collapse:collapse"><tr>
-      <td style="vertical-align:top">
-        <div style="color:#ffffff;font-size:13px;font-weight:700">NOC B2B — Rapport de disponibilité réseau</div>
-        <div style="color:#ffd4b3;font-size:10px;margin-top:3px">${dateLabel} · ${heures} · Orange Côte d'Ivoire · DDMS</div>
-      </td>
-      <td style="text-align:right;vertical-align:top">
-        <div style="display:inline-block;background:#ffffff;color:${statutBg};font-size:10px;font-weight:700;padding:4px 9px;border-radius:3px">${statutTxt}</div>
-        <div style="color:#ffd4b3;font-size:9px;margin-top:4px">Généré le ${genDate} à ${genTime}</div>
-      </td>
+    <div style="color:#ffffff;font-size:13px;font-weight:700;font-family:Arial,sans-serif">NOC B2B — Rapport de disponibilité réseau</div>
+    <div style="color:#ffd4b3;font-size:10px;margin-top:3px;font-family:Arial,sans-serif">${dateLabel} · ${heures} · Orange Côte d'Ivoire · DDMS</div>
+    <table width="468" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px"><tr>
+      <td width="220"><span style="background:#ffffff;color:${statutBg};font-size:10px;font-weight:700;padding:3px 9px;border-radius:3px;font-family:Arial,sans-serif">${statutTxt}</span></td>
+      <td width="248" style="text-align:right;color:#ffd4b3;font-size:9px;font-family:Arial,sans-serif">Généré le ${genDate} à ${genTime}</td>
     </tr></table>
   </div>
 
@@ -2123,7 +2136,7 @@ function openMailPopup(){
     </tr></table>
   </div>
 
-</div>`;
+</td></tr></table>`;
 
   // Stocker pour copie
   window._mailHtml = mailHtml;
