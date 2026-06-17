@@ -1142,6 +1142,8 @@ function fermerPopupPourcentage2Mois() {
         btnMois.style.background = '#eceff1'; btnMois.style.color = '#546e7a';
         btnMois.style.border = '1px solid #b0bec5'; btnMois.style.fontWeight = 'normal';
         if (titre) titre.textContent = '📊 Incidents répétitifs par Semaine';
+        const badgeEst = document.getElementById('badge-estimation-mois');
+        if (badgeEst) badgeEst.style.display = 'none';
         afficherGraphiqueFusionneParSemaine();
       } else {
         btnMois.style.background = '#546e7a'; btnMois.style.color = 'white';
@@ -1303,9 +1305,14 @@ function fermerPopupPourcentage2Mois() {
    </div>
    <div style="margin-top:30px;background-color:#ffffff;border:1px solid #b0bec5;padding:14px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
 
-    <h4 id="titre-graphique-fusionne" style="margin:0;color:#546e7a;font-size:14px;font-weight:700;">
-     📊 Incidents répétitifs par Mois
-    </h4>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+     <h4 id="titre-graphique-fusionne" style="margin:0;color:#546e7a;font-size:14px;font-weight:700;">
+      📊 Incidents répétitifs par Mois
+     </h4>
+     <div id="badge-estimation-mois" style="display:none;background:#fff3e0;border:1px solid #ffb74d;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;color:#e65100;white-space:nowrap;">
+      📈 Estimation fin de mois : —
+     </div>
+    </div>
     <canvas height="250" id="graphique-fusionne" width="600">
     </canvas>
     <!-- Boutons en bas : Exporter à gauche, % et % M-1 à droite -->
@@ -3909,7 +3916,75 @@ function exporterIncidentsND2ParMois() {
     },
     plugins: [ChartDataLabels]
   });
+
+  calculerEstimationFinMois(moisTriés, signalisations);
 }
+
+  // ===== Estimation dynamique des incidents en fin de mois en cours =====
+  // Combine 2 approches :
+  //  1) Le rythme réel constaté depuis le début du mois en cours (pro-rata jours écoulés / jours du mois)
+  //  2) La tendance (régression linéaire) observée sur l'évolution des mois précédents
+  // Les deux estimations sont pondérées selon l'avancement du mois (plus le mois avance,
+  // plus on fait confiance au rythme réel ; en début de mois, la tendance pèse davantage).
+  function calculerEstimationFinMois(moisTriés, signalisations) {
+    const badge = document.getElementById('badge-estimation-mois');
+    if (!badge) return;
+
+    const maintenant = new Date();
+    const moisCourant = maintenant.getMonth() + 1;
+    const anneeCourante = maintenant.getFullYear();
+
+    // On n'affiche l'estimation que si le mois en cours fait partie des mois affichés
+    if (!moisTriés.includes(moisCourant)) {
+      badge.style.display = 'none';
+      return;
+    }
+
+    const joursDansMois = new Date(anneeCourante, moisCourant, 0).getDate();
+    const joursEcoules = Math.min(maintenant.getDate(), joursDansMois);
+    const actuel = signalisations[moisCourant] || 0;
+
+    // 1) Estimation par rythme du mois en cours
+    const estimationRythme = joursEcoules > 0 ? (actuel / joursEcoules) * joursDansMois : actuel;
+
+    // 2) Estimation par tendance sur les mois précédents (régression linéaire simple)
+    const moisPrecedents = moisTriés.filter(m => m !== moisCourant);
+    let estimationTendance = null;
+    if (moisPrecedents.length >= 2) {
+      const n = moisPrecedents.length;
+      let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+      moisPrecedents.forEach(m => {
+        const y = signalisations[m] || 0;
+        sumX += m; sumY += y; sumXY += m * y; sumX2 += m * m;
+      });
+      const denom = (n * sumX2 - sumX * sumX);
+      if (denom !== 0) {
+        const pente = (n * sumXY - sumX * sumY) / denom;
+        const origine = (sumY - pente * sumX) / n;
+        estimationTendance = Math.max(0, pente * moisCourant + origine);
+      }
+    } else if (moisPrecedents.length === 1) {
+      estimationTendance = signalisations[moisPrecedents[0]] || 0;
+    }
+
+    // Pondération selon l'avancement du mois en cours
+    const poidsRythme = Math.min(1, joursEcoules / joursDansMois);
+    const poidsTendance = 1 - poidsRythme;
+
+    let estimationFinale;
+    if (estimationTendance !== null) {
+      estimationFinale = (estimationRythme * poidsRythme) + (estimationTendance * poidsTendance);
+    } else {
+      estimationFinale = estimationRythme;
+    }
+    // L'estimation ne peut jamais être inférieure à ce qui est déjà constaté
+    estimationFinale = Math.max(actuel, Math.round(estimationFinale));
+
+    const tendanceTexte = estimationTendance !== null ? `Tendance mois précédents : ${Math.round(estimationTendance)}. ` : '';
+    badge.title = `${actuel} signalisation(s) constatée(s) après ${joursEcoules}/${joursDansMois} jours du mois. ${tendanceTexte}Rythme actuel projeté : ${Math.round(estimationRythme)}.`;
+    badge.style.display = 'inline-block';
+    badge.innerHTML = `📈 Estimation ${moisNoms[moisCourant]} : ${estimationFinale} incidents`;
+  }
 
   function afficherPopupMoisClients(mNum, dsIdx, dsLabel) {
     const moisNomsFull = {1:'Janvier',2:'Février',3:'Mars',4:'Avril',5:'Mai',6:'Juin',7:'Juillet',8:'Août',9:'Septembre',10:'Octobre',11:'Novembre',12:'Décembre'};
