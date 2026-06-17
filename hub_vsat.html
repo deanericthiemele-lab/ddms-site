@@ -273,14 +273,14 @@ tr:hover td{background:#f8fafc;}
         <input type="text" id="filter-maint" placeholder="Rechercher..." oninput="renderMaintenance()">
         <select id="filter-maint-statut" onchange="renderMaintenance()">
           <option value="">Tous statuts</option>
-          <option>Planifiée</option><option>En cours</option><option>Effectuée</option><option>En attente BC</option>
+          <option>Planifiée</option><option>En cours</option><option>Effectuée</option>
         </select>
       </div>
       <div style="overflow-x:auto;">
         <table>
           <thead><tr>
             <th>Client</th><th>Sites</th><th>Date incident</th><th>Demandeur</th><th>Localisation</th><th>Code site</th><th>GPS</th>
-            <th>Action corrective</th><th>Coût</th><th>Récurrent</th><th>Prestataire</th><th>Statut</th><th>Commentaire</th><th>Actions</th>
+            <th>Action corrective</th><th>Coût</th><th>Prestataire</th><th>Statut</th><th>Commentaire</th><th>Actions</th>
           </tr></thead>
           <tbody id="maintenance-tbody"></tbody>
         </table>
@@ -406,12 +406,9 @@ tr:hover td{background:#f8fafc;}
       <div class="form-group"><label>GPS Longitude</label><input id="mt-lon" type="text" placeholder="-7.95114"></div>
     </div>
     <div class="form-group"><label>Action corrective</label><textarea id="mt-action"></textarea></div>
-    <div class="form-row">
-      <div class="form-group"><label>Coût intervention (FCFA)</label><input id="mt-cout" type="number" step="1" placeholder="Coût ponctuel de l'intervention"></div>
-      <div class="form-group"><label>Récurrent (FCFA / mois)</label><input id="mt-recurrent" type="number" step="1" placeholder="Montant mensuel payé par le client"></div>
-    </div>
+    <div class="form-group"><label>Coût intervention (FCFA)</label><input id="mt-cout" type="number" step="1" placeholder="Coût ponctuel de l'intervention"></div>
     <div class="form-group"><label>Statut</label>
-      <select id="mt-statut"><option>Planifiée</option><option>En cours</option><option>Effectuée</option><option>En attente BC</option></select>
+      <select id="mt-statut"><option>Planifiée</option><option>En cours</option><option>Effectuée</option></select>
     </div>
     <div class="form-group"><label>Commentaire</label><textarea id="mt-comment"></textarea></div>
     <input type="hidden" id="mt-edit-id">
@@ -519,6 +516,13 @@ function initFirestoreListeners() {
 
   db.collection(COLLECTIONS.maintenance).onSnapshot(snap => {
     STATE.maintenance = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Migration : « En attente BC » n'existe plus comme statut, on bascule ces lignes vers « Planifiée »
+    STATE.maintenance.forEach(m => {
+      if (m.statut === 'En attente BC') {
+        m.statut = 'Planifiée';
+        fsUpdate('maintenance', m.id, { statut: 'Planifiée' });
+      }
+    });
     renderMaintenance(); renderMaintenanceKpis(); renderSummary(); updateDatalists();
   }, err => { console.error(err); setSyncStatus(false, 'Erreur sync'); });
 
@@ -874,14 +878,12 @@ function renderMaintenanceKpis() {
   const planifiee = periodRows.filter(m=>m.statut==='Planifiée').length;
   const enCours = periodRows.filter(m=>m.statut==='En cours').length;
   const effectuee = periodRows.filter(m=>m.statut==='Effectuée').length;
-  const attenteBC = periodRows.filter(m=>m.statut==='En attente BC').length;
   const totalCout = periodRows.reduce((s,m)=>s+(parseFloat(m.cout)||0),0);
   document.getElementById('kpi-maintenance').innerHTML = `
     <div class="kpi-card blue"><div class="kpi-label">Total signalisations</div><div class="kpi-value blue">${total}</div></div>
     <div class="kpi-card cyan"><div class="kpi-label">Planifiée</div><div class="kpi-value cyan">${planifiee}</div></div>
     <div class="kpi-card yellow"><div class="kpi-label">En cours</div><div class="kpi-value yellow">${enCours}</div></div>
     <div class="kpi-card green"><div class="kpi-label">Effectuée</div><div class="kpi-value green">${effectuee}</div></div>
-    <div class="kpi-card red"><div class="kpi-label">En attente BC</div><div class="kpi-value red">${attenteBC}</div></div>
     <div class="kpi-card purple"><div class="kpi-label">Coût total</div><div class="kpi-value purple" style="font-size:18px">${fmtMoney(totalCout)}</div></div>
     <div class="kpi-card blue"><div class="kpi-label">Prestataires</div><div class="kpi-sub" style="font-size:12px;margin-top:8px;line-height:1.5;">${prestataireSummary(periodRows)}</div></div>
   `;
@@ -907,7 +909,6 @@ function renderMaintenance() {
       <td style="font-size:10px">${m.lat&&m.lon ? m.lat+', '+m.lon : '—'}</td>
       <td style="font-size:11px;max-width:180px">${m.action||''}</td>
       <td style="font-size:11px">${fmtMoney(m.cout)}</td>
-      <td style="font-size:11px">${fmtMoney(m.recurrent)}</td>
       <td>${m.prestataire||'—'}</td>
       <td>${statusBadge(m.statut||'Planifiée')}</td>
       <td style="font-size:11px;max-width:140px">${m.comment||''}</td>
@@ -915,12 +916,12 @@ function renderMaintenance() {
         <button class="btn btn-secondary btn-sm" onclick="editMaint('${m.id}')">✏️</button>
         <button class="btn btn-danger btn-sm" onclick="deleteMaint('${m.id}')">🗑</button>
       </div></td>
-    </tr>`).join('') : `<tr><td colspan="14" class="empty-state">Aucune intervention pour cette période.</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="13" class="empty-state">Aucune intervention pour cette période.</td></tr>`;
 }
 function openMaintModal() {
   document.getElementById('modal-maint-title').textContent = 'Ajouter une intervention';
   document.getElementById('mt-edit-id').value = '';
-  ['mt-client','mt-demandeur','mt-localisation','mt-code','mt-lat','mt-lon','mt-action','mt-cout','mt-recurrent','mt-prestataire','mt-comment'].forEach(id=>document.getElementById(id).value='');
+  ['mt-client','mt-demandeur','mt-localisation','mt-code','mt-lat','mt-lon','mt-action','mt-cout','mt-prestataire','mt-comment'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('mt-date').value = todayStr();
   document.getElementById('mt-statut').value = 'Planifiée';
   openModal('modal-maint');
@@ -938,7 +939,6 @@ function editMaint(id) {
   document.getElementById('mt-lon').value = m.lon||'';
   document.getElementById('mt-action').value = m.action||'';
   document.getElementById('mt-cout').value = m.cout||'';
-  document.getElementById('mt-recurrent').value = m.recurrent||'';
   document.getElementById('mt-prestataire').value = m.prestataire||'';
   document.getElementById('mt-statut').value = m.statut||'Planifiée';
   document.getElementById('mt-comment').value = m.comment||'';
@@ -957,7 +957,6 @@ async function saveMaint() {
     lon: document.getElementById('mt-lon').value,
     action: document.getElementById('mt-action').value,
     cout: document.getElementById('mt-cout').value,
-    recurrent: document.getElementById('mt-recurrent').value,
     prestataire: document.getElementById('mt-prestataire').value,
     statut: document.getElementById('mt-statut').value,
     comment: document.getElementById('mt-comment').value
@@ -1149,7 +1148,7 @@ function genererRapport() {
   const maintInPeriod = STATE.maintenance.filter(m => inPeriod(m.date, start, end));
 
   const totalRecurrentProd = prodInPeriod.reduce((s,p)=>s+(parseFloat(p.recurrent)||0),0);
-  const totalRecurrentMaint = maintInPeriod.reduce((s,m)=>s+(parseFloat(m.recurrent)||0),0);
+  const totalCoutMaint = maintInPeriod.reduce((s,m)=>s+(parseFloat(m.cout)||0),0);
   const maintEffectuees = maintInPeriod.filter(m=>m.statut==='Effectuée').length;
 
   const periodLabel = rapPreset === 'all' ? 'Toutes périodes' : `${RAP_PERIOD_LABELS[rapPreset]} (${fmtDateFr(start)} au ${fmtDateFr(end)})`;
@@ -1167,7 +1166,8 @@ function genererRapport() {
         <div class="kpi-card purple"><div class="kpi-label">Nouveaux sites (période)</div><div class="kpi-value purple">${prodInPeriod.length}</div></div>
         <div class="kpi-card yellow"><div class="kpi-label">Interventions (période)</div><div class="kpi-value yellow">${maintInPeriod.length}</div></div>
         <div class="kpi-card green"><div class="kpi-label">Maintenances effectuées</div><div class="kpi-value green">${maintEffectuees}</div></div>
-        <div class="kpi-card red"><div class="kpi-label">Récurrent total (période)</div><div class="kpi-value red" style="font-size:17px">${fmtMoney(totalRecurrentProd+totalRecurrentMaint)}</div></div>
+        <div class="kpi-card red"><div class="kpi-label">Récurrent production (période)</div><div class="kpi-value red" style="font-size:17px">${fmtMoney(totalRecurrentProd)}</div></div>
+        <div class="kpi-card purple"><div class="kpi-label">Coût maintenance (période)</div><div class="kpi-value purple" style="font-size:17px">${fmtMoney(totalCoutMaint)}</div></div>
       </div>
     </div>
     <div class="card">
@@ -1193,8 +1193,8 @@ function genererRapport() {
     <div class="card">
       <div class="section-title">Interventions de maintenance (${maintInPeriod.length})</div>
       <table>
-        <thead><tr><th>Client</th><th>Date</th><th>Action corrective</th><th>Statut</th><th>Récurrent</th></tr></thead>
-        <tbody>${maintInPeriod.length ? maintInPeriod.map(m=>`<tr><td><b>${m.client||'—'}</b></td><td>${fmtDateFr(m.date)}</td><td style="font-size:11px">${m.action||''}</td><td>${statusBadge(m.statut||'Planifiée')}</td><td>${fmtMoney(m.recurrent)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-state">Aucune intervention sur cette période.</td></tr>'}</tbody>
+        <thead><tr><th>Client</th><th>Date</th><th>Action corrective</th><th>Statut</th><th>Coût</th></tr></thead>
+        <tbody>${maintInPeriod.length ? maintInPeriod.map(m=>`<tr><td><b>${m.client||'—'}</b></td><td>${fmtDateFr(m.date)}</td><td style="font-size:11px">${m.action||''}</td><td>${statusBadge(m.statut||'Planifiée')}</td><td>${fmtMoney(m.cout)}</td></tr>`).join('') : '<tr><td colspan="5" class="empty-state">Aucune intervention sur cette période.</td></tr>'}</tbody>
       </table>
     </div>
     <div style="text-align:center;margin-top:10px;padding:14px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)">CONFIDENTIEL – Usage interne · NOC B2B DDMS · Hub VSAT</div>
