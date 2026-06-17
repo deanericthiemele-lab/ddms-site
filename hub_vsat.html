@@ -75,15 +75,17 @@ tr:hover td{background:#f8fafc;}
 .form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;}
 .form-group{display:flex;flex-direction:column;gap:3px;margin-bottom:10px;}
 .form-group label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;font-weight:600;}
-.form-group input,.form-group select,.form-group textarea{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:7px 9px;border-radius:6px;font-size:13px;font-family:var(--font);}
+.form-group input,.form-group select,.form-group textarea{background:var(--surface2);border:1px solid var(--border);color:#000;padding:7px 9px;border-radius:6px;font-size:13px;font-family:var(--font);font-weight:500;}
+.form-group input::placeholder,.form-group textarea::placeholder{color:#94a3b8;}
 .form-group textarea{resize:vertical;min-height:55px;}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{outline:none;border-color:var(--accent);}
 .filter-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;}
-.filter-bar input,.filter-bar select{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:12px;}
+.filter-bar input,.filter-bar select{background:var(--surface2);border:1px solid var(--border);color:#000;padding:6px 10px;border-radius:6px;font-size:12px;font-weight:500;}
+.filter-bar input::placeholder{color:#94a3b8;}
 .filter-bar input{min-width:200px;}
 .period-filter{display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;}
 .period-filter label{font-size:11px;color:var(--muted);font-weight:600;white-space:nowrap;}
-.period-filter input[type="date"]{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:6px;font-size:12px;}
+.period-filter input[type="date"]{background:var(--surface);border:1px solid var(--border);color:#000;padding:5px 8px;border-radius:6px;font-size:12px;font-weight:500;}
 .period-filter .period-quick{display:flex;gap:4px;}
 .period-filter .period-quick button{font-size:11px;padding:4px 9px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--muted);cursor:pointer;}
 .period-filter .period-quick button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
@@ -325,12 +327,17 @@ tr:hover td{background:#f8fafc;}
   <div class="page" id="page-rapport">
     <div class="card no-print">
       <div class="section-title">Générer un rapport</div>
-      <div class="form-row">
-        <div class="form-group"><label>Date de début</label><input type="date" id="rap-start"></div>
-        <div class="form-group"><label>Date de fin</label><input type="date" id="rap-end"></div>
+      <div class="period-filter" style="margin-bottom:12px;">
+        <label>Période :</label>
+        <div class="period-quick">
+          <button onclick="setRapPeriodPreset('day')" id="rap-preset-day">Jour</button>
+          <button onclick="setRapPeriodPreset('week')" id="rap-preset-week">Semaine</button>
+          <button onclick="setRapPeriodPreset('month')" id="rap-preset-month" class="active">Mois</button>
+          <button onclick="setRapPeriodPreset('year')" id="rap-preset-year">Année</button>
+          <button onclick="setRapPeriodPreset('all')" id="rap-preset-all">Tout</button>
+        </div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
-        <button class="btn btn-secondary" onclick="genererRapport()">Générer l'aperçu</button>
         <button class="btn btn-primary" onclick="window.print()">⬇ Exporter en PDF</button>
       </div>
     </div>
@@ -1065,9 +1072,16 @@ function inPeriod(dateStr, start, end) {
   return true;
 }
 
+let rapPreset = 'month';
+const RAP_PERIOD_LABELS = { day:"Aujourd'hui", week:'Cette semaine', month:'Ce mois', year:'Cette année', all:'Toutes périodes' };
+function setRapPeriodPreset(preset) {
+  rapPreset = preset;
+  setActivePresetBtn('rap', preset);
+  genererRapport();
+}
+
 function genererRapport() {
-  const start = document.getElementById('rap-start').value;
-  const end = document.getElementById('rap-end').value;
+  const { start, end } = periodRange(rapPreset);
 
   const prodInPeriod = STATE.production.filter(p => inPeriod(p.date, start, end));
   const maintInPeriod = STATE.maintenance.filter(m => inPeriod(m.date, start, end));
@@ -1076,7 +1090,7 @@ function genererRapport() {
   const totalRecurrentMaint = maintInPeriod.reduce((s,m)=>s+(parseFloat(m.recurrent)||0),0);
   const maintEffectuees = maintInPeriod.filter(m=>m.statut==='Effectuée').length;
 
-  const periodLabel = (start || end) ? `du ${start?fmtDateFr(start):'…'} au ${end?fmtDateFr(end):'…'}` : 'Toutes périodes';
+  const periodLabel = rapPreset === 'all' ? 'Toutes périodes' : `${RAP_PERIOD_LABELS[rapPreset]} (${fmtDateFr(start)} au ${fmtDateFr(end)})`;
 
   let html = `
     <div class="card">
