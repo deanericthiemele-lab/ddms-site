@@ -1314,7 +1314,7 @@ function fermerPopupPourcentage2Mois() {
        📈 Estimation fin de mois : —
       </div>
       <button onclick="afficherPopupPredictionND()" style="background:#37474f;color:white;border:none;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
-       🔮 ND à risque de récidive
+       🔮 ND à risque ce mois
       </button>
      </div>
     </div>
@@ -3991,96 +3991,75 @@ function exporterIncidentsND2ParMois() {
     badge.innerHTML = `📈 Estimation ${moisNoms[moisCourant]} : ${estimationFinale} incidents`;
   }
 
-  // ===== Prédiction des ND à risque de récidive, basée sur l'historique mensuel =====
-  // Score de risque (0 à 100%) combinant 3 facteurs par ND :
-  //  1) Taux de récurrence  = nb de mois actifs / nb de mois écoulés depuis la 1ère incidence (régularité)
-  //  2) Récence              = décroît linéairement à 0 sur 3 mois sans incident (s'éteint si dormant)
-  //  3) Récidive immédiate   = bonus si 2 mois consécutifs actifs juste avant/au mois en cours
-  // Score = 0.5×Récurrence + 0.35×Récence + 0.15×Récidive immédiate. Seuil d'affichage : score ≥ 45%.
+  // ===== Prédiction des ND à risque pour le MOIS EN COURS =====
+  // Règle simple : on regarde seulement les 2 mois qui précèdent le mois en cours (M-1 et M-2).
+  //  - Risque ÉLEVÉ  : le ND a eu un incident à M-1 ET à M-2 → il revient régulièrement, très probable qu'il revienne aussi ce mois-ci.
+  //  - Risque MODÉRÉ : le ND a eu un incident à M-1 seulement → possible qu'il revienne ce mois-ci.
+  // Un ND sans incident à M-1 n'est pas retenu (pas assez de signal récent).
   function calculerPredictionND() {
     if (typeof tableauActuel === 'undefined' || !tableauActuel.length) return [];
 
     const maintenant = new Date();
     const moisCourant = maintenant.getMonth() + 1;
+    const moisN1 = moisCourant === 1 ? 12 : moisCourant - 1;
+    const moisN2 = moisCourant === 1 ? 11 : (moisCourant === 2 ? 12 : moisCourant - 2);
+
     const resultats = [];
 
     tableauActuel.forEach(item => {
-      const moisActifs = Object.entries(item.mois || {})
-        .filter(([m, n]) => (n || 0) > 0)
-        .map(([m]) => parseInt(m))
-        .sort((a, b) => a - b);
+      const incN1 = (item.mois[moisN1] || 0) > 0;
+      const incN2 = (item.mois[moisN2] || 0) > 0;
 
-      // Il faut au moins 2 mois avec incident pour évaluer une récidive
-      if (moisActifs.length < 2) return;
-
-      const premierMois = moisActifs[0];
-      const dernierMoisActif = moisActifs[moisActifs.length - 1];
-      const nbMoisActifs = moisActifs.length;
-
-      const nbMoisDepuisDebut = Math.max(1, moisCourant - premierMois + 1);
-      const tauxRecurrence = Math.min(1, nbMoisActifs / nbMoisDepuisDebut);
-
-      const ecartDepuisDernier = moisCourant - dernierMoisActif;
-      const recence = Math.max(0, 1 - (ecartDepuisDernier / 3));
-      if (recence <= 0) return; // ND dormant depuis trop longtemps : non retenu
-
-      let recidiveImmediate = 0;
-      for (let i = 1; i < moisActifs.length; i++) {
-        if (moisActifs[i] === moisActifs[i - 1] + 1 && moisActifs[i] >= moisCourant - 1) {
-          recidiveImmediate = 1;
-          break;
-        }
-      }
-
-      const score = (0.5 * tauxRecurrence) + (0.35 * recence) + (0.15 * recidiveImmediate);
-      if (score < 0.45) return;
+      if (!incN1) return; // pas d'incident le mois dernier : pas de signal pour ce mois-ci
 
       resultats.push({
         nd: item.nd || '',
         raison: item.raison || '—',
         localisation: item.localisation || 'Inconnue',
-        score: Math.round(score * 100),
-        nbMoisActifs,
-        dernierMoisActif
+        risque: incN2 ? 'eleve' : 'modere'
       });
     });
 
-    return resultats.sort((a, b) => b.score - a.score);
+    // Risque élevé affiché en premier
+    return resultats.sort((a, b) => {
+      if (a.risque === b.risque) return 0;
+      return a.risque === 'eleve' ? -1 : 1;
+    });
   }
 
   function afficherPopupPredictionND() {
     const data = calculerPredictionND();
     window._predictionNDExport = data;
     const moisNomsFull = {1:'Janvier',2:'Février',3:'Mars',4:'Avril',5:'Mai',6:'Juin',7:'Juillet',8:'Août',9:'Septembre',10:'Octobre',11:'Novembre',12:'Décembre'};
+    const moisCourant = new Date().getMonth() + 1;
 
     let html;
     if (!data.length) {
-      html = `<p style="text-align:center;color:#78909c;padding:30px 0;">Aucun ND ne présente actuellement un profil de récidive significatif.</p>`;
+      html = `<p style="text-align:center;color:#78909c;padding:30px 0;">Aucun ND n'a eu d'incident le mois dernier : pas de risque identifié pour ${moisNomsFull[moisCourant]}.</p>`;
     } else {
       html = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
         <thead><tr style="background:#37474f;color:white;">
           <th style="padding:8px;text-align:left;">ND</th>
           <th style="padding:8px;text-align:left;">Raison sociale</th>
           <th style="padding:8px;text-align:left;">Localisation</th>
-          <th style="padding:8px;text-align:center;">Indice de récidive</th>
-          <th style="padding:8px;text-align:left;">Dernier incident</th>
+          <th style="padding:8px;text-align:center;">Risque</th>
         </tr></thead><tbody>`;
       data.forEach((d, i) => {
         const bg = i % 2 === 0 ? '#fff' : '#f5f7f8';
-        let couleur = '#43a047';
-        if (d.score >= 75) couleur = '#c62828';
-        else if (d.score >= 55) couleur = '#ef6c00';
+        const estEleve = d.risque === 'eleve';
+        const couleur = estEleve ? '#c62828' : '#ef6c00';
+        const label = estEleve ? '🔴 Élevé' : '🟠 Modéré';
         html += `<tr style="background:${bg};">
           <td style="padding:7px 8px;border-bottom:1px solid #eee;font-weight:600;color:#1565c0;">${d.nd}</td>
           <td style="padding:7px 8px;border-bottom:1px solid #eee;">${d.raison}</td>
           <td style="padding:7px 8px;border-bottom:1px solid #eee;">${d.localisation}</td>
-          <td style="padding:7px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;color:${couleur};">${d.score}%</td>
-          <td style="padding:7px 8px;border-bottom:1px solid #eee;font-size:12px;color:#546e7a;">${moisNomsFull[d.dernierMoisActif] || d.dernierMoisActif}</td>
+          <td style="padding:7px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;color:${couleur};">${label}</td>
         </tr>`;
       });
       html += `</tbody></table>`;
     }
 
+    document.getElementById('popup-prediction-nd-title').textContent = `🔮 ND à risque pour ${moisNomsFull[moisCourant]}`;
     document.getElementById('popup-prediction-nd-body').innerHTML = html;
     document.getElementById('popup-prediction-nd-count').textContent = data.length + ' ND identifié(s)';
     document.getElementById('popup-prediction-nd').style.display = 'flex';
@@ -4092,18 +4071,16 @@ function exporterIncidentsND2ParMois() {
 
   function exporterPredictionND() {
     if (!window._predictionNDExport || !window._predictionNDExport.length) return;
-    const moisNomsFull = {1:'Janvier',2:'Février',3:'Mars',4:'Avril',5:'Mai',6:'Juin',7:'Juillet',8:'Août',9:'Septembre',10:'Octobre',11:'Novembre',12:'Décembre'};
     const rows = window._predictionNDExport.map(d => ({
       'ND': d.nd,
       'Raison sociale': d.raison,
       'Localisation': d.localisation,
-      'Indice de récidive (%)': d.score,
-      'Dernier incident': moisNomsFull[d.dernierMoisActif] || d.dernierMoisActif
+      'Risque': d.risque === 'eleve' ? 'Élevé' : 'Modéré'
     }));
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, 'ND_Risque_Recidive');
-    XLSX.writeFile(wb, 'ND_Risque_Recidive.xlsx');
+    XLSX.utils.book_append_sheet(wb, ws, 'ND_Risque_Mois_Courant');
+    XLSX.writeFile(wb, 'ND_Risque_Mois_Courant.xlsx');
   }
 
   function afficherPopupMoisClients(mNum, dsIdx, dsLabel) {
@@ -6139,12 +6116,12 @@ function exporterNDsDeuxMoisExcel() {
     </div>
   </div>
 
-  <!-- Popup prédiction ND à risque de récidive -->
+  <!-- Popup prédiction ND à risque pour le mois en cours -->
   <div id="popup-prediction-nd" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:10000;justify-content:center;align-items:center;">
     <div style="background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.25);width:90%;max-width:800px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
       <div style="background:linear-gradient(135deg,#37474f,#1c313a);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
         <div>
-         <span style="color:white;font-size:16px;font-weight:bold;">🔮 ND à risque de récidive</span>
+         <span id="popup-prediction-nd-title" style="color:white;font-size:16px;font-weight:bold;">🔮 ND à risque</span>
          <div id="popup-prediction-nd-count" style="color:#cfd8dc;font-size:12px;margin-top:2px;"></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
@@ -6153,7 +6130,7 @@ function exporterNDsDeuxMoisExcel() {
         </div>
       </div>
       <div style="padding:10px 20px 0 20px;background:#f5f7f8;font-size:12px;color:#546e7a;">
-       Indice basé sur la fréquence et la récence des incidents passés de chaque ND. Ne remplace pas une analyse terrain.
+       🔴 Élevé : ND présent le mois dernier ET le mois d'avant (récidiviste). 🟠 Modéré : présent le mois dernier seulement.
       </div>
       <div id="popup-prediction-nd-body" style="overflow:auto;flex:1;padding:10px 20px 16px 20px;background:#f5f7f8;"></div>
     </div>
