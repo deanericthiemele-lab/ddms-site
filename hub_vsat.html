@@ -311,9 +311,7 @@ tr:hover td{background:#f8fafc;}
       </div>
       <div style="overflow-x:auto;">
         <table>
-          <thead><tr>
-            <th>Date</th><th>Disponibilité Hub</th><th>Sites actifs</th><th>Sites en alarme</th><th>MTTR</th><th>Statut</th><th>Actions</th>
-          </tr></thead>
+          <thead><tr id="hub-thead-row"></tr></thead>
           <tbody id="hub-tbody"></tbody>
         </table>
       </div>
@@ -1009,23 +1007,32 @@ function hubReadingOverallStatus(reading) {
 }
 
 function renderHub() {
+  // En-tête dynamique : Date + tous les indicateurs + Observations + Statut + Actions
+  document.getElementById('hub-thead-row').innerHTML =
+    `<th>Date</th>` +
+    HUB_INDICATORS.map(ind => `<th>${ind.label}${ind.unit?' ('+ind.unit+')':''}</th>`).join('') +
+    `<th>Observations</th><th>Statut</th><th>Actions</th>`;
+
   const rows = hubPeriodRows().slice().sort((a,b)=>(b.dateReleve||'').localeCompare(a.dateReleve||''));
   document.getElementById('hub-count').textContent = rows.length;
   document.getElementById('hub-tbody').innerHTML = rows.length ? rows.map(h => {
     const status = hubReadingOverallStatus(h);
+    const indicatorCells = HUB_INDICATORS.map(ind => {
+      const raw = h[ind.key];
+      const hasVal = raw !== undefined && raw !== null && raw !== '';
+      return `<td>${hasVal ? raw+(ind.unit?' '+ind.unit:'') : '—'}</td>`;
+    }).join('');
     return `<tr>
       <td><b>${fmtDateFr(h.dateReleve)}</b></td>
-      <td>${h.dispoHub !== undefined && h.dispoHub !== '' ? h.dispoHub+' %' : '—'}</td>
-      <td>${h.nbSitesActifs !== undefined && h.nbSitesActifs !== '' ? h.nbSitesActifs : '—'}</td>
-      <td>${h.nbSitesAlarme !== undefined && h.nbSitesAlarme !== '' ? h.nbSitesAlarme : '—'}</td>
-      <td>${h.mttr !== undefined && h.mttr !== '' ? h.mttr+' h' : '—'}</td>
+      ${indicatorCells}
+      <td style="font-size:11px;max-width:160px">${h.observations||''}</td>
       <td>${status===null ? '<span class="badge">N/A</span>' : status ? '<span class="badge-status s-ok">OK</span>' : '<span class="badge-status s-ko">KO</span>'}</td>
       <td><div class="action-btns">
         <button class="btn btn-secondary btn-sm" onclick="editHub('${h.id}')">✏️</button>
         <button class="btn btn-danger btn-sm" onclick="deleteHub('${h.id}')">🗑</button>
       </div></td>
     </tr>`;
-  }).join('') : `<tr><td colspan="7" class="empty-state">Aucun relevé pour cette période. Clique sur "+ Relevé" pour ajouter.</td></tr>`;
+  }).join('') : `<tr><td colspan="${HUB_INDICATORS.length+3}" class="empty-state">Aucun relevé pour cette période. Clique sur "+ Relevé" pour ajouter.</td></tr>`;
 }
 
 function renderHubModalFields(reading) {
