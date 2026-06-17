@@ -293,25 +293,29 @@ tr:hover td{background:#f8fafc;}
     <div class="kpi-grid" id="kpi-hub"></div>
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-        <div class="section-title" style="margin:0">Indicateurs de performance — Hub VSAT</div>
-        <div class="period-filter">
-          <label>Période</label>
-          <input type="date" id="hub-period-start" onchange="onHubPeriodChange()">
-          <span style="color:var(--muted);font-size:11px;">→</span>
-          <input type="date" id="hub-period-end" onchange="onHubPeriodChange()">
-          <div class="period-quick">
-            <button onclick="setHubPeriodPreset('day')" id="hub-preset-day">Jour</button>
-            <button onclick="setHubPeriodPreset('week')" id="hub-preset-week">Semaine</button>
-            <button onclick="setHubPeriodPreset('month')" id="hub-preset-month">Mois</button>
-            <button onclick="setHubPeriodPreset('year')" id="hub-preset-year">Année</button>
-            <button onclick="setHubPeriodPreset('all')" id="hub-preset-all">Tout</button>
-          </div>
+        <div class="section-title" style="margin:0">Relevés Hub VSAT <span class="badge" id="hub-count">0</span></div>
+        <button class="btn btn-primary btn-sm" onclick="openHubModal()">+ Relevé</button>
+      </div>
+      <div class="period-filter" style="margin-bottom:14px;">
+        <label>Période</label>
+        <input type="date" id="hub-period-start" onchange="onHubPeriodChange()">
+        <span style="color:var(--muted);font-size:11px;">→</span>
+        <input type="date" id="hub-period-end" onchange="onHubPeriodChange()">
+        <div class="period-quick">
+          <button onclick="setHubPeriodPreset('day')" id="hub-preset-day">Jour</button>
+          <button onclick="setHubPeriodPreset('week')" id="hub-preset-week">Semaine</button>
+          <button onclick="setHubPeriodPreset('month')" id="hub-preset-month">Mois</button>
+          <button onclick="setHubPeriodPreset('year')" id="hub-preset-year">Année</button>
+          <button onclick="setHubPeriodPreset('all')" id="hub-preset-all">Tout</button>
         </div>
       </div>
-      <div style="font-size:11.5px;color:var(--muted);margin-bottom:14px;">Ces valeurs déterminent la santé globale du Hub. Saisis un nouveau relevé pour la date du jour ; l'historique se conserve et peut être filtré par période.</div>
-      <div id="hub-form"></div>
-      <div style="display:flex;justify-content:flex-end;margin-top:10px;">
-        <button class="btn btn-primary" onclick="saveHub()">Enregistrer le relevé du jour</button>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead><tr>
+            <th>Date</th><th>Disponibilité Hub</th><th>Sites actifs</th><th>Sites en alarme</th><th>MTTR</th><th>Statut</th><th>Actions</th>
+          </tr></thead>
+          <tbody id="hub-tbody"></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -420,6 +424,24 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
+<!-- MODAL HUB VSAT -->
+<div class="modal-overlay" id="modal-hub">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-hub-title">Ajouter un relevé Hub VSAT</h3>
+      <button class="modal-close" onclick="closeModal('modal-hub')">✕</button>
+    </div>
+    <div class="form-group"><label>Date du relevé *</label><input id="hub-dateReleve" type="date"></div>
+    <div id="hub-modal-fields"></div>
+    <div class="form-group"><label>Observations</label><textarea id="hub-observations"></textarea></div>
+    <input type="hidden" id="hub-edit-id">
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;">
+      <button class="btn btn-secondary" onclick="closeModal('modal-hub')">Annuler</button>
+      <button class="btn btn-primary" onclick="saveHub()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
 <!-- CONFIRM -->
 <div class="confirm-dialog" id="confirm-dialog">
   <div class="confirm-box">
@@ -505,7 +527,7 @@ function initFirestoreListeners() {
   db.collection(COLLECTIONS.hub).onSnapshot(snap => {
     STATE.hubHistory = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b)=>(a.dateReleve||a.id||'').localeCompare(b.dateReleve||b.id||''));
     STATE.hub = STATE.hubHistory.length ? STATE.hubHistory[STATE.hubHistory.length-1] : {};
-    renderHubForm(); renderHubKpis(); renderSummary();
+    renderHub(); renderHubKpis(); renderSummary();
   }, err => { console.error(err); setSyncStatus(false, 'Erreur sync'); });
 
   setSyncStatus(true, 'Synchronisé');
@@ -951,9 +973,9 @@ function setHubPeriodPreset(preset) {
   const { start, end } = periodRange(preset);
   startEl.value = start; endEl.value = end;
   setActivePresetBtn('hub', preset);
-  renderHubKpis();
+  renderHubKpis(); renderHub();
 }
-function onHubPeriodChange() { setActivePresetBtn('hub', null); renderHubKpis(); }
+function onHubPeriodChange() { setActivePresetBtn('hub', null); renderHubKpis(); renderHub(); }
 function hubPeriodRows() {
   const start = document.getElementById('hub-period-start').value;
   const end = document.getElementById('hub-period-end').value;
@@ -978,38 +1000,82 @@ const HUB_INDICATORS = [
   { key:'visibiliteSupervision', label:'Visibilité supervision (DataMiner/NMS)', unit:'%', cible:'100%', cibleVal:100, type:'percent', desc:'la part du réseau visible par les outils de supervision' }
 ];
 
-function renderHubForm() {
-  // Le formulaire de saisie sert toujours à enregistrer le relevé du jour (basé sur la date système),
-  // indépendamment du filtre de période utilisé pour la consultation des KPI/tableau ci-dessous.
-  const todayReading = STATE.hubHistory.find(h => h.dateReleve === todayStr()) || {};
-  document.getElementById('hub-form').innerHTML = HUB_INDICATORS.map(ind => `
+// Statut global d'un relevé : KO si au moins un indicateur renseigné est hors cible, sinon OK
+function hubReadingOverallStatus(reading) {
+  const filled = HUB_INDICATORS.filter(ind => reading[ind.key] !== undefined && reading[ind.key] !== '');
+  if (!filled.length) return null;
+  const hasKo = filled.some(ind => hubIndicatorStatus(ind, reading) === false);
+  return !hasKo;
+}
+
+function renderHub() {
+  const rows = hubPeriodRows().slice().sort((a,b)=>(b.dateReleve||'').localeCompare(a.dateReleve||''));
+  document.getElementById('hub-count').textContent = rows.length;
+  document.getElementById('hub-tbody').innerHTML = rows.length ? rows.map(h => {
+    const status = hubReadingOverallStatus(h);
+    return `<tr>
+      <td><b>${fmtDateFr(h.dateReleve)}</b></td>
+      <td>${h.dispoHub !== undefined && h.dispoHub !== '' ? h.dispoHub+' %' : '—'}</td>
+      <td>${h.nbSitesActifs !== undefined && h.nbSitesActifs !== '' ? h.nbSitesActifs : '—'}</td>
+      <td>${h.nbSitesAlarme !== undefined && h.nbSitesAlarme !== '' ? h.nbSitesAlarme : '—'}</td>
+      <td>${h.mttr !== undefined && h.mttr !== '' ? h.mttr+' h' : '—'}</td>
+      <td>${status===null ? '<span class="badge">N/A</span>' : status ? '<span class="badge-status s-ok">OK</span>' : '<span class="badge-status s-ko">KO</span>'}</td>
+      <td><div class="action-btns">
+        <button class="btn btn-secondary btn-sm" onclick="editHub('${h.id}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteHub('${h.id}')">🗑</button>
+      </div></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" class="empty-state">Aucun relevé pour cette période. Clique sur "+ Relevé" pour ajouter.</td></tr>`;
+}
+
+function renderHubModalFields(reading) {
+  document.getElementById('hub-modal-fields').innerHTML = HUB_INDICATORS.map(ind => `
     <div class="form-row" style="align-items:flex-end;margin-bottom:8px;">
       <div class="form-group" style="margin-bottom:0;">
         <label>${ind.label}${ind.unit?' ('+ind.unit+')':''} <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:10.5px;">(${ind.desc})</span></label>
-        <input type="${ind.type==='ber'?'text':'number'}" step="${ind.type==='percent'?'0.1':ind.type==='ber'?'any':'1'}" id="hub-${ind.key}" value="${todayReading[ind.key] ?? ''}" placeholder="${ind.cible}">
+        <input type="${ind.type==='ber'?'text':'number'}" step="${ind.type==='percent'?'0.1':ind.type==='ber'?'any':'1'}" id="hub-${ind.key}" value="${reading[ind.key] ?? ''}" placeholder="${ind.cible}">
       </div>
       <div class="form-group" style="margin-bottom:0;">
         <label>Cible de référence</label>
         <input type="text" value="${ind.cible}" disabled style="opacity:.6">
       </div>
     </div>
-  `).join('') + `
-    <div class="form-group" style="margin-top:6px;">
-      <label>Date du relevé</label>
-      <input type="date" id="hub-dateReleve" value="${todayReading.dateReleve || todayStr()}">
-    </div>
-    <div class="form-group">
-      <label>Observations</label>
-      <textarea id="hub-observations">${todayReading.observations || ''}</textarea>
-    </div>
-  `;
+  `).join('');
+}
+
+function openHubModal() {
+  document.getElementById('modal-hub-title').textContent = 'Ajouter un relevé Hub VSAT';
+  document.getElementById('hub-edit-id').value = '';
+  document.getElementById('hub-dateReleve').value = todayStr();
+  document.getElementById('hub-observations').value = '';
+  renderHubModalFields({});
+  openModal('modal-hub');
+}
+
+function editHub(id) {
+  const h = STATE.hubHistory.find(x => x.id === id); if (!h) return;
+  document.getElementById('modal-hub-title').textContent = 'Modifier le relevé';
+  document.getElementById('hub-edit-id').value = id;
+  document.getElementById('hub-dateReleve').value = h.dateReleve || id;
+  document.getElementById('hub-observations').value = h.observations || '';
+  renderHubModalFields(h);
+  openModal('modal-hub');
 }
 
 async function saveHub() {
-  const data = { dateReleve: document.getElementById('hub-dateReleve').value, observations: document.getElementById('hub-observations').value };
+  const dateReleve = document.getElementById('hub-dateReleve').value;
+  if (!dateReleve) { alert('Date du relevé requise'); return; }
+  const data = { dateReleve, observations: document.getElementById('hub-observations').value };
   HUB_INDICATORS.forEach(ind => { data[ind.key] = document.getElementById('hub-'+ind.key).value; });
+  const editId = document.getElementById('hub-edit-id').value;
+  // Si la date change lors d'une modification, on supprime l'ancien document (doc ID = ancienne date)
+  if (editId && editId !== dateReleve) { await fsDelete('hub', editId); }
   const ok = await fsSetHub(data);
-  if (ok) toast('Relevé Hub enregistré ✓');
+  if (ok) { closeModal('modal-hub'); toast('Relevé Hub enregistré ✓'); }
+}
+
+function deleteHub(id) {
+  confirm2('Supprimer ce relevé Hub VSAT ?', async () => { const ok = await fsDelete('hub', id); if (ok) toast('Relevé supprimé'); });
 }
 
 function hubIndicatorStatus(ind, reading) {
@@ -1168,7 +1234,7 @@ renderMaintenance();
 renderProductionKpis();
 renderMaintenanceKpis();
 updateDatalists();
-renderHubForm();
+renderHub();
 renderHubKpis();
 genererRapport();
 </script>
