@@ -186,13 +186,22 @@ tr:hover td{background:#f8fafc;}
 
   <!-- SUMMARY -->
   <div class="page active" id="page-summary">
+    <div class="period-filter no-print" style="margin-bottom:14px;">
+      <label>Période :</label>
+      <div class="period-quick">
+        <button onclick="setSummaryPeriodPreset('day')" id="summary-preset-day">Jour</button>
+        <button onclick="setSummaryPeriodPreset('week')" id="summary-preset-week" class="active">Semaine</button>
+        <button onclick="setSummaryPeriodPreset('month')" id="summary-preset-month">Mois</button>
+        <button onclick="setSummaryPeriodPreset('year')" id="summary-preset-year">Année</button>
+      </div>
+    </div>
     <div class="summary-grid" id="summary-kpis"></div>
     <div class="card">
-      <div class="section-title">Production de la semaine en cours <span class="badge" id="summary-week-label"></span></div>
+      <div class="section-title">Production <span class="badge" id="summary-week-label"></span></div>
       <div id="summary-prod-list"></div>
     </div>
     <div class="card">
-      <div class="section-title">Maintenances de la semaine en cours <span class="badge" id="summary-week-label2"></span></div>
+      <div class="section-title">Maintenances <span class="badge" id="summary-week-label2"></span></div>
       <div id="summary-maint-list"></div>
     </div>
   </div>
@@ -212,9 +221,10 @@ tr:hover td{background:#f8fafc;}
           <span style="color:var(--muted);font-size:11px;">→</span>
           <input type="date" id="prod-period-end" onchange="onProdPeriodChange()">
           <div class="period-quick">
-            <button onclick="setProdPeriodPreset('today')" id="prod-preset-today">Aujourd'hui</button>
-            <button onclick="setProdPeriodPreset('week')" id="prod-preset-week">7 jours</button>
-            <button onclick="setProdPeriodPreset('month')" id="prod-preset-month">30 jours</button>
+            <button onclick="setProdPeriodPreset('day')" id="prod-preset-day">Jour</button>
+            <button onclick="setProdPeriodPreset('week')" id="prod-preset-week">Semaine</button>
+            <button onclick="setProdPeriodPreset('month')" id="prod-preset-month">Mois</button>
+            <button onclick="setProdPeriodPreset('year')" id="prod-preset-year">Année</button>
             <button onclick="setProdPeriodPreset('all')" id="prod-preset-all">Tout</button>
           </div>
         </div>
@@ -251,9 +261,10 @@ tr:hover td{background:#f8fafc;}
           <span style="color:var(--muted);font-size:11px;">→</span>
           <input type="date" id="maint-period-end" onchange="onMaintPeriodChange()">
           <div class="period-quick">
-            <button onclick="setMaintPeriodPreset('today')" id="maint-preset-today">Aujourd'hui</button>
-            <button onclick="setMaintPeriodPreset('week')" id="maint-preset-week">7 jours</button>
-            <button onclick="setMaintPeriodPreset('month')" id="maint-preset-month">30 jours</button>
+            <button onclick="setMaintPeriodPreset('day')" id="maint-preset-day">Jour</button>
+            <button onclick="setMaintPeriodPreset('week')" id="maint-preset-week">Semaine</button>
+            <button onclick="setMaintPeriodPreset('month')" id="maint-preset-month">Mois</button>
+            <button onclick="setMaintPeriodPreset('year')" id="maint-preset-year">Année</button>
             <button onclick="setMaintPeriodPreset('all')" id="maint-preset-all">Tout</button>
           </div>
         </div>
@@ -287,9 +298,10 @@ tr:hover td{background:#f8fafc;}
           <span style="color:var(--muted);font-size:11px;">→</span>
           <input type="date" id="hub-period-end" onchange="onHubPeriodChange()">
           <div class="period-quick">
-            <button onclick="setHubPeriodPreset('today')" id="hub-preset-today">Aujourd'hui</button>
-            <button onclick="setHubPeriodPreset('week')" id="hub-preset-week">7 jours</button>
-            <button onclick="setHubPeriodPreset('month')" id="hub-preset-month">30 jours</button>
+            <button onclick="setHubPeriodPreset('day')" id="hub-preset-day">Jour</button>
+            <button onclick="setHubPeriodPreset('week')" id="hub-preset-week">Semaine</button>
+            <button onclick="setHubPeriodPreset('month')" id="hub-preset-month">Mois</button>
+            <button onclick="setHubPeriodPreset('year')" id="hub-preset-year">Année</button>
             <button onclick="setHubPeriodPreset('all')" id="hub-preset-all">Tout</button>
           </div>
         </div>
@@ -609,32 +621,42 @@ function totalClientsCount() {
   STATE.maintenance.forEach(m => { if (m.client) names.add(m.client.trim().toLowerCase()); });
   return names.size;
 }
+let summaryPreset = 'week';
+function setSummaryPeriodPreset(preset) {
+  summaryPreset = preset;
+  ['day','week','month','year'].forEach(p => {
+    const btn = document.getElementById('summary-preset-'+p);
+    if (btn) btn.classList.toggle('active', p===preset);
+  });
+  renderSummary();
+}
+const SUMMARY_PERIOD_LABELS = { day:"Aujourd'hui", week:'Cette semaine', month:'Ce mois', year:'Cette année' };
 function renderSummary() {
-  const { monday, sunday } = getCurrentWeekRange();
-  const weekLabel = `${fmtDateFr(monday.toISOString().slice(0,10))} au ${fmtDateFr(sunday.toISOString().slice(0,10))}`;
-  document.getElementById('summary-week-label').textContent = weekLabel;
-  document.getElementById('summary-week-label2').textContent = weekLabel;
+  const { start, end } = periodRange(summaryPreset);
+  const periodLabel = `${SUMMARY_PERIOD_LABELS[summaryPreset]} (${fmtDateFr(start)} au ${fmtDateFr(end)})`;
+  document.getElementById('summary-week-label').textContent = periodLabel;
+  document.getElementById('summary-week-label2').textContent = periodLabel;
 
-  const prodThisWeek = STATE.production.filter(p => isInCurrentWeek(p.date));
-  const maintThisWeek = STATE.maintenance.filter(m => isInCurrentWeek(m.date));
+  const prodInPeriod = STATE.production.filter(p => inDateRange(p.date, start, end));
+  const maintInPeriod = STATE.maintenance.filter(m => inDateRange(m.date, start, end));
   const dispo = STATE.hub.dispoHub;
 
   document.getElementById('summary-kpis').innerHTML = `
     <div class="summary-card blue"><div class="s-label">Total clients</div><div class="s-value">${totalClientsCount()}</div><div class="s-sub">Clients distincts</div></div>
-    <div class="summary-card cyan"><div class="s-label">Production — semaine en cours</div><div class="s-value">${prodThisWeek.length}</div><div class="s-sub">Lundi → dimanche</div></div>
-    <div class="summary-card yellow"><div class="s-label">Maintenance — semaine en cours</div><div class="s-value">${maintThisWeek.length}</div><div class="s-sub">Lundi → dimanche</div></div>
+    <div class="summary-card cyan"><div class="s-label">Production</div><div class="s-value">${prodInPeriod.length}</div><div class="s-sub">${SUMMARY_PERIOD_LABELS[summaryPreset]}</div></div>
+    <div class="summary-card yellow"><div class="s-label">Maintenance</div><div class="s-value">${maintInPeriod.length}</div><div class="s-sub">${SUMMARY_PERIOD_LABELS[summaryPreset]}</div></div>
     <div class="summary-card green"><div class="s-label">Disponibilité Hub</div><div class="s-value">${dispo ? dispo+'%' : '—'}</div><div class="s-sub">Dernier relevé</div></div>
   `;
 
-  document.getElementById('summary-prod-list').innerHTML = prodThisWeek.length ? `
+  document.getElementById('summary-prod-list').innerHTML = prodInPeriod.length ? `
     <table><thead><tr><th>Client</th><th>Code site</th><th>Date</th><th>Localisation</th><th>Statut</th></tr></thead>
-    <tbody>${prodThisWeek.map(p=>`<tr><td><b>${p.client||'—'}</b></td><td>${p.code||'—'}</td><td>${fmtDateFr(p.date)}</td><td>${p.localisation||'—'}</td><td>${statusBadge(p.statut||'Actif')}</td></tr>`).join('')}</tbody></table>
-  ` : `<div class="empty-state">Aucun site mis en production cette semaine.</div>`;
+    <tbody>${prodInPeriod.map(p=>`<tr><td><b>${p.client||'—'}</b></td><td>${p.code||'—'}</td><td>${fmtDateFr(p.date)}</td><td>${p.localisation||'—'}</td><td>${statusBadge(p.statut||'Actif')}</td></tr>`).join('')}</tbody></table>
+  ` : `<div class="empty-state">Aucun site mis en production sur cette période.</div>`;
 
-  document.getElementById('summary-maint-list').innerHTML = maintThisWeek.length ? `
+  document.getElementById('summary-maint-list').innerHTML = maintInPeriod.length ? `
     <table><thead><tr><th>Client</th><th>Date</th><th>Localisation</th><th>Statut</th></tr></thead>
-    <tbody>${maintThisWeek.map(m=>`<tr><td><b>${m.client||'—'}</b></td><td>${fmtDateFr(m.date)}</td><td>${m.localisation||'—'}</td><td>${statusBadge(m.statut||'Planifiée')}</td></tr>`).join('')}</tbody></table>
-  ` : `<div class="empty-state">Aucune maintenance cette semaine.</div>`;
+    <tbody>${maintInPeriod.map(m=>`<tr><td><b>${m.client||'—'}</b></td><td>${fmtDateFr(m.date)}</td><td>${m.localisation||'—'}</td><td>${statusBadge(m.statut||'Planifiée')}</td></tr>`).join('')}</tbody></table>
+  ` : `<div class="empty-state">Aucune maintenance sur cette période.</div>`;
 }
 
 // ═══════════════ PERIOD FILTER HELPERS ═══════════════
@@ -646,8 +668,30 @@ function inDateRange(dateStr, start, end) {
   if (end && dateStr > end) return false;
   return true;
 }
+// Renvoie {start, end} en YYYY-MM-DD pour un preset 'day'|'week'|'month'|'year'|'all'
+function periodRange(preset) {
+  const now = new Date();
+  if (preset === 'day') {
+    return { start: todayStr(), end: todayStr() };
+  }
+  if (preset === 'week') {
+    const { monday, sunday } = getCurrentWeekRange();
+    return { start: monday.toISOString().slice(0,10), end: sunday.toISOString().slice(0,10) };
+  }
+  if (preset === 'month') {
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    const last = new Date(now.getFullYear(), now.getMonth()+1, 0);
+    return { start: first.toISOString().slice(0,10), end: last.toISOString().slice(0,10) };
+  }
+  if (preset === 'year') {
+    const first = new Date(now.getFullYear(), 0, 1);
+    const last = new Date(now.getFullYear(), 11, 31);
+    return { start: first.toISOString().slice(0,10), end: last.toISOString().slice(0,10) };
+  }
+  return { start: '', end: '' }; // 'all'
+}
 function setActivePresetBtn(prefix, preset) {
-  ['today','week','month','all'].forEach(p => {
+  ['day','week','month','year','all'].forEach(p => {
     const btn = document.getElementById(prefix+'-preset-'+p);
     if (btn) btn.classList.toggle('active', p===preset);
   });
@@ -657,10 +701,8 @@ function setActivePresetBtn(prefix, preset) {
 function setProdPeriodPreset(preset) {
   const startEl = document.getElementById('prod-period-start');
   const endEl = document.getElementById('prod-period-end');
-  if (preset === 'today') { startEl.value = todayStr(); endEl.value = todayStr(); }
-  else if (preset === 'week') { startEl.value = daysAgoStr(6); endEl.value = todayStr(); }
-  else if (preset === 'month') { startEl.value = daysAgoStr(29); endEl.value = todayStr(); }
-  else if (preset === 'all') { startEl.value = ''; endEl.value = ''; }
+  const { start, end } = periodRange(preset);
+  startEl.value = start; endEl.value = end;
   setActivePresetBtn('prod', preset);
   renderProduction(); renderProductionKpis();
 }
@@ -670,19 +712,31 @@ function prodPeriodRows() {
   const end = document.getElementById('prod-period-end').value;
   return STATE.production.filter(p => inDateRange(p.date, start, end));
 }
+function prestataireSummary(rows) {
+  const counts = {};
+  rows.forEach(r => { const p = (r.prestataire||'').trim(); if (p) counts[p] = (counts[p]||0) + 1; });
+  const entries = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+  if (!entries.length) return '—';
+  return entries.map(([name,count])=>`${name}: ${count}`).join(' · ');
+}
 function renderProductionKpis() {
   const periodRows = prodPeriodRows();
-  const totalSites = periodRows.reduce((s,p)=>s+(parseInt(p.sites)||1),0);
+  const totalSites = periodRows.length;
   const totalRecurrent = periodRows.reduce((s,p)=>s+(parseFloat(p.recurrent)||0),0);
   const names = new Set(); periodRows.forEach(p=>{ if(p.client) names.add(p.client.trim().toLowerCase()); });
+  const actif = periodRows.filter(p=>p.statut==='Actif').length;
   const enCours = periodRows.filter(p=>p.statut==='En cours').length;
-  const terminees = periodRows.filter(p=>p.statut==='Actif'||p.statut==='Résilié').length;
+  const suspendu = periodRows.filter(p=>p.statut==='Suspendu').length;
+  const resilie = periodRows.filter(p=>p.statut==='Résilié').length;
   document.getElementById('kpi-production').innerHTML = `
     <div class="kpi-card blue"><div class="kpi-label">Total clients</div><div class="kpi-value blue">${names.size}</div></div>
     <div class="kpi-card cyan"><div class="kpi-label">Total sites</div><div class="kpi-value cyan">${totalSites}</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Actif</div><div class="kpi-value green">${actif}</div></div>
     <div class="kpi-card yellow"><div class="kpi-label">En cours</div><div class="kpi-value yellow">${enCours}</div></div>
-    <div class="kpi-card green"><div class="kpi-label">Terminées</div><div class="kpi-value green">${terminees}</div></div>
-    <div class="kpi-card purple"><div class="kpi-label">Total récurrent</div><div class="kpi-value purple" style="font-size:18px">${fmtMoney(totalRecurrent)}</div></div>
+    <div class="kpi-card red"><div class="kpi-label">Suspendu</div><div class="kpi-value red">${suspendu}</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">Résilié</div><div class="kpi-value purple">${resilie}</div></div>
+    <div class="kpi-card cyan"><div class="kpi-label">Total récurrent</div><div class="kpi-value cyan" style="font-size:18px">${fmtMoney(totalRecurrent)}</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Prestataires</div><div class="kpi-sub" style="font-size:12px;margin-top:8px;line-height:1.5;">${prestataireSummary(periodRows)}</div></div>
   `;
 }
 function renderProduction() {
@@ -778,10 +832,8 @@ function deleteProd(id) {
 function setMaintPeriodPreset(preset) {
   const startEl = document.getElementById('maint-period-start');
   const endEl = document.getElementById('maint-period-end');
-  if (preset === 'today') { startEl.value = todayStr(); endEl.value = todayStr(); }
-  else if (preset === 'week') { startEl.value = daysAgoStr(6); endEl.value = todayStr(); }
-  else if (preset === 'month') { startEl.value = daysAgoStr(29); endEl.value = todayStr(); }
-  else if (preset === 'all') { startEl.value = ''; endEl.value = ''; }
+  const { start, end } = periodRange(preset);
+  startEl.value = start; endEl.value = end;
   setActivePresetBtn('maint', preset);
   renderMaintenance(); renderMaintenanceKpis();
 }
@@ -794,14 +846,19 @@ function maintPeriodRows() {
 function renderMaintenanceKpis() {
   const periodRows = maintPeriodRows();
   const total = periodRows.length;
-  const enCours = periodRows.filter(m=>m.statut==='En cours'||m.statut==='Planifiée'||m.statut==='En attente BC').length;
-  const terminees = periodRows.filter(m=>m.statut==='Effectuée').length;
+  const planifiee = periodRows.filter(m=>m.statut==='Planifiée').length;
+  const enCours = periodRows.filter(m=>m.statut==='En cours').length;
+  const effectuee = periodRows.filter(m=>m.statut==='Effectuée').length;
+  const attenteBC = periodRows.filter(m=>m.statut==='En attente BC').length;
   const totalCout = periodRows.reduce((s,m)=>s+(parseFloat(m.cout)||0),0);
   document.getElementById('kpi-maintenance').innerHTML = `
     <div class="kpi-card blue"><div class="kpi-label">Total signalisations</div><div class="kpi-value blue">${total}</div></div>
+    <div class="kpi-card cyan"><div class="kpi-label">Planifiée</div><div class="kpi-value cyan">${planifiee}</div></div>
     <div class="kpi-card yellow"><div class="kpi-label">En cours</div><div class="kpi-value yellow">${enCours}</div></div>
-    <div class="kpi-card green"><div class="kpi-label">Terminées</div><div class="kpi-value green">${terminees}</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Effectuée</div><div class="kpi-value green">${effectuee}</div></div>
+    <div class="kpi-card red"><div class="kpi-label">En attente BC</div><div class="kpi-value red">${attenteBC}</div></div>
     <div class="kpi-card purple"><div class="kpi-label">Coût total</div><div class="kpi-value purple" style="font-size:18px">${fmtMoney(totalCout)}</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Prestataires</div><div class="kpi-sub" style="font-size:12px;margin-top:8px;line-height:1.5;">${prestataireSummary(periodRows)}</div></div>
   `;
 }
 function renderMaintenance() {
@@ -891,10 +948,8 @@ function deleteMaint(id) {
 function setHubPeriodPreset(preset) {
   const startEl = document.getElementById('hub-period-start');
   const endEl = document.getElementById('hub-period-end');
-  if (preset === 'today') { startEl.value = todayStr(); endEl.value = todayStr(); }
-  else if (preset === 'week') { startEl.value = daysAgoStr(6); endEl.value = todayStr(); }
-  else if (preset === 'month') { startEl.value = daysAgoStr(29); endEl.value = todayStr(); }
-  else if (preset === 'all') { startEl.value = ''; endEl.value = ''; }
+  const { start, end } = periodRange(preset);
+  startEl.value = start; endEl.value = end;
   setActivePresetBtn('hub', preset);
   renderHubKpis(); renderHubTable();
 }
@@ -907,20 +962,20 @@ function hubPeriodRows() {
 
 // Liste des indicateurs clés pour évaluer la santé d'un Hub VSAT (NMS/Hub teleport)
 const HUB_INDICATORS = [
-  { key:'dispoHub', label:'Disponibilité du Hub', unit:'%', cible:'≥ 99.5%', cibleVal:99.5, type:'percent' },
-  { key:'tauxOccupation', label:'Taux d\'occupation transpondeur', unit:'%', cible:'≤ 85%', cibleVal:85, type:'percent', inverse:true },
-  { key:'ebnoMoyen', label:'Eb/No moyen (marge liaison)', unit:'dB', cible:'≥ 4 dB', cibleVal:4, type:'value' },
-  { key:'cn0Moyen', label:'C/N0 moyen', unit:'dB-Hz', cible:'≥ 90 dB-Hz', cibleVal:90, type:'value' },
-  { key:'tauxErreurBits', label:'Taux d\'erreur bits (BER)', unit:'', cible:'≤ 10⁻⁶', cibleVal:0.000001, type:'ber', inverse:true },
-  { key:'latenceMoyenne', label:'Latence moyenne (RTT)', unit:'ms', cible:'≤ 700 ms', cibleVal:700, type:'value', inverse:true },
-  { key:'jitterMoyen', label:'Jitter moyen', unit:'ms', cible:'≤ 30 ms', cibleVal:30, type:'value', inverse:true },
-  { key:'tauxPerteDonnees', label:'Taux de perte de paquets', unit:'%', cible:'≤ 1%', cibleVal:1, type:'percent', inverse:true },
-  { key:'nbSitesActifs', label:'Sites actifs', unit:'sites', cible:'100% du parc', cibleVal:null, type:'count' },
-  { key:'nbSitesAlarme', label:'Sites en alarme', unit:'sites', cible:'0', cibleVal:0, type:'count', inverse:true },
-  { key:'mttr', label:'MTTR moyen (délai résolution)', unit:'h', cible:'≤ 2h', cibleVal:2, type:'value', inverse:true },
-  { key:'puissanceHPA', label:'Puissance HPA (amplificateur)', unit:'W', cible:'Nominal constructeur', cibleVal:null, type:'value' },
-  { key:'temperatureLNB', label:'Température LNB/RF', unit:'°C', cible:'≤ 45°C', cibleVal:45, type:'value', inverse:true },
-  { key:'visibiliteSupervision', label:'Visibilité supervision (DataMiner/NMS)', unit:'%', cible:'100%', cibleVal:100, type:'percent' }
+  { key:'dispoHub', label:'Disponibilité du Hub', unit:'%', cible:'≥ 99.5%', cibleVal:99.5, type:'percent', desc:'le temps où le Hub fonctionne sans interruption' },
+  { key:'tauxOccupation', label:'Taux d\'occupation transpondeur', unit:'%', cible:'≤ 85%', cibleVal:85, type:'percent', inverse:true, desc:'la part de la capacité satellite déjà utilisée' },
+  { key:'ebnoMoyen', label:'Eb/No moyen (marge liaison)', unit:'dB', cible:'≥ 4 dB', cibleVal:4, type:'value', desc:'la marge de sécurité du signal avant qu\'il ne se dégrade' },
+  { key:'cn0Moyen', label:'C/N0 moyen', unit:'dB-Hz', cible:'≥ 90 dB-Hz', cibleVal:90, type:'value', desc:'la qualité du signal reçu par rapport au bruit ambiant' },
+  { key:'tauxErreurBits', label:'Taux d\'erreur bits (BER)', unit:'', cible:'≤ 10⁻⁶', cibleVal:0.000001, type:'ber', inverse:true, desc:'la proportion de données corrompues pendant la transmission' },
+  { key:'latenceMoyenne', label:'Latence moyenne (RTT)', unit:'ms', cible:'≤ 700 ms', cibleVal:700, type:'value', inverse:true, desc:'le temps qu\'un signal met pour faire l\'aller-retour' },
+  { key:'jitterMoyen', label:'Jitter moyen', unit:'ms', cible:'≤ 30 ms', cibleVal:30, type:'value', inverse:true, desc:'la régularité du signal, sans à-coups' },
+  { key:'tauxPerteDonnees', label:'Taux de perte de paquets', unit:'%', cible:'≤ 1%', cibleVal:1, type:'percent', inverse:true, desc:'la part des données qui n\'arrivent jamais à destination' },
+  { key:'nbSitesActifs', label:'Sites actifs', unit:'sites', cible:'100% du parc', cibleVal:null, type:'count', desc:'le nombre de sites VSAT actuellement connectés' },
+  { key:'nbSitesAlarme', label:'Sites en alarme', unit:'sites', cible:'0', cibleVal:0, type:'count', inverse:true, desc:'le nombre de sites en panne ou en alerte' },
+  { key:'mttr', label:'MTTR moyen (délai résolution)', unit:'h', cible:'≤ 2h', cibleVal:2, type:'value', inverse:true, desc:'le temps moyen pour résoudre une panne' },
+  { key:'puissanceHPA', label:'Puissance HPA (amplificateur)', unit:'W', cible:'Nominal constructeur', cibleVal:null, type:'value', desc:'la force du signal envoyé vers le satellite' },
+  { key:'temperatureLNB', label:'Température LNB/RF', unit:'°C', cible:'≤ 45°C', cibleVal:45, type:'value', inverse:true, desc:'la température de l\'équipement, pour éviter la surchauffe' },
+  { key:'visibiliteSupervision', label:'Visibilité supervision (DataMiner/NMS)', unit:'%', cible:'100%', cibleVal:100, type:'percent', desc:'la part du réseau visible par les outils de supervision' }
 ];
 
 function renderHubForm() {
@@ -930,7 +985,7 @@ function renderHubForm() {
   document.getElementById('hub-form').innerHTML = HUB_INDICATORS.map(ind => `
     <div class="form-row" style="align-items:flex-end;margin-bottom:8px;">
       <div class="form-group" style="margin-bottom:0;">
-        <label>${ind.label}${ind.unit?' ('+ind.unit+')':''}</label>
+        <label>${ind.label}${ind.unit?' ('+ind.unit+')':''} <span style="color:var(--muted);font-weight:400;text-transform:none;font-size:10.5px;">(${ind.desc})</span></label>
         <input type="${ind.type==='ber'?'text':'number'}" step="${ind.type==='percent'?'0.1':ind.type==='ber'?'any':'1'}" id="hub-${ind.key}" value="${todayReading[ind.key] ?? ''}" placeholder="${ind.cible}">
       </div>
       <div class="form-group" style="margin-bottom:0;">
@@ -995,7 +1050,7 @@ function renderHubTable() {
     const hasVal = raw !== undefined && raw !== null && raw !== '';
     const status = hubIndicatorStatus(ind, reading);
     return `<tr>
-      <td>${ind.label}</td>
+      <td>${ind.label}<br><span style="font-size:10.5px;color:var(--muted);font-weight:400;">(${ind.desc})</span></td>
       <td><b>${hasVal ? raw+(ind.unit?' '+ind.unit:'') : '—'}</b></td>
       <td>${ind.cible}</td>
       <td>${status===null ? '<span class="badge">N/A</span>' : status ? '<span class="badge-status s-ok">OK</span>' : '<span class="badge-status s-ko">KO</span>'}</td>
@@ -1096,16 +1151,16 @@ if (sessionStorage.getItem('vsat_unlocked') === '1') {
 document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
 document.getElementById('sidebar-date').textContent = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
 
-// Par défaut, chaque page (Production, Maintenance, Hub) affiche les données du jour
-document.getElementById('prod-period-start').value = todayStr();
-document.getElementById('prod-period-end').value = todayStr();
-setActivePresetBtn('prod', 'today');
-document.getElementById('maint-period-start').value = todayStr();
-document.getElementById('maint-period-end').value = todayStr();
-setActivePresetBtn('maint', 'today');
-document.getElementById('hub-period-start').value = todayStr();
-document.getElementById('hub-period-end').value = todayStr();
-setActivePresetBtn('hub', 'today');
+// Par défaut, Production et Maintenance affichent tout l'historique ; Hub aussi
+document.getElementById('prod-period-start').value = '';
+document.getElementById('prod-period-end').value = '';
+setActivePresetBtn('prod', 'all');
+document.getElementById('maint-period-start').value = '';
+document.getElementById('maint-period-end').value = '';
+setActivePresetBtn('maint', 'all');
+document.getElementById('hub-period-start').value = '';
+document.getElementById('hub-period-end').value = '';
+setActivePresetBtn('hub', 'all');
 
 initFirestoreListeners();
 renderSummary();
