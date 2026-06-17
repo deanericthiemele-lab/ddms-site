@@ -1028,37 +1028,44 @@ function hubIndicatorStatus(ind, reading) {
   return val >= ind.cibleVal;
 }
 
-// Relevé affiché pour les KPI/tableau : le plus récent dans la période sélectionnée
-function hubLatestInPeriod() {
+// Calcule la moyenne de chaque indicateur sur tous les relevés de la période sélectionnée
+function hubAggregateInPeriod() {
   const rows = hubPeriodRows();
-  return rows.length ? rows[rows.length-1] : {};
+  if (!rows.length) return { _count: 0, _latestDate: null };
+  const agg = { _count: rows.length, _latestDate: rows[rows.length-1].dateReleve };
+  HUB_INDICATORS.forEach(ind => {
+    const vals = rows.map(r => parseFloat(r[ind.key])).filter(v => !isNaN(v));
+    agg[ind.key] = vals.length ? (vals.reduce((s,v)=>s+v,0) / vals.length) : '';
+  });
+  return agg;
 }
 
 function renderHubKpis() {
-  const reading = hubLatestInPeriod();
-  const filled = HUB_INDICATORS.filter(ind => reading[ind.key] !== undefined && reading[ind.key] !== '');
-  const okCount = filled.filter(ind => hubIndicatorStatus(ind, reading) === true).length;
-  const koCount = filled.filter(ind => hubIndicatorStatus(ind, reading) === false).length;
-  const dispo = reading.dispoHub;
-  const dispoColor = dispo ? (parseFloat(dispo) >= 99.5 ? 'green' : parseFloat(dispo) >= 95 ? 'yellow' : 'red') : 'blue';
+  const agg = hubAggregateInPeriod();
+  const filled = HUB_INDICATORS.filter(ind => agg[ind.key] !== undefined && agg[ind.key] !== '');
+  const okCount = filled.filter(ind => hubIndicatorStatus(ind, agg) === true).length;
+  const koCount = filled.filter(ind => hubIndicatorStatus(ind, agg) === false).length;
+  const dispo = agg.dispoHub;
+  const dispoColor = dispo !== '' && dispo !== undefined ? (dispo >= 99.5 ? 'green' : dispo >= 95 ? 'yellow' : 'red') : 'blue';
 
   document.getElementById('kpi-hub').innerHTML = `
-    <div class="kpi-card ${dispoColor}"><div class="kpi-label">Disponibilité Hub</div><div class="kpi-value ${dispoColor}">${dispo ? dispo+'%' : '—'}</div><div class="kpi-sub">Relevé le plus récent (période)</div></div>
+    <div class="kpi-card ${dispoColor}"><div class="kpi-label">Disponibilité Hub (moyenne)</div><div class="kpi-value ${dispoColor}">${dispo !== '' && dispo !== undefined ? dispo.toFixed(1)+'%' : '—'}</div><div class="kpi-sub">Sur ${agg._count} relevé${agg._count>1?'s':''} (période)</div></div>
     <div class="kpi-card green"><div class="kpi-label">Indicateurs conformes</div><div class="kpi-value green">${okCount}</div><div class="kpi-sub">Sur ${filled.length} renseignés</div></div>
     <div class="kpi-card ${koCount>0?'red':'green'}"><div class="kpi-label">Indicateurs hors cible</div><div class="kpi-value ${koCount>0?'red':'green'}">${koCount}</div></div>
-    <div class="kpi-card cyan"><div class="kpi-label">Relevé affiché</div><div class="kpi-value cyan" style="font-size:16px">${reading.dateReleve ? fmtDateFr(reading.dateReleve) : '—'}</div></div>
+    <div class="kpi-card cyan"><div class="kpi-label">Relevés sur la période</div><div class="kpi-value cyan">${agg._count}</div><div class="kpi-sub">${agg._latestDate ? 'Dernier : '+fmtDateFr(agg._latestDate) : '—'}</div></div>
   `;
 }
 
 function renderHubTable() {
-  const reading = hubLatestInPeriod();
+  const agg = hubAggregateInPeriod();
   document.getElementById('hub-table').innerHTML = HUB_INDICATORS.map(ind => {
-    const raw = reading[ind.key];
+    const raw = agg[ind.key];
     const hasVal = raw !== undefined && raw !== null && raw !== '';
-    const status = hubIndicatorStatus(ind, reading);
+    const status = hubIndicatorStatus(ind, agg);
+    const displayVal = hasVal ? (ind.type==='ber' ? raw : Number(raw).toFixed(ind.type==='count'?1:2)) : '—';
     return `<tr>
       <td>${ind.label}<br><span style="font-size:10.5px;color:var(--muted);font-weight:400;">(${ind.desc})</span></td>
-      <td><b>${hasVal ? raw+(ind.unit?' '+ind.unit:'') : '—'}</b></td>
+      <td><b>${hasVal ? displayVal+(ind.unit?' '+ind.unit:'') : '—'}</b></td>
       <td>${ind.cible}</td>
       <td>${status===null ? '<span class="badge">N/A</span>' : status ? '<span class="badge-status s-ok">OK</span>' : '<span class="badge-status s-ko">KO</span>'}</td>
     </tr>`;
