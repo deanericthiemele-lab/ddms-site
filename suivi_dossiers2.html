@@ -227,7 +227,7 @@ function normalizeEtape(txt) {
   if (!txt) return "";
   return txt
     .toUpperCase()
-    .normalize("NFD").replace(/[̀-ͯ]/g, "") // retire accents
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // retire accents
     .replace(/[:]/g, " : ") // uniformise deux-points
     .replace(/\s+/g, " ")  // réduit espaces multiples
     .trim();
@@ -690,10 +690,45 @@ function loadSupportIP(data){
   }
 
   function filterTables() {
-    const filter = document.getElementById("searchInput").value.toLowerCase();
-    document.querySelectorAll("table tbody tr").forEach(row => {
-      row.style.display = row.innerText.toLowerCase().includes(filter) ? "" : "none";
-    });
+    const q = document.getElementById("searchInput").value.toLowerCase().trim();
+    if(!q){
+      // Réafficher tout depuis allData complet
+      loadClients(allData);
+      loadAgeTables(allData);
+      loadSupportIP(allData);
+      loadHomologation(allData);
+      loadFacturation(allData);
+      loadTravaux(allData);
+      loadAttente(allData);
+      loadTestRecette(allData);
+      loadSuspendusPopup(allData);
+      loadDDMS(allData);
+      loadWholesale(allData);
+      loadVT(allData);
+      loadBBF(allData);
+      loadNettoyage(allData);
+      renderVolumes(allData);
+      return;
+    }
+    // Filtrer allData sur tous les champs texte
+    const filtered = allData.filter(item =>
+      Object.values(item).some(v => String(v||"").toLowerCase().includes(q))
+    );
+    loadClients(filtered);
+    loadAgeTables(filtered);
+    loadSupportIP(filtered);
+    loadHomologation(filtered);
+    loadFacturation(filtered);
+    loadTravaux(filtered);
+    loadAttente(filtered);
+    loadTestRecette(filtered);
+    loadSuspendusPopup(filtered);
+    loadDDMS(filtered);
+    loadWholesale(filtered);
+    loadVT(filtered);
+    loadBBF(filtered);
+    loadNettoyage(filtered);
+    renderVolumes(filtered);
   }
 
   function exportTableToExcel(tableId, filename) {
@@ -1306,46 +1341,6 @@ renderVolumes(allData);
 }
 </script>
 <script>
-const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(allData, { header: headers });
-  XLSX.utils.book_append_sheet(wb, ws, "Pipe Global");
-  XLSX.writeFile(wb, "Pipe_Global.xlsx");
-}
-
-const raccordable = allData.filter(r => !String(r["ETAPE"]||"").toUpperCase().includes("SUSPENDU"));
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(raccordable, { header: headers });
-  XLSX.utils.book_append_sheet(wb, ws, "Pipe Raccordable");
-  XLSX.writeFile(wb, "Pipe_Raccordable.xlsx");
-}
-</script>
-<script>
-
-const suspendusExact = [
-    "ETUDE SUSPENDU",
-    "TRAVAUX SUSPENDU",
-    "RACCORDEMENT SUSPENDU",
-    "INGENIEUR PROJET: SUSPENSION TRAVAUX DOB",
-    "SUSPENSION SURVEY"
-  ];
-
-  const normalize = txt => String(txt||"")
-      .toUpperCase()
-      .normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
-
-  const raccordable = allData.filter(r => {
-    const etapeNorm = normalize(r["ETAPE"]);
-    return !suspendusExact.some(s => etapeNorm === s);
-  });
-
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(raccordable, { header: headers });
-  XLSX.utils.book_append_sheet(wb, ws, "Pipe Raccordable");
-  XLSX.writeFile(wb, "Pipe_Raccordable.xlsx");
-}
-
-</script>
-<script>
 function exportPipeGlobal(){
   if(!allData || !allData.length){
     const wb = XLSX.utils.book_new();
@@ -1395,7 +1390,7 @@ function exportPipeRaccordable(){
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
 <script>
 const labelsBoutons=["Homologation","Facturation","DDMS","Travaux","Support IP","BBF","VT","Test et recette","Attente mise en service","Suspendu","Wholesale"];
-function normalizeEtape(txt){if(!txt)return"";return txt.toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[:]/g," : ").replace(/\s+/g," ").trim();}
+function normalizeEtape(txt){if(!txt)return"";return txt.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[:]/g," : ").replace(/\s+/g," ").trim();}
 /* DOM BASED COUNT DISABLED */
 function computeVolumesFromDOM_DISABLED(){
   const safeLen = (sel)=>{
@@ -1920,7 +1915,7 @@ window.addEventListener("load",()=>{
   const div = document.createElement("div");
   div.id = "tauxInstances";
   div.style = "position:absolute;top:15px;right:15px;background:#fff;border:1px solid #ccc;border-radius:6px;padding:8px;font-size:14px;color:#000;";
-  div.innerHTML = 'Taux d’instances : <span id="valTauxInstances">0 % (0/0 dossiers)</span>';
+  div.innerHTML = `Taux d'instances : <span id="valTauxInstances">0 % (0/0 dossiers)</span>`;
   document.body.appendChild(div);
 
   const interval = setInterval(()=>{
@@ -2391,58 +2386,58 @@ function clearPeriode(){
 
 
 // Override exports to respect period
-const _exportTableToExcel = exportTableToExcel;
-exportTableToExcel = function(tableId, filename){
-  const filtered = getFilteredData();
-  if(!filtered.length){
-    _exportTableToExcel(tableId, filename);
-    return;
-  }
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(filtered, { header: headers });
-  XLSX.utils.book_append_sheet(wb, ws, filename);
-  XLSX.writeFile(wb, filename + ".xlsx");
-};
+window.addEventListener("load", function(){
+  const _exportTableToExcel = window.exportTableToExcel;
+  window.exportTableToExcel = function(tableId, filename){
+    const filtered = getFilteredData();
+    if(!filtered.length){
+      if(_exportTableToExcel) _exportTableToExcel(tableId, filename);
+      return;
+    }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(filtered, { header: headers });
+    XLSX.utils.book_append_sheet(wb, ws, filename);
+    XLSX.writeFile(wb, filename + ".xlsx");
+  };
 
-const _exportPipeGlobal = exportPipeGlobal;
-exportPipeGlobal = function(){
-  const filtered = getFilteredData();
-  if(!filtered.length){
-    _exportPipeGlobal();
-    return;
-  }
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(filtered, { header: headers });
-  XLSX.utils.book_append_sheet(wb, ws, "Pipe Global");
-  XLSX.writeFile(wb, "Pipe_Global.xlsx");
-};
+  const _exportPipeGlobal = window.exportPipeGlobal;
+  window.exportPipeGlobal = function(){
+    const filtered = getFilteredData();
+    if(!filtered.length){
+      if(_exportPipeGlobal) _exportPipeGlobal();
+      return;
+    }
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(filtered, { header: headers });
+    XLSX.utils.book_append_sheet(wb, ws, "Pipe Global");
+    XLSX.writeFile(wb, "Pipe_Global.xlsx");
+  };
 
-const _exportPipeRaccordable = exportPipeRaccordable;
-exportPipeRaccordable = function(){
-  const filtered = getFilteredData();
-  if(!filtered.length){
-    _exportPipeRaccordable();
-    return;
-  }
-  const suspendusExact = [
-    "ETUDE SUSPENDU",
-    "TRAVAUX SUSPENDU",
-    "RACCORDEMENT SUSPENDU",
-    "INGENIEUR PROJET: SUSPENSION TRAVAUX DOB",
-    "SUSPENSION SURVEY"
-  ];
-  const normalize = txt => String(txt||"").toUpperCase().normalize("NFD").replace(/[̀-\u036f]/g,"").trim();
-
-  const raccordable = filtered.filter(r=>{
-    const etapeNorm = normalize(r["ETAPE"]);
-    return !suspendusExact.some(s=>etapeNorm===s);
-  });
-
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.json_to_sheet(raccordable, { header: headers });
-  XLSX.utils.book_append_sheet(wb, ws, "Pipe Raccordable");
-  XLSX.writeFile(wb, "Pipe_Raccordable.xlsx");
-};
+  const _exportPipeRaccordable = window.exportPipeRaccordable;
+  window.exportPipeRaccordable = function(){
+    const filtered = getFilteredData();
+    if(!filtered.length){
+      if(_exportPipeRaccordable) _exportPipeRaccordable();
+      return;
+    }
+    const suspendusExact = [
+      "ETUDE SUSPENDU",
+      "TRAVAUX SUSPENDU",
+      "RACCORDEMENT SUSPENDU",
+      "INGENIEUR PROJET: SUSPENSION TRAVAUX DOB",
+      "SUSPENSION SURVEY"
+    ];
+    const normalize = txt => String(txt||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+    const raccordable = filtered.filter(r=>{
+      const etapeNorm = normalize(r["ETAPE"]);
+      return !suspendusExact.some(s=>etapeNorm===s);
+    });
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(raccordable, { header: headers });
+    XLSX.utils.book_append_sheet(wb, ws, "Pipe Raccordable");
+    XLSX.writeFile(wb, "Pipe_Raccordable.xlsx");
+  };
+});
 </script>
 
 
