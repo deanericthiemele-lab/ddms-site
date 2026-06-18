@@ -94,7 +94,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,san
 .b-sp-na{background:var(--grey-bg);color:var(--grey-tx)}
 
 /* TABLE */
-.tw{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rl);overflow:hidden}
 .fbar{padding:10px 14px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--bd);background:var(--bg3)}
 .fsel,.fin{padding:5px 9px;font-size:11px;border:1px solid var(--bd2);border-radius:var(--r);background:var(--bg2);color:var(--tx);font-family:inherit}
 .fin{width:200px}
@@ -295,7 +294,7 @@ tr:hover td{background:#fafbfc}
 <!-- SAISIE -->
 <div class="page" id="page-saisie">
   <div id="f-alert" class="alert alert-ok hidden">✅ Dossier enregistré avec succès.</div>
-  <div id="bid-form">
+  <form id="bid-form" onsubmit="return false;">
     <div class="fsec">
       <div class="fsec-t">Identification</div>
       <div class="fg">
@@ -369,7 +368,7 @@ tr:hover td{background:#fafbfc}
       <button type="button" class="btn bg" onclick="resetForm()">Réinitialiser</button>
       <button type="button" class="btn bp" onclick="saveDossier()" id="btn-save">💾 Enregistrer</button>
     </div>
-  </div>
+  </form>
 </div>
 
 <!-- REPORTING DG -->
@@ -446,15 +445,15 @@ function validateForm(){
     const parent = el?.closest('.field');
     if(!parent) return;
     const val = (el.value||'').trim();
-    const isEmptySelect = el.tagName==='SELECT' && (!val || (el.options[el.selectedIndex] && el.options[el.selectedIndex].disabled));
-    if(!val || val==='' || isEmptySelect){
+    // Pour un select, on invalide seulement si la valeur est vide OU si l'option sélectionnée est disabled
+    const isInvalid = !val || (el.tagName==='SELECT' && el.options[el.selectedIndex] && el.options[el.selectedIndex].disabled);
+    if(isInvalid){
       parent.classList.add('req-err');
       ok = false;
     } else {
       parent.classList.remove('req-err');
     }
   });
-  // Documents (rowFiles ou pendFiles)
   return ok;
 }
 
@@ -684,9 +683,11 @@ function vbarSVG(data){
   return `<div style="display:flex;align-items:flex-end;justify-content:space-around;width:100%;padding:12px 8px 8px;box-sizing:border-box">${cols}</div>`;
 }
 
-// Legend HTML
 function legend(data, colors){
-  return '<div class="legend" style="padding:4px 10px 8px">'+data.map((d,i)=>`<span class="leg-item" onclick="openDrill(d.l,D.filter(function(x){return x.statut===d.l||x.segment===d.l}))" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background .15s" onmouseover="this.style.background='#f0f2f5'" onmouseout="this.style.background=''"><span class="leg-sq" style="background:${colors[i]||'#ccc'}"></span>${d.l} <strong>${d.v}</strong></span>`).join('')+'</div>';
+  return '<div class="legend" style="padding:4px 10px 8px">'+data.map((d,i)=>{
+    const lbl=d.l.replace(/'/g,"\\'");
+    return `<span class="leg-item" onclick="openDrill('${lbl}',D.filter(function(x){return x.statut==='${lbl}'||x.segment==='${lbl}'}))" style="cursor:pointer;padding:2px 4px;border-radius:4px;transition:background .15s" onmouseover="this.style.background='#f0f2f5'" onmouseout="this.style.background=''"><span class="leg-sq" style="background:${colors[i]||'#ccc'}"></span>${d.l} <strong>${d.v}</strong></span>`;
+  }).join('')+'</div>';
 }
 
 // ---- DASHBOARD ----
@@ -770,7 +771,7 @@ function renderTable(){
   });
   list.sort((a,b)=>(b.recu_le||'').localeCompare(a.recu_le||''));
   document.getElementById('f-cnt').textContent=list.length+' dossier'+(list.length>1?'s':'');
-  document.getElementById('nb-pipe').textContent=list.length;
+  updatePipeCount();
   const tb=document.getElementById('tbl-body');
   if(!list.length){tb.innerHTML=`<tr><td colspan="34" class="empty">Aucun dossier correspondant</td></tr>`;return;}
   tb.innerHTML=list.map(d=>{
@@ -925,15 +926,14 @@ async function saveDossier(){
   setStatus('⏳ Enregistrement...','#F59E0B');
   const ok=await save(entry);
 
-  if(btnSave){ btnSave.disabled=false; btnSave.textContent='✅ Enregistrer'; }
+  if(btnSave){ btnSave.disabled=false; btnSave.textContent='💾 Enregistrer'; }
   _saving = false;
 
   if(ok){
     setStatus('✅ '+D.length+' dossiers','#1D9E75');
     editKey=null; pendFiles=[]; renderFL();
     document.getElementById('bid-form').reset();
-    // Remettre le libellé normal du bouton
-    if(btnSave) btnSave.textContent='✅ Enregistrer';
+    if(btnSave) btnSave.textContent='💾 Enregistrer';
     const al=document.getElementById('f-alert');al.classList.remove('hidden');setTimeout(()=>al.classList.add('hidden'),3000);
     updatePipeCount();
     renderTable(); renderDash();
@@ -945,7 +945,23 @@ async function saveDossier(){
     setStatus('⚠ Erreur sauvegarde','#D85A30');
   }
 }
-function resetForm(){ editKey=null; _saving=false; pendFiles=[]; renderFL(); document.getElementById("bid-form").reset(); const btnSave=document.getElementById("btn-save"); if(btnSave){btnSave.disabled=false;btnSave.textContent="✅ Enregistrer";} }
+function resetForm(){
+  editKey=null; _saving=false; pendFiles=[]; renderFL();
+  document.getElementById("bid-form").reset();
+  // Vider aussi les champs injectés par JS (fillForm) que reset() ne couvre pas toujours
+  ['sf-sp','sf-am','sf-tam','sf-client','sf-objet','sf-mois','sf-agemois',
+   'sf-duree','sf-rec','sf-fms','sf-cas','sf-majdate','sf-majan','sf-majmois',
+   'sf-entree','sf-anentree','sf-sementree','sf-depotval','sf-andepot','sf-semdepot',
+   'sf-obs','sf-liens'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
+  // Remettre les selects sur leur valeur par défaut
+  ['sf-seg','sf-source','sf-univers','sf-statut','sf-age'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.selectedIndex=0;
+  });
+  const btnSave=document.getElementById("btn-save");
+  if(btnSave){btnSave.disabled=false;btnSave.textContent="💾 Enregistrer";}
+}
 
 function updatePipeCount(){ const PS=["Attente notification","En cours de traitement","Standby"]; document.getElementById("nb-pipe").textContent=D.filter(d=>PS.includes(d.statut)).length; }
 
