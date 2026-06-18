@@ -38,7 +38,7 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
     }
   });
   // Mettre a jour compteur et dropdown statuts
-  if(typeof syncStatutFilter === "function") syncStatutFilter();
+  if(typeof window.syncStatutFilter === "function") window.syncStatutFilter();
 });
 
 window._saveStatut = async function(id, val) {
@@ -405,12 +405,16 @@ document.getElementById("statutFilter").addEventListener("change", filtrerEtAffi
 // Sync options custom dans statutFilter avec % et compteur statuts renseignés
 const origOnValue = window._statutOptions;
 
-function updateStatutsCoverage(){
+window.updateStatutsCoverage = function updateStatutsCoverage(){
   const total = dossiersGlobal.length;
+  // Compter depuis Firebase directement : seulement les IDs qui sont dans dossiersGlobal
+  const idsGlobal = new Set(
+    dossiersGlobal.map(r=>(r["ID DOSSIER"]||"").toString().trim().replace(/[.#$\[\]/]/g,"_"))
+  );
+  const allStatuts = window._statuts || {};
   let renseignes = 0;
-  dossiersGlobal.forEach(r=>{
-    const id=(r["ID DOSSIER"]||"").toString().trim();
-    const s = window._getStatut ? window._getStatut(id) : "";
+  idsGlobal.forEach(key=>{
+    const s = allStatuts[key];
     if(s && s.trim() !== "") renseignes++;
   });
   document.getElementById("statutsRenseignes").textContent = renseignes;
@@ -421,15 +425,14 @@ function updateStatutsCoverage(){
   pctEl.innerHTML = `<span style="background:${color};color:white;border-radius:10px;padding:1px 8px;font-size:12px;">${pct}%</span>`;
 }
 
-function syncStatutFilter(){
+window.syncStatutFilter = function syncStatutFilter(){
   const sel=document.getElementById("statutFilter");
   const cur=sel.value;
   const total = dossiersGlobal.length;
-  // Compter les occurrences de chaque statut
+  // Compter directement depuis window._statuts (source Firebase)
   const counts = {};
-  dossiersGlobal.forEach(r=>{
-    const id=(r["ID DOSSIER"]||"").toString().trim();
-    const s = window._getStatut ? window._getStatut(id) : "";
+  const allStatuts = window._statuts || {};
+  Object.values(allStatuts).forEach(s=>{
     if(s && s.trim()!==""){
       counts[s] = (counts[s]||0) + 1;
     }
