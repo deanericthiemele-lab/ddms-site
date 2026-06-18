@@ -367,7 +367,7 @@ tr:hover td{background:#fafbfc}
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;padding-bottom:20px">
       <button type="button" class="btn bg" onclick="resetForm()">Réinitialiser</button>
-      <button type="button" class="btn bp" onclick="saveDossier()">💾 Enregistrer</button>
+      <button type="button" class="btn bp" onclick="saveDossier()" id="btn-save">💾 Enregistrer</button>
     </div>
   </div>
 </div>
@@ -446,7 +446,8 @@ function validateForm(){
     const parent = el?.closest('.field');
     if(!parent) return;
     const val = (el.value||'').trim();
-    if(!val || val==='' || el.selectedIndex===0){
+    const isEmptySelect = el.tagName==='SELECT' && (!val || (el.options[el.selectedIndex] && el.options[el.selectedIndex].disabled));
+    if(!val || val==='' || isEmptySelect){
       parent.classList.add('req-err');
       ok = false;
     } else {
@@ -469,7 +470,7 @@ async function deleteDossier(key){
       await db.collection(COL).doc(d.firestoreId).delete();
     }
     D = D.filter(x=>x._key!==key);
-    document.getElementById('nb-pipe').textContent=D.length;
+    updatePipeCount();
     setStatus('✅ '+D.length+' dossiers','#1D9E75');
     renderTable(); renderDash();
   } catch(e){
@@ -529,7 +530,7 @@ async function loadFromFirestore(){
     if(err){
       setStatus('⚠ Firebase indisponible', '#D85A30');
       D = SEED.map(d=>({...d,files:[]}));
-      document.getElementById('nb-pipe').textContent=D.length;
+      updatePipeCount();
       renderDash(); renderTable();
       return;
     }
@@ -544,14 +545,14 @@ async function loadFromFirestore(){
       fbLoaded = true;
       setStatus('✅ ' + D.length + ' dossiers', '#1D9E75');
     }
-    document.getElementById('nb-pipe').textContent = D.length;
+    updatePipeCount();
     renderDash();
     renderTable();
   } catch(e){
     setStatus('⚠ Erreur Firebase', '#D85A30');
     // Fallback localStorage
     D = JSON.parse(localStorage.getItem('bid_oci_v3')||'null') || SEED.map(d=>({...d,files:[]}));
-    document.getElementById('nb-pipe').textContent = D.length;
+    updatePipeCount();
     renderDash(); renderTable();
     console.error('Firebase error:', e);
   }
@@ -619,7 +620,7 @@ function go(p){
   document.getElementById('page-'+p).classList.add('active');
   const lbl={dashboard:'tableau',pipeline:'pipeline',saisie:'nouveau',reporting:'reporting'};
   document.querySelectorAll('.nav-tab').forEach(t=>{if(t.textContent.toLowerCase().includes(lbl[p]))t.classList.add('active');});
-  document.getElementById('nb-pipe').textContent=D.length;
+  updatePipeCount();
   if(p==='dashboard')renderDash();
   if(p==='pipeline')renderTable();
   if(p==='reporting')renderReport();
@@ -874,13 +875,24 @@ function fillForm(key){
   s('sf-obs',d.observations);s('sf-liens',d.liens);
   pendFiles=(d.files||[]).map(f=>({...f}));renderFL();
 }
+let _saving = false; // garde anti-double-clic
 async function saveDossier(){
   if(BID_ROLE === 'visiteur'){ alert('Mode lecture seule — vous ne pouvez pas enregistrer.'); return; }
+  if(_saving) return; // empêche double soumission
   if(!validateForm()) return;
+  _saving = true;
+  // Désactiver le bouton pendant la sauvegarde
+  const btnSave = document.getElementById('btn-save');
+  if(btnSave){ btnSave.disabled=true; btnSave.textContent='⏳ Enregistrement...'; }
+
   const g=id=>(document.getElementById(id)?.value||'').trim();
   const gn=id=>{ const v=parseFloat(document.getElementById(id)?.value);return isNaN(v)?0:v; };
   const now=new Date().toISOString().split('T')[0];
-  const existing = editKey!==null ? D.find(x=>x._key===editKey) : null;
+
+  // Capturer editKey MAINTENANT avant toute opération async
+  const currentEditKey = editKey;
+  const existing = currentEditKey!==null ? D.find(x=>x._key===currentEditKey) : null;
+
   const entry={
     num:existing?.num||'NEW',
     sharepoint:g('sf-sp'),am_ev:g('sf-am'),av_tam:g('sf-tam'),segment:g('sf-seg'),
@@ -895,27 +907,47 @@ async function saveDossier(){
     depot:gn('sf-depotval'),annee_depot:g('sf-andepot'),sem_depot:g('sf-semdepot'),
     duree_contrat:g('sf-duree'),files:pendFiles.slice(),
   };
-  if(editKey!==null){
-    entry._key=existing._key;
-    entry.firestoreId=existing.firestoreId||String(existing._key);
-    const i=D.findIndex(x=>x._key===editKey);if(i>=0)D[i]=entry;
+
+  if(currentEditKey!==null){
+    // MODIFICATION — réutiliser la même _key et firestoreId, pas de push
+    entry._key = existing._key;
+    entry.firestoreId = existing.firestoreId || String(existing._key);
+    const i = D.findIndex(x=>x._key===currentEditKey);
+    if(i>=0) D[i]=entry;
   } else {
-    entry._key=Date.now();
-    entry.firestoreId=String(entry._key);
-    D.push(entry);
+    // NOUVEAU DOSSIER — générer un _key unique
+    entry._key = Date.now();
+    entry.firestoreId = String(entry._key);
+    // Vérifier qu'on ne double-push pas (sécurité supplémentaire)
+    if(!D.find(x=>x._key===entry._key)) D.push(entry);
   }
+
   setStatus('⏳ Enregistrement...','#F59E0B');
   const ok=await save(entry);
+
+  if(btnSave){ btnSave.disabled=false; btnSave.textContent='✅ Enregistrer'; }
+  _saving = false;
+
   if(ok){
     setStatus('✅ '+D.length+' dossiers','#1D9E75');
-    editKey=null;pendFiles=[];renderFL();
+    editKey=null; pendFiles=[]; renderFL();
     document.getElementById('bid-form').reset();
+    // Remettre le libellé normal du bouton
+    if(btnSave) btnSave.textContent='✅ Enregistrer';
     const al=document.getElementById('f-alert');al.classList.remove('hidden');setTimeout(()=>al.classList.add('hidden'),3000);
-    document.getElementById('nb-pipe').textContent=D.length;
+    updatePipeCount();
     renderTable(); renderDash();
+  } else {
+    // En cas d'échec, annuler le push si c'était un nouveau dossier
+    if(currentEditKey===null){
+      D = D.filter(x=>x._key!==entry._key);
+    }
+    setStatus('⚠ Erreur sauvegarde','#D85A30');
   }
 }
-function resetForm(){ editKey=null;pendFiles=[];renderFL();document.getElementById('bid-form').reset(); }
+function resetForm(){ editKey=null; _saving=false; pendFiles=[]; renderFL(); document.getElementById("bid-form").reset(); const btnSave=document.getElementById("btn-save"); if(btnSave){btnSave.disabled=false;btnSave.textContent="✅ Enregistrer";} }
+
+function updatePipeCount(){ const PS=["Attente notification","En cours de traitement","Standby"]; document.getElementById("nb-pipe").textContent=D.filter(d=>PS.includes(d.statut)).length; }
 
 // ---- REPORTING ----
 function renderReport(){
