@@ -414,7 +414,7 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
   });
   document.getElementById("statutsRenseignes").textContent = renseignes;
   document.getElementById("statutsTotal").textContent = total;
-  const pct = total > 0 ? (renseignes/total*100).toFixed(1) : "0.0";
+  const pct = total > 0 ? Math.round(renseignes/total*100) : 0;
   const pctEl = document.getElementById("statutsPct");
   const color = pct >= 80 ? "#16a34a" : pct >= 50 ? "#d97706" : "#dc2626";
   pctEl.innerHTML = `<span style="background:${color};color:white;border-radius:10px;padding:1px 8px;font-size:12px;">${pct}%</span>`;
@@ -423,23 +423,32 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
 window.syncStatutFilter = function syncStatutFilter(){
   const sel=document.getElementById("statutFilter");
   const cur=sel.value;
-  const total = dossiersGlobal.length;
-  // Compter uniquement les dossiers présents dans dossiersGlobal
-  const counts = {};
   const allStatuts = window._statuts || {};
+  const q = document.getElementById("searchInput").value.toLowerCase();
+  const mois = document.getElementById("moisFilter").value.toLowerCase();
+
+  // Compter sur les dossiers visibles (filtrés par recherche + mois, sans filtre statut)
+  const counts = {};
+  let total = 0;
   dossiersGlobal.forEach(r=>{
     const key = (r["ID DOSSIER"]||"").toString().trim().replace(/[.#$\[\]/]/g,"_");
-    const s = allStatuts[key];
-    if(s && s.trim()!==""){
-      counts[s] = (counts[s]||0) + 1;
+    const s = allStatuts[key] || "";
+    const _d = parseDate(r["DATE CREATION DOSSIER"]);
+    const _moisFr = _d ? _d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}) : "";
+    const txt = (r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+s+" "+_moisFr).toLowerCase();
+    const moisOk = !mois || _moisFr.toLowerCase().includes(mois);
+    if(txt.includes(q) && moisOk){
+      total++;
+      if(s && s.trim()!=="") counts[s] = (counts[s]||0) + 1;
     }
   });
+
   sel.innerHTML='<option value="">📋 Tous les statuts</option>';
   window._statutOptions.forEach(o=>{
     const opt=document.createElement("option");
     opt.value=o;
     const cnt = counts[o]||0;
-    const pct = total > 0 ? (cnt/total*100).toFixed(1) : "0.0";
+    const pct = dossiersGlobal.length > 0 ? (cnt/dossiersGlobal.length*100).toFixed(1) : "0.0";
     opt.textContent = cnt > 0 ? `${o} (${cnt} – ${pct}%)` : o;
     if(o===cur) opt.selected=true;
     sel.appendChild(opt);
