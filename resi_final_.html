@@ -426,9 +426,10 @@ function afficherTableauResume(data) {
     let existant = trouverGroupeSimilaire(groupes, cle);
     if (existant) cle = existant;
 
-    if (!groupes[cle]) groupes[cle] = { volume: 0, recurent: 0, originaux: [] };
+    if (!groupes[cle]) groupes[cle] = { volume: 0, recurent: 0, originaux: [], rows: [] };
     groupes[cle].volume++;
     groupes[cle].originaux.push(row["Clients"]);
+    groupes[cle].rows.push(row);
     groupes[cle].recurent += parseRecurent(row);
   });
 
@@ -476,11 +477,43 @@ function exporterTableau(idDiv, nomFichier) {
 
 
 function afficherPopupClientsRegroupes(groupe) {
-  const clients = window.groupesResume[groupe]?.originaux || [];
-  if (!clients.length) return;
-  let html = `<h3>Clients regroupés sous ${groupe}</h3><ul>`;
-  clients.forEach(c => { html += "<li>" + c + "</li>"; });
-  html += "</ul>";
+  const info = window.groupesResume[groupe];
+  if (!info) return;
+  const rows = info.rows || [];
+  if (!rows.length) {
+    // fallback ancienne version (originaux sans rows)
+    const clients = info.originaux || [];
+    let html = `<h3>Clients regroupés sous ${groupe}</h3><ul>`;
+    clients.forEach(c => { html += "<li>" + c + "</li>"; });
+    html += "</ul>";
+    document.getElementById("popupContent").innerHTML = html;
+    document.getElementById("popup").style.display = "block";
+    return;
+  }
+  let html = `<h3 style="margin-bottom:10px;">Clients regroupés sous <strong>${groupe}</strong> (${rows.length})</h3>`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="background:#7c3aed;color:white;">
+      <th style="padding:8px;text-align:left;">Client</th>
+      <th style="padding:8px;text-align:left;">Motif de résiliation</th>
+      <th style="padding:8px;text-align:left;">Produit</th>
+      <th style="padding:8px;text-align:left;">Récurent</th>
+      <th style="padding:8px;text-align:left;">Date</th>
+    </tr></thead><tbody>`;
+  rows.forEach((r, i) => {
+    const motif = r["Motif de résiliation"] || "—";
+    const produit = r["Produit"] || "—";
+    const rec = r["Récurent"] ? Math.round(parseRecurent(r)).toLocaleString("fr-FR") + " FCFA" : "—";
+    const dt = getDateFromCell(r["Date résiliation"] || r["Date résiliation "]);
+    const date = dt ? formatDateFR(dt) : "—";
+    html += `<tr style="background:${i%2===0?'#fff':'#faf5ff'};border-bottom:1px solid #e5e7eb;">
+      <td style="padding:7px 8px;">${r["Clients"] || "—"}</td>
+      <td style="padding:7px 8px;color:#7c3aed;font-weight:600;">${motif}</td>
+      <td style="padding:7px 8px;">${produit}</td>
+      <td style="padding:7px 8px;text-align:right;">${rec}</td>
+      <td style="padding:7px 8px;">${date}</td>
+    </tr>`;
+  });
+  html += "</tbody></table>";
   document.getElementById("popupContent").innerHTML = html;
   document.getElementById("popup").style.display = "block";
 }
@@ -507,14 +540,22 @@ function afficherTableauParMotif(data) {
 
   let html = "<div class='tableau-scroll'><table><thead><tr><th>Motif</th><th>Volume</th></tr></thead><tbody>";
   Object.entries(motifs)
-    .sort((a,b) => b[1] - a[1]) // tri par volume décroissant
+    .sort((a,b) => b[1] - a[1])
     .forEach(([motif, vol]) => {
-      html += `<tr><td>${motif}</td><td style="cursor:pointer;color:blue;text-decoration:underline" onclick="afficherPopupMotif('${motif}')">${vol}</td></tr>`;
+      const safeMotif = motif.replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+      html += `<tr><td>${motif}</td><td style="cursor:pointer;color:blue;text-decoration:underline" data-motif="${safeMotif}" class="motif-link">${vol}</td></tr>`;
     });
   html += "</tbody></table></div>";
   document.getElementById("tableau-par-motif").innerHTML = html;
   document.getElementById("titre-par-motif").innerText =
     "Résiliations par motif 2026 (" + Object.keys(motifs).length + ")";
+
+  // Attacher les listeners après injection
+  document.querySelectorAll("#tableau-par-motif .motif-link").forEach(td => {
+    td.addEventListener("click", function() {
+      afficherPopupMotif(this.dataset.motif);
+    });
+  });
 }
 
 function afficherPopupMotif(motif) {
