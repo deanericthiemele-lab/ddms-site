@@ -43,7 +43,14 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
         const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
         if(label){
           const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
-          label.textContent = ts ? "màj : " + new Date(ts).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+          if(ts){
+            const {text, cls} = window._formatStatutDate ? window._formatStatutDate(ts) : {text:"màj : "+ts, cls:""};
+            label.textContent = text;
+            label.className = "statut-date-label " + cls;
+          } else {
+            label.textContent = "";
+            label.className = "statut-date-label";
+          }
         }
       }
     }
@@ -135,7 +142,9 @@ th,td{border:1px solid #ccc;padding:6px}
 th{background:#eee}
 td.num{text-align:right}
 .statut-cell{display:flex;flex-direction:column;gap:2px;}
-.statut-date-label{font-size:10px;color:#888;font-style:italic;min-height:13px;line-height:1.2;}
+.statut-date-label{font-size:10px;font-style:italic;min-height:13px;line-height:1.2;color:#888;}
+.statut-date-label.outdated{color:#dc2626;font-weight:bold;}
+.statut-date-label.ok{color:#16a34a;}
 .statut-input{
   width:160px;padding:4px 6px;border:1px solid #bbb;
   border-radius:4px;font-size:13px;background:#fffde7;
@@ -292,13 +301,32 @@ function dedupeById(rows){
  return Array.from(map.values());
 }
 
+function getLastMonday(){
+ const d = new Date();
+ d.setHours(0,0,0,0);
+ const day = d.getDay();
+ const diff = day === 0 ? 6 : day - 1;
+ d.setDate(d.getDate() - diff);
+ return d;
+}
+
+function formatStatutDate(isoStr){
+ if(!isoStr) return {text:"", cls:""};
+ const d = new Date(isoStr);
+ const text = "màj : " + d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
+ const lastMonday = getLastMonday();
+ const cls = d >= lastMonday ? "ok" : "outdated";
+ return {text, cls};
+}
+window._formatStatutDate = formatStatutDate;
+
 function makeStatutInput(id){
  const val = window._getStatut ? window._getStatut(id) : "";
  const ts = window._getStatutDate ? window._getStatutDate(id) : "";
- const dateLabel = ts ? "màj : " + new Date(ts).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : "";
+ const {text:dateLabel, cls:dateCls} = formatStatutDate(ts);
  const safeId = id.replace(/"/g,"&quot;");
  const safeVal = val.replace(/"/g,"&quot;");
- return `<div class="statut-cell"><input class="statut-input" data-id="${safeId}" maxlength="50" value="${safeVal}" placeholder="Statut..." list="statut-datalist"/><span class="statut-date-label">${dateLabel}</span></div>`;
+ return `<div class="statut-cell"><input class="statut-input" data-id="${safeId}" maxlength="50" value="${safeVal}" placeholder="Statut..." list="statut-datalist"/><span class="statut-date-label ${dateCls}">${dateLabel}</span></div>`;
 }
 
 function ensureDatalist(){
@@ -315,9 +343,14 @@ function attachStatutListeners(){
   inp.parentNode.replaceChild(clone,inp);
  });
  document.querySelectorAll(".statut-input").forEach(inp=>{
-  inp.addEventListener("focus", function(){
+  inp.addEventListener("click", function(){
    this._prevVal = this.value;
+   const cur = this.value;
    this.value = "";
+   this.value = cur;
+   // Forcer l'ouverture du datalist
+   const ev = new Event("input", {bubbles:true});
+   this.dispatchEvent(ev);
   });
   inp.addEventListener("blur", function(){
    if(this.value === "") this.value = this._prevVal || "";
@@ -335,7 +368,9 @@ function attachStatutListeners(){
     const label = this.parentNode ? this.parentNode.querySelector(".statut-date-label") : null;
     if(label){
      const now = new Date();
-     label.textContent = "màj : " + now.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"});
+     const {text, cls} = formatStatutDate(now.toISOString());
+     label.textContent = text;
+     label.className = "statut-date-label " + cls;
     }
     setTimeout(()=>this.classList.remove("saved"),1000);
    }
