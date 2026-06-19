@@ -25,13 +25,13 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
 window._statuts = {};
+window._solutions = {};
 
 // Charger tous les statuts et ecouter les changements
 onValue(ref(db, "statuts_dossiers"), (snapshot) => {
   const data = snapshot.val() || {};
   window._statuts = data;
-  // Mettre a jour les champs visibles
-  document.querySelectorAll(".statut-input").forEach(inp => {
+  document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
     const id = inp.dataset.id;
     if(id && document.activeElement !== inp){
       const safeKey = id.replace(/[.#$\[\]/]/g, "_");
@@ -39,7 +39,6 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
       if(entry !== undefined){
         const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
         inp.value = val;
-        // Mettre a jour le label de date
         const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
         if(label){
           const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
@@ -55,8 +54,36 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
       }
     }
   });
-  // Mettre a jour compteur et dropdown statuts
   if(typeof window.syncStatutFilter === "function") window.syncStatutFilter();
+});
+
+// Charger solutions temporaires
+onValue(ref(db, "solutions_temp"), (snapshot) => {
+  const data = snapshot.val() || {};
+  window._solutions = data;
+  document.querySelectorAll(".statut-input[data-field='solution']").forEach(inp => {
+    const id = inp.dataset.id;
+    if(id && document.activeElement !== inp){
+      const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+      const entry = data[safeKey];
+      if(entry !== undefined){
+        const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+        inp.value = val;
+        const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
+        if(label){
+          const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
+          if(ts){
+            const {text, cls} = window._formatStatutDate ? window._formatStatutDate(ts) : {text:"màj : "+ts, cls:""};
+            label.textContent = text;
+            label.className = "statut-date-label " + cls;
+          } else {
+            label.textContent = "";
+            label.className = "statut-date-label";
+          }
+        }
+      }
+    }
+  });
 });
 
 window._saveStatut = async function(id, val) {
@@ -81,6 +108,32 @@ window._getStatut = function(id) {
 window._getStatutDate = function(id) {
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   const entry = window._statuts[safeKey];
+  if(!entry || typeof entry !== "object") return "";
+  return entry.updatedAt || "";
+};
+
+window._saveSolution = async function(id, val) {
+  if(!id) return;
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  const entry = { value: val, updatedAt: new Date().toISOString() };
+  try {
+    await set(ref(db, "solutions_temp/" + safeKey), entry);
+    window._solutions[safeKey] = entry;
+  } catch(e) {
+    console.error("Erreur Firebase solution:", e);
+  }
+};
+
+window._getSolution = function(id) {
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  const entry = window._solutions[safeKey];
+  if(!entry) return "";
+  return (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+};
+
+window._getSolutionDate = function(id) {
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  const entry = window._solutions[safeKey];
   if(!entry || typeof entry !== "object") return "";
   return entry.updatedAt || "";
 };
@@ -227,6 +280,7 @@ td.num{text-align:right}
 <th>DURÉE (j)</th>
 <th>ETAPE</th>
 <th>STATUT</th>
+<th>SOLUTION TEMP.</th>
 <th>TYPE ABONNEMENT</th>
 <th>SUPPORT</th>
 <th>ADR. GEO</th>
@@ -332,9 +386,18 @@ function makeStatutInput(id){
  const safeId = id.replace(/"/g,"&quot;");
  const safeVal = val.replace(/"/g,"&quot;");
  return `<div class="statut-cell">
-  <input class="statut-input" data-id="${safeId}" maxlength="50" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>
+  <input class="statut-input" data-id="${safeId}" data-field="statut" maxlength="80" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>
   <div class="statut-dropdown"></div>
   <span class="statut-date-label ${dateCls}">${dateLabel}</span>
+ </div>`;
+}
+
+function makeSolutionInput(id){
+ const val = window._getSolution ? window._getSolution(id) : "";
+ const safeId = id.replace(/"/g,"&quot;");
+ const safeVal = val.replace(/"/g,"&quot;");
+ return `<div class="statut-cell">
+  <input class="solution-input" data-id="${safeId}" data-field="solution" maxlength="80" value="${safeVal}" placeholder="Solution..." autocomplete="off" style="background:#e8f4fd;width:160px;padding:4px 6px;border:1px solid #bbb;border-radius:4px;font-size:13px;"/>
  </div>`;
 }
 
@@ -415,23 +478,39 @@ function attachStatutListeners(){
   });
   inp.addEventListener("change", async function(){
    const id=this.dataset.id;
-   const val=this.value.slice(0,50);
+   const val=this.value.slice(0,80);
    this.value=val;
    this._prevVal=val;
    if(window._saveStatut){
     await window._saveStatut(id,val);
     if(window._saveOption) window._saveOption(val);
-    this.classList.add("saved");
-    // Mettre a jour le label de date
-    const label = this.parentNode ? this.parentNode.querySelector(".statut-date-label") : null;
-    if(label){
-     const now = new Date();
-     const {text, cls} = formatStatutDate(now.toISOString());
-     label.textContent = text;
-     label.className = "statut-date-label " + cls;
-    }
-    setTimeout(()=>this.classList.remove("saved"),1000);
    }
+   this.classList.add("saved");
+   const label = this.parentNode ? this.parentNode.querySelector(".statut-date-label") : null;
+   if(label){
+    const now = new Date();
+    const {text, cls} = formatStatutDate(now.toISOString());
+    label.textContent = text;
+    label.className = "statut-date-label " + cls;
+   }
+   setTimeout(()=>this.classList.remove("saved"),1000);
+  });
+ });
+}
+
+function attachSolutionListeners(){
+ document.querySelectorAll(".solution-input").forEach(inp=>{
+  const clone=inp.cloneNode(true);
+  inp.parentNode.replaceChild(clone,inp);
+ });
+ document.querySelectorAll(".solution-input").forEach(inp=>{
+  inp.addEventListener("change", async function(){
+   const id=this.dataset.id;
+   const val=this.value.slice(0,80);
+   this.value=val;
+   if(window._saveSolution) await window._saveSolution(id, val);
+   this.style.borderColor="#22c55e";
+   setTimeout(()=>this.style.borderColor="#bbb",1000);
   });
  });
 }
@@ -474,12 +553,14 @@ function renderMain(){
    <td class="num">${daysBetween(r["DATE CREATION DOSSIER"])}</td>
    <td>${r["ETAPE"]||""}</td>
    <td>${makeStatutInput(id)}</td>
+   <td>${makeSolutionInput(id)}</td>
    <td>${r["TYPE ABONNEMENT"]||""}</td>
    <td>${r["SUPPORT"]||""}</td>
    <td>${r["ADR. GEO"]||""}</td>
   </tr>`;
  });
  attachStatutListeners();
+ attachSolutionListeners();
  syncStatutFilter();
 }
 
@@ -507,6 +588,7 @@ function filtrerEtAfficher(){
     <td class="num">${daysBetween(r["DATE CREATION DOSSIER"])}</td>
     <td>${r["ETAPE"]||""}</td>
     <td>${makeStatutInput(id)}</td>
+    <td>${makeSolutionInput(id)}</td>
     <td>${r["TYPE ABONNEMENT"]||""}</td>
     <td>${r["SUPPORT"]||""}</td>
     <td>${r["ADR. GEO"]||""}</td>
@@ -515,6 +597,7 @@ function filtrerEtAfficher(){
  });
  document.getElementById("resume").textContent="Dossiers : "+cpt;
  attachStatutListeners();
+ attachSolutionListeners();
  syncStatutFilter();
 }
 document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
@@ -709,6 +792,7 @@ document.getElementById("btnExport").onclick=()=>{
     "DURÉE (j)":daysBetween(r["DATE CREATION DOSSIER"]),
     "ETAPE":r["ETAPE"]||"",
     "STATUT":window._getStatut ? window._getStatut(id) : "",
+    "SOLUTION TEMP.":window._getSolution ? window._getSolution(id) : "",
     "TYPE ABONNEMENT":r["TYPE ABONNEMENT"]||"",
     "SUPPORT":r["SUPPORT"]||"",
     "ADR. GEO":r["ADR. GEO"]||""
