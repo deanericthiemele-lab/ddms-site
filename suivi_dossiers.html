@@ -235,7 +235,6 @@ td.num{text-align:right}
   <input type="text" id="searchInput" placeholder="Rechercher ID, client ou type abonnement"/>
   <input type="file" id="fileInput" accept=".xlsx,.xls"/>
   <button id="btnExport">Exporter</button>
-  <button id="btnSaveAll">💾 Enregistrer statuts</button>
   <button id="btnGererListe">⚙️ Gérer la liste</button>
   <select id="moisFilter" style="padding:6px 8px;border:1px solid #aaa;border-radius:6px;cursor:pointer;">
     <option value="">📅 Tous les mois</option>
@@ -260,6 +259,7 @@ td.num{text-align:right}
     <option value="Local en chantier">Local en chantier</option>
     <option value="Appro">Appro</option>
   </select>
+  <button id="btnSolutionsTemp" style="background:#2563eb;color:white;">🔧 Solutions temporaires</button>
 </div>
 
 <!-- Liste deroulante statuts -->
@@ -301,6 +301,30 @@ td.num{text-align:right}
      <th>DURÉE GLOBALE</th><th>DURÉE ETAPE</th>
      <th>ETAPE</th><th>CLIENT</th><th>TYPE ABONNEMENT</th>
      <th>SUPPORT</th><th>ADR. GEO</th>
+   </tr></thead>
+   <tbody></tbody>
+  </table>
+ </div>
+</div>
+
+<!-- Popup solutions temporaires -->
+<div class="popup" id="popupSolutionsTemp">
+ <div class="popup-content" style="width:1200px;">
+  <div class="popup-header">
+   <h2 id="popupSolutionsTempTitle">🔧 Solutions temporaires</h2>
+   <span class="close" onclick="document.getElementById('popupSolutionsTemp').style.display='none'">✕</span>
+  </div>
+  <p style="font-size:12px;color:#888;margin-bottom:8px;">Dossiers ayant reçu une solution temporaire — y compris ceux disparus du tableau principal (facturés).</p>
+  <table id="tableSolutionsTemp" style="width:100%;">
+   <thead><tr>
+    <th>ID DOSSIER</th>
+    <th>CLIENT</th>
+    <th>STATUT</th>
+    <th>SOLUTION TEMPORAIRE</th>
+    <th>DATE SOLUTION</th>
+    <th>DANS PIPE ?</th>
+    <th>Suppr. solution</th>
+    <th>Suppr. ligne</th>
    </tr></thead>
    <tbody></tbody>
   </table>
@@ -504,6 +528,12 @@ function attachSolutionListeners(){
   inp.parentNode.replaceChild(clone,inp);
  });
  document.querySelectorAll(".solution-input").forEach(inp=>{
+  // Recharger la valeur depuis Firebase au cas où le rendu était avant la réponse Firebase
+  const id = inp.dataset.id;
+  if(id && window._getSolution){
+   const val = window._getSolution(id);
+   if(val) inp.value = val;
+  }
   inp.addEventListener("change", async function(){
    const id=this.dataset.id;
    const val=this.value.slice(0,80);
@@ -730,22 +760,6 @@ document.getElementById("btnAddOption").onclick=async()=>{
  }
 };
 
-document.getElementById("btnSaveAll").onclick=()=>{
- const inputs=document.querySelectorAll(".statut-input");
- if(inputs.length===0){alert("Aucun dossier chargé.");return;}
- const btn=document.getElementById("btnSaveAll");
- inputs.forEach(inp=>{
-  const id=inp.dataset.id;
-  const val=inp.value;
-  if(id && window._saveStatut){
-   window._saveStatut(id,val);
-   if(val && window._saveOption) window._saveOption(val);
-  }
- });
- btn.textContent="✅ Enregistré";
- setTimeout(()=>btn.textContent="💾 Enregistrer statuts",2000);
-};
-
 document.getElementById("btnNettoyage").onclick=()=>{
  dossiersNettoyage=[];
  dossiersGlobal.forEach(r=>{
@@ -804,6 +818,62 @@ document.getElementById("btnExport").onclick=()=>{
  XLSX.utils.book_append_sheet(wb,ws,"Export");
  XLSX.writeFile(wb,"export_dossiers.xlsx");
 };
+document.getElementById("btnSolutionsTemp").onclick = function(){
+ const allSolutions = window._solutions || {};
+ const pipeIds = new Set(dossiersGlobal.map(r=>(r["ID DOSSIER"]||"").toString().trim().replace(/[.#$\[\]/]/g,"_")));
+ const tbody = document.querySelector("#tableSolutionsTemp tbody");
+ tbody.innerHTML = "";
+ let count = 0;
+
+ Object.entries(allSolutions).forEach(([safeKey, entry]) => {
+  const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+  if(!val || val.trim() === "") return;
+  count++;
+  const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
+  const dateStr = ts ? new Date(ts).toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
+  const dansLeTableau = pipeIds.has(safeKey);
+  const badge = dansLeTableau
+   ? '<span style="background:#16a34a;color:white;border-radius:10px;padding:2px 8px;font-size:11px;">✔ Présent</span>'
+   : '<span style="background:#dc2626;color:white;border-radius:10px;padding:2px 8px;font-size:11px;">✔ Facturé / sorti</span>';
+
+  // Retrouver infos dossier depuis dossiersGlobal si dispo
+  const dosKey = safeKey.replace(/_/g, ""); // approximatif
+  const dossier = dossiersGlobal.find(r=>(r["ID DOSSIER"]||"").toString().trim().replace(/[.#$\[\]/]/g,"_") === safeKey);
+  const client = dossier ? (dossier["CLIENT"] || "—") : "—";
+  const statut = window._getStatut ? window._getStatut(safeKey.replace(/_/g,".")) : (window._statuts[safeKey] ? ((window._statuts[safeKey].value||window._statuts[safeKey])||"—") : "—");
+
+  tbody.innerHTML += `<tr id="sol-row-${safeKey}" style="${!dansLeTableau ? 'background:#fff8f8;' : ''}">
+   <td><strong>${safeKey}</strong></td>
+   <td>${client}</td>
+   <td style="font-size:12px;color:#555;">${statut}</td>
+   <td style="color:#1d4ed8;font-weight:bold;">${val}</td>
+   <td style="font-size:12px;color:#888;">${dateStr}</td>
+   <td>${badge}</td>
+   <td><button onclick="supprimerSolution('${safeKey}')" style="background:#ef4444;color:white;padding:2px 8px;border-radius:4px;border:none;cursor:pointer;font-size:12px;">🗑 Firebase</button></td>
+   <td><button onclick="supprimerLigneSolution('${safeKey}')" style="background:#6b7280;color:white;padding:2px 8px;border-radius:4px;border:none;cursor:pointer;font-size:12px;">✕ Ligne</button></td>
+  </tr>`;
+ });
+
+ document.getElementById("popupSolutionsTempTitle").textContent = `🔧 Solutions temporaires (${count})`;
+ document.getElementById("popupSolutionsTemp").style.display = "flex";
+};
+
+window.supprimerSolution = async function(safeKey){
+ if(!confirm("Supprimer la solution temporaire de ce dossier dans Firebase ?")) return;
+ try {
+  await window._db_set(window._db_ref(window._db, "solutions_temp/" + safeKey), null);
+  delete window._solutions[safeKey];
+  document.getElementById("btnSolutionsTemp").click();
+ } catch(e){ console.error(e); }
+};
+
+window.supprimerLigneSolution = function(safeKey){
+ const row = document.getElementById("sol-row-" + safeKey);
+ if(row) row.remove();
+ // Mettre a jour le compteur dans le titre
+ const tbody = document.querySelector("#tableSolutionsTemp tbody");
+ const count = tbody ? tbody.querySelectorAll("tr").length : 0;
+ document.getElementById("popupSolutionsTempTitle").textContent = `🔧 Solutions temporaires (${count})`;
+};
 </script>
-</body>
 </html>
