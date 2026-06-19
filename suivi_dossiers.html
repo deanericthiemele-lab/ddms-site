@@ -103,12 +103,24 @@ window._getStatutDate = function(id) {
 window._saveSolution = async function(id, val) {
   if(!id) return;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
-  const entry = { value: val, updatedAt: new Date().toISOString() };
+  const existing = window._solutions[safeKey] || {};
+  const entry = { ...existing, value: val, updatedAt: new Date().toISOString() };
   try {
     await set(ref(db, "solutions_temp/" + safeKey), entry);
     window._solutions[safeKey] = entry;
   } catch(e) {
     console.error("Erreur Firebase solution:", e);
+  }
+};
+
+window._saveSolutionField = async function(safeKey, field, val) {
+  const existing = window._solutions[safeKey] || {};
+  const entry = { ...existing, [field]: val };
+  try {
+    await set(ref(db, "solutions_temp/" + safeKey), entry);
+    window._solutions[safeKey] = entry;
+  } catch(e) {
+    console.error("Erreur Firebase:", e);
   }
 };
 
@@ -310,6 +322,8 @@ td.num{text-align:right}
     <th>STATUT</th>
     <th>SOLUTION TEMPORAIRE</th>
     <th>DATE SOLUTION</th>
+    <th style="text-align:center;">✅ Sol. définitive</th>
+    <th style="text-align:center;">📦 Retrait éqpt</th>
     <th></th>
    </tr></thead>
    <tbody></tbody>
@@ -835,12 +849,17 @@ document.getElementById("btnSolutionsTemp").onclick = function(){
   const client = dossier ? (dossier["CLIENT"] || "—") : "—";
   const statut = window._getStatut ? window._getStatut(safeKey.replace(/_/g,".")) : (window._statuts[safeKey] ? ((window._statuts[safeKey].value||window._statuts[safeKey])||"—") : "—");
 
+  const solDef = (typeof entry === "object" && entry !== null) ? !!entry.solutionDefinitive : false;
+  const retraitEqpt = (typeof entry === "object" && entry !== null) ? !!entry.retraitEqpt : false;
+
   tbody.innerHTML += `<tr id="sol-row-${safeKey}" style="${!dansLeTableau ? 'background:#fff8f8;' : ''}">
    <td><strong>${safeKey}</strong></td>
    <td>${client}</td>
    <td style="font-size:12px;color:#555;">${statut}</td>
    <td style="color:#1d4ed8;font-weight:bold;">${val}</td>
    <td style="font-size:12px;color:#888;">${dateStr}</td>
+   <td style="text-align:center;"><input type="checkbox" ${solDef?'checked':''} onchange="window._saveSolutionField('${safeKey}','solutionDefinitive',this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#16a34a;"/></td>
+   <td style="text-align:center;"><input type="checkbox" ${retraitEqpt?'checked':''} onchange="window._saveSolutionField('${safeKey}','retraitEqpt',this.checked)" style="width:18px;height:18px;cursor:pointer;accent-color:#d97706;"/></td>
    <td style="text-align:center;"><button onclick="supprimerLigneSolution('${safeKey}')" title="Supprimer la ligne" style="background:none;border:none;cursor:pointer;font-size:16px;">🗑</button></td>
   </tr>`;
  });
