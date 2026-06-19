@@ -114,7 +114,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 </style>
 </head>
 <body>
-<div id="banner" onclick="switchTab(1)">
+<div id="banner" onclick="switchTabEx(0)">
   <span>🚨</span><span id="banner-txt">—</span><span style="margin-left:auto;font-size:10px">→ Voir alertes</span>
 </div>
 <div class="hdr">
@@ -123,11 +123,11 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   <div class="hdr-r" id="hdr-date">—</div>
 </div>
 <div class="tabs">
-  <div class="tab active" onclick="switchTab(0)">📊 Vue globale</div>
+  <div class="tab active" data-page="0" onclick="switchTabEx(0)">📊 Vue globale</div>
   
-  <div class="tab" onclick="switchTab(2)">💼 Deals</div>
-  <div class="tab" onclick="switchTab(3)">📈 Performance individuelle</div>
-  <div class="tab" onclick="switchTab(4)">⚙️ Config</div>
+  <div class="tab" data-page="2" onclick="switchTabEx(2)">💼 Deals</div>
+  <div class="tab" data-page="3" onclick="switchTabEx(3)">📈 Performance individuelle</div>
+  <div class="tab" data-page="4" onclick="switchTabEx(4)">⚙️ Config</div>
 </div>
 <div class="main">
 
@@ -222,15 +222,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
       </div>
       <button class="btn btn-p" style="margin-top:14px" onclick="saveCfg()">Appliquer</button>
     </div>
-    <div class="card">
-      <div class="ct">Informations</div>
-      <div style="font-size:12px;line-height:2;color:var(--muted)">
-        Données : <strong style="color:var(--text)">1 275 deals</strong> — ICT closings 2025<br>
-        Mises à jour : <strong style="color:var(--text)">localStorage</strong> (navigateur)<br>
-      </div>
-      <div class="sep"></div>
-      <button class="btn btn-g btn-s" onclick="if(confirm('Effacer toutes les mises à jour ?')){localStorage.clear();location.reload();}">Réinitialiser les données</button>
-    </div>
+
   </div>
 </div>
 
@@ -309,7 +301,13 @@ function slaDays(d){
 function deadlineFmt(d){
   if(!d.closing) return '—';
   var dt=new Date(new Date(d.closing).getTime()+d.sla*86400000);
-  return dt.toLocaleDateString('fr-FR');
+  var dd=String(dt.getDate()).padStart(2,'0'),mm=String(dt.getMonth()+1).padStart(2,'0'),yy=dt.getFullYear();return dd+'/'+mm+'/'+yy;
+}
+function fDate(s){
+  if(!s) return '—';
+  var p=s.split('-');
+  if(p.length===3) return p[2]+'/'+p[1]+'/'+p[0];
+  return s;
 }
 function fC(v){
   if(v>=1e9) return (v/1e9).toFixed(2)+' Md';
@@ -378,7 +376,13 @@ function setText(id,v){ var el=document.getElementById(id); if(el) el.textConten
 
 function switchTab(n){
   document.querySelectorAll('.tab').forEach(function(t,i){ t.classList.toggle('active',i===n); });
-  document.querySelectorAll('.page').forEach(function(p,i){ p.classList.toggle('active',i===n); });
+  document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
+  var pg=document.getElementById('page-'+n);if(pg)pg.classList.add('active');
+}
+function switchTabEx(pageN){
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', parseInt(t.getAttribute('data-page'))===pageN); });
+  document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
+  var pg=document.getElementById('page-'+pageN);if(pg)pg.classList.add('active');
 }
 
 var charts={};
@@ -716,7 +720,7 @@ function renderDeals(){
       '<td style="font-size:11px;color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+d.desc+'">'+d.desc.substring(0,35)+'</td>'+
       '<td style="font-size:11px">'+(d.commercial||'—').split(' ').slice(-1)[0]+'</td>'+
       '<td style="font-size:12px;font-weight:600;white-space:nowrap">'+fC(d.montant)+'</td>'+
-      '<td style="font-size:11px">'+(d.closing||'—')+'</td>'+
+      '<td style="font-size:11px">'+fDate(d.closing)+'</td>'+
       '<td style="font-size:11px">'+deadlineFmt(d)+'</td>'+
       '<td>'+dh+'</td>'+
       '<td><span class="badge '+sb+'">'+d.statut+'</span></td>'+
@@ -837,7 +841,7 @@ var modalId=null;
 function openModal(id){
   modalId=id;
   var d=deals.find(function(x){return x.id===id;}); if(!d) return;
-  document.getElementById('modal-ctx').innerHTML='<strong>'+d.client+'</strong> · '+d.desc.substring(0,55)+'<br><span style="color:var(--muted)">Commercial : '+d.commercial+' · '+fF(d.montant)+' · Closing : '+d.closing+' · SLA : '+d.sla+'j</span>';
+  document.getElementById('modal-ctx').innerHTML='<strong>'+d.client+'</strong> · '+d.desc.substring(0,55)+'<br><span style="color:var(--muted)">Commercial : '+d.commercial+' · '+fF(d.montant)+' · Closing : '+fDate(d.closing)+' · SLA : '+d.sla+'j</span>';
   document.getElementById('md-resp').value=d.deliveryResp||'';
   document.getElementById('md-stat').value=d.statut||'À livrer';
   document.getElementById('md-date').value=d.dateDelivery||'';
