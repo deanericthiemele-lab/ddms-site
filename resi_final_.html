@@ -136,14 +136,18 @@ function parseRecurent(row) {
     || k.replace(/\s/g,'').toLowerCase() === 'r\u00e9curent');
   const val = key ? row[key] : null;
   if (val == null || val === '') return 0;
-  // Si c'est déjà un nombre (XLSX parse parfois directement en Number)
+  // Si c'est déjà un nombre
   if (typeof val === 'number') return val;
-  // Sinon nettoyage string : espaces, points séparateurs de milliers, virgule décimale
+  // Nettoyage string complet
   const s = String(val)
-    .replace(/\s/g, '')           // espaces insécables et normaux
-    .replace(/\.(?=\d{3})/g, '')  // points séparateurs de milliers (1.500.000)
-    .replace(',', '.');            // virgule décimale → point
-  return parseFloat(s) || 0;
+    .replace(/\u00a0/g, '')        // espace insécable
+    .replace(/\s/g, '')            // tous espaces
+    .replace(/FCFA/gi, '')         // suffixe FCFA
+    .replace(/XOF/gi, '')          // suffixe XOF
+    .replace(/\.(?=\d{3})/g, '')   // points séparateurs de milliers
+    .replace(',', '.');             // virgule décimale → point
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
 }
 
 function mettreAJourAffichage() {
@@ -338,6 +342,7 @@ const REGLES_EXPLICITES = [
   [/CANAL\s*\+?|CANALSAT/,       "CANAL+"],
   [/UCP\s*SANT|UNITE.*COORD/,    "UCP SANTÉ BM"],
   [/SGBCI|SOCIETE\s*GEN/,        "SOCIÉTÉ GÉNÉRALE CI"],
+  [/DIRECTION\s*GEN.*IMPOT|DGI\b/,        "DIRECTION GÉNÉRALE DES IMPÔTS (DGI)"],
   [/BNI\b|BANQUE\s*NAT.*INVEST/, "BNI"],
   [/NSIA\s*BANQUE/,              "NSIA BANQUE"],
   [/NSIA\s*ASSUR/,               "NSIA ASSURANCES"],
@@ -442,7 +447,8 @@ function afficherTableauResume(data) {
     .forEach(([groupe, info]) => {
       rank++;
       const rec = info.recurent > 0
-        ? Math.round(info.recurent).toLocaleString("fr-FR") + " FCFA" : "-";
+        ? Math.round(info.recurent).toLocaleString("fr-FR") + " FCFA"
+        : (info.recurent === 0 ? "0 FCFA" : "-");
       html += `<tr>
         <td>${rank}</td>
         <td style="text-align:left">${groupe}</td>
