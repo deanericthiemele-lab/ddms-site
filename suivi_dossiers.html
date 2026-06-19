@@ -141,10 +141,15 @@ table{border-collapse:collapse;width:100%;margin-top:10px}
 th,td{border:1px solid #ccc;padding:6px}
 th{background:#eee}
 td.num{text-align:right}
-.statut-cell{display:flex;flex-direction:column;gap:2px;}
+.statut-cell{display:flex;flex-direction:column;gap:2px;position:relative;}
 .statut-date-label{font-size:10px;font-style:italic;min-height:13px;line-height:1.2;color:#888;}
 .statut-date-label.outdated{color:#dc2626;font-weight:bold;}
 .statut-date-label.ok{color:#16a34a;}
+.statut-dropdown{position:absolute;top:100%;left:0;z-index:999;background:#fff;border:1px solid #bbb;border-radius:4px;box-shadow:0 3px 8px rgba(0,0,0,0.15);min-width:180px;max-height:220px;overflow-y:auto;display:none;}
+.statut-dropdown.open{display:block;}
+.statut-dropdown-item{padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;}
+.statut-dropdown-item:hover{background:#f0f0f0;}
+.statut-dropdown-item.active{background:#fffde7;font-weight:bold;}
 .statut-input{
   width:160px;padding:4px 6px;border:1px solid #bbb;
   border-radius:4px;font-size:13px;background:#fffde7;
@@ -326,7 +331,11 @@ function makeStatutInput(id){
  const {text:dateLabel, cls:dateCls} = formatStatutDate(ts);
  const safeId = id.replace(/"/g,"&quot;");
  const safeVal = val.replace(/"/g,"&quot;");
- return `<div class="statut-cell"><input class="statut-input" data-id="${safeId}" maxlength="50" value="${safeVal}" placeholder="Statut..." list="statut-datalist"/><span class="statut-date-label ${dateCls}">${dateLabel}</span></div>`;
+ return `<div class="statut-cell">
+  <input class="statut-input" data-id="${safeId}" maxlength="50" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>
+  <div class="statut-dropdown"></div>
+  <span class="statut-date-label ${dateCls}">${dateLabel}</span>
+ </div>`;
 }
 
 function ensureDatalist(){
@@ -336,6 +345,35 @@ function ensureDatalist(){
  }
 }
 
+function closeAllDropdowns(){
+ document.querySelectorAll(".statut-dropdown.open").forEach(d=>d.classList.remove("open"));
+}
+
+document.addEventListener("click", function(e){
+ if(!e.target.closest(".statut-cell")) closeAllDropdowns();
+});
+
+function openDropdown(inp){
+ closeAllDropdowns();
+ const dd = inp.parentNode.querySelector(".statut-dropdown");
+ if(!dd) return;
+ const opts = window._statutOptions || [];
+ const cur = inp.value;
+ dd.innerHTML = opts.map(o =>
+  `<div class="statut-dropdown-item${o===cur?' active':''}" data-val="${o.replace(/"/g,'&quot;')}">${o}</div>`
+ ).join("");
+ dd.classList.add("open");
+ dd.querySelectorAll(".statut-dropdown-item").forEach(item=>{
+  item.addEventListener("mousedown", function(e){
+   e.preventDefault();
+   inp.value = this.dataset.val;
+   inp._prevVal = this.dataset.val;
+   closeAllDropdowns();
+   inp.dispatchEvent(new Event("change", {bubbles:true}));
+  });
+ });
+}
+
 function attachStatutListeners(){
  ensureDatalist();
  document.querySelectorAll(".statut-input").forEach(inp=>{
@@ -343,16 +381,37 @@ function attachStatutListeners(){
   inp.parentNode.replaceChild(clone,inp);
  });
  document.querySelectorAll(".statut-input").forEach(inp=>{
+  inp._prevVal = inp.value;
   inp.addEventListener("click", function(){
-   this._prevVal = this.value;
-   this.value = "";
+   openDropdown(this);
   });
-  inp.addEventListener("keydown", function(e){
-   // Si l'utilisateur efface tout, garder _prevVal a jour
-   this._prevVal = this._prevVal || "";
+  inp.addEventListener("input", function(){
+   // Filtrer le dropdown selon la saisie
+   const dd = this.parentNode.querySelector(".statut-dropdown");
+   if(!dd) return;
+   const q = this.value.toLowerCase();
+   const opts = window._statutOptions || [];
+   const filtered = opts.filter(o => o.toLowerCase().includes(q));
+   if(filtered.length === 0){ dd.classList.remove("open"); return; }
+   dd.innerHTML = filtered.map(o =>
+    `<div class="statut-dropdown-item" data-val="${o.replace(/"/g,'&quot;')}">${o}</div>`
+   ).join("");
+   dd.classList.add("open");
+   dd.querySelectorAll(".statut-dropdown-item").forEach(item=>{
+    item.addEventListener("mousedown", function(e){
+     e.preventDefault();
+     inp.value = this.dataset.val;
+     inp._prevVal = this.dataset.val;
+     closeAllDropdowns();
+     inp.dispatchEvent(new Event("change", {bubbles:true}));
+    });
+   });
   });
   inp.addEventListener("blur", function(){
-   if(this.value === "") this.value = this._prevVal || "";
+   setTimeout(()=>{
+    closeAllDropdowns();
+    if(this.value === "") this.value = this._prevVal || "";
+   }, 150);
   });
   inp.addEventListener("change", async function(){
    const id=this.dataset.id;
