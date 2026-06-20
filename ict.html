@@ -578,19 +578,19 @@ function saveData(){
 function loadDealsFromFirestore(){
   if(!db){ return; }
   db.collection(ICT_COL).orderBy('createdAt','desc').get().then(function(snap){
+    var fbIds={};
     var fbDeals=[];
     snap.forEach(function(doc){
       var d=doc.data();
       d.id=doc.id;
-      // Don't duplicate deals already in static array
-      var exists=deals.find(function(x){return x.id===d.id;});
-      if(!exists) fbDeals.push(d);
+      fbIds[doc.id]=true;
+      fbDeals.push(d);
     });
-    if(fbDeals.length){
-      fbDeals.forEach(function(d){ deals.push(d); });
-      renderAll(); renderDeliveryPage(); renderPlanning();
-      buildFilters();
-    }
+    // Supprimer du tableau local les deals déjà en Firebase (évite les doublons)
+    deals = deals.filter(function(d){ return !fbIds[d.id]; });
+    fbDeals.forEach(function(d){ deals.push(d); });
+    renderAll(); renderDeliveryPage(); renderPlanning();
+    buildFilters();
   }).catch(function(e){ /* Firestore load error - offline/sandbox */ });
 }
 
@@ -1386,9 +1386,32 @@ function dvRenderTable(list){
       +'<td style="font-size:11px">'+(d.deliveryResp||'<span style="color:#94a3b8;font-style:italic">Non assigné</span>')+'</td>'
       +'<td><span class="badge '+(statMap[d.statut]||'bm')+'">'+d.statut+'</span></td>'
       +'<td style="font-size:11px;font-weight:600;color:var(--blue)">'+fC(d.montant)+'</td>'
-      +'<td><button class="btn btn-p btn-s" onclick="dvOpenEdit(this);event.stopPropagation()" data-id="'+d.id+'" title="Sélectionner">✏️</button></td>'
+      +'<td style="display:flex;gap:4px;align-items:center">'
+      +'<button class="btn btn-p btn-s" onclick="dvOpenEdit(this);event.stopPropagation()" data-id="'+d.id+'" title="Sélectionner">✏️</button>'
+      +'<button class="btn btn-s" style="background:#fef2f2;color:#dc2626;border:1px solid #fca5a5" data-id="'+d.id+'" data-client="'+d.client.replace(/"/g,'&quot;')+'" onclick="event.stopPropagation();dvDeleteDeal(this)" title="Supprimer ce deal">🗑️</button>'
+      +'</td>'
       +'</tr>';
   }).join('');
+}
+
+function dvDeleteDeal(el){
+  // stopPropagation géré dans onclick
+  var id = el.getAttribute('data-id');
+  var client = el.getAttribute('data-client') || id;
+  if(!confirm('⚠️ Supprimer le deal de "'+client+'" ?\nCette action est irréversible.')) return;
+  // Supprimer de Firebase
+  if(db){
+    db.collection(ICT_COL).doc(id).delete().then(function(){
+      toast('🗑️ Deal supprimé : '+client);
+    }).catch(function(e){
+      toast('⚠️ Erreur suppression Firebase : '+e.message);
+    });
+  }
+  // Supprimer du tableau local
+  deals = deals.filter(function(d){ return d.id !== id; });
+  // Si le panneau d'édition est ouvert pour ce deal, le fermer
+  if(dvEditId === id) dvCloseEdit();
+  saveData(); renderAll(); renderDeliveryPage(); renderPlanning(); buildFilters();
 }
 
 function dvSort(col){
@@ -1758,19 +1781,10 @@ function saveNewDeal(){
   var btn=document.querySelector('#page-5 .btn-p');
   if(btn){btn.textContent='⏳ Enregistrement…';btn.disabled=true;}
   saveToFirestore(newDeal, function(){
-    deals.push(newDeal);
+    // Vérifier que le deal n'est pas déjà dans le tableau (évite le doublon si loadDealsFromFirestore recharge)
+    var alreadyIn = deals.find(function(x){ return x.id === newDeal.id; });
+    if(!alreadyIn) deals.push(newDeal);
     saveData(); renderAll(); renderDeliveryPage(); renderPlanning(); buildFilters();
-    // Show in recent table
-    var tr=document.createElement('tr');
-    tr.innerHTML='<td style="font-weight:600">'+client+'</td>'
-      +'<td style="color:var(--muted)">'+desc.substring(0,40)+'</td>'
-      +'<td>'+comm.split(' ').slice(-1)[0]+'</td>'
-      +'<td style="color:var(--blue);font-weight:600">'+fF(montant)+'</td>'
-      +'<td>'+fDate(closing)+'</td>'
-      +'<td><span class="badge bb">À livrer</span></td>'
-      +'<td>'+(dlivPrev?fDate(dlivPrev):'—')+'</td>';
-    tbody.prepend(tr);
-    
     if(btn){btn.textContent='💾 Enregistrer le deal';btn.disabled=false;}
     toast('✅ Deal enregistré dans Firebase : '+client);
     resetNewDeal();
