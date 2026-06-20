@@ -758,9 +758,16 @@ function renderGlobal(){
   setText('k-ca',fC(ca)); setText('k-cal',fC(caL)); setText('k-caa',fC(caA));
   setText('k-car',fC(caR)); setText('k-sko',risk.length); setText('k-taux',taux+'%');
   var mO=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-  // Calcul dynamique : statut PV signé/Livré = CA livré, sinon en attente
-  var caClose=mO.map(function(m){return deals.filter(function(d){return d.mois===m&&(d.statut==='PV signé'||d.statut==='Livré');}).reduce(function(a,d){return a+d.montant;},0);});
-  var caPrev=mO.map(function(m){return deals.filter(function(d){return d.mois===m&&d.statut!=='PV signé'&&d.statut!=='Livré';}).reduce(function(a,d){return a+d.montant;},0);});
+  var MONTHS_IDX={'Janvier':0,'Février':1,'Mars':2,'Avril':3,'Mai':4,'Juin':5,'Juillet':6,'Aout':7,'Septembre':8,'Octobre':9,'Novembre':10,'Décembre':11};
+  // Fonction : mois d'un deal basé sur dlivPrev (référence unique)
+  function dealMoisIdx(d){
+    if(d.dlivPrev){ return new Date(d.dlivPrev).getMonth(); }
+    // fallback : champ mois textuel
+    return (d.mois && MONTHS_IDX[d.mois]!==undefined) ? MONTHS_IDX[d.mois] : -1;
+  }
+  // Calcul par mois via dlivPrev — source unique de vérité
+  var caClose=mO.map(function(m,i){return deals.filter(function(d){return dealMoisIdx(d)===i&&(d.statut==='PV signé'||d.statut==='Livré');}).reduce(function(a,d){return a+d.montant;},0);});
+  var caPrev=mO.map(function(m,i){return deals.filter(function(d){return dealMoisIdx(d)===i&&d.statut!=='PV signé'&&d.statut!=='Livré';}).reduce(function(a,d){return a+d.montant;},0);});
   // KPI totaux cohérents
   var _tPrev=caA;
   var _tLivr=caL;
@@ -795,9 +802,9 @@ function renderGlobal(){
       if(!pts.length) return;
       var moisIdx=pts[0].index, dsIdx=pts[0].datasetIndex;
       var moisName=mO[moisIdx];
-      // Popup basé sur deals Firebase (source unique)
+      // Popup basé sur dlivPrev (source unique)
       var dealsList=deals.filter(function(d){
-        return d.mois===moisName && (dsIdx===0 ? (d.statut!=='PV signé'&&d.statut!=='Livré') : (d.statut==='PV signé'||d.statut==='Livré'));
+        return dealMoisIdx(d)===moisIdx && (dsIdx===0 ? (d.statut!=='PV signé'&&d.statut!=='Livré') : (d.statut==='PV signé'||d.statut==='Livré'));
       });
       var caTotal=dsIdx===0?caPrev[moisIdx]:caClose[moisIdx];
       var label=dsIdx===0?'CA en attente':'CA facturé';
@@ -1981,7 +1988,8 @@ function showPrevisionPopup(){
   var mo=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
   var rows=[];
   deals.forEach(function(d){
-    rows.push([d.mois||'',d.client||'',d.desc||'',d.commercial||'',fF(d.montant),fDate(d.closing),fDate(d.dlivPrev),d.statut||'']);
+    var moisLabel=d.dlivPrev?mo[new Date(d.dlivPrev).getMonth()]:(d.mois||'—');
+    rows.push([moisLabel,d.client||'',d.desc||'',d.commercial||'',fF(d.montant),fDate(d.closing),fDate(d.dlivPrev),d.statut||'']);
   });
   var headers=['Mois','Client','Description','Commercial','Montant','Closing','Date prévue','Statut'];
   rows.sort(function(a,b){
