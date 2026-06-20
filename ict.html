@@ -1532,9 +1532,19 @@ function dvInlinePanelHTML(d){
     +['À livrer','En cours','PV signé','Livré'].map(function(s){return '<option'+(d.statut===s?' selected':'')+'>'+s+'</option>';}).join('')
     +'</select></div>'
     // Date livraison supprimée — calculée depuis dlivPrev commercial
+    // Date de livraison réelle
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Date de livraison</label>'
+    +'<input id="dv-date-livraison" type="date" class="si" value="'+(d.dateLivraison||'')+'" style="font-size:12px"/>'
+    +'<small style="color:var(--muted);font-size:10px">Date effective de livraison au client</small></div>'
     // Date PV
     +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Date signature PV</label>'
-    +'<input id="dv-date-pv" type="date" class="si" value="'+(d.datePv||'')+'" style="font-size:12px" onchange="dvOnPvChange()"/></div>'
+    +'<input id="dv-date-pv" type="date" class="si" value="'+(d.datePv||'')+'" style="font-size:12px" onchange="dvOnPvChange()"/>'
+    +'<small style="color:var(--muted);font-size:10px">Date PV + PV joint → statut PV signé</small></div>'
+    // PV de recette (fichier + lien existant)
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">📎 PV de recette</label>'
+    +'<input id="dv-pv-file" type="file" class="si" style="font-size:11px;padding:4px 8px" onchange="dvOnPvChange()"/>'
+    +(d.pvPath?'<a href="'+d.pvPath+'" target="_blank" style="font-size:10px;color:var(--blue)">📄 Voir PV joint</a>':'')
+    +'<small style="color:var(--muted);font-size:10px">Date PV + PV joint → statut PV signé</small></div>'
     // Raison retard
     +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Raison du retard</label>'
     +'<select id="dv-raison" class="si" style="font-size:12px">'
@@ -1620,15 +1630,15 @@ function dvStatutChange(){
 
 function dvOnPvChange(){
   var pv=document.getElementById('dv-date-pv').value;
-  var path=document.getElementById('dv-pv-path').value;
-  // Auto set statut based on PV
+  var pvFileEl2=document.getElementById('dv-pv-file');
+  var hasFile=(pvFileEl2&&pvFileEl2.files&&pvFileEl2.files[0]);
+  // Date PV + PV joint → PV signé
   var stat=document.getElementById('dv-statut');
-  if(pv&&path){
-    stat.value='Livré';
+  if(pv&&hasFile){
+    stat.value='PV signé';
   } else if(pv){
     stat.value='PV signé';
   }
-  dvRefreshAlerte();
 }
 
 function dvSaveEdit(){
@@ -1636,20 +1646,20 @@ function dvSaveEdit(){
   var d=deals.find(function(x){return x.id===dvEditId;}); if(!d) return;
   var gv=function(id){var e=document.getElementById(id);return e?e.value.trim():'';};
   var resp=gv('dv-resp'); if(resp) saveFV('deliv',resp);
-  var pvPath=gv('dv-pv-path');
+  var pvFileEl=document.getElementById('dv-pv-file');
+  var pvPath=(pvFileEl&&pvFileEl.files&&pvFileEl.files[0])?pvFileEl.files[0].name:(deals.find(function(x){return x.id===dvEditId;})||{}).pvPath||'';
   var datePv=gv('dv-date-pv');
+  var dateLivraison=gv('dv-date-livraison');
   var newStatut=gv('dv-statut');
-  // Auto-logic: PV joint = Livré
-  if(pvPath&&datePv) newStatut='Livré';
+  // Date PV + PV joint → PV signé
+  if(datePv&&pvPath) newStatut='PV signé';
   else if(datePv) newStatut='PV signé';
   Object.assign(d,{
     statut:newStatut,
     deliveryResp:resp,
-    // dlivPrev conservé tel quel (champ commercial, non modifiable ici)
-    // dateDelivery retiré — dlivPrev est la référence unique
+    dateLivraison:dateLivraison,
     datePv:datePv,
     pvPath:pvPath,
-    dateMaint:gv('dv-date-maint'),
     raison:gv('dv-raison'),
     notes:gv('dv-notes'),
     updatedAt:new Date().toISOString()
