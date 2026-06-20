@@ -489,20 +489,22 @@ function drawChart(id,type,labels,datasets,isCa,noLeg,stacked){
 
 function renderGlobal(){
   var ca=deals.reduce(function(a,d){return a+d.montant;},0);
-  var livres=deals.filter(function(d){return d.statut==='PV signé'||d.statut==='Livré';});
+  // dateDelivery renseigné = CA facturé ; vide = en attente de facturation
+  var livres=deals.filter(function(d){return d.dateDelivery&&d.dateDelivery!=='';});
   var caL=livres.reduce(function(a,d){return a+d.montant;},0);
-  var caA=deals.filter(function(d){return d.statut!=='PV signé'&&d.statut!=='Livré';}).reduce(function(a,d){return a+d.montant;},0);
+  var caA=deals.filter(function(d){return !d.dateDelivery||d.dateDelivery==='';}).reduce(function(a,d){return a+d.montant;},0);
   var risk=deals.filter(function(d){return slaStatus(d)==='ko';});
   var caR=risk.reduce(function(a,d){return a+d.montant;},0);
   var taux=Math.round(livres.length/deals.length*100);
   setText('k-ca',fC(ca)); setText('k-cal',fC(caL)); setText('k-caa',fC(caA));
   setText('k-car',fC(caR)); setText('k-sko',risk.length); setText('k-taux',taux+'%');
   var mO=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
-  var caClose=[6988553, 9625886, 41050312, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  var caPrev=[154343187, 723739935, 1709933559, 274432472, 211162392, 3697085598, 4186940548, 554139168, 1140943709, 544632261, 1614255586, 483645979];
+  // Calcul dynamique : dateDelivery renseigné = CA facturé, vide = en attente
+  var caClose=mO.map(function(m){return deals.filter(function(d){return d.mois===m&&d.dateDelivery&&d.dateDelivery!=='';}).reduce(function(a,d){return a+d.montant;},0);});
+  var caPrev=mO.map(function(m){return deals.filter(function(d){return d.mois===m&&(!d.dateDelivery||d.dateDelivery==='');}).reduce(function(a,d){return a+d.montant;},0);});
   // Update dynamic KPIs from deals data
   var _tPrev=deals.reduce(function(a,d){return a+d.montant;},0);
-  var _tLivr=deals.filter(function(d){return d.statut==='PV signé'||d.statut==='Livré';}).reduce(function(a,d){return a+d.montant;},0);
+  var _tLivr=deals.filter(function(d){return d.dateDelivery&&d.dateDelivery!=='';}).reduce(function(a,d){return a+d.montant;},0);
   setHTML('kpi-prev-total',fC(_tPrev));
   setHTML('kpi-livr-total',fC(_tLivr));
   (function(){
@@ -811,7 +813,8 @@ function renderDeals(){
 
 function renderPerf(){
   var ca=deals.reduce(function(a,d){return a+d.montant;},0);
-  var livres=deals.filter(function(d){return d.statut==='PV signé'||d.statut==='Livré';});
+  // dateDelivery renseigné = CA facturé
+  var livres=deals.filter(function(d){return d.dateDelivery&&d.dateDelivery!=='';});
   var caL=livres.reduce(function(a,d){return a+d.montant;},0);
   var risk=deals.filter(function(d){return slaStatus(d)==='ko';});
   var caR=risk.reduce(function(a,d){return a+d.montant;},0);
@@ -824,7 +827,7 @@ function renderPerf(){
     var c=d.commercial||'—';
     if(!byC[c]) byC[c]={n:0,ca:0,caL:0,caR:0};
     byC[c].n++; byC[c].ca+=d.montant;
-    if(d.statut==='PV signé'||d.statut==='Livré') byC[c].caL+=d.montant;
+    if(d.dateDelivery&&d.dateDelivery!=='') byC[c].caL+=d.montant;
     if(slaStatus(d)==='ko') byC[c].caR+=d.montant;
   });
   var pc=Object.entries(byC).sort(function(a,b){return b[1].ca-a[1].ca;}).slice(0,10);
