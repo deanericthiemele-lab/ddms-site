@@ -1698,9 +1698,6 @@ function planNav(dir){ planMonth+=dir; if(planMonth>11){planMonth=0;planYear++;}
 function planGoToday(){ planYear=new Date().getFullYear(); planMonth=new Date().getMonth(); renderPlanning(); }
 
 function renderPlanning(){
-  var label=MONTHS_FR[planMonth]+' '+planYear;
-  var el=document.getElementById('plan-month-label'); if(el) el.textContent=label;
-
   // Populate ing filter if empty
   var ingF=document.getElementById('plan-ing-filter');
   if(ingF&&ingF.options.length<=1){
@@ -1709,13 +1706,22 @@ function renderPlanning(){
   }
   var selIng=ingF?ingF.value:'';
 
-  // Filter deals for this month — dlivPrev en priorité, sinon closing
+  // Filter deals for this month — dlivPrev uniquement
   var monthDeals=deals.filter(function(d){
     if(selIng&&d.deliveryResp!==selIng) return false;
     if(!d.dlivPrev) return false;
     var dt=new Date(d.dlivPrev);
     return dt.getFullYear()===planYear&&dt.getMonth()===planMonth;
   });
+
+  // CA attendu (tous deals du mois) vs CA facturé (PV signé/Livré)
+  var caAttendu=monthDeals.reduce(function(a,d){return a+d.montant;},0);
+  var caFacture=monthDeals.filter(function(d){return d.statut==='PV signé'||d.statut==='Livré';}).reduce(function(a,d){return a+d.montant;},0);
+  var label=MONTHS_FR[planMonth]+' '+planYear
+    +' <span style="font-size:11px;font-weight:500;color:var(--muted)">'
+    +'('+fC(caFacture)+' facturé / '+fC(caAttendu)+' attendu)'
+    +'</span>';
+  var el=document.getElementById('plan-month-label'); if(el) el.innerHTML=label;
   // Deals sans aucune date (ni dlivPrev ni closing)
   var noDeal=deals.filter(function(d){
     if(selIng&&d.deliveryResp!==selIng) return false;
@@ -1753,7 +1759,7 @@ function renderPlanning(){
     html+='<div style="background:var(--s2);padding:6px 4px;text-align:center;font-size:10px;font-weight:700;color:'+(wkend?'#94a3b8':'var(--muted)')+'">'+d+'</div>';
   });
   // Blank cells before first
-  for(var i=0;i<startDow;i++){html+='<div style="background:#fafbfc;min-height:90px"></div>';}
+  for(var i=0;i<startDow;i++){html+='<div style="background:#fafbfc;min-height:110px"></div>';}
   // Day cells
   for(var day=1;day<=lastDay;day++){
     var dateStr=planYear+'-'+String(planMonth+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
@@ -1763,8 +1769,8 @@ function renderPlanning(){
     var dayDeals=byDate[dateStr]||[];
     var bg=isWkend?'#fafbfd':'#fff';
     var todayBorder=isToday?'box-shadow:inset 0 0 0 2px #2563eb;':'';
-    html+='<div style="background:'+bg+';min-height:90px;padding:4px;cursor:'+(dayDeals.length?'pointer':'default')+';'+todayBorder+'" onclick="planDayClick(this)" data-date="'+dateStr+'">';
-    html+='<div style="font-size:11px;font-weight:'+(isToday?'900':'600')+';color:'+(isToday?'#2563eb':isWkend?'#94a3b8':'var(--text)')+';margin-bottom:3px">'+day+(isToday?' ●':'')+'</div>';
+    html+='<div style="background:'+bg+';min-height:110px;padding:5px;cursor:'+(dayDeals.length?'pointer':'default')+';'+todayBorder+'" onclick="planDayClick(this)" data-date="'+dateStr+'">';
+    html+='<div style="font-size:12px;font-weight:'+(isToday?'900':'700')+';color:'+(isToday?'#2563eb':isWkend?'#94a3b8':'var(--text)')+';margin-bottom:4px">'+day+(isToday?' ●':'')+'</div>';
     // Deal chips (max 3 visible)
     var shown=dayDeals.slice(0,3);
     shown.forEach(function(d){
@@ -1780,7 +1786,7 @@ function renderPlanning(){
       } else {
         chipBg='#f0fdf4'; chipBorder='#16a34a'; chipTxt='#16a34a';
       }
-      html+='<div style="background:'+chipBg+';border-left:3px solid '+chipBorder+';border-radius:3px;padding:2px 4px;margin-bottom:2px;font-size:8px;line-height:1.4;color:'+chipTxt+';max-width:100%;overflow:hidden">'
+      html+='<div style="background:'+chipBg+';border-left:3px solid '+chipBorder+';border-radius:4px;padding:4px 6px;margin-bottom:3px;font-size:11px;line-height:1.5;color:'+chipTxt+';max-width:100%;overflow:hidden">'
         +'<div style="display:flex;align-items:center;gap:2px;overflow:hidden;white-space:nowrap">'
         +'<span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;min-width:0">'+d.client+'</span>'
         +'<span style="flex-shrink:0;opacity:.5;padding:0 1px">|</span>'
@@ -1790,13 +1796,13 @@ function renderPlanning(){
         +'</div>'
         +'</div>';
     });
-    if(dayDeals.length>3) html+='<div style="font-size:9px;color:var(--muted);padding:1px 3px">+'+( dayDeals.length-3)+' autres</div>';
+    if(dayDeals.length>3) html+='<div style="font-size:10px;color:var(--muted);padding:2px 4px;font-weight:600">+'+( dayDeals.length-3)+' autres</div>';
     html+='</div>';
   }
   // Fill remaining
   var total=startDow+lastDay;
   var rem=(7-total%7)%7;
-  for(var j=0;j<rem;j++){html+='<div style="background:#fafbfc;min-height:90px"></div>';}
+  for(var j=0;j<rem;j++){html+='<div style="background:#fafbfc;min-height:110px"></div>';}
   html+='</div>';
 
   // Deals avec dlivPrev dans d'autres mois
