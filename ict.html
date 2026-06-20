@@ -1523,11 +1523,11 @@ function dvInlinePanelHTML(d){
     +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);margin-bottom:8px">🔧 Delivery</div>'
     +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px">'
     // Ingénieur
-    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Ingénieur Delivery</label>'
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Ingénieur Delivery *</label>'
     +'<input id="dv-resp" type="text" class="si" list="dl-dv-resp" value="'+(d.deliveryResp||'')+'" placeholder="Nom…" style="font-size:12px" oninput="saveFV(&quot;deliv&quot;,this.value);addListValue(&quot;delivery&quot;,this.value)"/>'
     +'<datalist id="dl-dv-resp"></datalist></div>'
     // Statut
-    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Statut</label>'
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Statut *</label>'
     +'<select id="dv-statut" class="si" style="font-size:12px" onchange="dvStatutChange()">'
     +['À livrer','En cours','PV signé','Livré'].map(function(s){return '<option'+(d.statut===s?' selected':'')+'>'+s+'</option>';}).join('')
     +'</select></div>'
@@ -1645,7 +1645,19 @@ function dvSaveEdit(){
   if(!dvEditId) return;
   var d=deals.find(function(x){return x.id===dvEditId;}); if(!d) return;
   var gv=function(id){var e=document.getElementById(id);return e?e.value.trim():'';};
-  var resp=gv('dv-resp'); if(resp) saveFV('deliv',resp);
+  var resp=gv('dv-resp'); 
+  var statut=gv('dv-statut');
+  // Champs obligatoires
+  if(!resp){
+    toast('⚠️ Ingénieur Delivery obligatoire');
+    var el=document.getElementById('dv-resp'); if(el){el.style.border='2px solid #dc2626'; el.focus();}
+    return;
+  }
+  if(!statut){
+    toast('⚠️ Statut obligatoire');
+    return;
+  }
+  if(resp) saveFV('deliv',resp);
   var pvFileEl=document.getElementById('dv-pv-file');
   var pvPath=(pvFileEl&&pvFileEl.files&&pvFileEl.files[0])?pvFileEl.files[0].name:(deals.find(function(x){return x.id===dvEditId;})||{}).pvPath||'';
   var datePv=gv('dv-date-pv');
@@ -1787,14 +1799,25 @@ function renderPlanning(){
   for(var j=0;j<rem;j++){html+='<div style="background:#fafbfc;min-height:90px"></div>';}
   html+='</div>';
 
+  // Deals avec dlivPrev dans d'autres mois
+  var otherMonths=deals.filter(function(d){
+    if(!d.dlivPrev) return false;
+    var dt=new Date(d.dlivPrev);
+    return !(dt.getFullYear()===planYear&&dt.getMonth()===planMonth);
+  });
   // No-date deals row
-  if(noDeal.length){
+  if(noDeal.length||otherMonths.length){
     html+='<div style="padding:10px 12px;background:#f8fafc;border-top:1px solid var(--border)">';
+    if(otherMonths.length){
+      html+='<div style="font-size:10px;font-weight:600;color:var(--blue);margin-bottom:6px">ℹ️ '+otherMonths.length+' dossier(s) sur d\'autres mois — utilisez ◀ ▶ pour les voir</div>';
+    }
+    if(noDeal.length){
     html+='<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase">⚪ Sans date de livraison prévue ('+noDeal.length+')</div>';
     html+=noDeal.slice(0,6).map(function(d){
       return '<span style="display:inline-block;background:#e2e8f0;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:600;color:#475569;margin:2px">'+d.client.substring(0,18)+'</span>';
     }).join('');
     if(noDeal.length>6) html+='<span style="font-size:10px;color:var(--muted);margin-left:6px">+'+( noDeal.length-6)+' autres</span>';
+    } // fin if noDeal.length
     html+='</div>';
   }
 
