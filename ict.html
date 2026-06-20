@@ -218,16 +218,22 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 <div id="page-3" class="page">
   <div class="g2" style="margin-bottom:10px;align-items:start">
     <div class="card">
-      <div class="ct">Performances Commerciaux — CA par commercial</div>
-      <div class="tbl-wrap" style="margin-top:0;border:none">
+      <div class="ct" style="display:flex;align-items:center;justify-content:space-between">
+        <span>Performances Commerciaux — CA par commercial <span id="perf-comm-count" style="font-size:10px;font-weight:600;background:var(--accent);color:#fff;border-radius:10px;padding:1px 7px;margin-left:4px">—</span></span>
+      </div>
+      <input class="si" id="perf-comm-search" type="text" placeholder="🔍 Rechercher un commercial…" oninput="filterPerfComm()" style="width:100%;margin-bottom:8px;font-size:11px"/>
+      <div class="tbl-wrap" style="margin-top:0;border:none;max-height:420px;overflow-y:auto">
         <table><thead><tr>
           <th>#</th><th>Commercial</th><th>Deals</th><th>CA Total</th><th>CA Livré</th><th>CA En attente</th>
         </tr></thead><tbody id="tbody-perf"></tbody></table>
       </div>
     </div>
     <div class="card">
-      <div class="ct">Performances Delivery — Suivi livraisons</div>
-      <div class="tbl-wrap" style="margin-top:0;border:none">
+      <div class="ct" style="display:flex;align-items:center;justify-content:space-between">
+        <span>Performances Delivery — Suivi livraisons <span id="perf-deliv-count" style="font-size:10px;font-weight:600;background:var(--blue);color:#fff;border-radius:10px;padding:1px 7px;margin-left:4px">—</span></span>
+      </div>
+      <input class="si" id="perf-deliv-search" type="text" placeholder="🔍 Rechercher un ingénieur…" oninput="filterPerfDeliv()" style="width:100%;margin-bottom:8px;font-size:11px"/>
+      <div class="tbl-wrap" style="margin-top:0;border:none;max-height:420px;overflow-y:auto">
         <table><thead><tr>
           <th>#</th><th>Ingénieur Delivery</th><th>Volume</th><th>Livré dans délais</th><th>Livré hors délais</th><th>En cours dans délais</th><th>En cours hors délais</th>
         </tr></thead><tbody id="tbody-delivery"></tbody></table>
@@ -1211,6 +1217,8 @@ function renderPerf(){
     true,false,false);
 
   var allC=Object.entries(byC).sort(function(a,b){return b[1].ca-a[1].ca;});
+  window._perfCommData=allC;
+  var cn=document.getElementById('perf-comm-count'); if(cn) cn.textContent=allC.length;
   document.getElementById('tbody-perf').innerHTML=allC.map(function(x,i){
     var n=x[0],s=x[1];
     var pct=s.ca?Math.round(s.caL/s.ca*100):0;
@@ -1239,6 +1247,8 @@ function renderPerf(){
     }
   });
   var allI=Object.entries(byIng).filter(function(x){return x[0]!=='—';}).sort(function(a,b){return b[1].n-a[1].n;});
+  window._perfDelivData=allI;
+  var dn=document.getElementById('perf-deliv-count'); if(dn) dn.textContent=allI.length;
   document.getElementById('tbody-delivery').innerHTML=allI.length?allI.map(function(x,i){
     var n=x[0],s=x[1];
     return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
@@ -1253,6 +1263,46 @@ function renderPerf(){
 
 
 
+
+function renderPerfCommRows(data){
+  var html=data.map(function(x,i){
+    var n=x[0],s=x[1];
+    var pct=s.ca?Math.round(s.caL/s.ca*100):0;
+    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
+      '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
+      '<td style="text-align:center">'+s.n+'</td>'+
+      '<td style="font-weight:600">'+fC(s.ca)+'</td>'+
+      '<td style="color:var(--green);font-weight:600">'+fC(s.caL)+' <span style="font-size:10px;color:var(--muted)">('+pct+'%)</span></td>'+
+      '<td style="color:var(--yellow)">'+fC(s.ca-s.caL)+'</td></tr>';
+  }).join('');
+  document.getElementById('tbody-perf').innerHTML=html||'<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Aucun résultat</td></tr>';
+  var cn=document.getElementById('perf-comm-count'); if(cn) cn.textContent=data.length;
+}
+function filterPerfComm(){
+  var q=(document.getElementById('perf-comm-search')||{value:''}).value.toLowerCase();
+  var data=(window._perfCommData||[]).filter(function(x){ return !q||x[0].toLowerCase().includes(q); });
+  renderPerfCommRows(data);
+}
+
+function renderPerfDelivRows(data){
+  var html=data.length?data.map(function(x,i){
+    var n=x[0],s=x[1];
+    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
+      '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
+      '<td style="text-align:center">'+s.n+'</td>'+
+      '<td style="color:var(--green);font-weight:600;text-align:center">'+s.okD+'</td>'+
+      '<td style="color:var(--red);text-align:center">'+s.koD+'</td>'+
+      '<td style="color:var(--blue);text-align:center">'+s.okE+'</td>'+
+      '<td style="color:var(--yellow);text-align:center">'+s.koE+'</td></tr>';
+  }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Aucun ingénieur assigné</td></tr>';
+  document.getElementById('tbody-delivery').innerHTML=html;
+  var dn=document.getElementById('perf-deliv-count'); if(dn) dn.textContent=data.length;
+}
+function filterPerfDeliv(){
+  var q=(document.getElementById('perf-deliv-search')||{value:''}).value.toLowerCase();
+  var data=(window._perfDelivData||[]).filter(function(x){ return !q||x[0].toLowerCase().includes(q); });
+  renderPerfDelivRows(data);
+}
 
 function buildFilters(){
   var mO=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
