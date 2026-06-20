@@ -553,7 +553,9 @@ window.addEventListener('DOMContentLoaded', function(){
   // Init new deal form
   document.getElementById('np-closing').value=new Date().toISOString().split('T')[0];
   initFormDatalist(); initFirebaseLists();
-  renderDeliveryPage(); renderPlanning(); renderAll();
+  // Premier rendu avec données locales (si existantes)
+  renderAll(); renderDeliveryPage(); renderPlanning();
+  // Firebase rechargera et re-renderera dans loadDealsFromFirestore callback
 });
 
 function loadData(){
@@ -1691,17 +1693,19 @@ function renderPlanning(){
   }
   var selIng=ingF?ingF.value:'';
 
-  // Filter deals for this month (by dlivPrev)
+  // Filter deals for this month — dlivPrev en priorité, sinon closing
   var monthDeals=deals.filter(function(d){
     if(selIng&&d.deliveryResp!==selIng) return false;
-    if(!d.dlivPrev) return false;
-    var dt=new Date(d.dlivPrev);
+    var refDate=d.dlivPrev||d.closing;
+    if(!refDate) return false;
+    var dt=new Date(refDate);
     return dt.getFullYear()===planYear&&dt.getMonth()===planMonth;
   });
-  // Also deals with no date (show at bottom)
+  // Deals sans aucune date (ni dlivPrev ni closing)
   var noDeal=deals.filter(function(d){
     if(selIng&&d.deliveryResp!==selIng) return false;
-    return !d.dlivPrev&&d.statut!=='Livré'&&d.statut!=='PV signé';
+    if(d.statut==='Livré'||d.statut==='PV signé') return false;
+    return !d.dlivPrev&&!d.closing;
   });
 
   // KPIs
@@ -1720,11 +1724,12 @@ function renderPlanning(){
   var startDow=(first.getDay()+6)%7; // Monday=0
   var today=new Date(); var todayStr=today.toISOString().split('T')[0];
 
-  // Index deals by date
+  // Index deals by date (dlivPrev en priorité, sinon closing)
   var byDate={};
   monthDeals.forEach(function(d){
-    if(!byDate[d.dlivPrev]) byDate[d.dlivPrev]=[];
-    byDate[d.dlivPrev].push(d);
+    var refDate=d.dlivPrev||d.closing;
+    if(!byDate[refDate]) byDate[refDate]=[];
+    byDate[refDate].push(d);
   });
 
   var html='<div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--border);gap:1px">';
@@ -1752,7 +1757,8 @@ function renderPlanning(){
       // Couleurs calendrier : vert=futur non livré, rouge=dépassé/aujourd'hui non livré, noir=PV signé
       var isPv=d.statut==='PV signé'||d.statut==='Livré';
       var now=new Date(); now.setHours(0,0,0,0);
-      var prev=d.dlivPrev?new Date(d.dlivPrev):null; if(prev) prev.setHours(0,0,0,0);
+      var prevStr=d.dlivPrev||d.closing;
+      var prev=prevStr?new Date(prevStr):null; if(prev) prev.setHours(0,0,0,0);
       var chipBg, chipBorder, chipTxt;
       if(isPv){
         chipBg='#1e2533'; chipBorder='#1e2533'; chipTxt='#ffffff';
