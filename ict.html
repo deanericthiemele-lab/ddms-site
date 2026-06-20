@@ -267,7 +267,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
         <input type="text" id="np-montant" placeholder="0" inputmode="numeric" oninput="fmtMontantInput(this)"/>
       </div>
       <div class="ff"><label>Date de closing *</label><input type="date" id="np-closing"/></div>
-      <div class="ff"><label>Date de livraison prévue</label><input type="date" id="np-dliv-prev" title="Date prévisionnelle de livraison au client"/></div>
+      <div class="ff"><label>Date de livraison prévue *</label><input type="date" id="np-dliv-prev" required title="Date prévisionnelle de livraison au client"/></div>
       <div class="ff"><label>Secteur *</label>
         <div style="display:flex;gap:6px;align-items:center">
           <select id="np-secteur" required style="flex:1">
@@ -618,21 +618,18 @@ function renderAll(){ renderGlobal(); renderAlertes(); renderDeals(); renderPerf
 
 function slaStatus(d){
   if(d.statut==='PV signé'||d.statut==='Livré') return 'ok';
-  if(!d.closing) return 'none';
-  var dl=new Date(d.closing).getTime()+d.sla*86400000;
-  var diff=Math.ceil((dl-Date.now())/86400000);
+  if(!d.dlivPrev) return 'none';
+  var diff=Math.ceil((new Date(d.dlivPrev).getTime()-Date.now())/86400000);
   if(diff<0) return 'ko';
   if(diff<=SLA_CFG.warn) return 'warn';
   return 'ok';
 }
 function slaDays(d){
-  if(!d.closing) return null;
-  return Math.ceil((new Date(d.closing).getTime()+d.sla*86400000-Date.now())/86400000);
+  if(!d.dlivPrev) return null;
+  return Math.ceil((new Date(d.dlivPrev).getTime()-Date.now())/86400000);
 }
 function deadlineFmt(d){
-  if(!d.closing) return '—';
-  var dt=new Date(new Date(d.closing).getTime()+d.sla*86400000);
-  var dd=String(dt.getDate()).padStart(2,'0'),mm=String(dt.getMonth()+1).padStart(2,'0'),yy=dt.getFullYear();return dd+'/'+mm+'/'+yy;
+  return d.dlivPrev ? fDate(d.dlivPrev) : '—';
 }
 function fDate(s){
   if(!s) return '—';
@@ -1693,16 +1690,15 @@ function renderPlanning(){
   // Filter deals for this month — dlivPrev en priorité, sinon closing
   var monthDeals=deals.filter(function(d){
     if(selIng&&d.deliveryResp!==selIng) return false;
-    var refDate=d.dlivPrev||d.closing;
-    if(!refDate) return false;
-    var dt=new Date(refDate);
+    if(!d.dlivPrev) return false;
+    var dt=new Date(d.dlivPrev);
     return dt.getFullYear()===planYear&&dt.getMonth()===planMonth;
   });
   // Deals sans aucune date (ni dlivPrev ni closing)
   var noDeal=deals.filter(function(d){
     if(selIng&&d.deliveryResp!==selIng) return false;
     if(d.statut==='Livré'||d.statut==='PV signé') return false;
-    return !d.dlivPrev&&!d.closing;
+    return !d.dlivPrev;
   });
 
   // KPIs
@@ -1724,9 +1720,8 @@ function renderPlanning(){
   // Index deals by date (dlivPrev en priorité, sinon closing)
   var byDate={};
   monthDeals.forEach(function(d){
-    var refDate=d.dlivPrev||d.closing;
-    if(!byDate[refDate]) byDate[refDate]=[];
-    byDate[refDate].push(d);
+    if(!byDate[d.dlivPrev]) byDate[d.dlivPrev]=[];
+    byDate[d.dlivPrev].push(d);
   });
 
   var html='<div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--border);gap:1px">';
@@ -1754,8 +1749,7 @@ function renderPlanning(){
       // Couleurs calendrier : vert=futur non livré, rouge=dépassé/aujourd'hui non livré, noir=PV signé
       var isPv=d.statut==='PV signé'||d.statut==='Livré';
       var now=new Date(); now.setHours(0,0,0,0);
-      var prevStr=d.dlivPrev||d.closing;
-      var prev=prevStr?new Date(prevStr):null; if(prev) prev.setHours(0,0,0,0);
+      var prev=d.dlivPrev?new Date(d.dlivPrev):null; if(prev) prev.setHours(0,0,0,0);
       var chipBg, chipBorder, chipTxt;
       if(isPv){
         chipBg='#1e2533'; chipBorder='#1e2533'; chipTxt='#ffffff';
@@ -1884,8 +1878,14 @@ function saveNewDeal(){
   var secteur=document.getElementById('np-secteur').value;
   var categorie=document.getElementById('np-cat').value;
   var univers=document.getElementById('np-univers').value;
+  var dlivPrevVal=document.getElementById('np-dliv-prev').value;
   if(!client||!desc||!comm||!montant||!closing){
     toast('⚠️ Champs obligatoires manquants (Client, Description, Commercial, Montant, Closing)');
+    return;
+  }
+  if(!dlivPrevVal){
+    toast('⚠️ La Date de livraison prévue est obligatoire');
+    document.getElementById('np-dliv-prev').focus();
     return;
   }
   if(!secteur||!categorie||!univers){
@@ -1893,7 +1893,7 @@ function saveNewDeal(){
     return;
   }
   var mois=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'][new Date(closing).getMonth()];
-  var dlivPrev=document.getElementById('np-dliv-prev').value;
+  var dlivPrev=dlivPrevVal;
   var newDeal={
     id:'np_'+Date.now(),
     client:client, desc:desc, commercial:comm, montant:montant,
