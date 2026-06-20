@@ -108,6 +108,9 @@ select.si{cursor:pointer}
 .cfg-i{width:68px;text-align:center;background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text);outline:none}
 .cfg-i:focus{border-color:var(--accent)}
 .sec{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px}
+.dv-quick{padding:5px 12px;border:1px solid var(--border);border-radius:20px;cursor:pointer;font-size:11px;font-weight:600;background:#fff;color:var(--muted);transition:all .15s;font-family:inherit}
+.dv-quick:hover{border-color:var(--accent);color:var(--accent)}
+.dv-quick.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 #toast{position:fixed;bottom:20px;right:20px;z-index:9999;background:#1e2533;color:#fff;border-radius:var(--r);padding:10px 16px;font-size:12px;transform:translateY(80px);transition:transform .3s;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 #toast.show{transform:translateY(0)}
 tr.sla-ko td:first-child{border-left:2px solid var(--red)}
@@ -143,7 +146,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 </div>
 <div class="hdr">
   <div class="logo">IT</div>
-  <div><h1>ICT Tracker 2025</h1><p>Datalink CI — Suivi ventes &amp; delivery</p></div>
+  <div style="display:flex;align-items:center;gap:10px"><div><h1>ICT Tracker 2025 <span id="hdr-nb-deals" style="font-size:11px;font-weight:700;background:#f97316;color:#fff;border-radius:10px;padding:2px 8px;vertical-align:middle">—</span></h1><p>Datalink CI — Suivi ventes &amp; delivery</p></div></div>
   <div class="hdr-r" id="hdr-date">—</div>
 </div>
 <div class="tabs">
@@ -277,6 +280,14 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   <div class="fp">
     <h3>Delivery</h3>
     
+    <!-- Filtres rapides -->
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+      <button class="dv-quick active" data-quick="all"    onclick="dvQuick(this)">📋 Tous</button>
+      <button class="dv-quick"        data-quick="active" onclick="dvQuick(this)">🔄 En cours / À livrer</button>
+      <button class="dv-quick"        data-quick="alerts" onclick="dvQuick(this)">🚨 Alertes (retard + proche)</button>
+      <button class="dv-quick"        data-quick="red"    onclick="dvQuick(this)">🔴 En retard</button>
+      <button class="dv-quick"        data-quick="done"   onclick="dvQuick(this)">✅ Livrés / PV signés</button>
+    </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input class="si" id="dv-search" type="text" placeholder="🔍 Client, description, commercial…" oninput="dvSearchDeals()" style="flex:1;min-width:220px"/>
       <select class="si" id="dv-filter-statut" onchange="dvSearchDeals()">
@@ -582,7 +593,11 @@ function updateFirestore(dealId, data, onSuccess){
     if(onSuccess) onSuccess();
   });
 }
-function renderAll(){ renderGlobal(); renderAlertes(); renderDeals(); renderPerf(); checkBanner(); }
+function renderAll(){
+  renderGlobal(); renderAlertes(); renderDeals(); renderPerf(); checkBanner();
+  var nb=document.getElementById('hdr-nb-deals');
+  if(nb) nb.textContent=deals.length+' dossier'+(deals.length>1?'s':'');
+}
 
 function slaStatus(d){
   if(d.statut==='PV signé'||d.statut==='Livré') return 'ok';
@@ -1395,12 +1410,26 @@ function dvSetPipeFilter(){
   var si=document.getElementById('dv-search'); if(si) si.value='';
 }
 
+var _dvQuickMode = 'all';
+function dvQuick(btn){
+  _dvQuickMode = btn.getAttribute('data-quick');
+  document.querySelectorAll('.dv-quick').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  var sf=document.getElementById('dv-filter-statut'); if(sf) sf.value='';
+  var af=document.getElementById('dv-filter-alerte'); if(af) af.value='';
+  dvSearchDeals();
+}
+
 function dvSearchDeals(){
   var q=(document.getElementById('dv-search')||{value:''}).value.toLowerCase();
   var fs=(document.getElementById('dv-filter-statut')||{value:''}).value;
   var fa=(document.getElementById('dv-filter-alerte')||{value:''}).value;
   var fi=(document.getElementById('dv-filter-ing')||{value:''}).value;
   var list=deals.filter(function(d){
+    if(_dvQuickMode==='active' && (d.statut==='PV signé'||d.statut==='Livré')) return false;
+    if(_dvQuickMode==='alerts' && dvAlertLevel(d)!=='red' && dvAlertLevel(d)!=='orange') return false;
+    if(_dvQuickMode==='red'    && dvAlertLevel(d)!=='red') return false;
+    if(_dvQuickMode==='done'   && d.statut!=='PV signé' && d.statut!=='Livré') return false;
     var mq=!q||(d.client||'').toLowerCase().includes(q)||(d.desc||'').toLowerCase().includes(q)||(d.commercial||'').toLowerCase().includes(q)||(d.deliveryResp||'').toLowerCase().includes(q);
     var ms=!fs||(fs==='active'?(d.statut!=='PV signé'&&d.statut!=='Livré'):(d.statut===fs));
     var ma=!fa||(dvAlertLevel(d)===fa);
