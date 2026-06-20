@@ -517,8 +517,9 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 // ===== FIREBASE INIT =====
 var db = null;
 var ICT_COL = 'ict_deals';
-(function initFirebase(){
+function initFirebase(){
   try {
+    if(typeof firebase === 'undefined') { return; } // SDK not loaded (sandbox/offline)
     var _fbConfig = {
       apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
       authDomain: "ddms-architectures.firebaseapp.com",
@@ -533,9 +534,9 @@ var ICT_COL = 'ict_deals';
     db = firebase.firestore();
     console.log('Firebase initialisé OK');
   } catch(e) {
-    console.error('Firebase init error:', e);
+    // Firebase init failed silently (offline/sandbox)
   }
-})();
+}
 
 // ===== DATA =====
 let deals = [];
@@ -584,6 +585,7 @@ function initFirebaseLists(){
 
 window.addEventListener('DOMContentLoaded', function(){
   document.getElementById('hdr-date').textContent = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
+  initFirebase();
   loadData(); buildFilters();
   // Init new deal form
   document.getElementById('np-closing').value=new Date().toISOString().split('T')[0];
@@ -605,7 +607,7 @@ function saveData(){
 }
 
 function loadDealsFromFirestore(){
-  if(!db){ console.warn('Firebase not ready, skipping load'); return; }
+  if(!db){ return; }
   db.collection(ICT_COL).orderBy('createdAt','desc').get().then(function(snap){
     var fbDeals=[];
     snap.forEach(function(doc){
@@ -620,7 +622,7 @@ function loadDealsFromFirestore(){
       renderAll(); renderDeliveryPage(); renderPlanning();
       buildFilters();
     }
-  }).catch(function(e){ console.warn('Firestore load error:',e); });
+  }).catch(function(e){ /* Firestore load error - offline/sandbox */ });
 }
 
 function saveToFirestore(deal, onSuccess){
@@ -631,7 +633,7 @@ function saveToFirestore(deal, onSuccess){
     if(onSuccess) onSuccess();
   }).catch(function(e){
     toast('⚠️ Erreur Firebase : '+e.message);
-    console.error('saveToFirestore error:', e);
+    console.log('saveToFirestore error:', e.message);
     if(onSuccess) onSuccess(); // proceed anyway
   });
 }
@@ -643,7 +645,7 @@ function updateFirestore(dealId, data, onSuccess){
     if(onSuccess) onSuccess();
   }).catch(function(e){
     toast('⚠️ Erreur Firebase : '+e.message);
-    console.error('updateFirestore error:', e);
+    console.log('updateFirestore error:', e.message);
     if(onSuccess) onSuccess();
   });
 }
@@ -1373,6 +1375,9 @@ function dvSearchDeals(){
 
 function dvOpenEdit(idOrEl){
   var id=idOrEl&&idOrEl.getAttribute?idOrEl.getAttribute('data-id'):idOrEl;
+  // Toggle: if same deal already open, close it
+  var panel=document.getElementById('dv-edit-panel');
+  if(dvEditId===id && panel && panel.style.display!=='none'){ dvCloseEdit(); return; }
   var d=deals.find(function(x){return x.id===id;}); if(!d) return;
   dvEditId=id;
   // Fill read-only commercial fields
@@ -1574,15 +1579,26 @@ function renderPlanning(){
     // Deal chips (max 3 visible)
     var shown=dayDeals.slice(0,3);
     shown.forEach(function(d){
-      var level=dvAlertLevel(d);
-      var col=dvAlertColor(level);
-      var bg2=dvAlertBg(level);
-      html+='<div style="background:'+bg2+';border-left:3px solid '+col+';border-radius:3px;padding:2px 4px;margin-bottom:2px;font-size:8px;line-height:1.3;color:'+col+';max-width:100%;overflow:hidden">'
-        +'<div style="display:flex;align-items:baseline;justify-content:space-between;gap:2px">'
-        +'<span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">'+d.client+'</span>'
-        +'<span style="font-weight:600;white-space:nowrap;flex-shrink:0;color:'+col+';opacity:.85">'+fC(d.montant)+'</span>'
+      // Couleurs calendrier : vert=futur non livré, rouge=dépassé/aujourd'hui non livré, noir=PV signé
+      var isPv=d.statut==='PV signé'||d.statut==='Livré';
+      var now=new Date(); now.setHours(0,0,0,0);
+      var prev=d.dlivPrev?new Date(d.dlivPrev):null; if(prev) prev.setHours(0,0,0,0);
+      var chipBg, chipBorder, chipTxt;
+      if(isPv){
+        chipBg='#1e2533'; chipBorder='#1e2533'; chipTxt='#ffffff';
+      } else if(!prev||prev<=now){
+        chipBg='#fef2f2'; chipBorder='#dc2626'; chipTxt='#dc2626';
+      } else {
+        chipBg='#f0fdf4'; chipBorder='#16a34a'; chipTxt='#16a34a';
+      }
+      html+='<div style="background:'+chipBg+';border-left:3px solid '+chipBorder+';border-radius:3px;padding:2px 4px;margin-bottom:2px;font-size:8px;line-height:1.4;color:'+chipTxt+';max-width:100%;overflow:hidden">'
+        +'<div style="display:flex;align-items:center;gap:2px;overflow:hidden;white-space:nowrap">'
+        +'<span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;min-width:0">'+d.client+'</span>'
+        +'<span style="flex-shrink:0;opacity:.5;padding:0 1px">|</span>'
+        +'<span style="overflow:hidden;text-overflow:ellipsis;flex-shrink:2;min-width:0;opacity:.85">'+d.desc+'</span>'
+        +'<span style="flex-shrink:0;opacity:.5;padding:0 1px">|</span>'
+        +'<span style="font-weight:700;flex-shrink:0">'+fC(d.montant)+'</span>'
         +'</div>'
-        +'<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.8">'+(d.deliveryResp||d.commercial||'')+'</div>'
         +'</div>';
     });
     if(dayDeals.length>3) html+='<div style="font-size:9px;color:var(--muted);padding:1px 3px">+'+( dayDeals.length-3)+' autres</div>';
