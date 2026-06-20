@@ -749,9 +749,9 @@ function renderGlobal(){
   var MONTHS_IDX={'Janvier':0,'Février':1,'Mars':2,'Avril':3,'Mai':4,'Juin':5,'Juillet':6,'Aout':7,'Septembre':8,'Octobre':9,'Novembre':10,'Décembre':11};
   // Fonction : mois d'un deal basé sur dlivPrev (référence unique)
   function dealMoisIdx(d){
-    if(d.dlivPrev){ return new Date(d.dlivPrev).getMonth(); }
-    // fallback : champ mois textuel
-    return (d.mois && MONTHS_IDX[d.mois]!==undefined) ? MONTHS_IDX[d.mois] : -1;
+    // Uniquement dlivPrev — si vide, deal hors graphe
+    if(!d.dlivPrev) return -1;
+    return new Date(d.dlivPrev).getMonth();
   }
   // Calcul par mois via dlivPrev — source unique de vérité
   var caClose=mO.map(function(m,i){return deals.filter(function(d){return dealMoisIdx(d)===i&&(d.statut==='PV signé'||d.statut==='Livré');}).reduce(function(a,d){return a+d.montant;},0);});
@@ -1070,6 +1070,12 @@ var curPage=0,perPage=25,sortCol='closing',sortDir=-1,filteredD=[];
 function sortD(col){ if(sortCol===col) sortDir*=-1; else{sortCol=col;sortDir=1;} renderDeals(); }
 function chPage(dir){ var n=Math.ceil(filteredD.length/perPage); curPage=Math.max(0,Math.min(n-1,curPage+dir)); renderDeals(); }
 
+var _MO_FR=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
+function dealMoisByName(d){
+  if(!d.dlivPrev) return '';
+  return _MO_FR[new Date(d.dlivPrev).getMonth()]||'';
+}
+
 function renderDeals(){
   var s=(document.getElementById('s-deals')||{value:''}).value.toLowerCase();
   var mois=(document.getElementById('f-mois')||{value:''}).value;
@@ -1078,7 +1084,7 @@ function renderDeals(){
   var stat=(document.getElementById('f-stat')||{value:''}).value;
   filteredD=deals.filter(function(d){
     return (!s||[d.client,d.commercial,d.desc].some(function(x){return (x||'').toLowerCase().includes(s);}))&&
-      (!mois||d.mois===mois)&&(!comm||d.commercial===comm)&&
+      (!mois||dealMoisByName(d)===mois)&&(!comm||d.commercial===comm)&&
       (!slaF||slaStatus(d)===slaF)&&(!stat||d.statut===stat);
   }).sort(function(a,b){
     var av=a[sortCol]||'',bv=b[sortCol]||'';
@@ -1928,7 +1934,7 @@ function showPrevisionPopup(){
   var mo=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
   var rows=[];
   deals.forEach(function(d){
-    var moisLabel=d.dlivPrev?mo[new Date(d.dlivPrev).getMonth()]:(d.mois||'—');
+    var moisLabel=d.dlivPrev?mo[new Date(d.dlivPrev).getMonth()]:'—';
     rows.push([moisLabel,d.client||'',d.desc||'',d.commercial||'',fF(d.montant),fDate(d.closing),fDate(d.dlivPrev),d.statut||'']);
   });
   var headers=['Mois','Client','Description','Commercial','Montant','Closing','Date prévue','Statut'];
