@@ -247,15 +247,15 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
     <p>Remplissez les champs ci-dessous pour ajouter un nouveau deal à la liste. Les champs marqués * sont obligatoires.</p>
     <div class="fg">
       <div class="ff"><label>Client *</label>
-        <input type="text" id="np-client" placeholder="Nom du client" list="dl-client" autocomplete="off" oninput="saveFV('client',this.value)"/>
+        <input type="text" id="np-client" placeholder="Nom du client" list="dl-client" autocomplete="off" oninput="saveFV('client',this.value);addListValue('clients',this.value)"/>
         <datalist id="dl-client"></datalist>
       </div>
       <div class="ff"><label>Description *</label>
-        <input type="text" id="np-desc" placeholder="Description du deal" list="dl-desc" autocomplete="off" oninput="saveFV('desc',this.value)"/>
+        <input type="text" id="np-desc" placeholder="Description du deal" list="dl-desc" autocomplete="off" oninput="saveFV('desc',this.value);addListValue('descriptions',this.value)"/>
         <datalist id="dl-desc"></datalist>
       </div>
       <div class="ff"><label>Commercial *</label>
-        <input type="text" id="np-comm" placeholder="Ingénieur commercial" list="dl-comm" autocomplete="off" oninput="saveFV('comm',this.value)"/>
+        <input type="text" id="np-comm" placeholder="Ingénieur commercial" list="dl-comm" autocomplete="off" oninput="saveFV('comm',this.value);addListValue('commerciaux',this.value)"/>
         <datalist id="dl-comm"></datalist>
       </div>
       <div class="ff"><label>Montant HT (FCFA) *</label>
@@ -395,7 +395,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
       <div class="fg">
         <div class="ff">
           <label>Ingénieur Delivery *</label>
-          <input type="text" id="dv-resp" placeholder="Nom de l'ingénieur" list="dl-dv-resp" autocomplete="off" oninput="saveFV('deliv',this.value)"/>
+          <input type="text" id="dv-resp" placeholder="Nom de l'ingénieur" list="dl-dv-resp" autocomplete="off" oninput="saveFV('deliv',this.value);addListValue('delivery',this.value)"/>
           <datalist id="dl-dv-resp"></datalist>
         </div>
         <div class="ff">
@@ -559,12 +559,48 @@ var DETAIL_PREV={};
 var SLA_CFG = {Maintenance:14,'Logiciel/Licence':7,'Réseau':60,'Infra/Hardware':45,'Autre ICT':30,warn:7};
 var SLA_CATS = ['Maintenance','Logiciel/Licence','Réseau','Infra/Hardware','Autre ICT'];
 
+
+// ===== LISTES PARTAGEES FIREBASE =====
+async function addListValue(listName,value){
+ if(!db || !value) return;
+ value=value.trim();
+ if(!value) return;
+ try{
+   await db.collection('ict_lists').doc(listName).collection('values').doc(value).set({
+     value:value,
+     createdAt:new Date().toISOString()
+   });
+ }catch(e){console.warn(e);}
+}
+
+async function loadListValues(listName,datalistId){
+ if(!db) return;
+ const dl=document.getElementById(datalistId);
+ if(!dl) return;
+ try{
+   const snap=await db.collection('ict_lists').doc(listName).collection('values').get();
+   dl.innerHTML='';
+   snap.forEach(doc=>{
+      const o=document.createElement('option');
+      o.value=doc.data().value;
+      dl.appendChild(o);
+   });
+ }catch(e){console.warn(e);}
+}
+
+function initFirebaseLists(){
+ loadListValues('clients','dl-client');
+ loadListValues('descriptions','dl-desc');
+ loadListValues('commerciaux','dl-comm');
+ loadListValues('delivery','dl-dv-resp');
+}
+
 window.addEventListener('DOMContentLoaded', function(){
   document.getElementById('hdr-date').textContent = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
   loadData(); buildFilters();
   // Init new deal form
   document.getElementById('np-closing').value=new Date().toISOString().split('T')[0];
-  initFormDatalist();
+  initFormDatalist(); initFirebaseLists();
   renderDeliveryPage(); renderPlanning(); buildCfg(); renderAll();
 });
 
@@ -726,7 +762,7 @@ function switchTabEx(pageN){
   var pg=document.getElementById('page-'+pageN);if(pg)pg.classList.add('active');
   if(pageN===6) renderDeliveryPage();
   if(pageN===7) renderPlanning();
-  if(pageN===5){ document.getElementById('np-closing').value=new Date().toISOString().split('T')[0]; initFormDatalist(); }
+  if(pageN===5){ document.getElementById('np-closing').value=new Date().toISOString().split('T')[0]; initFormDatalist(); initFirebaseLists(); }
 }
 
 var charts={};
@@ -1719,7 +1755,7 @@ function resetNewDeal(){
   ['np-secteur'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.selectedIndex=0;
   });
-  initFormDatalist();
+  initFormDatalist(); initFirebaseLists();
 }
 
 function showPrevisionPopup(){
