@@ -111,7 +111,18 @@ select.si{cursor:pointer}
 #toast{position:fixed;bottom:20px;right:20px;z-index:9999;background:#1e2533;color:#fff;border-radius:var(--r);padding:10px 16px;font-size:12px;transform:translateY(80px);transition:transform .3s;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 #toast.show{transform:translateY(0)}
 tr.sla-ko td:first-child{border-left:2px solid var(--red)}
-tr.dv-selected{outline:2px solid var(--accent) !important;outline-offset:-2px;}
+tr.dv-selected td{background:#fff3e8 !important;border-top:2px solid var(--accent);}
+tr.dv-expand-row td{padding:0 !important;background:#fff !important;}
+.dv-inline-panel{
+  padding:16px;
+  border-left:3px solid var(--accent);
+  background:#fff;
+  animation: dvSlideIn 0.25s ease;
+}
+@keyframes dvSlideIn{
+  from{opacity:0;transform:translateY(-8px);}
+  to{opacity:1;transform:translateY(0);}
+}
 tr.dv-selected td{background:inherit !important;}
 #dv-edit-panel{
   max-height:0;overflow:hidden;
@@ -316,6 +327,9 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
         <option value="none">⚪ Sans date</option>
       </select>
       <select class="si" id="dv-filter-ing" onchange="dvSearchDeals()"><option value="">Tous ingénieurs</option></select>
+      <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="dv-show-pv" onchange="dvSearchDeals()"> Voir PV signés
+      </label>
       <span id="dv-count" style="font-size:11px;color:var(--muted)"></span>
     </div>
     <div id="dv-results-list" style="margin-top:10px;display:none">
@@ -336,126 +350,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
     </div>
   </div>
 
-  <!-- Formulaire deal sélectionné -->
-  <div id="dv-edit-panel" style="display:none">
-    <div class="fp">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <h3 style="margin:0">📋 Projet sélectionné</h3>
-        <button class="btn btn-g btn-s" onclick="dvCloseEdit()">✕ Fermer</button>
-      </div>
-      
-
-      <!-- BLOC COMMERCIAL lecture seule -->
-      <div style="background:var(--s2);border-radius:var(--r);padding:14px;margin-bottom:18px;border:1px solid var(--border)">
-        <div class="sec" style="margin-bottom:12px;color:var(--accent)">🏷️ Informations commerciales</div>
-        <div class="fg">
-          <div class="ff">
-            <label>Client</label>
-            <input type="text" id="dv-ro-client" readonly style="background:var(--s3);color:var(--muted);cursor:not-allowed"/>
-          </div>
-          <div class="ff">
-            <label>Description</label>
-            <input type="text" id="dv-ro-desc" readonly style="background:var(--s3);color:var(--muted);cursor:not-allowed"/>
-          </div>
-          <div class="ff">
-            <label>Commercial</label>
-            <input type="text" id="dv-ro-comm" readonly style="background:var(--s3);color:var(--muted);cursor:not-allowed"/>
-          </div>
-          <div class="ff">
-            <label>Montant HT (FCFA)</label>
-            <input type="text" id="dv-ro-montant" readonly style="background:var(--s3);color:var(--muted);cursor:not-allowed"/>
-          </div>
-          <div class="ff">
-            <label>Date de closing</label>
-            <input type="text" id="dv-ro-closing" readonly style="background:var(--s3);color:var(--muted);cursor:not-allowed"/>
-          </div>
-          <div class="ff">
-            <label>Date livraison prévue (commerciale)</label>
-            <input type="text" id="dv-ro-dliv" readonly style="background:var(--s3);color:var(--muted);cursor:not-allowed"/>
-          </div>
-          <div class="ff">
-            <label>Secteur</label>
-            <input type="text" id="dv-ro-secteur" readonly style="background:var(--s3);color:var(--muted);cursor:not-allowed"/>
-          </div>
-          <div class="ff">
-            <label>Catégorie</label>
-            <input type="text" id="dv-ro-cat" readonly style="background:var(--s3);color:var(--muted);cursor:not-allowed"/>
-          </div>
-        </div>
-      </div>
-
-      <!-- ALERTE DYNAMIQUE -->
-      <div id="dv-alerte-preview" style="display:none;padding:10px 14px;border-radius:var(--r);font-size:13px;font-weight:700;margin-bottom:16px;text-align:center"></div>
-
-      <!-- BLOC DELIVERY saisissable -->
-      <div class="sec" style="margin-bottom:12px;color:var(--blue)">🔧 Informations Delivery</div>
-      <div class="fg">
-        <div class="ff">
-          <label>Ingénieur Delivery *</label>
-          <input type="text" id="dv-resp" placeholder="Nom de l'ingénieur" list="dl-dv-resp" autocomplete="off" oninput="saveFV('deliv',this.value);addListValue('delivery',this.value)"/>
-          <datalist id="dl-dv-resp"></datalist>
-        </div>
-        <div class="ff">
-          <label>Statut *</label>
-          <select id="dv-statut" onchange="dvStatutChange()">
-            <option>À livrer</option><option>En cours</option><option>PV signé</option><option>Livré</option>
-          </select>
-        </div>
-        <div class="ff">
-          <label>Date livraison</label>
-          <input type="date" id="dv-dliv-prev" onchange="dvRefreshAlerte()"/>
-          <small style="color:var(--muted);font-size:10px">Base de calcul des alertes retard / délais</small>
-        </div>
-        <div class="ff">
-          <label>Date signature PV</label>
-          <input type="date" id="dv-date-pv" onchange="dvOnPvChange()"/>
-          <small style="color:var(--muted);font-size:10px">Déclenche automatiquement le statut "PV signé"</small>
-        </div>
-        <div class="ff">
-          <label>📎 PV de recette</label>
-          <input type="file" id="dv-pv-file"/>
-          <small style="color:var(--muted);font-size:10px">PV joint + date PV → statut "Livré" automatique</small>
-        </div>
-        <div class="ff">
-          <label>Maintenance</label>
-          <select id="dv-maintenance">
-            <option value="Non">Non</option>
-            <option value="Oui">Oui</option>
-          </select>
-        </div>
-        <div class="ff">
-          <label>Nombre de maintenances annuelles</label>
-          <input type="number" id="dv-maintenance-nb" min="0"/>
-        </div>
-        <div class="ff">
-          <label>Raison du retard</label>
-          <div style="display:flex;gap:4px">
-          <select id="dv-raison" style="flex:1">
-            <option value="">Aucune</option>
-            <option>Client injoignable</option>
-            <option>Problème technique</option>
-            <option>Manque de ressources delivery</option>
-            <option>Dossier incomplet (vente)</option>
-            <option>Délai fournisseur</option>
-            <option>Cause externe</option>
-            <option>Autre</option>
-          </select>
-          <button type="button" class="btn btn-g btn-s" onclick="var r=prompt('Nouvelle raison');if(r){var s=document.getElementById('dv-raison');var o=document.createElement('option');o.text=o.value=r;s.appendChild(o);s.value=r;localStorage.setItem('dv_raisons',Array.from(s.options).map(x=>x.value).join('|'));}">+</button>
-          </div>
-        </div>
-        <div class="ff full">
-          <label>Notes delivery</label>
-          <textarea id="dv-notes" placeholder="Observations, blocages, actions en cours, compte-rendu visite…"></textarea>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;margin-top:18px;align-items:center">
-        <button class="btn btn-p" onclick="dvSaveEdit()">💾 Enregistrer</button>
-        <button class="btn btn-g" onclick="dvCloseEdit()">Annuler</button>
-        <span id="dv-save-msg" style="font-size:12px;color:var(--green);font-weight:600"></span>
-      </div>
-    </div>
-  </div>
+  <!-- Panneau inline deal sélectionné : inséré dynamiquement dans le tbody -->
 
 
 
@@ -1127,31 +1022,66 @@ if(_ccat) _ccat.onclick=function(evt){
   }
 
   // Top 10 Commerciaux (Vue Globale)
-  var byC2={};
-  deals.forEach(function(d){ var c=d.commercial||'—'; if(!byC2[c]) byC2[c]=0; byC2[c]+=d.montant; });
-  var pc2=Object.entries(byC2).sort(function(a,b){return b[1]-a[1];}).slice(0,10);
-  drawChart('ch-comm-ca-g','bar',pc2.map(function(x){return x[0].split(' ').slice(-1)[0];}),
-    [{data:pc2.map(function(x){return x[1];}),backgroundColor:'#f9731620',borderColor:'#f97316',borderWidth:2,borderRadius:4}],true,true,false);
+  // Top 10 Commerciaux (Vue Globale) — avec popup au clic
+  var byC2G={};
+  deals.forEach(function(d){ var c=d.commercial||'—'; if(!byC2G[c]) byC2G[c]={ca:0,list:[]}; byC2G[c].ca+=d.montant; byC2G[c].list.push(d); });
+  var pc2G=Object.entries(byC2G).sort(function(a,b){return b[1].ca-a[1].ca;}).slice(0,10);
+  drawChart('ch-comm-ca-g','bar',pc2G.map(function(x){return x[0].split(' ').slice(-1)[0];}),
+    [{data:pc2G.map(function(x){return x[1].ca;}),backgroundColor:'#f9731620',borderColor:'#f97316',borderWidth:2,borderRadius:4}],true,true,false);
+  (function(){
+    var el=document.getElementById('ch-comm-ca-g'); if(!el) return;
+    el.onclick=function(evt){
+      var pts=charts['ch-comm-ca-g'].getElementsAtEventForMode(evt,'nearest',{intersect:true},false);
+      if(!pts.length) return;
+      var e=pc2G[pts[0].index]; if(!e) return;
+      showPopup(evt,'Commercial — '+e[0],'#f97316',e[1].list.length,e[1].list.map(function(d){
+        return [d.client||'—',d.desc||'—',d.commercial||'—',d.deliveryResp||'—',fF(d.montant),fDate(d.closing),d.statut||'—'];
+      },['Client','Description','Commercial','Ingénieur','Montant','Closing','Statut']),
+      ['Client','Description','Commercial','Ingénieur','Montant','Closing','Statut']);
+    };
+  })();
 
-  // Top 10 Delivery dans délais (Vue Globale)
+  // Top 10 Delivery dans délais (Vue Globale) — avec popup
   var dOkG={};
   deals.forEach(function(d){
-    var ing=d.deliveryResp||'—'; if(!dOkG[ing]) dOkG[ing]=0;
-    if((d.statut==='PV signé'||d.statut==='Livré')&&d.dateDelivery&&d.dlivPrev&&d.dateDelivery<=d.dlivPrev) dOkG[ing]++;
+    var ing=d.deliveryResp||'—'; if(!dOkG[ing]) dOkG[ing]={n:0,list:[]};
+    if((d.statut==='PV signé'||d.statut==='Livré')&&d.dateDelivery&&d.dlivPrev&&d.dateDelivery<=d.dlivPrev){dOkG[ing].n++;dOkG[ing].list.push(d);}
   });
-  var pdOkG=Object.entries(dOkG).filter(function(x){return x[0]!=='—'&&x[1]>0;}).sort(function(a,b){return b[1]-a[1];}).slice(0,10);
+  var pdOkG=Object.entries(dOkG).filter(function(x){return x[0]!=='—'&&x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
   drawChart('ch-del-ok-g','bar',pdOkG.length?pdOkG.map(function(x){return x[0].split(' ').slice(-1)[0];}):['—'],
-    [{data:pdOkG.length?pdOkG.map(function(x){return x[1];}):[0],backgroundColor:'#16a34a22',borderColor:'#16a34a',borderWidth:2,borderRadius:4}],false,true,false);
+    [{data:pdOkG.length?pdOkG.map(function(x){return x[1].n;}):[0],backgroundColor:'#16a34a22',borderColor:'#16a34a',borderWidth:2,borderRadius:4}],false,true,false);
+  (function(){
+    var el=document.getElementById('ch-del-ok-g'); if(!el) return;
+    el.onclick=function(evt){
+      var pts=charts['ch-del-ok-g'].getElementsAtEventForMode(evt,'nearest',{intersect:true},false);
+      if(!pts.length||!pdOkG.length) return;
+      var e=pdOkG[pts[0].index]; if(!e) return;
+      showPopup(evt,'Dans les délais — '+e[0],'#16a34a',e[1].list.length,e[1].list.map(function(d){
+        return [d.client||'—',d.desc||'—',d.commercial||'—',e[0],fF(d.montant),fDate(d.dlivPrev),fDate(d.dateDelivery),d.statut||'—'];
+      }),['Client','Description','Commercial','Ingénieur','Montant','Date prévue','Date livraison','Statut']);
+    };
+  })();
 
-  // Top 10 Delivery terminés (Vue Globale)
+  // Top 10 Delivery terminés (Vue Globale) — avec popup
   var dDoneG={};
   deals.forEach(function(d){
-    var ing=d.deliveryResp||'—'; if(!dDoneG[ing]) dDoneG[ing]=0;
-    if(d.statut==='PV signé'||d.statut==='Livré') dDoneG[ing]++;
+    var ing=d.deliveryResp||'—'; if(!dDoneG[ing]) dDoneG[ing]={n:0,list:[]};
+    if(d.statut==='PV signé'||d.statut==='Livré'){dDoneG[ing].n++;dDoneG[ing].list.push(d);}
   });
-  var pdDoneG=Object.entries(dDoneG).filter(function(x){return x[0]!=='—'&&x[1]>0;}).sort(function(a,b){return b[1]-a[1];}).slice(0,10);
+  var pdDoneG=Object.entries(dDoneG).filter(function(x){return x[0]!=='—'&&x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
   drawChart('ch-del-done-g','bar',pdDoneG.length?pdDoneG.map(function(x){return x[0].split(' ').slice(-1)[0];}):['—'],
-    [{data:pdDoneG.length?pdDoneG.map(function(x){return x[1];}):[0],backgroundColor:'#2563eb22',borderColor:'#2563eb',borderWidth:2,borderRadius:4}],false,true,false);
+    [{data:pdDoneG.length?pdDoneG.map(function(x){return x[1].n;}):[0],backgroundColor:'#2563eb22',borderColor:'#2563eb',borderWidth:2,borderRadius:4}],false,true,false);
+  (function(){
+    var el=document.getElementById('ch-del-done-g'); if(!el) return;
+    el.onclick=function(evt){
+      var pts=charts['ch-del-done-g'].getElementsAtEventForMode(evt,'nearest',{intersect:true},false);
+      if(!pts.length||!pdDoneG.length) return;
+      var e=pdDoneG[pts[0].index]; if(!e) return;
+      showPopup(evt,'Dossiers livrés — '+e[0],'#2563eb',e[1].list.length,e[1].list.map(function(d){
+        return [d.client||'—',d.desc||'—',d.commercial||'—',e[0],fF(d.montant),fDate(d.dlivPrev),fDate(d.dateDelivery),d.statut||'—'];
+      }),['Client','Description','Commercial','Ingénieur','Montant','Date prévue','Date livraison','Statut']);
+    };
+  })();
 }
 
 function renderAlertes(){
@@ -1493,10 +1423,23 @@ function dvRenderTable(list){
       +'</td>'
       +'</tr>';
   }).join('');
-  // Restaurer le highlight si un deal est déjà ouvert
+  // Restaurer le panneau inline si un deal était ouvert
   if(_openId){
     var tr=tbody.querySelector('tr[data-id="'+_openId+'"]');
-    if(tr) tr.classList.add('dv-selected');
+    if(tr){
+      tr.classList.add('dv-selected');
+      var d2=deals.find(function(x){return x.id===_openId;});
+      if(d2){
+        var ex=document.getElementById('dv-expand-row');
+        if(!ex){
+          ex=document.createElement('tr');
+          ex.id='dv-expand-row';
+          ex.className='dv-expand-row';
+          ex.innerHTML=dvInlinePanelHTML(d2);
+          tr.insertAdjacentElement('afterend',ex);
+        }
+      }
+    }
   }
 }
 
@@ -1530,7 +1473,10 @@ function dvSearchDeals(){
   var fs=(document.getElementById('dv-filter-statut')||{value:''}).value;
   var fa=(document.getElementById('dv-filter-alerte')||{value:''}).value;
   var fi=(document.getElementById('dv-filter-ing')||{value:''}).value;
+  var showPV=(document.getElementById('dv-show-pv')||{checked:false}).checked;
   var list=deals.filter(function(d){
+    // Masquer PV signé et Livré par défaut sauf si checkbox cochée
+    if(!showPV && (d.statut==='PV signé'||d.statut==='Livré')) return false;
     var mq=!q||(d.client||'').toLowerCase().includes(q)||(d.desc||'').toLowerCase().includes(q)||(d.commercial||'').toLowerCase().includes(q)||(d.deliveryResp||'').toLowerCase().includes(q);
     var ms=!fs||(d.statut===fs);
     var ma=!fa||(dvAlertLevel(d)===fa);
@@ -1540,58 +1486,117 @@ function dvSearchDeals(){
   dvRenderTable(list);
 }
 
+function dvInlinePanelHTML(d){
+  var lvl=dvAlertLevel(d);
+  var alertHtml='';
+  if(d.dlivPrev){
+    var diff=Math.ceil((new Date(d.dlivPrev).getTime()-Date.now())/86400000);
+    var bg,col,msg;
+    if(diff<0){bg='#fef2f2';col='#dc2626';msg='🔴 En retard de '+Math.abs(diff)+' jour(s)';}
+    else if(diff===0){bg='#fff7ed';col='#f97316';msg='🟠 Livraison prévue aujourd\'hui';}
+    else if(diff<=7){bg='#fff7ed';col='#f97316';msg='🟠 Échéance dans '+diff+' jour(s) — Urgent';}
+    else{bg='#f0fdf4';col='#16a34a';msg='🟢 Dans les délais — J-'+diff;}
+    alertHtml='<div style="padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;margin-bottom:12px;background:'+bg+';color:'+col+';border:1px solid '+col+'44">'+msg+'</div>';
+  }
+  var cols=9; // nb colonnes du tableau
+  return '<td colspan="'+cols+'">'
+    +'<div class="dv-inline-panel">'
+    // En-tête
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+    +'<div style="font-size:13px;font-weight:700;color:var(--accent)">📋 '+d.client+' — '+d.desc+'</div>'
+    +'<button class="btn btn-g btn-s" onclick="dvCloseEdit()">✕ Fermer</button>'
+    +'</div>'
+    // Alerte
+    +alertHtml
+    // Infos commerciales (lecture seule, compact)
+    +'<div style="background:var(--s2);border-radius:6px;padding:10px 14px;margin-bottom:12px;border:1px solid var(--border)">'
+    +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin-bottom:8px">🏷️ Infos commerciales</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px">'
+    +dvROField('Client',d.client)
+    +dvROField('Description',d.desc)
+    +dvROField('Commercial',d.commercial)
+    +dvROField('Montant',d.montant?d.montant.toLocaleString('fr-FR')+' FCFA':'—')
+    +dvROField('Closing',fDate(d.closing))
+    +dvROField('Date prévue (com.)',d.dlivPrev?fDate(d.dlivPrev):'—')
+    +dvROField('Secteur',d.secteur||'—')
+    +dvROField('Catégorie',d.categorie||'—')
+    +'</div></div>'
+    // Delivery
+    +'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--blue);margin-bottom:8px">🔧 Delivery</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:12px">'
+    // Ingénieur
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Ingénieur Delivery</label>'
+    +'<input id="dv-resp" type="text" class="si" list="dl-dv-resp" value="'+(d.deliveryResp||'')+'" placeholder="Nom…" style="font-size:12px" oninput="saveFV(&quot;deliv&quot;,this.value);addListValue(&quot;delivery&quot;,this.value)"/>'
+    +'<datalist id="dl-dv-resp"></datalist></div>'
+    // Statut
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Statut</label>'
+    +'<select id="dv-statut" class="si" style="font-size:12px" onchange="dvStatutChange()">'
+    +['À livrer','En cours','PV signé','Livré'].map(function(s){return '<option'+(d.statut===s?' selected':'')+'>'+s+'</option>';}).join('')
+    +'</select></div>'
+    // Date livraison
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Date livraison</label>'
+    +'<input id="dv-dliv-prev" type="date" class="si" value="'+(d.dlivPrev||'')+'" style="font-size:12px"/></div>'
+    // Date PV
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Date signature PV</label>'
+    +'<input id="dv-date-pv" type="date" class="si" value="'+(d.datePv||'')+'" style="font-size:12px" onchange="dvOnPvChange()"/></div>'
+    // Raison retard
+    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Raison du retard</label>'
+    +'<select id="dv-raison" class="si" style="font-size:12px">'
+    +[''  ,'Client injoignable','Problème technique','Manque de ressources delivery','Dossier incomplet (vente)','Délai fournisseur','Cause externe','Autre'].map(function(s){return '<option value="'+s+'"'+(d.raison===s?' selected':'')+'>'+( s||'Aucune')+'</option>';}).join('')
+    +'</select></div>'
+    +'</div>'
+    // Notes
+    +'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Notes delivery</label>'
+    +'<textarea id="dv-notes" class="si" style="min-height:60px;resize:vertical;font-size:12px" placeholder="Observations, blocages, actions…">'+(d.notes||'')+'</textarea></div>'
+    // Boutons
+    +'<div style="display:flex;gap:10px;align-items:center">'
+    +'<button class="btn btn-p" onclick="dvSaveEdit()">💾 Enregistrer</button>'
+    +'<button class="btn btn-g" onclick="dvCloseEdit()">Annuler</button>'
+    +'<span id="dv-save-msg" style="font-size:12px;color:var(--green);font-weight:600"></span>'
+    +'</div>'
+    +'</div></td>';
+}
+function dvROField(label,val){
+  return '<div style="display:flex;flex-direction:column;gap:2px">'
+    +'<span style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase">'+label+'</span>'
+    +'<span style="font-size:12px;font-weight:600;color:var(--text)">'+( val||'—')+'</span>'
+    +'</div>';
+}
+
 function dvOpenEdit(idOrEl){
   var id=idOrEl&&idOrEl.getAttribute?idOrEl.getAttribute('data-id'):idOrEl;
-  // Toggle: if same deal already open, close it
-  var panel=document.getElementById('dv-edit-panel');
-  if(dvEditId===id && panel && panel.classList.contains('open')){ dvCloseEdit(); return; }
+  // Toggle: même ligne → fermer
+  if(dvEditId===id){ dvCloseEdit(); return; }
+  // Fermer l'éventuel panneau déjà ouvert
+  dvCloseEdit();
   var d=deals.find(function(x){return x.id===id;}); if(!d) return;
   dvEditId=id;
-  // Fill read-only commercial fields
-  var ro=function(elId,val){var e=document.getElementById(elId);if(e)e.value=val||'—';};
-  ro('dv-ro-client',d.client);
-  ro('dv-ro-desc',d.desc);
-  ro('dv-ro-comm',d.commercial);
-  ro('dv-ro-montant',d.montant?d.montant.toLocaleString('fr-FR')+' FCFA':'—');
-  ro('dv-ro-closing',fDate(d.closing));
-  ro('dv-ro-dliv',d.dlivPrev?fDate(d.dlivPrev):'Non renseignée');
-  ro('dv-ro-secteur',d.secteur);
-  ro('dv-ro-cat',d.categorie);
-  // Fill editable delivery fields
-  var sv=function(elId,val){var e=document.getElementById(elId);if(e)e.value=val||'';};
-  sv('dv-statut',d.statut||'À livrer');
-  sv('dv-resp',d.deliveryResp||'');
-  sv('dv-dliv-prev',d.dlivPrev||'');
-  sv('dv-date-pv',d.datePv||'');
-  sv('dv-pv-path',d.pvPath||'');
-  sv('dv-date-maint',d.dateMaint||'');
-  sv('dv-raison',d.raison||'');
-  sv('dv-notes',d.notes||'');
   fillDatalist('dl-dv-resp','deliv');
-  dvRefreshAlerte();
-  // Highlight la ligne sélectionnée dans le tableau
-  document.querySelectorAll('#dv-tbody tr').forEach(function(tr){
-    tr.classList.toggle('dv-selected', tr.getAttribute('data-id')===id);
-  });
-  var panel=document.getElementById('dv-edit-panel');
-  if(panel){
-    panel.style.display='block';
-    // Forcer reflow puis ouvrir
-    panel.offsetHeight;
-    panel.classList.add('open');
-    setTimeout(function(){panel.scrollIntoView({behavior:'smooth',block:'nearest'});},200);
-  }
-  var msg=document.getElementById('dv-save-msg'); if(msg) msg.textContent='';
+  // Trouver la TR cliquée dans le tbody
+  var tbody=document.getElementById('dv-tbody'); if(!tbody) return;
+  var clickedTr=tbody.querySelector('tr[data-id="'+id+'"]'); if(!clickedTr) return;
+  // Marquer la ligne
+  clickedTr.classList.add('dv-selected');
+  // Créer une TR d'expansion juste après
+  var expandTr=document.createElement('tr');
+  expandTr.id='dv-expand-row';
+  expandTr.className='dv-expand-row';
+  expandTr.innerHTML=dvInlinePanelHTML(d);
+  clickedTr.insertAdjacentElement('afterend', expandTr);
+  // Scroll doux vers le panneau
+  setTimeout(function(){expandTr.scrollIntoView({behavior:'smooth',block:'nearest'});},100);
+  // Init datalist ingénieurs
+  setTimeout(function(){ fillDatalist('dl-dv-resp','deliv'); initFirebaseLists(); },50);
 }
 
 function dvCloseEdit(){
   dvEditId=null;
-  document.querySelectorAll('#dv-tbody tr').forEach(function(tr){ tr.classList.remove('dv-selected'); });
-  var p=document.getElementById('dv-edit-panel');
-  if(p){
-    p.classList.remove('open');
-    setTimeout(function(){ p.style.display='none'; },350);
-  }
+  // Retirer le highlight
+  var tbody=document.getElementById('dv-tbody');
+  if(tbody) tbody.querySelectorAll('tr').forEach(function(tr){ tr.classList.remove('dv-selected'); });
+  // Supprimer la ligne d'expansion
+  var ex=document.getElementById('dv-expand-row');
+  if(ex) ex.remove();
 }
 
 function dvRefreshAlerte(){
@@ -1660,9 +1665,13 @@ function dvSaveEdit(){
   updateFirestore(dvEditId, Object.assign({},d), function(){
     renderAll(); renderDeliveryPage(); renderPlanning();
 
-    var msg=document.getElementById('dv-save-msg'); if(msg) msg.textContent='✅ Enregistré dans Firebase';
-    setTimeout(function(){var m=document.getElementById('dv-save-msg');if(m)m.textContent='';},2500);
-    toast('✅ Delivery mis à jour dans Firebase : '+d.client); dvCloseEdit();
+    toast('✅ Delivery mis à jour : '+d.client);
+    // Garder le panneau inline ouvert, juste rafraîchir le contenu
+    var curId=dvEditId;
+    renderAll(); renderDeliveryPage(); renderPlanning();
+    // renderDeliveryPage recrée le tbody donc le panneau est déjà restauré via dvRenderTable
+    var msg=document.getElementById('dv-save-msg');
+    if(msg){msg.textContent='✅ Enregistré'; setTimeout(function(){var m=document.getElementById('dv-save-msg');if(m)m.textContent='';},2500);}
   });
 }
 
