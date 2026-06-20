@@ -7,6 +7,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <style>
 :root{
   --bg:#f5f7fa;--surface:#ffffff;--s2:#f1f4f8;--s3:#e8edf4;
@@ -515,6 +517,29 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 <div id="toast"></div>
 <script>
 
+// ===== FIREBASE INIT =====
+var db = null;
+var ICT_COL = 'ict_deals';
+(function initFirebase(){
+  try {
+    var _fbConfig = {
+      apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+      authDomain: "ddms-architectures.firebaseapp.com",
+      projectId: "ddms-architectures",
+      storageBucket: "ddms-architectures.firebasestorage.app",
+      messagingSenderId: "767552965189",
+      appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+    };
+    if (!firebase.apps.length) {
+      firebase.initializeApp(_fbConfig);
+    }
+    db = firebase.firestore();
+    console.log('Firebase initialisé OK');
+  } catch(e) {
+    console.error('Firebase init error:', e);
+  }
+})();
+
 // ===== DATA =====
 let deals = [];
 let overrides = {};
@@ -539,8 +564,56 @@ function loadData(){
     var ov=overrides[d.id]; if(ov) Object.assign(d,ov);
     if(!ov||!ov.sla) d.sla=SLA_CFG[d.categorie]||30;
   });
+  // Load deals from Firestore
+  loadDealsFromFirestore();
 }
-function saveData(){ try{ localStorage.setItem('ict_ov',JSON.stringify(overrides)); }catch(e){} }
+function saveData(){
+  try{ localStorage.setItem('ict_ov',JSON.stringify(overrides)); }catch(e){}
+}
+
+function loadDealsFromFirestore(){
+  if(!db){ console.warn('Firebase not ready, skipping load'); return; }
+  db.collection(ICT_COL).orderBy('createdAt','desc').get().then(function(snap){
+    var fbDeals=[];
+    snap.forEach(function(doc){
+      var d=doc.data();
+      d.id=doc.id;
+      // Don't duplicate deals already in static array
+      var exists=deals.find(function(x){return x.id===d.id;});
+      if(!exists) fbDeals.push(d);
+    });
+    if(fbDeals.length){
+      fbDeals.forEach(function(d){ deals.push(d); });
+      renderAll(); renderDeliveryPage(); renderPlanning();
+      buildFilters();
+    }
+  }).catch(function(e){ console.warn('Firestore load error:',e); });
+}
+
+function saveToFirestore(deal, onSuccess){
+  if(!db){ toast('⚠️ Firebase non disponible'); if(onSuccess) onSuccess(); return; }
+  var docId = deal.id;
+  db.collection(ICT_COL).doc(docId).set(deal).then(function(){
+    console.log('Firestore: deal sauvegardé', docId);
+    if(onSuccess) onSuccess();
+  }).catch(function(e){
+    toast('⚠️ Erreur Firebase : '+e.message);
+    console.error('saveToFirestore error:', e);
+    if(onSuccess) onSuccess(); // proceed anyway
+  });
+}
+
+function updateFirestore(dealId, data, onSuccess){
+  if(!db){ toast('⚠️ Firebase non disponible'); if(onSuccess) onSuccess(); return; }
+  db.collection(ICT_COL).doc(dealId).set(data, {merge:true}).then(function(){
+    console.log('Firestore: delivery mis à jour', dealId);
+    if(onSuccess) onSuccess();
+  }).catch(function(e){
+    toast('⚠️ Erreur Firebase : '+e.message);
+    console.error('updateFirestore error:', e);
+    if(onSuccess) onSuccess();
+  });
+}
 function renderAll(){ renderGlobal(); renderAlertes(); renderDeals(); renderPerf(); checkBanner(); }
 
 function slaStatus(d){
@@ -1362,26 +1435,30 @@ function dvSaveEdit(){
   });
   if(!overrides) overrides={};
   overrides[dvEditId]=Object.assign({},d);
-  saveData(); renderAll(); renderDeliveryPage(); renderPlanning();
-  // Update recent table
-  var rt=document.getElementById('dv-recent-tbody');
-  var rc=document.getElementById('dv-recent');
-  if(rt&&rc){
-    var tr=document.createElement('tr');
-    var statMap={'À livrer':'bo','En cours':'bb','Livré':'by','PV signé':'bg'};
-    tr.innerHTML='<td style="font-weight:700">'+d.client+'</td>'
-      +'<td style="color:var(--muted);font-size:11px">'+d.desc.substring(0,30)+'</td>'
-      +'<td>'+( d.deliveryResp||'—')+'</td>'
-      +'<td><span class="badge '+(statMap[d.statut]||'bm')+'">'+d.statut+'</span></td>'
-      +'<td>'+(d.dlivPrev?fDate(d.dlivPrev):'—')+'</td>'
-      +'<td style="color:#2563eb">'+(d.datePv?fDate(d.datePv):'—')+'</td>'
-      +'<td>'+(d.pvPath?'<span style="color:#16a34a;font-weight:700">📎 Oui</span>':'<span style="color:#94a3b8">Non</span>')+'</td>';
-    rt.prepend(tr);
-    rc.style.display='block';
-  }
-  var msg=document.getElementById('dv-save-msg'); if(msg) msg.textContent='✅ Enregistré';
-  setTimeout(function(){var m=document.getElementById('dv-save-msg');if(m)m.textContent='';},2500);
-  toast('✅ Delivery mis à jour : '+d.client);
+  saveData();
+  // Save delivery update to Firestore
+  updateFirestore(dvEditId, Object.assign({},d), function(){
+    renderAll(); renderDeliveryPage(); renderPlanning();
+    // Update recent table
+    var rt=document.getElementById('dv-recent-tbody');
+    var rc=document.getElementById('dv-recent');
+    if(rt&&rc){
+      var tr=document.createElement('tr');
+      var statMap={'À livrer':'bo','En cours':'bb','Livré':'by','PV signé':'bg'};
+      tr.innerHTML='<td style="font-weight:700">'+d.client+'</td>'
+        +'<td style="color:var(--muted);font-size:11px">'+d.desc.substring(0,30)+'</td>'
+        +'<td>'+(d.deliveryResp||'—')+'</td>'
+        +'<td><span class="badge '+(statMap[d.statut]||'bm')+'">'+d.statut+'</span></td>'
+        +'<td>'+(d.dlivPrev?fDate(d.dlivPrev):'—')+'</td>'
+        +'<td style="color:#2563eb">'+(d.datePv?fDate(d.datePv):'—')+'</td>'
+        +'<td>'+(d.pvPath?'<span style="color:#16a34a;font-weight:700">📎 Oui</span>':'<span style="color:#94a3b8">Non</span>')+'</td>';
+      rt.prepend(tr);
+      rc.style.display='block';
+    }
+    var msg=document.getElementById('dv-save-msg'); if(msg) msg.textContent='✅ Enregistré dans Firebase';
+    setTimeout(function(){var m=document.getElementById('dv-save-msg');if(m)m.textContent='';},2500);
+    toast('✅ Delivery mis à jour dans Firebase : '+d.client);
+  });
 }
 
 // ============================================================
@@ -1598,16 +1675,29 @@ function saveNewDeal(){
   };
   // save autocomplete values
   saveFV('client',client); saveFV('desc',desc); saveFV('comm',comm);
-  deals.push(newDeal);
-  saveData(); renderAll();
-  // Show in recent table
-  var tbody=document.getElementById('np-tbody');
-  var tr=document.createElement('tr');
-  tr.innerHTML='<td style="font-weight:600">'+client+'</td><td style="color:var(--muted)">'+desc.substring(0,40)+'</td><td>'+comm.split(' ').slice(-1)[0]+'</td><td style="color:var(--blue);font-weight:600">'+fF(montant)+'</td><td>'+fDate(closing)+'</td><td><span class="badge bb">'+newDeal.statut+'</span></td><td>'+(delivery?fDate(delivery):'—')+'</td>';
-  tbody.prepend(tr);
-  document.getElementById('np-recent').style.display='block';
-  toast('✅ Deal ajouté : '+client);
-  resetNewDeal();
+  newDeal.createdAt = new Date().toISOString();
+  // Show saving indicator
+  var btn=document.querySelector('#page-5 .btn-p');
+  if(btn){btn.textContent='⏳ Enregistrement…';btn.disabled=true;}
+  saveToFirestore(newDeal, function(){
+    deals.push(newDeal);
+    saveData(); renderAll(); renderDeliveryPage(); renderPlanning(); buildFilters();
+    // Show in recent table
+    var tbody=document.getElementById('np-tbody');
+    var tr=document.createElement('tr');
+    tr.innerHTML='<td style="font-weight:600">'+client+'</td>'
+      +'<td style="color:var(--muted)">'+desc.substring(0,40)+'</td>'
+      +'<td>'+comm.split(' ').slice(-1)[0]+'</td>'
+      +'<td style="color:var(--blue);font-weight:600">'+fF(montant)+'</td>'
+      +'<td>'+fDate(closing)+'</td>'
+      +'<td><span class="badge bb">À livrer</span></td>'
+      +'<td>'+(dlivPrev?fDate(dlivPrev):'—')+'</td>';
+    tbody.prepend(tr);
+    document.getElementById('np-recent').style.display='block';
+    if(btn){btn.textContent='💾 Enregistrer le deal';btn.disabled=false;}
+    toast('✅ Deal enregistré dans Firebase : '+client);
+    resetNewDeal();
+  });
 }
 function resetNewDeal(){
   ['np-client','np-desc','np-comm','np-dliv-prev','np-notes'].forEach(function(id){
