@@ -111,6 +111,17 @@ select.si{cursor:pointer}
 #toast{position:fixed;bottom:20px;right:20px;z-index:9999;background:#1e2533;color:#fff;border-radius:var(--r);padding:10px 16px;font-size:12px;transform:translateY(80px);transition:transform .3s;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 #toast.show{transform:translateY(0)}
 tr.sla-ko td:first-child{border-left:2px solid var(--red)}
+tr.dv-selected{outline:2px solid var(--accent) !important;outline-offset:-2px;}
+tr.dv-selected td{background:inherit !important;}
+#dv-edit-panel{
+  max-height:0;overflow:hidden;
+  transition:max-height 0.35s ease, opacity 0.25s ease;
+  opacity:0;
+}
+#dv-edit-panel.open{
+  max-height:3000px;
+  opacity:1;
+}
 tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 @media(max-width:900px){.g2,.g3{grid-template-columns:1fr}.sp2{grid-column:auto}.kpi-row{grid-template-columns:1fr 1fr}}
 </style>
@@ -246,21 +257,29 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
       </div>
       <div class="ff"><label>Date de closing *</label><input type="date" id="np-closing"/></div>
       <div class="ff"><label>Date de livraison prévue</label><input type="date" id="np-dliv-prev" title="Date prévisionnelle de livraison au client"/></div>
-      <div class="ff"><label>Secteur</label>
-        <select id="np-secteur">
-          <option value="">-- Sélectionner --</option>
-          <option>Secteur Public</option><option>Secteur Privé</option>
-          <option>Pro informel & Partenariat</option><option>Region</option><option>CLUSTER</option><option>Autre</option>
-        </select>
+      <div class="ff"><label>Secteur *</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="np-secteur" required style="flex:1">
+            <option value="">-- Sélectionner --</option>
+          </select>
+          <button type="button" class="btn btn-g btn-s" style="padding:6px 10px;font-size:14px;flex-shrink:0" onclick="openAddListModal('secteurs','np-secteur')" title="Ajouter une valeur">＋</button>
+        </div>
       </div>
-      <div class="ff"><label>Catégorie</label>
-        <select id="np-cat">
-          <option>Autre ICT</option><option>Logiciel/Licence</option><option>Réseau</option>
-          <option>Infra/Hardware</option><option>Maintenance</option>
-        </select>
+      <div class="ff"><label>Catégorie *</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="np-cat" required style="flex:1">
+            <option value="">-- Sélectionner --</option>
+          </select>
+          <button type="button" class="btn btn-g btn-s" style="padding:6px 10px;font-size:14px;flex-shrink:0" onclick="openAddListModal('categories','np-cat')" title="Ajouter une valeur">＋</button>
+        </div>
       </div>
-      <div class="ff"><label>Univers</label>
-        <select id="np-univers"><option>ICT</option><option>Internet</option><option>Mobile</option><option>Autre</option></select>
+      <div class="ff"><label>Univers *</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="np-univers" required style="flex:1">
+            <option value="">-- Sélectionner --</option>
+          </select>
+          <button type="button" class="btn btn-g btn-s" style="padding:6px 10px;font-size:14px;flex-shrink:0" onclick="openAddListModal('univers','np-univers')" title="Ajouter une valeur">＋</button>
+        </div>
       </div>
       <div class="ff full"><label>Notes commerciales</label><textarea id="np-notes" placeholder="Notes internes, remarques commerciales…"></textarea></div>
     </div>
@@ -299,7 +318,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
       <select class="si" id="dv-filter-ing" onchange="dvSearchDeals()"><option value="">Tous ingénieurs</option></select>
       <span id="dv-count" style="font-size:11px;color:var(--muted)"></span>
     </div>
-    <div id="dv-results-list" style="margin-top:10px;max-height:240px;overflow-y:auto;display:none">
+    <div id="dv-results-list" style="margin-top:10px;display:none">
       <div class="tbl-wrap" style="margin:0">
         <table>
           <thead><tr>
@@ -546,10 +565,90 @@ async function loadListValues(listName,datalistId){
 }
 
 function initFirebaseLists(){
- loadListValues('clients','dl-client');
- loadListValues('descriptions','dl-desc');
- loadListValues('commerciaux','dl-comm');
- loadListValues('delivery','dl-dv-resp');
+  loadListValues('clients','dl-client');
+  loadListValues('descriptions','dl-desc');
+  loadListValues('commerciaux','dl-comm');
+  loadListValues('delivery','dl-dv-resp');
+  loadSelectValues('secteurs','np-secteur',['Secteur Public','Secteur Privé','Pro informel & Partenariat','Region','CLUSTER','Autre']);
+  loadSelectValues('categories','np-cat',['Autre ICT','Logiciel/Licence','Réseau','Infra/Hardware','Maintenance']);
+  loadSelectValues('univers','np-univers',['ICT','Internet','Mobile','Autre']);
+}
+
+// Charger un <select> depuis Firebase (avec valeurs par défaut si collection vide)
+async function loadSelectValues(listName, selectId, defaults){
+  var sel = document.getElementById(selectId);
+  if(!sel) return;
+  var currentVal = sel.value;
+  sel.innerHTML = '<option value="">-- Sélectionner --</option>';
+  var values = [];
+  if(db){
+    try{
+      var snap = await db.collection('ict_lists').doc(listName).collection('values').orderBy('order','asc').get();
+      snap.forEach(function(doc){ values.push(doc.data().value); });
+    }catch(e){ console.warn('loadSelectValues:', e); }
+  }
+  // Si Firebase vide ou offline, utiliser les valeurs par défaut
+  if(!values.length) values = defaults || [];
+  values.forEach(function(v){
+    var o = document.createElement('option');
+    o.value = v; o.textContent = v;
+    sel.appendChild(o);
+  });
+  // Restaurer la valeur si possible
+  if(currentVal) sel.value = currentVal;
+}
+
+// Variables pour la modale d'ajout
+var _addListTarget = { listName:'', selectId:'' };
+
+function openAddListModal(listName, selectId){
+  _addListTarget = { listName: listName, selectId: selectId };
+  var modal = document.getElementById('add-list-modal');
+  var input = document.getElementById('add-list-input');
+  if(modal){ modal.style.display='flex'; }
+  if(input){ input.value=''; setTimeout(function(){ input.focus(); }, 100); }
+}
+
+function closeAddListModal(){
+  var modal = document.getElementById('add-list-modal');
+  if(modal) modal.style.display='none';
+}
+
+async function confirmAddList(){
+  var input = document.getElementById('add-list-input');
+  var val = (input ? input.value.trim() : '');
+  if(!val){ input && input.focus(); return; }
+  var listName = _addListTarget.listName;
+  var selectId = _addListTarget.selectId;
+  // Sauvegarder dans Firebase
+  if(db){
+    try{
+      // Compter les valeurs existantes pour l'ordre
+      var snap = await db.collection('ict_lists').doc(listName).collection('values').get();
+      var order = snap.size;
+      await db.collection('ict_lists').doc(listName).collection('values').doc(val).set({
+        value: val,
+        order: order,
+        createdAt: new Date().toISOString()
+      });
+      toast('✅ "'+val+'" ajouté à la liste');
+    }catch(e){
+      toast('⚠️ Erreur Firebase : '+e.message);
+    }
+  }
+  // Ajouter au select immédiatement
+  var sel = document.getElementById(selectId);
+  if(sel){
+    // Eviter doublon
+    var exists = Array.from(sel.options).some(function(o){ return o.value === val; });
+    if(!exists){
+      var o = document.createElement('option');
+      o.value = val; o.textContent = val;
+      sel.appendChild(o);
+    }
+    sel.value = val;
+  }
+  closeAddListModal();
 }
 
 window.addEventListener('DOMContentLoaded', function(){
@@ -1373,6 +1472,8 @@ function dvRenderTable(list){
     if(va<vb) return -dvSortDir; if(va>vb) return dvSortDir; return 0;
   });
   var statMap={'À livrer':'bo','En cours':'bb','Livré':'by','PV signé':'bg'};
+  // Mémoriser quel deal est ouvert pour restaurer le highlight après render
+  var _openId = dvEditId;
   tbody.innerHTML=sorted.map(function(d){
     var level=dvAlertLevel(d);
     var border=dvAlertColor(level);
@@ -1392,6 +1493,11 @@ function dvRenderTable(list){
       +'</td>'
       +'</tr>';
   }).join('');
+  // Restaurer le highlight si un deal est déjà ouvert
+  if(_openId){
+    var tr=tbody.querySelector('tr[data-id="'+_openId+'"]');
+    if(tr) tr.classList.add('dv-selected');
+  }
 }
 
 function dvDeleteDeal(el){
@@ -1438,7 +1544,7 @@ function dvOpenEdit(idOrEl){
   var id=idOrEl&&idOrEl.getAttribute?idOrEl.getAttribute('data-id'):idOrEl;
   // Toggle: if same deal already open, close it
   var panel=document.getElementById('dv-edit-panel');
-  if(dvEditId===id && panel && panel.style.display!=='none'){ dvCloseEdit(); return; }
+  if(dvEditId===id && panel && panel.classList.contains('open')){ dvCloseEdit(); return; }
   var d=deals.find(function(x){return x.id===id;}); if(!d) return;
   dvEditId=id;
   // Fill read-only commercial fields
@@ -1463,14 +1569,29 @@ function dvOpenEdit(idOrEl){
   sv('dv-notes',d.notes||'');
   fillDatalist('dl-dv-resp','deliv');
   dvRefreshAlerte();
+  // Highlight la ligne sélectionnée dans le tableau
+  document.querySelectorAll('#dv-tbody tr').forEach(function(tr){
+    tr.classList.toggle('dv-selected', tr.getAttribute('data-id')===id);
+  });
   var panel=document.getElementById('dv-edit-panel');
-  if(panel){panel.style.display='block'; setTimeout(function(){panel.scrollIntoView({behavior:'smooth',block:'start'});},100);}
+  if(panel){
+    panel.style.display='block';
+    // Forcer reflow puis ouvrir
+    panel.offsetHeight;
+    panel.classList.add('open');
+    setTimeout(function(){panel.scrollIntoView({behavior:'smooth',block:'nearest'});},200);
+  }
   var msg=document.getElementById('dv-save-msg'); if(msg) msg.textContent='';
 }
 
 function dvCloseEdit(){
   dvEditId=null;
-  var p=document.getElementById('dv-edit-panel'); if(p) p.style.display='none';
+  document.querySelectorAll('#dv-tbody tr').forEach(function(tr){ tr.classList.remove('dv-selected'); });
+  var p=document.getElementById('dv-edit-panel');
+  if(p){
+    p.classList.remove('open');
+    setTimeout(function(){ p.style.display='none'; },350);
+  }
 }
 
 function dvRefreshAlerte(){
@@ -1754,8 +1875,15 @@ function saveNewDeal(){
   var montantEl=document.getElementById('np-montant');
   var montant=getMontantRaw(montantEl);
   var closing=document.getElementById('np-closing').value;
+  var secteur=document.getElementById('np-secteur').value;
+  var categorie=document.getElementById('np-cat').value;
+  var univers=document.getElementById('np-univers').value;
   if(!client||!desc||!comm||!montant||!closing){
     toast('⚠️ Champs obligatoires manquants (Client, Description, Commercial, Montant, Closing)');
+    return;
+  }
+  if(!secteur||!categorie||!univers){
+    toast('⚠️ Veuillez sélectionner Secteur, Catégorie et Univers');
     return;
   }
   var mois=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'][new Date(closing).getMonth()];
@@ -1764,12 +1892,13 @@ function saveNewDeal(){
     id:'np_'+Date.now(),
     client:client, desc:desc, commercial:comm, montant:montant,
     closing:closing, mois:mois,
-    secteur:document.getElementById('np-secteur').value||'Autre',
-    categorie:document.getElementById('np-cat').value,
+    secteur:secteur,
+    categorie:categorie,
     statut:'À livrer',
     dateDelivery:'',
     dlivPrev:dlivPrev,
     deliveryResp:'',
+    univers:univers,
     sla:30,
     raison:'',
     notes:document.getElementById('np-notes').value.trim()
@@ -1797,7 +1926,7 @@ function resetNewDeal(){
   var me=document.getElementById('np-montant'); if(me){me.value='';me.dataset.raw='';}
   // Set closing to today
   document.getElementById('np-closing').value=new Date().toISOString().split('T')[0];
-  ['np-secteur'].forEach(function(id){
+  ['np-secteur','np-cat','np-univers'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.selectedIndex=0;
   });
   initFormDatalist(); initFirebaseLists();
@@ -1818,5 +1947,17 @@ function showPrevisionPopup(){
   showPopup(null,'Prévisions CA mensuel','#2563eb',rows.length,rows,headers);
 }
 </script>
+<!-- Modale ajout valeur liste -->
+<div id="add-list-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:center;justify-content:center" onclick="if(event.target===this)closeAddListModal()">
+  <div style="background:#fff;border-radius:12px;padding:24px;width:360px;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+    <div style="font-size:14px;font-weight:700;margin-bottom:6px">➕ Ajouter une valeur</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:16px">La valeur sera visible par tous les utilisateurs.</div>
+    <input id="add-list-input" type="text" class="si" style="width:100%;margin-bottom:14px" placeholder="Nouvelle valeur…" onkeydown="if(event.key==='Enter')confirmAddList()"/>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-g" onclick="closeAddListModal()">Annuler</button>
+      <button class="btn btn-p" onclick="confirmAddList()">✔ Ajouter</button>
+    </div>
+  </div>
+</div>
 <canvas id="ch-sla" style="display:none"></canvas><canvas id="ch-del-ok" style="display:none"></canvas><canvas id="ch-del-done" style="display:none"></canvas><canvas id="ch-comm-ca" style="display:none"></canvas><canvas id="perf-comm" style="display:none"></canvas></body>
 </html>
