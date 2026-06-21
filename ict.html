@@ -139,6 +139,7 @@ tr.dv-selected td{background:inherit !important;}
 tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 @media(max-width:900px){.g2,.g3{grid-template-columns:1fr}.sp2{grid-column:auto}.kpi-row{grid-template-columns:1fr 1fr}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <div id="banner" onclick="switchTabEx(0)">
@@ -286,6 +287,11 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
       <button class="btn btn-p" onclick="saveNewDeal()">💾 Enregistrer le deal</button>
       <button class="btn btn-g" onclick="resetNewDeal()">✕ Réinitialiser</button>
       <span id="np-msg" style="font-size:12px;color:var(--green);font-weight:600"></span>
+<div style="margin-top:12px">
+  <input type="file" id="excel-import" accept=".xlsx,.xls" style="display:none">
+  <button class="btn btn-g" onclick="document.getElementById('excel-import').click()">📥 Import Excel Firebase</button>
+</div>
+
     </div>
   </div>
 
@@ -2075,5 +2081,53 @@ function showPrevisionPopup(){
     </div>
   </div>
 </div>
-<canvas id="ch-sla" style="display:none"></canvas><canvas id="ch-del-ok" style="display:none"></canvas><canvas id="ch-del-done" style="display:none"></canvas><canvas id="ch-comm-ca" style="display:none"></canvas><canvas id="perf-comm" style="display:none"></canvas></body>
+<canvas id="ch-sla" style="display:none"></canvas><canvas id="ch-del-ok" style="display:none"></canvas><canvas id="ch-del-done" style="display:none"></canvas><canvas id="ch-comm-ca" style="display:none"></canvas><canvas id="perf-comm" style="display:none"></canvas>
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  var fi=document.getElementById('excel-import');
+  if(!fi) return;
+  fi.addEventListener('change',function(e){
+    var f=e.target.files[0];
+    if(!f) return;
+    var r=new FileReader();
+    r.onload=function(ev){
+      try{
+        var wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+        var ws=wb.Sheets[wb.SheetNames[0]];
+        var rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        var count=0;
+
+        rows.forEach(function(row){
+          var deal={
+            id:'imp_'+Date.now()+'_'+Math.random().toString(36).slice(2,9),
+            client: row.Client || row.client || '',
+            desc: row.Description || row.description || '',
+            commercial: row.Commercial || row.commercial || '',
+            montant: Number(row.Montant || row.montant || 0),
+            closing: row.Closing || row.closing || '',
+            dlivPrev: row.DateLivraison || row.dlivPrev || '',
+            statut: row.Statut || row.statut || 'À livrer',
+            createdAt:new Date().toISOString()
+          };
+
+          deals.push(deal);
+          if(typeof saveToFirestore==='function'){
+            saveToFirestore(deal);
+          }
+          count++;
+        });
+
+        if(typeof renderAll==='function') renderAll();
+        if(typeof renderPlanning==='function') renderPlanning();
+        alert(count+' ligne(s) importée(s) dans Firebase');
+      }catch(err){
+        alert('Erreur import Excel : '+err.message);
+      }
+    };
+    r.readAsArrayBuffer(f);
+  });
+});
+</script>
+
+</body>
 </html>
