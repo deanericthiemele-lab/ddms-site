@@ -1257,18 +1257,19 @@ function renderPerf(){
   var byIng={};
   deals.forEach(function(d){
     var ing=d.deliveryResp||'—';
-    if(!byIng[ing]) byIng[ing]={n:0,okD:0,koD:0,okE:0,koE:0};
-    byIng[ing].n++;
+    if(!byIng[ing]) byIng[ing]={n:0,okD:0,koD:0,okE:0,koE:0,nList:[],okDList:[],koDList:[],okEList:[],koEList:[]};
+    byIng[ing].n++;byIng[ing].nList.push(d);
     var estLivre=d.statut==='PV signé'||d.statut==='Livré';
     var enCours=d.statut==='En cours'||d.statut==='À livrer';
     var dansDelaiEnCours=d.dlivPrev&&(new Date()<=new Date(d.dlivPrev));
     if(estLivre){
       if(d.dateLivraison&&d.dlivPrev){
-        if(new Date(d.dateLivraison)<=new Date(d.dlivPrev)) byIng[ing].okD++;
-        else byIng[ing].koD++;
-      }
+        if(new Date(d.dateLivraison)<=new Date(d.dlivPrev)){byIng[ing].okD++;byIng[ing].okDList.push(d);}
+        else{byIng[ing].koD++;byIng[ing].koDList.push(d);}
+      } else {byIng[ing].koD++;byIng[ing].koDList.push(d);}
     } else if(enCours){
-      if(dansDelaiEnCours) byIng[ing].okE++; else byIng[ing].koE++;
+      if(dansDelaiEnCours){byIng[ing].okE++;byIng[ing].okEList.push(d);}
+      else{byIng[ing].koE++;byIng[ing].koEList.push(d);}
     }
   });
   var allI=Object.entries(byIng).filter(function(x){return x[0]!=='—';}).sort(function(a,b){return b[1].okD-a[1].okD||b[1].n-a[1].n;});
@@ -1279,16 +1280,7 @@ function renderPerf(){
   renderPerfDelivKodRows(allIKod);
   window._perfDelivData=allI;
   var dn=document.getElementById('perf-deliv-count'); if(dn) dn.textContent=allI.length;
-  document.getElementById('tbody-delivery').innerHTML=allI.length?allI.map(function(x,i){
-    var n=x[0],s=x[1];
-    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
-      '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
-      '<td style="text-align:center">'+s.n+'</td>'+
-      '<td style="color:var(--green);font-weight:600;text-align:center">'+s.okD+'</td>'+
-      '<td style="color:var(--red);text-align:center">'+s.koD+'</td>'+
-      '<td style="color:var(--blue);text-align:center">'+s.okE+'</td>'+
-      '<td style="color:var(--yellow);text-align:center">'+s.koE+'</td></tr>';
-  }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Aucun ingénieur assigné</td></tr>';
+  renderPerfDelivRows(allI);
 }
 
 
@@ -1301,7 +1293,7 @@ function commCellClick(e,data){
   var t=td.getAttribute('data-t');
   var entry=data[i]; if(!entry) return;
   var n=entry[0],s=entry[1];
-  var list=t==='n'?s.nList:(t==='caL'?s.caLList:s.caAList);
+  var list=t==='caL'?s.caLList:(t==='caA'?s.caAList:s.nList);
   if(!list||!list.length) return;
   var titles={n:'Tous les deals',caL:'CA Livré',caA:'CA En attente'};
   var colors={n:'#6b7a90',caL:'#16a34a',caA:'#d97706'};
@@ -1335,18 +1327,40 @@ function filterPerfComm(){
   renderPerfCommRows(data);
 }
 
+function pdCellClick(e,data){
+  var td=e.target.closest('td.pd-cell'); if(!td) return;
+  var tr=td.closest('tr[data-pi]'); if(!tr) return;
+  var i=+tr.getAttribute('data-pi');
+  var t=td.getAttribute('data-t');
+  var entry=data[i]; if(!entry) return;
+  var n=entry[0],s=entry[1];
+  var list=s[t+'List']||[]; if(!list.length) return;
+  var isLivre=t==='okD'||t==='koD'; var isVol=t==='n';
+  var titles={n:'Volume total',okD:'Livré dans délais',koD:'Livré hors délais',okE:'En cours dans délais',koE:'En cours hors délais'};
+  var colors={n:'#6b7a90',okD:'#16a34a',koD:'#dc2626',okE:'#2563eb',koE:'#d97706'};
+  var headers=isVol?['Client','Description','Date prévue','Date livraison','Statut']:(isLivre?['Client','Description','Date livraison','Statut']:['Client','Description','Date prévue','Statut']);
+  var rows=list.map(function(d){
+    return isVol?[d.client||'—',d.desc||'—',fDate(d.dlivPrev),fDate(d.dateLivraison),d.statut||'—']:(isLivre?[d.client||'—',d.desc||'—',fDate(d.dateLivraison),d.statut||'—']:[d.client||'—',d.desc||'—',fDate(d.dlivPrev),d.statut||'—']);
+  });
+  showPopup(e,titles[t]+' — '+n,colors[t],list.length,rows,headers);
+}
 function renderPerfDelivRows(data){
+  window._pdDvData=data;
   var html=data.length?data.map(function(x,i){
     var n=x[0],s=x[1];
-    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
+    return '<tr data-pi="'+i+'">'+
+      '<td style="color:var(--muted)">'+(i+1)+'</td>'+
       '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
-      '<td style="text-align:center">'+s.n+'</td>'+
-      '<td style="color:var(--green);font-weight:600;text-align:center">'+s.okD+'</td>'+
-      '<td style="color:var(--red);text-align:center">'+s.koD+'</td>'+
-      '<td style="color:var(--blue);text-align:center">'+s.okE+'</td>'+
-      '<td style="color:var(--yellow);text-align:center">'+s.koE+'</td></tr>';
+      '<td class="pd-cell" data-t="n" style="text-align:center;cursor:pointer;font-weight:600">'+s.n+'</td>'+
+      '<td class="pd-cell" data-t="okD" style="color:var(--green);font-weight:600;text-align:center;cursor:'+(s.okD?'pointer':'default')+'">'+s.okD+'</td>'+
+      '<td class="pd-cell" data-t="koD" style="color:var(--red);text-align:center;cursor:'+(s.koD?'pointer':'default')+'">'+s.koD+'</td>'+
+      '<td class="pd-cell" data-t="okE" style="color:var(--blue);text-align:center;cursor:'+(s.okE?'pointer':'default')+'">'+s.okE+'</td>'+
+      '<td class="pd-cell" data-t="koE" style="color:var(--yellow);text-align:center;cursor:'+(s.koE?'pointer':'default')+'">'+s.koE+'</td>'+
+      '</tr>';
   }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Aucun ingénieur assigné</td></tr>';
-  document.getElementById('tbody-delivery').innerHTML=html;
+  var tb=document.getElementById('tbody-delivery');
+  tb.innerHTML=html;
+  tb.onclick=function(e){pdCellClick(e,window._pdDvData);};
   var dn=document.getElementById('perf-deliv-count'); if(dn) dn.textContent=data.length;
 }
 function filterPerfDeliv(){
@@ -1356,17 +1370,22 @@ function filterPerfDeliv(){
 }
 
 function renderPerfDelivKodRows(data){
+  window._pdKodData=data;
   var html=data.length?data.map(function(x,i){
     var n=x[0],s=x[1];
-    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
+    return '<tr data-pi="'+i+'">'+
+      '<td style="color:var(--muted)">'+(i+1)+'</td>'+
       '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
-      '<td style="text-align:center">'+s.n+'</td>'+
-      '<td style="color:var(--green);font-weight:600;text-align:center">'+s.okD+'</td>'+
-      '<td style="color:var(--red);font-weight:700;text-align:center">'+s.koD+'</td>'+
-      '<td style="color:var(--blue);text-align:center">'+s.okE+'</td>'+
-      '<td style="color:var(--yellow);text-align:center">'+s.koE+'</td></tr>';
+      '<td class="pd-cell" data-t="n" style="text-align:center;cursor:pointer;font-weight:600">'+s.n+'</td>'+
+      '<td class="pd-cell" data-t="okD" style="color:var(--green);font-weight:600;text-align:center;cursor:'+(s.okD?'pointer':'default')+'">'+s.okD+'</td>'+
+      '<td class="pd-cell" data-t="koD" style="color:var(--red);font-weight:700;text-align:center;cursor:'+(s.koD?'pointer':'default')+'">'+s.koD+'</td>'+
+      '<td class="pd-cell" data-t="okE" style="color:var(--blue);text-align:center;cursor:'+(s.okE?'pointer':'default')+'">'+s.okE+'</td>'+
+      '<td class="pd-cell" data-t="koE" style="color:var(--yellow);text-align:center;cursor:'+(s.koE?'pointer':'default')+'">'+s.koE+'</td>'+
+      '</tr>';
   }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Aucun ingénieur assigné</td></tr>';
-  document.getElementById('tbody-delivery-kod').innerHTML=html;
+  var tb=document.getElementById('tbody-delivery-kod');
+  tb.innerHTML=html;
+  tb.onclick=function(e){pdCellClick(e,window._pdKodData);};
   var dk=document.getElementById('perf-deliv-kod-count'); if(dk) dk.textContent=data.length;
 }
 function filterPerfDelivKod(){
