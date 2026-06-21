@@ -1171,9 +1171,10 @@ function renderPerf(){
   var byC={};
   deals.forEach(function(d){
     var c=d.commercial||'—';
-    if(!byC[c]) byC[c]={n:0,ca:0,caL:0,caR:0};
-    byC[c].n++; byC[c].ca+=d.montant;
-    if(d.statut==='PV signé'||d.statut==='Livré') byC[c].caL+=d.montant;
+    if(!byC[c]) byC[c]={n:0,ca:0,caL:0,caR:0,nList:[],caLList:[],caAList:[]};
+    byC[c].n++; byC[c].ca+=d.montant; byC[c].nList.push(d);
+    if(d.statut==='PV signé'||d.statut==='Livré'){byC[c].caL+=d.montant;byC[c].caLList.push(d);}
+    else{byC[c].caAList.push(d);}
     if(dvAlertLevel(d)==='red') byC[c].caR+=d.montant;
   });
   var pc=Object.entries(byC).sort(function(a,b){return b[1].ca-a[1].ca;}).slice(0,10);
@@ -1250,36 +1251,24 @@ function renderPerf(){
   var allC=Object.entries(byC).sort(function(a,b){return b[1].ca-a[1].ca;});
   window._perfCommData=allC;
   var cn=document.getElementById('perf-comm-count'); if(cn) cn.textContent=allC.length;
-  document.getElementById('tbody-perf').innerHTML=allC.map(function(x,i){
-    var n=x[0],s=x[1];
-    var pct=s.ca?Math.round(s.caL/s.ca*100):0;
-    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
-      '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
-      '<td style="text-align:center">'+s.n+'</td>'+
-      '<td style="font-weight:600">'+fC(s.ca)+'</td>'+
-      '<td style="color:var(--green);font-weight:600">'+fC(s.caL)+' <span style="font-size:10px;color:var(--muted)">('+pct+'%)</span></td>'+
-      '<td style="color:var(--yellow)">'+fC(s.ca-s.caL)+'</td></tr>';
-  }).join('');
+  renderPerfCommRows(allC);
 
   // Tableau delivery par ingénieur (page-3)
   var byIng={};
   deals.forEach(function(d){
     var ing=d.deliveryResp||'—';
-    if(!byIng[ing]) byIng[ing]={n:0,okD:0,koD:0,okE:0,koE:0,okDList:[],koDList:[],okEList:[],koEList:[]};
+    if(!byIng[ing]) byIng[ing]={n:0,okD:0,koD:0,okE:0,koE:0};
     byIng[ing].n++;
     var estLivre=d.statut==='PV signé'||d.statut==='Livré';
     var enCours=d.statut==='En cours'||d.statut==='À livrer';
     var dansDelaiEnCours=d.dlivPrev&&(new Date()<=new Date(d.dlivPrev));
     if(estLivre){
       if(d.dateLivraison&&d.dlivPrev){
-        if(new Date(d.dateLivraison)<=new Date(d.dlivPrev)){byIng[ing].okD++;byIng[ing].okDList.push(d);}
-        else{byIng[ing].koD++;byIng[ing].koDList.push(d);}
-      } else {
-        byIng[ing].koD++;byIng[ing].koDList.push(d);
+        if(new Date(d.dateLivraison)<=new Date(d.dlivPrev)) byIng[ing].okD++;
+        else byIng[ing].koD++;
       }
     } else if(enCours){
-      if(dansDelaiEnCours){byIng[ing].okE++;byIng[ing].okEList.push(d);}
-      else{byIng[ing].koE++;byIng[ing].koEList.push(d);}
+      if(dansDelaiEnCours) byIng[ing].okE++; else byIng[ing].koE++;
     }
   });
   var allI=Object.entries(byIng).filter(function(x){return x[0]!=='—';}).sort(function(a,b){return b[1].okD-a[1].okD||b[1].n-a[1].n;});
@@ -1290,24 +1279,54 @@ function renderPerf(){
   renderPerfDelivKodRows(allIKod);
   window._perfDelivData=allI;
   var dn=document.getElementById('perf-deliv-count'); if(dn) dn.textContent=allI.length;
-  renderPerfDelivRows(allI);
+  document.getElementById('tbody-delivery').innerHTML=allI.length?allI.map(function(x,i){
+    var n=x[0],s=x[1];
+    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
+      '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
+      '<td style="text-align:center">'+s.n+'</td>'+
+      '<td style="color:var(--green);font-weight:600;text-align:center">'+s.okD+'</td>'+
+      '<td style="color:var(--red);text-align:center">'+s.koD+'</td>'+
+      '<td style="color:var(--blue);text-align:center">'+s.okE+'</td>'+
+      '<td style="color:var(--yellow);text-align:center">'+s.koE+'</td></tr>';
+  }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Aucun ingénieur assigné</td></tr>';
 }
 
 
 
 
+function commCellClick(e,data){
+  var td=e.target.closest('td.cc-cell'); if(!td) return;
+  var tr=td.closest('tr[data-ci]'); if(!tr) return;
+  var i=+tr.getAttribute('data-ci');
+  var t=td.getAttribute('data-t');
+  var entry=data[i]; if(!entry) return;
+  var n=entry[0],s=entry[1];
+  var list=t==='n'?s.nList:(t==='caL'?s.caLList:s.caAList);
+  if(!list||!list.length) return;
+  var titles={n:'Tous les deals',caL:'CA Livré',caA:'CA En attente'};
+  var colors={n:'#6b7a90',caL:'#16a34a',caA:'#d97706'};
+  var rows=list.map(function(d){
+    return [d.client||'—',d.desc||'—',fC(d.montant),fDate(d.closing),d.statut||'—'];
+  });
+  showPopup(e,titles[t]+' — '+n,colors[t],list.length,rows,['Client','Description','Montant','Closing','Statut']);
+}
 function renderPerfCommRows(data){
+  window._perfCommData=data;
   var html=data.map(function(x,i){
     var n=x[0],s=x[1];
     var pct=s.ca?Math.round(s.caL/s.ca*100):0;
-    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
+    return '<tr data-ci="'+i+'">'+
+      '<td style="color:var(--muted)">'+(i+1)+'</td>'+
       '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
-      '<td style="text-align:center">'+s.n+'</td>'+
-      '<td style="font-weight:600">'+fC(s.ca)+'</td>'+
-      '<td style="color:var(--green);font-weight:600">'+fC(s.caL)+' <span style="font-size:10px;color:var(--muted)">('+pct+'%)</span></td>'+
-      '<td style="color:var(--yellow)">'+fC(s.ca-s.caL)+'</td></tr>';
+      '<td class="cc-cell" data-t="n" style="text-align:center;cursor:pointer;font-weight:600">'+s.n+'</td>'+
+      '<td class="cc-cell" data-t="n" style="font-weight:600;cursor:pointer">'+fC(s.ca)+'</td>'+
+      '<td class="cc-cell" data-t="caL" style="color:var(--green);font-weight:600;cursor:'+(s.caL?'pointer':'default')+'">'+fC(s.caL)+' <span style="font-size:10px;color:var(--muted)">('+pct+'%)</span></td>'+
+      '<td class="cc-cell" data-t="caA" style="color:var(--yellow);cursor:'+(s.ca-s.caL?'pointer':'default')+'">'+fC(s.ca-s.caL)+'</td>'+
+      '</tr>';
   }).join('');
-  document.getElementById('tbody-perf').innerHTML=html||'<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Aucun résultat</td></tr>';
+  var tb=document.getElementById('tbody-perf');
+  tb.innerHTML=html||'<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Aucun résultat</td></tr>';
+  tb.onclick=function(e){commCellClick(e,window._perfCommData);};
   var cn=document.getElementById('perf-comm-count'); if(cn) cn.textContent=data.length;
 }
 function filterPerfComm(){
@@ -1317,22 +1336,17 @@ function filterPerfComm(){
 }
 
 function renderPerfDelivRows(data){
-  window._pdDvData=data;
   var html=data.length?data.map(function(x,i){
     var n=x[0],s=x[1];
-    return '<tr data-pi="'+i+'">'+
-      '<td style="color:var(--muted)">'+(i+1)+'</td>'+
+    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
       '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
       '<td style="text-align:center">'+s.n+'</td>'+
-      '<td class="pd-cell" data-t="okD" style="color:var(--green);font-weight:600;text-align:center;cursor:'+(s.okD?'pointer':'default')+'">'+s.okD+'</td>'+
-      '<td class="pd-cell" data-t="koD" style="color:var(--red);text-align:center;cursor:'+(s.koD?'pointer':'default')+'">'+s.koD+'</td>'+
-      '<td class="pd-cell" data-t="okE" style="color:var(--blue);text-align:center;cursor:'+(s.okE?'pointer':'default')+'">'+s.okE+'</td>'+
-      '<td class="pd-cell" data-t="koE" style="color:var(--yellow);text-align:center;cursor:'+(s.koE?'pointer':'default')+'">'+s.koE+'</td>'+
-      '</tr>';
+      '<td style="color:var(--green);font-weight:600;text-align:center">'+s.okD+'</td>'+
+      '<td style="color:var(--red);text-align:center">'+s.koD+'</td>'+
+      '<td style="color:var(--blue);text-align:center">'+s.okE+'</td>'+
+      '<td style="color:var(--yellow);text-align:center">'+s.koE+'</td></tr>';
   }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Aucun ingénieur assigné</td></tr>';
-  var tb=document.getElementById('tbody-delivery');
-  tb.innerHTML=html;
-  tb.onclick=function(e){pdCellClick(e,window._pdDvData);};
+  document.getElementById('tbody-delivery').innerHTML=html;
   var dn=document.getElementById('perf-deliv-count'); if(dn) dn.textContent=data.length;
 }
 function filterPerfDeliv(){
@@ -1341,42 +1355,18 @@ function filterPerfDeliv(){
   renderPerfDelivRows(data);
 }
 
-function pdCellClick(e,data){
-  var td=e.target.closest('td.pd-cell'); if(!td) return;
-  var tr=td.closest('tr[data-pi]'); if(!tr) return;
-  var i=+tr.getAttribute('data-pi');
-  var t=td.getAttribute('data-t');
-  var entry=data[i]; if(!entry) return;
-  var n=entry[0],s=entry[1];
-  var list=s[t+'List']||[]; if(!list.length) return;
-  var isLivre=t==='okD'||t==='koD';
-  var titles={okD:'Livré dans délais',koD:'Livré hors délais',okE:'En cours dans délais',koE:'En cours hors délais'};
-  var colors={okD:'#16a34a',koD:'#dc2626',okE:'#2563eb',koE:'#d97706'};
-  var headers=isLivre?['Client','Description','Date livraison','Statut']:['Client','Description','Date prévue','Statut'];
-  var rows=list.map(function(d){
-    return isLivre
-      ?[d.client||'—',d.desc||'—',fDate(d.dateLivraison),d.statut||'—']
-      :[d.client||'—',d.desc||'—',fDate(d.dlivPrev),d.statut||'—'];
-  });
-  showPopup(e,titles[t]+' — '+n,colors[t],list.length,rows,headers);
-}
 function renderPerfDelivKodRows(data){
-  window._pdKodData=data;
   var html=data.length?data.map(function(x,i){
     var n=x[0],s=x[1];
-    return '<tr data-pi="'+i+'">'+
-      '<td style="color:var(--muted)">'+(i+1)+'</td>'+
+    return '<tr><td style="color:var(--muted)">'+(i+1)+'</td>'+
       '<td style="font-size:12px;font-weight:600">'+n+'</td>'+
       '<td style="text-align:center">'+s.n+'</td>'+
-      '<td class="pd-cell" data-t="okD" style="color:var(--green);font-weight:600;text-align:center;cursor:'+(s.okD?'pointer':'default')+'">'+s.okD+'</td>'+
-      '<td class="pd-cell" data-t="koD" style="color:var(--red);font-weight:700;text-align:center;cursor:'+(s.koD?'pointer':'default')+'">'+s.koD+'</td>'+
-      '<td class="pd-cell" data-t="okE" style="color:var(--blue);text-align:center;cursor:'+(s.okE?'pointer':'default')+'">'+s.okE+'</td>'+
-      '<td class="pd-cell" data-t="koE" style="color:var(--yellow);text-align:center;cursor:'+(s.koE?'pointer':'default')+'">'+s.koE+'</td>'+
-      '</tr>';
+      '<td style="color:var(--green);font-weight:600;text-align:center">'+s.okD+'</td>'+
+      '<td style="color:var(--red);font-weight:700;text-align:center">'+s.koD+'</td>'+
+      '<td style="color:var(--blue);text-align:center">'+s.okE+'</td>'+
+      '<td style="color:var(--yellow);text-align:center">'+s.koE+'</td></tr>';
   }).join(''):'<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Aucun ingénieur assigné</td></tr>';
-  var tb=document.getElementById('tbody-delivery-kod');
-  tb.innerHTML=html;
-  tb.onclick=function(e){pdCellClick(e,window._pdKodData);};
+  document.getElementById('tbody-delivery-kod').innerHTML=html;
   var dk=document.getElementById('perf-deliv-kod-count'); if(dk) dk.textContent=data.length;
 }
 function filterPerfDelivKod(){
