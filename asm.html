@@ -28,7 +28,7 @@ const COL = 'asm_clients';
 
 let clients = [];
 let currentClientId = null;
-let editState = { incidents: null, documents: null, opportunites: null };
+let editState = { incidents: null, documents: null, opportunites: null, risques: null };
 let pendingFile = null;
 let pendingOppFile = null;
 
@@ -398,9 +398,10 @@ window.switchTab = function(name, btn) {
   if (btn) btn.classList.add('active');
   if (name === 'bilan') renderBilan();
   if (name === 'pda') renderPda();
+  if (name === 'risques') renderRisques();
 };
 
-function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderSouffrances(); renderPda(); }
+function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderRisques(); renderSouffrances(); renderPda(); }
 
 window.openModal = function(id) {
   document.getElementById(id).style.display='flex';
@@ -842,6 +843,89 @@ window.saveOpportunite = async function() {
     window.closeModal('modal-add-opportunite');
     renderOpportunites();
     toast('Opportunité enregistrée ✓','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+// ── RISQUES ──
+function renderRisques() {
+  const c = getClient(); if (!c) return;
+  const el = document.getElementById('risques-list');
+  const list = (c.risques||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if (!list.length) { el.innerHTML = emptyState('Aucun risque enregistré'); return; }
+  const impactCls = { haute:'tag-red', moyenne:'tag-orange', faible:'tag-green' };
+  const probaCls  = { haute:'tag-red', moyenne:'tag-orange', faible:'tag-green' };
+  const statCls   = { 'Actif':'tag-red', 'Atténué':'tag-orange', 'Clos':'tag-green' };
+  el.innerHTML = `<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th class="tbl-th">Date</th>
+    <th class="tbl-th">Titre</th>
+    <th class="tbl-th">Probabilité</th>
+    <th class="tbl-th">Impact</th>
+    <th class="tbl-th">Statut</th>
+    <th class="tbl-th">Description / Plan de mitigation</th>
+    <th class="tbl-th" style="width:70px"></th>
+  </tr></thead><tbody>${list.map((r,ri) => {
+    const i = (c.risques||[]).indexOf(list[ri]);
+    const impactColor = r.impact==='haute'?'var(--red)':r.impact==='moyenne'?'var(--orange)':'var(--green)';
+    return `<tr class="tbl-tr" style="border-left:3px solid ${impactColor}">
+      <td class="tbl-td mono">${r.date?formatDate(r.date):'—'}</td>
+      <td class="tbl-td bold">${r.titre||'—'}</td>
+      <td class="tbl-td"><span class="tag ${probaCls[r.probabilite]||'tag-orange'}">${r.probabilite||'—'}</span></td>
+      <td class="tbl-td"><span class="tag ${impactCls[r.impact]||'tag-orange'}">${r.impact||'—'}</span></td>
+      <td class="tbl-td"><span class="tag ${statCls[r.statut]||'tag-blue'}">${r.statut||'—'}</span></td>
+      <td class="tbl-td" style="max-width:240px;font-size:12px;color:var(--text2)">${r.description||'—'}</td>
+      <td class="tbl-td tbl-actions">
+        ${canWrite()?`<button class="btn-sm-edit" onclick="editRisque(${i})">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('risques',${i})">🗑</button>`:''}
+      </td>
+    </tr>`;
+  }).join('')}</tbody></table></div>`;
+}
+
+window.openAddRisque = function() {
+  editState.risques = null;
+  document.getElementById('risque-modal-title').innerHTML = 'Nouveau risque <button class="modal-close" onclick="closeModal(\'modal-add-risque\')">✕</button>';
+  ['risque-titre','risque-date','risque-description'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('risque-probabilite').value = 'moyenne';
+  document.getElementById('risque-impact').value = 'moyenne';
+  document.getElementById('risque-statut').value = 'Actif';
+  document.getElementById('modal-add-risque').style.display='flex';
+};
+
+window.editRisque = function(i) {
+  const c = getClient(); const r = c.risques[i];
+  editState.risques = i;
+  document.getElementById('risque-modal-title').innerHTML = 'Modifier le risque <button class="modal-close" onclick="closeModal(\'modal-add-risque\')">✕</button>';
+  document.getElementById('risque-titre').value = r.titre||'';
+  document.getElementById('risque-date').value = r.date||'';
+  document.getElementById('risque-probabilite').value = r.probabilite||'moyenne';
+  document.getElementById('risque-impact').value = r.impact||'moyenne';
+  document.getElementById('risque-statut').value = r.statut||'Actif';
+  document.getElementById('risque-description').value = r.description||'';
+  document.getElementById('modal-add-risque').style.display='flex';
+};
+
+window.saveRisque = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  const c = getClient(); if (!c) return;
+  const titre = document.getElementById('risque-titre').value.trim(); if (!titre) return;
+  const date = document.getElementById('risque-date').value;
+  if (!date) { toast('⚠️ La date est obligatoire', 'error'); document.getElementById('risque-date').focus(); return; }
+  const obj = {
+    titre, date,
+    probabilite: document.getElementById('risque-probabilite').value,
+    impact:      document.getElementById('risque-impact').value,
+    statut:      document.getElementById('risque-statut').value,
+    description: document.getElementById('risque-description').value,
+  };
+  if (!c.risques) c.risques = [];
+  if (editState.risques !== null) c.risques[editState.risques] = obj;
+  else c.risques.push(obj);
+  try {
+    toast('Enregistrement…');
+    await fsSaveClient(c);
+    window.closeModal('modal-add-risque');
+    renderRisques();
+    toast('Risque enregistré ✓','success');
   } catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
@@ -2045,6 +2129,7 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
       <button class="tab-btn active" onclick="switchTab('incidents',this)">🚨 Incidents majeurs</button>
       <button class="tab-btn" onclick="switchTab('documents',this)">📁 Documents</button>
       <button class="tab-btn" onclick="switchTab('opportunites',this)">💡 Opportunités</button>
+      <button class="tab-btn" onclick="switchTab('risques',this)">⚠️ Risques</button>
       <button class="tab-btn" onclick="switchTab('pda',this)">📌 PDA</button>
       <button class="tab-btn" onclick="switchTab('bilan',this)">📋 Bilan des actions en cours</button>
     </div>
@@ -2071,6 +2156,14 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
         <div id="opportunites-list"></div>
       </div>
 
+
+      <div class="tab-panel" id="panel-risques">
+        <div class="section-header">
+          <span class="section-title">⚠️ Risques</span>
+          <button class="btn-add" onclick="openAddRisque()">+ Ajouter</button>
+        </div>
+        <div id="risques-list"></div>
+      </div>
 
       <!-- PDA -->
       <div class="tab-panel" id="panel-pda">
@@ -2276,6 +2369,47 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
   </div>
 </div>
 
+
+<!-- MODAL RISQUE -->
+<div id="modal-add-risque" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-add-risque')">
+  <div class="modal">
+    <div class="modal-title" id="risque-modal-title">Nouveau risque <button class="modal-close" onclick="closeModal('modal-add-risque')">✕</button></div>
+    <div class="field"><label>Titre <span style="color:var(--red)">*</span></label><input id="risque-titre" placeholder="ex: Perte du contrat principal, Incident réseau majeur…"></div>
+    <div class="grid2">
+      <div class="field"><label>Date <span style="color:var(--red)">*</span></label><input id="risque-date" type="date"></div>
+      <div class="field"><label>Statut</label>
+        <select id="risque-statut">
+          <option>Actif</option>
+          <option>Atténué</option>
+          <option>Clos</option>
+        </select>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>Probabilité</label>
+        <select id="risque-probabilite">
+          <option value="haute">Haute</option>
+          <option value="moyenne" selected>Moyenne</option>
+          <option value="faible">Faible</option>
+        </select>
+      </div>
+      <div class="field"><label>Impact</label>
+        <select id="risque-impact">
+          <option value="haute">Haute</option>
+          <option value="moyenne" selected>Moyenne</option>
+          <option value="faible">Faible</option>
+        </select>
+      </div>
+    </div>
+    <div class="field"><label>Description / Plan de mitigation</label>
+      <textarea id="risque-description" style="min-height:90px" placeholder="Contexte, causes, actions correctives prévues…"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-add-risque')">Annuler</button>
+      <button class="btn-primary" onclick="saveRisque()">Enregistrer</button>
+    </div>
+  </div>
+</div>
 
 <!-- MODAL PDA -->
 <div id="modal-pda" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-pda')">
