@@ -26,23 +26,11 @@ const db = getDatabase(app);
 
 window._statuts = {};
 window._solutions = {};
-window._statutsReady = false;
-window._solutionsReady = false;
-
-function _checkFirebaseReady(){
-  if(window._statutsReady && window._solutionsReady){
-    if(typeof window._onFirebaseReady === "function") window._onFirebaseReady();
-  }
-}
 
 // Charger tous les statuts et ecouter les changements
 onValue(ref(db, "statuts_dossiers"), (snapshot) => {
   const data = snapshot.val() || {};
   window._statuts = data;
-  if(!window._statutsReady){
-    window._statutsReady = true;
-    _checkFirebaseReady();
-  }
   document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
     const id = inp.dataset.id;
     if(id && document.activeElement !== inp){
@@ -67,7 +55,6 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
       }
     }
   });
-  if(typeof window.rehydrateInputs === "function") window.rehydrateInputs();
   if(typeof window.syncStatutFilter === "function") window.syncStatutFilter();
 });
 
@@ -75,10 +62,6 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
 onValue(ref(db, "solutions_temp"), (snapshot) => {
   const data = snapshot.val() || {};
   window._solutions = data;
-  if(!window._solutionsReady){
-    window._solutionsReady = true;
-    _checkFirebaseReady();
-  }
   document.querySelectorAll(".solution-input").forEach(inp => {
     const id = inp.dataset.id;
     if(id && document.activeElement !== inp){
@@ -573,75 +556,22 @@ function attachSolutionListeners(){
  });
 }
 
-let _pipeReady = false;
-let _renderDone = false;
-
-function _tryRender(){
- if(_pipeReady && window._statutsReady && window._solutionsReady && !_renderDone){
-  _renderDone = true;
-  renderMain();
- }
-}
-
-// Exposer pour que _checkFirebaseReady puisse declencher
-window._onFirebaseReady = _tryRender;
-
 async function loadPipe(){
- let loaded = false;
  for(const f of pipeFiles){
   try{
    const r=await fetch(f+"?v="+Date.now());
-   if(!r.ok){ console.warn("pipe.xlsx: HTTP",r.status); continue; }
+   if(!r.ok) continue;
    const b=await r.arrayBuffer();
    const wb=XLSX.read(b,{type:"array"});
    const ws=wb.Sheets[wb.SheetNames[0]];
    const raw=XLSX.utils.sheet_to_json(ws,{raw:true});
    dossiersGlobal=dedupeById(raw);
-   loaded = true;
-  }catch(e){ console.error("Erreur chargement pipe:", e); }
+   renderMain();
+   return;
+  }catch(e){}
  }
- // Toujours marquer ready pour debloquer le render (meme si xlsx absent)
- _pipeReady = true;
- if(!loaded){
-  console.warn("pipe.xlsx introuvable — tableau vide. Importez un fichier manuellement.");
- }
- _tryRender();
 }
-function rehydrateInputs(){
- document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp=>{
-  if(document.activeElement === inp) return;
-  const id = inp.dataset.id;
-  if(!id) return;
-  const safeKey = id.replace(/[.#$\[\]/]/g,"_");
-  const entry = (window._statuts||{})[safeKey];
-  if(entry !== undefined){
-   const val = (typeof entry === "object" && entry !== null) ? (entry.value||"") : entry;
-   inp.value = val;
-   inp._prevVal = val;
-   const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
-   if(label){
-    const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
-    if(ts){
-     const {text,cls} = formatStatutDate(ts);
-     label.textContent = text;
-     label.className = "statut-date-label " + cls;
-    }
-   }
-  }
- });
- document.querySelectorAll(".solution-input").forEach(inp=>{
-  if(document.activeElement === inp) return;
-  const id = inp.dataset.id;
-  if(!id) return;
-  const safeKey = id.replace(/[.#$\[\]/]/g,"_");
-  const entry = (window._solutions||{})[safeKey];
-  if(entry !== undefined){
-   const val = (typeof entry === "object" && entry !== null) ? (entry.value||"") : entry;
-   inp.value = val;
-   inp._prevVal = val;
-  }
- });
-}
+loadPipe();
 
 function renderMain(){
  document.getElementById("resume").textContent="Dossiers : "+dossiersGlobal.length;
@@ -672,7 +602,6 @@ function renderMain(){
  });
  attachStatutListeners();
  attachSolutionListeners();
- rehydrateInputs();
  syncStatutFilter();
 }
 
@@ -710,7 +639,6 @@ function filtrerEtAfficher(){
  document.getElementById("resume").textContent="Dossiers : "+cpt;
  attachStatutListeners();
  attachSolutionListeners();
- rehydrateInputs();
  syncStatutFilter();
 }
 document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
@@ -992,7 +920,5 @@ window.supprimerLigneSolution = function(safeKey){
  const count = tbody ? tbody.querySelectorAll("tr").length : 0;
  document.getElementById("popupSolutionsTempTitle").textContent = `🔧 Solutions temporaires (${count})`;
 };
-
-loadPipe();
 </script>
 </html>
