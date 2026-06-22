@@ -30,6 +30,7 @@ let clients = [];
 let currentClientId = null;
 let editState = { incidents: null, documents: null, opportunites: null };
 let pendingFile = null;
+let pendingOppFile = null;
 
 // ── COMPTES AUTORISÉS ──
 // adminn    → superadmin (accès total + suppression)
@@ -726,6 +727,7 @@ function renderOpportunites() {
     <th class="tbl-th">Statut</th>
     <th class="tbl-th">Montant estimé</th>
     <th class="tbl-th">Description / Notes</th>
+    <th class="tbl-th">Fichier</th>
     <th class="tbl-th" style="width:70px"></th>
   </tr></thead><tbody>${list.map((o,ri) => {
     const i = (c.opportunites||[]).indexOf(list[ri]);
@@ -737,6 +739,7 @@ function renderOpportunites() {
       <td class="tbl-td"><span class="tag ${sCls[o.statut]||'tag-blue'}">${o.statut||'—'}</span></td>
       <td class="tbl-td mono">${o.montant||'—'}</td>
       <td class="tbl-td" style="max-width:220px;font-size:12px;color:var(--text2)">${o.description||'—'}</td>
+      <td class="tbl-td">${o.fichierUrl?`<a href="${o.fichierUrl}" target="_blank" style="font-size:11px;color:var(--accent);font-family:'DM Mono',monospace;white-space:nowrap">📎 ${o.fichierNom||'Fichier'}</a>`:'—'}</td>
       <td class="tbl-td tbl-actions">
         ${canWrite()?`<button class="btn-sm-edit" onclick="editOpportunite(${i})">✏️</button>
         <button class="btn-sm" onclick="deleteItem('opportunites',${i})">🗑</button>`:''}
@@ -747,12 +750,15 @@ function renderOpportunites() {
 
 window.openAddOpportunite = function() {
   editState.opportunites = null;
+  pendingOppFile = null;
   document.getElementById('opp-modal-title').innerHTML = 'Nouvelle opportunité <button class="modal-close" onclick="closeModal(\'modal-add-opportunite\')">✕</button>';
   document.getElementById('opp-modal-btn').textContent = 'Enregistrer';
   ['opp-titre','opp-date','opp-montant','opp-description','opp-type-custom'].forEach(id => document.getElementById(id).value='');
   document.getElementById('opp-type').value = 'LAN';
   document.getElementById('opp-type-custom-wrap').style.display='none';
   document.getElementById('opp-statut').value = 'En cours';
+  document.getElementById('opp-file-chip-wrap').innerHTML = '';
+  document.getElementById('opp-file-input').value = '';
   document.getElementById('modal-add-opportunite').style.display='flex';
 };
 
@@ -777,6 +783,12 @@ window.editOpportunite = function(i) {
     document.getElementById('opp-type-custom-wrap').style.display='block';
     document.getElementById('opp-type-custom').value = o.type||'';
   }
+  // Fichier joint existant
+  pendingOppFile = null;
+  document.getElementById('opp-file-input').value = '';
+  document.getElementById('opp-file-chip-wrap').innerHTML = o.fichierNom
+    ? `<div class="file-chip">📎 ${o.fichierNom} <a href="${o.fichierUrl}" target="_blank" style="margin-left:6px;color:var(--accent);font-size:11px">Voir</a></div>`
+    : '';
   document.getElementById('modal-add-opportunite').style.display='flex';
 };
 
@@ -795,12 +807,30 @@ window.saveOpportunite = async function() {
   if (type === 'Autre') {
     type = document.getElementById('opp-type-custom').value.trim() || 'Autre';
   }
+  // Upload fichier si présent
+  let fichierUrl = null, fichierNom = null, fichierPath = null;
+  if (editState.opportunites !== null) {
+    const existing = c.opportunites[editState.opportunites];
+    fichierUrl = existing.fichierUrl || null;
+    fichierNom = existing.fichierNom || null;
+    fichierPath = existing.fichierPath || null;
+  }
+  if (pendingOppFile) {
+    try {
+      toast('Upload fichier…');
+      const res = await uploadFile(pendingOppFile.file, c.id + '_opp');
+      fichierUrl = res.url;
+      fichierNom = pendingOppFile.name;
+      fichierPath = res.path;
+    } catch(e) { toast('Erreur upload : '+e.message,'error'); return; }
+  }
   const obj = {
     titre, type,
     date: document.getElementById('opp-date').value,
     montant: document.getElementById('opp-montant').value,
     statut: document.getElementById('opp-statut').value,
     description: document.getElementById('opp-description').value,
+    ...(fichierUrl ? { fichierUrl, fichierNom, fichierPath } : {}),
   };
   if (!c.opportunites) c.opportunites = [];
   if (editState.opportunites !== null) c.opportunites[editState.opportunites] = obj;
@@ -808,10 +838,18 @@ window.saveOpportunite = async function() {
   try {
     toast('Enregistrement…');
     await fsSaveClient(c);
+    pendingOppFile = null;
     window.closeModal('modal-add-opportunite');
     renderOpportunites();
     toast('Opportunité enregistrée ✓','success');
   } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+window.onOppFileSelect = e => {
+  const f = e.target.files[0]; if (!f) return;
+  pendingOppFile = { file: f, name: f.name, size: f.size };
+  document.getElementById('opp-file-chip-wrap').innerHTML =
+    `<div class="file-chip">📎 ${f.name} (${formatSize(f.size)})</div>`;
 };
 
 window.onDragOver = e => { e.preventDefault(); document.getElementById('drop-zone').classList.add('dragover'); };
@@ -2220,6 +2258,15 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
 
     <div class="field"><label>Description / Notes</label>
       <textarea id="opp-description" style="min-height:100px" placeholder="Contexte, besoin exprimé, prochaines étapes…"></textarea>
+    </div>
+
+    <div class="field">
+      <label>Fichier joint</label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button type="button" onclick="document.getElementById('opp-file-input').click()" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 14px;font-size:12px;color:var(--text2);cursor:pointer;font-family:'DM Mono',monospace;white-space:nowrap;">📎 Parcourir…</button>
+        <div id="opp-file-chip-wrap" style="font-size:12px;color:var(--text2);font-family:'DM Mono',monospace;"></div>
+      </div>
+      <input type="file" id="opp-file-input" style="display:none" onchange="onOppFileSelect(event)">
     </div>
 
     <div class="modal-footer">
