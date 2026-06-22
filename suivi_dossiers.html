@@ -26,16 +26,16 @@ const db = getDatabase(app);
 
 window._statuts = {};
 window._solutions = {};
+window._firebaseStatutsReady = false;
+window._firebaseSolutionsReady = false;
 
-// Charger tous les statuts et ecouter les changements
-onValue(ref(db, "statuts_dossiers"), (snapshot) => {
-  const data = snapshot.val() || {};
-  window._statuts = data;
+function _tryRenderAfterFirebase(){
+  // Si le tableau est déjà rendu (pipe chargé) et Firebase vient de répondre, re-remplir les inputs
   document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
     const id = inp.dataset.id;
     if(id && document.activeElement !== inp){
       const safeKey = id.replace(/[.#$\[\]/]/g, "_");
-      const entry = data[safeKey];
+      const entry = window._statuts[safeKey];
       if(entry !== undefined){
         const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
         inp.value = val;
@@ -55,13 +55,25 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
       }
     }
   });
+  // Si le pipe n'est pas encore chargé mais Firebase est prêt, déclencher renderMain quand le pipe arrivera
+  // (géré côté loadPipe via window._firebaseStatutsReady)
   if(typeof window.syncStatutFilter === "function") window.syncStatutFilter();
+  if(typeof window.updateStatutsCoverage === "function") window.updateStatutsCoverage();
+}
+
+// Charger tous les statuts et ecouter les changements
+onValue(ref(db, "statuts_dossiers"), (snapshot) => {
+  const data = snapshot.val() || {};
+  window._statuts = data;
+  window._firebaseStatutsReady = true;
+  _tryRenderAfterFirebase();
 });
 
 // Charger solutions temporaires
 onValue(ref(db, "solutions_temp"), (snapshot) => {
   const data = snapshot.val() || {};
   window._solutions = data;
+  window._firebaseSolutionsReady = true;
   document.querySelectorAll(".solution-input").forEach(inp => {
     const id = inp.dataset.id;
     if(id && document.activeElement !== inp){
@@ -617,6 +629,42 @@ function renderMain(){
  });
  attachStatutListeners();
  attachSolutionListeners();
+ // Si Firebase est déjà prêt au moment du rendu, peupler immédiatement les inputs
+ if(window._firebaseStatutsReady){
+  document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
+   const id = inp.dataset.id;
+   if(!id) return;
+   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+   const entry = window._statuts[safeKey];
+   if(entry !== undefined){
+    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+    inp.value = val;
+    inp._prevVal = val;
+    const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
+    if(label){
+     const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
+     if(ts){
+      const {text, cls} = window._formatStatutDate ? window._formatStatutDate(ts) : {text:"màj : "+ts, cls:""};
+      label.textContent = text;
+      label.className = "statut-date-label " + cls;
+     }
+    }
+   }
+  });
+ }
+ if(window._firebaseSolutionsReady){
+  document.querySelectorAll(".solution-input").forEach(inp => {
+   const id = inp.dataset.id;
+   if(!id) return;
+   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+   const entry = window._solutions[safeKey];
+   if(entry !== undefined){
+    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+    inp.value = val;
+    inp._prevVal = val;
+   }
+  });
+ }
  syncStatutFilter();
 }
 
@@ -654,6 +702,41 @@ function filtrerEtAfficher(){
  document.getElementById("resume").textContent="Dossiers : "+cpt;
  attachStatutListeners();
  attachSolutionListeners();
+ if(window._firebaseStatutsReady){
+  document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
+   const id = inp.dataset.id;
+   if(!id) return;
+   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+   const entry = window._statuts[safeKey];
+   if(entry !== undefined){
+    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+    inp.value = val;
+    inp._prevVal = val;
+    const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
+    if(label){
+     const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
+     if(ts){
+      const {text, cls} = window._formatStatutDate ? window._formatStatutDate(ts) : {text:"màj : "+ts, cls:""};
+      label.textContent = text;
+      label.className = "statut-date-label " + cls;
+     }
+    }
+   }
+  });
+ }
+ if(window._firebaseSolutionsReady){
+  document.querySelectorAll(".solution-input").forEach(inp => {
+   const id = inp.dataset.id;
+   if(!id) return;
+   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+   const entry = window._solutions[safeKey];
+   if(entry !== undefined){
+    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+    inp.value = val;
+    inp._prevVal = val;
+   }
+  });
+ }
  syncStatutFilter();
 }
 document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
