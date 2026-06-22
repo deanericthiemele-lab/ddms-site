@@ -587,20 +587,25 @@ function _tryRender(){
 window._onFirebaseReady = _tryRender;
 
 async function loadPipe(){
+ let loaded = false;
  for(const f of pipeFiles){
   try{
    const r=await fetch(f+"?v="+Date.now());
-   if(!r.ok) continue;
+   if(!r.ok){ console.warn("pipe.xlsx: HTTP",r.status); continue; }
    const b=await r.arrayBuffer();
    const wb=XLSX.read(b,{type:"array"});
    const ws=wb.Sheets[wb.SheetNames[0]];
    const raw=XLSX.utils.sheet_to_json(ws,{raw:true});
    dossiersGlobal=dedupeById(raw);
-   _pipeReady = true;
-   _tryRender();
-   return;
-  }catch(e){}
+   loaded = true;
+  }catch(e){ console.error("Erreur chargement pipe:", e); }
  }
+ // Toujours marquer ready pour debloquer le render (meme si xlsx absent)
+ _pipeReady = true;
+ if(!loaded){
+  console.warn("pipe.xlsx introuvable — tableau vide. Importez un fichier manuellement.");
+ }
+ _tryRender();
 }
 function rehydrateInputs(){
  document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp=>{
