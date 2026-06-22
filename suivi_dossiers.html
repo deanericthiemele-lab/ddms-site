@@ -26,11 +26,23 @@ const db = getDatabase(app);
 
 window._statuts = {};
 window._solutions = {};
+window._statutsReady = false;
+window._solutionsReady = false;
+
+function _checkFirebaseReady(){
+  if(window._statutsReady && window._solutionsReady){
+    if(typeof window._onFirebaseReady === "function") window._onFirebaseReady();
+  }
+}
 
 // Charger tous les statuts et ecouter les changements
 onValue(ref(db, "statuts_dossiers"), (snapshot) => {
   const data = snapshot.val() || {};
   window._statuts = data;
+  if(!window._statutsReady){
+    window._statutsReady = true;
+    _checkFirebaseReady();
+  }
   document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
     const id = inp.dataset.id;
     if(id && document.activeElement !== inp){
@@ -63,6 +75,10 @@ onValue(ref(db, "statuts_dossiers"), (snapshot) => {
 onValue(ref(db, "solutions_temp"), (snapshot) => {
   const data = snapshot.val() || {};
   window._solutions = data;
+  if(!window._solutionsReady){
+    window._solutionsReady = true;
+    _checkFirebaseReady();
+  }
   document.querySelectorAll(".solution-input").forEach(inp => {
     const id = inp.dataset.id;
     if(id && document.activeElement !== inp){
@@ -567,7 +583,15 @@ async function loadPipe(){
    const ws=wb.Sheets[wb.SheetNames[0]];
    const raw=XLSX.utils.sheet_to_json(ws,{raw:true});
    dossiersGlobal=dedupeById(raw);
-   renderMain();
+   // Attendre que Firebase ait chargé statuts + solutions avant de render
+   if(window._statutsReady && window._solutionsReady){
+    renderMain();
+   } else {
+    window._onFirebaseReady = function(){
+     renderMain();
+     window._onFirebaseReady = null;
+    };
+   }
    return;
   }catch(e){}
  }
