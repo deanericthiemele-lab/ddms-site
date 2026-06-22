@@ -573,6 +573,19 @@ function attachSolutionListeners(){
  });
 }
 
+let _pipeReady = false;
+let _renderDone = false;
+
+function _tryRender(){
+ if(_pipeReady && window._statutsReady && window._solutionsReady && !_renderDone){
+  _renderDone = true;
+  renderMain();
+ }
+}
+
+// Exposer pour que _checkFirebaseReady puisse declencher
+window._onFirebaseReady = _tryRender;
+
 async function loadPipe(){
  for(const f of pipeFiles){
   try{
@@ -583,15 +596,8 @@ async function loadPipe(){
    const ws=wb.Sheets[wb.SheetNames[0]];
    const raw=XLSX.utils.sheet_to_json(ws,{raw:true});
    dossiersGlobal=dedupeById(raw);
-   // Attendre que Firebase ait chargé statuts + solutions avant de render
-   if(window._statutsReady && window._solutionsReady){
-    renderMain();
-   } else {
-    window._onFirebaseReady = function(){
-     renderMain();
-     window._onFirebaseReady = null;
-    };
-   }
+   _pipeReady = true;
+   _tryRender();
    return;
   }catch(e){}
  }
