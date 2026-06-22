@@ -2403,24 +2403,46 @@ async function exportPdf(){
 
   const topInstables = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).sort((a,b)=>b.nb-a.nb).slice(0,10);
   const topCoupures  = [...ND_DATA].filter(d=>d.isDown).sort((a,b)=>b.nb-a.nb).slice(0,10);
-  // PDA — lecture directe Firebase, filtre par plage de dates du rapport
+  // PDA — filtre par sites présents dans les rapports sélectionnés (IF_DATA + ND_DATA)
+  // ET par dates couvertes par ces rapports (plage min→max du hdr-date)
   const hdrDateForPda = (document.getElementById("hdr-date").textContent || "").trim();
   const _pdaDates = hdrDateForPda.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
   const _toTs2 = s => { const [d,m,y]=s.split("/"); return new Date(+y,+m-1,+d).getTime(); };
-  const _tsMin2 = _pdaDates.length ? Math.min(..._pdaDates.map(_toTs2)) : null;
-  const _tsMax2 = _pdaDates.length ? Math.max(..._pdaDates.map(_toTs2)) : null;
+
+  // Sites des rapports sélectionnés (IF_DATA + ND_DATA déjà fusionnés)
+  const _rapportSites = new Set([...IF_DATA.map(d=>d.site), ...ND_DATA.map(d=>d.site)]);
+
+  // Générer toutes les dates de la période (bornes min→max incluses)
+  const _pdaDateSet = (()=>{
+    if(!_pdaDates.length) return null; // null = pas de filtre date
+    const _ds = _pdaDates.map(_toTs2).sort((a,b)=>a-b);
+    const _min = _ds[0], _max = _ds[_ds.length-1];
+    const _set = new Set();
+    const _c = new Date(_min);
+    while(_c.getTime() <= _max){
+      _set.add(_c.toLocaleDateString("fr-FR")); // format "22/06/2026"
+      _c.setDate(_c.getDate()+1);
+    }
+    return _set;
+  })();
+
   let pdaHaute = [];
   try{
     if(window._db && window._col && window._gets){
       const snap = await window._gets(window._col(window._db,"noc_pda_n2"));
       const all  = snap.docs.map(d=>({id:d.id,...d.data()}));
       pdaHaute = all.filter(d=>{
-        if(!d.period) return false;
-        // d.period peut être "16/06/2026" (date de saisie noctb) ou "Période du X au Y"
-        const dts = d.period.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
-        if(!dts.length) return false;
-        if(_tsMin2===null) return true;
-        return dts.some(ed=>{ const t=_toTs2(ed); return t>=_tsMin2 && t<=_tsMax2; });
+        if(!d.site) return false;
+        // 1. Le site du PDA doit être présent dans les rapports sélectionnés
+        if(_rapportSites.size > 0 && !_rapportSites.has(d.site)) return false;
+        // 2. La date de saisie (d.period) doit être dans la période couverte par les rapports
+        if(_pdaDateSet !== null){
+          const dts = (d.period||"").match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+          if(!dts.length) return false;
+          // Au moins une date de saisie dans la période du rapport
+          if(!dts.some(dt => _pdaDateSet.has(dt))) return false;
+        }
+        return true;
       }).map(d=>({
         site:d.site||"",date:d.date||"",routeur:d.routeur||"",ip:d.ip||"",
         defaut:d.defaut||"",ifaces:d.interfaces||"",action:d.action||"",
@@ -2932,11 +2954,38 @@ async function pdaSaveAll(){
 
 async function pdaLoadFromFirebase(){
   if(!window._db) return;
-  const period = document.getElementById("hdr-date").textContent || "—";
+  const hdrDateTxt = (document.getElementById("hdr-date")?.textContent || "").trim();
+  // Extraire toutes les dates DD/MM/YYYY et générer la plage complète
+  const _pldDts = hdrDateTxt.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+  const _pldToTs = s=>{ const [d,m,y]=s.split("/"); return new Date(+y,+m-1,+d).getTime(); };
+  const _pldDateSet = (()=>{
+    if(!_pldDts.length) return null;
+    const sorted = _pldDts.map(_pldToTs).sort((a,b)=>a-b);
+    const set = new Set();
+    const c = new Date(sorted[0]);
+    while(c.getTime() <= sorted[sorted.length-1]){
+      set.add(c.toLocaleDateString("fr-FR")); // "22/06/2026"
+      c.setDate(c.getDate()+1);
+    }
+    return set;
+  })();
+  // Sites couverts par les données actuellement affichées
+  const _pldSites = new Set([...(IF_DATA||[]).map(d=>d.site), ...(ND_DATA||[]).map(d=>d.site)]);
   try{
     const colRef = window._col(window._db, "noc_pda_n2");
     const snap   = await window._gets(colRef);
-    const saved  = snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>d.period===period);
+    const saved  = snap.docs.map(d=>({id:d.id,...d.data()})).filter(d=>{
+      if(!d.site) return false;
+      // Filtre 1 : site présent dans les rapports affichés
+      if(_pldSites.size > 0 && !_pldSites.has(d.site)) return false;
+      // Filtre 2 : date de saisie dans la période couverte
+      if(_pldDateSet !== null){
+        const dts = (d.period||"").match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+        if(!dts.length) return false;
+        if(!dts.some(dt => _pldDateSet.has(dt))) return false;
+      }
+      return true;
+    });
     if(!saved.length) return;
     const container = document.getElementById("pda-rows");
     if(!container) return;
