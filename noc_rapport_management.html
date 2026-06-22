@@ -2158,7 +2158,14 @@ async function openMailPopup(){
     try{
       const hdrDate = document.getElementById("hdr-date")?.textContent || "";
       const dateMatches = hdrDate.match(/\d{2}\/\d{2}\/\d{4}/g)||[];
-      const rapportDatesISO = new Set(dateMatches.map(d=>{ const [dd,mm,yyyy]=d.split("/"); return yyyy+"-"+mm+"-"+dd; }));
+      const rapportDatesISO = new Set((()=>{
+        if(!dateMatches.length) return [];
+        const _toD=s=>{const[d,m,y]=s.split("/");return new Date(+y,+m-1,+d);};
+        const _toI=dt=>dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
+        const _ds=dateMatches.map(_toD).sort((a,b)=>a-b);
+        const _r=[];const _c=new Date(_ds[0]);while(_c<=_ds[_ds.length-1]){_r.push(_toI(_c));_c.setDate(_c.getDate()+1);};
+        return _r;
+      })());
       const snap = await window._gets(window._col(window._db,"noc_tickets_indispo"));
       const tks  = snap.docs.map(d=>({...d.data()})).filter(t=>t.debut && rapportDatesISO.has(t.debut.substring(0,10)));
       tkTotal = String(tks.length||0);
@@ -2637,7 +2644,14 @@ async function exportPdf(){
     if(window._db && window._col && window._gets){
       const hdrDateTk = document.getElementById("hdr-date")?.textContent || "";
       const dateMatchesTk = hdrDateTk.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
-      const rapportDatesISOtk = new Set(dateMatchesTk.map(d=>{ const [dd,mm,yyyy]=d.split("/"); return yyyy+"-"+mm+"-"+dd; }));
+      const rapportDatesISOtk = new Set((()=>{
+        if(!dateMatchesTk.length) return [];
+        const _toD=s=>{const[d,m,y]=s.split("/");return new Date(+y,+m-1,+d);};
+        const _toI=dt=>dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
+        const _ds=dateMatchesTk.map(_toD).sort((a,b)=>a-b);
+        const _r=[];const _c=new Date(_ds[0]);while(_c<=_ds[_ds.length-1]){_r.push(_toI(_c));_c.setDate(_c.getDate()+1);};
+        return _r;
+      })());
       const snapTk = await window._gets(window._col(window._db,"noc_tickets_indispo"));
       const filteredTk = snapTk.docs.map(d=>d.data()).filter(t=>t.debut && rapportDatesISOtk.has(t.debut.substring(0,10)));
       tkTotal = String(filteredTk.length||0);
@@ -2804,7 +2818,19 @@ async function loadKpiTickets(){
     const hdrDate = document.getElementById("hdr-date")?.textContent || "";
     // Extraire toutes les dates DD/MM/YYYY présentes dans le label de période
     const dateMatches = hdrDate.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
-    const rapportDatesISO = new Set(dateMatches.map(d=>{ const [dd,mm,yyyy]=d.split("/"); return yyyy+"-"+mm+"-"+dd; }));
+    // Générer TOUTES les dates entre borne min et borne max (fusion multi-jours)
+    const rapportDatesISO = new Set((() => {
+      if(!dateMatches.length) return [];
+      const toDate = s => { const [d,m,y]=s.split("/"); return new Date(+y,+m-1,+d); };
+      const toISO  = dt => dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
+      const dates  = dateMatches.map(toDate).sort((a,b)=>a-b);
+      const start  = dates[0];
+      const end    = dates[dates.length-1];
+      const result = [];
+      const cur    = new Date(start);
+      while(cur <= end){ result.push(toISO(cur)); cur.setDate(cur.getDate()+1); }
+      return result;
+    })());
 
     const filtered = tickets.filter(t=>{
       if(!t.debut) return false;
