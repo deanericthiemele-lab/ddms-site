@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carte Congestion — NOC B2B</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1622;--surface:#111e2e;--surface2:#162233;
+    --border:rgba(100,180,220,0.13);--border2:rgba(100,180,220,0.26);
+    --red:#e24b4a;--red-dark:#791f1f;--red-border:#a32d2d;--red-light:#f09595;--red-glow:rgba(226,75,74,0.18);
+    --cyan:#4db8d4;--cyan-dim:rgba(77,184,212,0.11);
+    --amber:#EF9F27;--amber-dim:rgba(239,159,39,0.15);--amber-border:rgba(239,159,39,0.3);
+    --text:#d4eaf2;--text2:#7aaabb;--text3:#3d6677;
+    --font:'Segoe UI',system-ui,sans-serif;--mono:'Consolas','Courier New',monospace;
+    --r:7px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px}
+
+  /* HEADER */
+  header{
+    display:flex;align-items:center;gap:12px;padding:0 18px;
+    background:var(--surface);border-bottom:1px solid var(--border2);
+    height:52px;flex-shrink:0;position:relative;z-index:500;
+  }
+  .btn-back{
+    display:flex;align-items:center;gap:6px;padding:5px 13px;
+    background:transparent;border:1px solid var(--border2);border-radius:var(--r);
+    color:var(--cyan);font:500 12px var(--font);cursor:pointer;
+    text-decoration:none;transition:background .15s,border-color .15s;white-space:nowrap;
+  }
+  .btn-back:hover{background:var(--cyan-dim);border-color:var(--cyan)}
+  .hdr-info{flex:1;min-width:0}
+  .hdr-title{font-size:14px;font-weight:600;color:var(--text);letter-spacing:.02em}
+  .hdr-sub{font-size:11px;color:var(--text2);margin-top:1px}
+  .hdr-badges{display:flex;gap:6px}
+  .badge{font-size:10px;padding:3px 9px;border-radius:20px;font-weight:500;white-space:nowrap}
+  .badge-red{background:var(--red-glow);border:1px solid var(--red-border);color:var(--red-light)}
+  .badge-amber{background:var(--amber-dim);border:1px solid var(--amber-border);color:var(--amber)}
+
+  /* LAYOUT */
+  .layout{display:flex;height:calc(100vh - 52px)}
+
+  /* SIDEBAR */
+  .sidebar{
+    width:275px;min-width:275px;background:var(--surface);
+    border-right:1px solid var(--border);display:flex;flex-direction:column;
+    overflow:hidden;z-index:10;
+  }
+  .sb-top{padding:12px 14px 10px;border-bottom:1px solid var(--border)}
+  .sec-lbl{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+
+  /* Import */
+  .drop-zone{
+    border:1px dashed var(--border2);border-radius:var(--r);
+    padding:11px;text-align:center;cursor:pointer;position:relative;
+    transition:background .15s,border-color .15s;
+  }
+  .drop-zone:hover,.drop-zone.drag{background:var(--cyan-dim);border-color:var(--cyan)}
+  .drop-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+  .drop-zone .ico{font-size:20px;margin-bottom:4px;display:block}
+  .drop-zone p{font-size:11px;color:var(--text2);line-height:1.5}
+  .drop-zone strong{color:var(--cyan)}
+  .imp-status{margin-top:7px;padding:5px 9px;border-radius:6px;font-size:11px;display:none}
+  .imp-status.ok{background:rgba(30,120,60,.18);border:1px solid rgba(50,160,80,.3);color:#6edfa0}
+  .imp-status.err{background:rgba(160,40,40,.18);border:1px solid rgba(200,60,60,.3);color:var(--red-light)}
+
+  /* City list */
+  .city-list{flex:1;overflow-y:auto;padding:4px 0}
+  .city-list::-webkit-scrollbar{width:3px}
+  .city-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+  .city-item{
+    display:flex;align-items:center;gap:9px;padding:7px 14px;
+    cursor:pointer;border-left:2px solid transparent;
+    transition:background .1s,border-color .1s;
+  }
+  .city-item:hover,.city-item.active{background:var(--surface2);border-left-color:var(--red)}
+  .city-dot{width:8px;height:8px;border-radius:50%;background:var(--red);border:1.5px solid var(--red-border);flex-shrink:0}
+  .city-name{font-size:12px;font-weight:500;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .city-count{font-size:10px;padding:1px 6px;border-radius:10px;background:var(--red-glow);border:1px solid var(--red-border);color:var(--red-light);font-weight:600;flex-shrink:0}
+
+  /* Detail */
+  .detail-panel{border-top:1px solid var(--border);overflow-y:auto;max-height:260px;min-height:80px}
+  .detail-panel::-webkit-scrollbar{width:3px}
+  .detail-panel::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+  .det-header{padding:9px 14px 6px;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);z-index:1}
+  .det-zone{font-size:13px;font-weight:600;color:var(--cyan)}
+  .det-sub{font-size:10px;color:var(--text3);margin-top:1px}
+  .det-empty{padding:12px 14px;font-size:11px;color:var(--text3);font-style:italic}
+  .cli-card{padding:8px 14px;border-bottom:1px solid var(--border)}
+  .cli-card:last-child{border-bottom:none}
+  .cli-top{display:flex;align-items:baseline;gap:6px;margin-bottom:3px}
+  .cli-n{font-family:var(--mono);font-size:10px;color:var(--text3);flex-shrink:0}
+  .cli-name{font-size:11px;font-weight:500;color:var(--text);line-height:1.3}
+  .cli-lien{font-family:var(--mono);font-size:10px;color:var(--amber);background:var(--amber-dim);border:1px solid var(--amber-border);border-radius:4px;padding:2px 6px;display:inline-block;margin-top:3px}
+  .cli-circuit{font-size:10px;color:var(--text2);margin-top:2px}
+
+  /* MAP */
+  .map-area{flex:1;position:relative;overflow:hidden}
+  #map{width:100%;height:100%}
+
+  /* Leaflet dark overrides */
+  .leaflet-container{background:#060d14!important}
+  .leaflet-tile-pane{filter:brightness(0.45) saturate(0.4) hue-rotate(185deg)}
+  .leaflet-control-zoom a{background:var(--surface)!important;color:var(--cyan)!important;border-color:var(--border2)!important}
+  .leaflet-control-zoom a:hover{background:var(--surface2)!important}
+  .leaflet-control-attribution{background:rgba(8,15,24,.75)!important;color:var(--text3)!important;font-size:9px!important}
+  .leaflet-control-attribution a{color:var(--text3)!important}
+
+  /* Custom popup */
+  .leaflet-popup-content-wrapper{
+    background:#0d1b2a!important;border:1px solid rgba(77,184,212,0.45)!important;
+    border-radius:8px!important;box-shadow:0 4px 20px rgba(0,0,0,.6)!important;padding:0!important;
+  }
+  .leaflet-popup-content{margin:0!important;min-width:190px;max-width:270px}
+  .leaflet-popup-tip-container{display:none!important}
+  .leaflet-popup-close-button{color:var(--cyan)!important;font-size:16px!important;top:6px!important;right:8px!important}
+  .pop-inner{padding:11px 14px}
+  .pop-zone{font-size:13px;font-weight:600;color:#4db8d4;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(77,184,212,0.2)}
+  .pop-sub{font-size:10px;color:#7aaabb;font-weight:400;margin-left:4px}
+  .pop-card{padding:5px 0;border-bottom:1px solid rgba(100,180,220,0.1)}
+  .pop-card:last-child{border-bottom:none;padding-bottom:0}
+  .pop-name{font-size:11px;color:#d4eaf2;font-weight:500;margin-bottom:3px}
+  .pop-lien{font-family:Consolas,monospace;font-size:10px;color:#EF9F27;background:rgba(239,159,39,0.15);border:1px solid rgba(239,159,39,0.28);border-radius:3px;padding:2px 5px;display:inline-block;margin-bottom:2px}
+  .pop-circuit{font-size:10px;color:#7aaabb}
+
+  /* Stats */
+  .stats-bar{position:absolute;top:10px;right:10px;z-index:400;display:flex;gap:7px;pointer-events:none}
+  .stat-pill{padding:4px 11px;border-radius:20px;background:rgba(8,15,24,.92);border:1px solid var(--border2);font-size:11px;color:var(--text2)}
+  .stat-pill strong{color:var(--cyan);font-weight:600}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="ingenierie.html" class="btn-back">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    Ingénierie
+  </a>
+  <div class="hdr-info">
+    <div class="hdr-title">Carte Congestion — NOC B2B</div>
+    <div class="hdr-sub" id="hdr-sub">Sites clients affectés</div>
+  </div>
+  <div class="hdr-badges">
+    <div class="badge badge-red" id="hdr-villes">— villes</div>
+    <div class="badge badge-amber" id="hdr-clients">— clients</div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sb-top">
+      <div class="sec-lbl">Import fichier</div>
+      <div class="drop-zone" id="dropzone">
+        <input type="file" id="file-input" accept=".xlsx,.xls">
+        <span class="ico">📂</span>
+        <p><strong>Glisser / Cliquer</strong><br>Fichier .xlsx — colonnes :<br>N°, CLIENT, ZONE, GPS, LIEN, CIRCUITS CONGESTIONNES</p>
+      </div>
+      <div class="imp-status" id="imp-status"></div>
+    </div>
+    <div class="city-list" id="city-list"></div>
+    <div class="detail-panel" id="detail-panel">
+      <div class="det-empty">Cliquer sur une ville</div>
+    </div>
+  </aside>
+
+  <div class="map-area">
+    <div id="map"></div>
+    <div class="stats-bar">
+      <div class="stat-pill"><strong id="sv">0</strong> villes</div>
+      <div class="stat-pill"><strong id="sc">0</strong> clients</div>
+      <div class="stat-pill"><strong id="sl">0</strong> liens</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── DONNÉES ───────────────────────────────────────────────────────────────────
+const DEFAULT = [
+  {zone:"TOUMODI",     lat:6.5602, lon:-5.0161,
+   clients:[{n:1, name:"STE EIFFAGE INFRASTRUCTURES CI / PROJET PHSA", lien:"SYTHD210131", circuit:""}]},
+  {zone:"SOUBRE",      lat:5.7856, lon:-6.6083,
+   clients:[{n:3,name:"STE UNITED OIL COMPANY",lien:"SYTHD230326",circuit:""},
+            {n:26,name:"FRANCHISE GUEYO (primaire)",lien:"FRANCHISE GUEYO",circuit:"DAGOUAHIO - SOUBRE"},
+            {n:27,name:"FRANCHISE GUEYO (backup)",lien:"FRANCHISE GUEYO",circuit:"GUEYO - DAGOUAHIO"}]},
+  {zone:"DABAKALA",    lat:8.3632, lon:-4.4285,
+   clients:[{n:5,name:"STE MOTA-ENGIL COTE D'IVOIRE",lien:"SYTHD130007",circuit:""}]},
+  {zone:"BEOUMI",      lat:7.6500, lon:-5.5500,
+   clients:[{n:7,name:"FRANCHISE ORANGE COTE D'IVOIRE BEOUMI",lien:"BUVPN140377",circuit:""}]},
+  {zone:"SAN-PEDRO",   lat:4.7494, lon:-6.6365,
+   clients:[{n:8,name:"STE PALMCI ABIDJAN",lien:"BUVPN140315",circuit:""}]},
+  {zone:"BINGERVILLE", lat:5.3558, lon:-3.8885,
+   clients:[{n:9,name:"STE PALMAFRIQUE ABIDJAN",lien:"SYTHD240401",circuit:""}]},
+  {zone:"SEGUELA",     lat:7.9614, lon:-6.6702,
+   clients:[{n:10,name:"MOTA-ENGIL COTE D'IVOIRE",lien:"SYTHD210076",circuit:""}]},
+  {zone:"MEAGUI",      lat:5.4439, lon:-6.5152,
+   clients:[{n:11,name:"STE SAN RUBBER",lien:"BUVPN150298",circuit:""}]},
+  {zone:"DABOU",       lat:5.3240, lon:-4.3723,
+   clients:[{n:12,name:"STE PALMCI ABIDJAN",lien:"BUVPN150453",circuit:""},
+            {n:16,name:"BIAO-B-DABOU",lien:"SYTHD220028",circuit:""}]},
+  {zone:"EHANIA 1",    lat:5.2333, lon:-2.7667,
+   clients:[{n:13,name:"PALMCI",lien:"SYTHD240237",circuit:""}]},
+  {zone:"KANI",        lat:6.6050, lon:-8.4778,
+   clients:[{n:15,name:"STE SHARK MINING CDI",lien:"BUVPN140452",circuit:""}]},
+  {zone:"BOUNA",       lat:9.2717, lon:-2.9926,
+   clients:[{n:18,name:"STE AMPELLA MINING (BOUNA DANOA) COTE D'IVOIRE",lien:"SYTHD250267",circuit:""},
+            {n:31,name:"HUAWEI",lien:"HUAWEI",circuit:""}]},
+  {zone:"GRAND BEREBY",lat:4.6108, lon:-6.9647,
+   clients:[{n:20,name:"Bie des sirenes",lien:"BUVPN220220",circuit:""}]},
+  {zone:"BETTIE",      lat:6.0769, lon:-3.4144,
+   clients:[{n:21,name:"AFG",lien:"BUVPN200163",circuit:""},
+            {n:22,name:"AFRILAND",lien:"BUVPN180152",circuit:""},
+            {n:23,name:"DGTCP",lien:"VPNLL240029",circuit:""},
+            {n:24,name:"FRANCHISE",lien:"BUVPN140334",circuit:""},
+            {n:25,name:"PALMCI",lien:"",circuit:""}]},
+  {zone:"DIANRA",      lat:8.9525, lon:-6.2547,
+   clients:[{n:28,name:"FRANCHISE DE DIANRA",lien:"BUVPN180122",circuit:""},
+            {n:29,name:"DGTCP DIANRA",lien:"BUVPN170126",circuit:""},
+            {n:30,name:"PAMFCI",lien:"SYTHD240044",circuit:""}]},
+  {zone:"KONG",        lat:9.1494, lon:-4.6098, clients:[{n:32,name:"HUAWEI",lien:"HUAWEI",circuit:""}]},
+  {zone:"MINIGNAN",    lat:9.9965, lon:-7.8367, clients:[{n:33,name:"HUAWEI",lien:"HUAWEI",circuit:""}]},
+  {zone:"KOUTO",       lat:9.8833, lon:-6.4167, clients:[{n:34,name:"HUAWEI",lien:"HUAWEI",circuit:""}]},
+  {zone:"TOUBA",       lat:8.2833, lon:-7.6833, clients:[{n:35,name:"HUAWEI",lien:"HUAWEI",circuit:""}]},
+  {zone:"OUANGOLO",    lat:9.9667, lon:-5.1500, clients:[{n:36,name:"HUAWEI",lien:"HUAWEI",circuit:""}]},
+  {zone:"POGO",        lat:9.4500, lon:-5.6833, clients:[{n:37,name:"HUAWEI",lien:"HUAWEI",circuit:""}]},
+  {zone:"TOUGBO",      lat:5.6833, lon:-6.9167, clients:[{n:38,name:"HUAWEI",lien:"HUAWEI",circuit:""}]},
+  {zone:"TAKIKRO",     lat:6.5167, lon:-5.9833, clients:[{n:39,name:"HUAWEI",lien:"SYTHD230124",circuit:""}]},
+  {zone:"RAPIDE GRAH SAPH",lat:4.8167,lon:-6.5500,
+   clients:[{n:40,name:"EXAT AGRICULTURE",lien:"",circuit:""}]},
+];
+
+// ── MAP INIT ──────────────────────────────────────────────────────────────────
+const map = L.map('map', {
+  center:[7.5,-5.5], zoom:7,
+  zoomControl:true,
+  attributionControl:true
+});
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  maxZoom:18
+}).addTo(map);
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let markers=[], currentData=[], activeZone=null;
+
+// ── MARQUEUR SVG ──────────────────────────────────────────────────────────────
+function makeIcon(n){
+  const r=n===1?9:n<=3?12:16;
+  const s=r*2+22; const c=s/2;
+  const count=n>1?`<text x="${c}" y="${c+4.5}" text-anchor="middle" fill="white" font-size="${r<12?10:12}" font-weight="700" font-family="Segoe UI,sans-serif">${n}</text>`
+    :`<circle cx="${c}" cy="${c}" r="3.5" fill="rgba(255,255,255,0.65)"/>`;
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}">
+    <circle cx="${c}" cy="${c}" r="${r+9}" fill="rgba(226,75,74,0.10)"/>
+    <circle cx="${c}" cy="${c}" r="${r+4}" fill="rgba(226,75,74,0.24)"/>
+    <circle cx="${c}" cy="${c}" r="${r}" fill="#e24b4a" stroke="#791f1f" stroke-width="2.2"/>
+    ${count}
+  </svg>`;
+  return L.divIcon({
+    html:svg,
+    className:'',
+    iconSize:[s,s],
+    iconAnchor:[c,c],
+    popupAnchor:[0,-(c+4)]
+  });
+}
+
+// ── POPUP CONTENT ─────────────────────────────────────────────────────────────
+function popHtml(d){
+  const cards=d.clients.map(c=>`
+    <div class="pop-card">
+      <div class="pop-name">N°${c.n} — ${c.name}</div>
+      ${c.lien?`<div class="pop-lien">${c.lien}</div>`:''}
+      ${c.circuit?`<div class="pop-circuit">↳ ${c.circuit}</div>`:''}
+    </div>`).join('');
+  return`<div class="pop-inner">
+    <div class="pop-zone">${d.zone}<span class="pop-sub">${d.clients.length} client${d.clients.length>1?'s':''}</span></div>
+    ${cards}
+  </div>`;
+}
+
+// ── BUILD MARKERS ─────────────────────────────────────────────────────────────
+function clearMarkers(){ markers.forEach(m=>map.removeLayer(m)); markers=[]; }
+
+function buildMarkers(data){
+  clearMarkers();
+  data.forEach(d=>{
+    const m=L.marker([d.lat,d.lon],{icon:makeIcon(d.clients.length),zIndexOffset:d.clients.length*10})
+      .addTo(map)
+      .bindPopup(popHtml(d),{maxWidth:290,minWidth:200,closeButton:true})
+      .bindTooltip(d.zone,{permanent:true,direction:'right',offset:[10,-8],
+        className:'leaflet-tooltip-custom',opacity:1});
+
+    m.on('click',()=>{
+      activeZone=d.zone;
+      setActiveCity(d.zone,d.clients);
+      document.querySelectorAll('.city-item').forEach(el=>el.classList.toggle('active',el.dataset.zone===d.zone));
+    });
+    markers.push(m);
+  });
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────────────────
+function buildSidebar(data){
+  const list=document.getElementById('city-list');
+  list.innerHTML='';
+  [...data].sort((a,b)=>b.clients.length-a.clients.length).forEach(d=>{
+    const item=document.createElement('div');
+    item.className='city-item'; item.dataset.zone=d.zone;
+    item.innerHTML=`<div class="city-dot"></div><div class="city-name">${d.zone}</div><div class="city-count">${d.clients.length}</div>`;
+    item.addEventListener('click',()=>{
+      document.querySelectorAll('.city-item').forEach(el=>el.classList.remove('active'));
+      item.classList.add('active');
+      activeZone=d.zone;
+      setActiveCity(d.zone,d.clients);
+      const mk=markers.find(m=>m.getLatLng().lat===d.lat&&m.getLatLng().lng===d.lon);
+      if(mk){ map.setView([d.lat,d.lon],10,{animate:true}); mk.openPopup(); }
+    });
+    item.addEventListener('mouseenter',()=>{ if(!activeZone) highlightCity(d.zone); });
+    item.addEventListener('mouseleave',()=>{ if(!activeZone) highlightCity(null); });
+    list.appendChild(item);
+  });
+}
+
+// ── DETAIL ────────────────────────────────────────────────────────────────────
+function setActiveCity(zone,clients){
+  highlightCity(zone);
+  const panel=document.getElementById('detail-panel');
+  const cards=clients.map(c=>`
+    <div class="cli-card">
+      <div class="cli-top"><span class="cli-n">N°${c.n}</span><span class="cli-name">${c.name}</span></div>
+      ${c.lien?`<div class="cli-lien">${c.lien}</div>`:''}
+      ${c.circuit?`<div class="cli-circuit">↳ ${c.circuit}</div>`:''}
+    </div>`).join('');
+  panel.innerHTML=`<div class="det-header"><div class="det-zone">${zone}</div>
+    <div class="det-sub">${clients.length} client${clients.length>1?'s':''}</div></div>${cards}`;
+}
+
+// ── HIGHLIGHT ─────────────────────────────────────────────────────────────────
+function highlightCity(zone){
+  document.querySelectorAll('.city-item').forEach(el=>{
+    el.style.opacity=(!zone||el.dataset.zone===zone)?'1':'0.3';
+  });
+  markers.forEach(m=>{
+    const el=m.getElement();
+    if(el) el.style.opacity=(!zone||m.getTooltip()&&m.getTooltip().getContent()===zone)?'1':'0.22';
+  });
+}
+
+// ── STATS ─────────────────────────────────────────────────────────────────────
+function updateStats(data){
+  const tv=data.length, tc=data.reduce((s,d)=>s+d.clients.length,0);
+  const tl=data.reduce((s,d)=>s+d.clients.filter(c=>c.lien).length,0);
+  document.getElementById('sv').textContent=tv;
+  document.getElementById('sc').textContent=tc;
+  document.getElementById('sl').textContent=tl;
+  document.getElementById('hdr-villes').textContent=tv+' villes';
+  document.getElementById('hdr-clients').textContent=tc+' clients';
+  document.getElementById('hdr-sub').textContent=
+    'Sites en congestion — '+new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function render(data){
+  currentData=data; activeZone=null;
+  buildMarkers(data); buildSidebar(data); updateStats(data);
+  document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+  if(data.length){
+    const group=L.featureGroup(markers);
+    map.fitBounds(group.getBounds().pad(0.08),{animate:true});
+  }
+  // reset carte click
+  map.off('click'); map.on('click',()=>{
+    activeZone=null; highlightCity(null);
+    document.querySelectorAll('.city-item').forEach(el=>el.classList.remove('active'));
+    document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+  });
+}
+
+// ── PARSE GPS ─────────────────────────────────────────────────────────────────
+function parseGPS(s){
+  if(!s) return null;
+  const m=s.toString().trim().match(/([\d.]+)\s*N[,\s]+([\d.]+)\s*W/i);
+  return m?{lat:parseFloat(m[1]),lon:-parseFloat(m[2])}:null;
+}
+
+// ── IMPORT EXCEL ──────────────────────────────────────────────────────────────
+function parseExcel(file){
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const wb=XLSX.read(ev.target.result,{type:'array'});
+      const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
+      const zm={};
+      rows.forEach(r=>{
+        const zone=(r['ZONE']||r['Zone']||'').toString().trim().toUpperCase();
+        const client=(r['CLIENT']||r['Client']||'').toString().trim();
+        const gps=(r['GPS']||r['Gps']||'').toString().trim();
+        const num=r['N°']||'';
+        const lien=(r['LIEN']||r['Lien']||'').toString().trim();
+        const circuit=(r['CIRCUITS CONGESTIONNES']||r['Circuits Congestionnes']||'').toString().trim();
+        if(!zone||!client) return;
+        const coord=parseGPS(gps);
+        if(!zm[zone]) zm[zone]={zone,lat:coord?coord.lat:null,lon:coord?coord.lon:null,clients:[]};
+        if(coord&&!zm[zone].lat){zm[zone].lat=coord.lat;zm[zone].lon=coord.lon;}
+        zm[zone].clients.push({n:num||'?',name:client,lien,circuit});
+      });
+      const data=Object.values(zm).filter(d=>d.lat&&d.lon);
+      if(!data.length) throw new Error('Aucune donnée GPS valide');
+      render(data);
+      showStatus(`✓ ${data.length} villes · ${data.reduce((s,d)=>s+d.clients.length,0)} clients`,'ok');
+    }catch(e){ showStatus('Erreur : '+e.message,'err'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function showStatus(msg,type){
+  const el=document.getElementById('imp-status');
+  el.textContent=msg; el.className='imp-status '+type; el.style.display='block';
+  if(type==='ok') setTimeout(()=>el.style.display='none',4000);
+}
+
+// ── TOOLTIP STYLE ─────────────────────────────────────────────────────────────
+const style=document.createElement('style');
+style.textContent=`.leaflet-tooltip-custom{
+  background:rgba(8,15,24,0.88)!important;
+  border:1px solid rgba(163,45,45,0.6)!important;
+  color:#f09595!important;font-size:10px!important;font-weight:500!important;
+  font-family:'Segoe UI',sans-serif!important;
+  padding:2px 7px!important;border-radius:4px!important;
+  white-space:nowrap!important;box-shadow:none!important;
+}
+.leaflet-tooltip-custom::before{display:none!important}`;
+document.head.appendChild(style);
+
+// ── EVENTS ────────────────────────────────────────────────────────────────────
+document.getElementById('file-input').addEventListener('change',ev=>{
+  if(ev.target.files[0]) parseExcel(ev.target.files[0]); ev.target.value='';
+});
+const dz=document.getElementById('dropzone');
+dz.addEventListener('dragover',ev=>{ev.preventDefault();dz.classList.add('drag')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+dz.addEventListener('drop',ev=>{
+  ev.preventDefault();dz.classList.remove('drag');
+  if(ev.dataTransfer.files[0]) parseExcel(ev.dataTransfer.files[0]);
+});
+
+// ── START ─────────────────────────────────────────────────────────────────────
+render(DEFAULT);
+</script>
+</body>
+</html>
