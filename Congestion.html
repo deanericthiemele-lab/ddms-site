@@ -1007,73 +1007,7 @@ function checkPwd(){
   deleteAllFirebase();
 }
 
-// ══════════════════════════════════════════════════════════════════
-// COPIER LA CARTE (image centrée, fond gris, prête pour mail)
-// ══════════════════════════════════════════════════════════════════
-async function copyMapImage(){
-  const btn = document.getElementById('btn-copy-map');
-  btn.textContent = '⏳ Capture…';
-  btn.disabled = true;
-
-  try {
-    // Capturer uniquement la zone carte
-    const mapEl = document.getElementById('map');
-    const canvas = await html2canvas(mapEl, {
-      useCORS: true,
-      allowTaint: true,
-      scale: 1.5,
-      backgroundColor: '#0b1622',
-      logging: false,
-      ignoreElements: el => el.classList && el.classList.contains('stats-bar')
-    });
-
-    // Créer canvas final : fond gris, carte centrée avec padding
-    const PAD = 32;
-    const finalW = canvas.width + PAD * 2;
-    const finalH = canvas.height + PAD * 2;
-    const out = document.createElement('canvas');
-    out.width = finalW; out.height = finalH;
-    const ctx = out.getContext('2d');
-
-    // Fond gris clair (compatible mail Outlook)
-    ctx.fillStyle = '#e8e8e8';
-    ctx.fillRect(0, 0, finalW, finalH);
-
-    // Dessiner la carte centrée
-    ctx.drawImage(canvas, PAD, PAD, canvas.width, canvas.height);
-
-    // Copier dans le presse-papiers
-    out.toBlob(async blob => {
-      try {
-        await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': blob })
-        ]);
-        btn.innerHTML = '✓ Copié !';
-        btn.classList.add('copied');
-        setTimeout(() => {
-          btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copier`;
-          btn.classList.remove('copied');
-          btn.disabled = false;
-        }, 2200);
-      } catch(e) {
-        // Fallback : ouvrir dans nouvel onglet pour copie manuelle
-        const url = URL.createObjectURL(blob);
-        window.open(url, '_blank');
-        btn.textContent = 'Copier';
-        btn.disabled = false;
-        toast('Clipboard non disponible — image ouverte dans un onglet','err');
-      }
-    }, 'image/png');
-
-  } catch(e) {
-    console.error('copyMapImage', e);
-    btn.textContent = 'Copier';
-    btn.disabled = false;
-    toast('⚠ Erreur capture : ' + e.message, 'err');
-  }
-}
-
-
+async function deleteAllFirebase(){
   toast('⏳ Suppression en cours…','ok');
   try{
     if(fbOk&&db){
@@ -1086,7 +1020,6 @@ async function copyMapImage(){
         await batch.commit();
       }
     }
-    // Reset local state
     zonesMap={};
     Object.values(markers).forEach(m=>map.removeLayer(m));
     markers={};
@@ -1099,6 +1032,67 @@ async function copyMapImage(){
     toast('⚠ Erreur suppression : '+e.message,'err');
     console.error('deleteAll',e);
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// COPIER LA CARTE (image centrée, fond gris, prête pour mail)
+// ══════════════════════════════════════════════════════════════════
+function copyMapImage(){
+  const btn = document.getElementById('btn-copy-map');
+  btn.innerHTML = '⏳ Capture…';
+  btn.disabled = true;
+
+  const mapEl = document.getElementById('map');
+  html2canvas(mapEl, {
+    useCORS: true,
+    allowTaint: true,
+    scale: 1.5,
+    backgroundColor: '#0b1622',
+    logging: false,
+    ignoreElements: function(el){ return el.classList && el.classList.contains('stats-bar'); }
+  }).then(function(canvas){
+    const PAD = 32;
+    const out = document.createElement('canvas');
+    out.width  = canvas.width  + PAD * 2;
+    out.height = canvas.height + PAD * 2;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#e8e8e8';
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(canvas, PAD, PAD);
+
+    out.toBlob(function(blob){
+      if(navigator.clipboard && navigator.clipboard.write){
+        navigator.clipboard.write([new ClipboardItem({'image/png': blob})])
+          .then(function(){
+            btn.innerHTML = '✓ Copié !';
+            btn.classList.add('copied');
+            setTimeout(function(){
+              btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copier';
+              btn.classList.remove('copied');
+              btn.disabled = false;
+            }, 2200);
+          })
+          .catch(function(){
+            fallbackOpenBlob(blob, btn);
+          });
+      } else {
+        fallbackOpenBlob(blob, btn);
+      }
+    }, 'image/png');
+  }).catch(function(e){
+    console.error('copyMapImage', e);
+    btn.innerHTML = 'Copier';
+    btn.disabled = false;
+    toast('⚠ Erreur capture : ' + e.message, 'err');
+  });
+}
+
+function fallbackOpenBlob(blob, btn){
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  btn.innerHTML = 'Copier';
+  btn.disabled = false;
+  toast('Clipboard non disponible — image ouverte dans un onglet', 'err');
 }
 
 // ══════════════════════════════════════════════════════════════════
