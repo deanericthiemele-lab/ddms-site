@@ -193,13 +193,13 @@ header{
 .stat-pill{padding:4px 10px;border-radius:20px;background:rgba(8,15,24,.92);border:1px solid var(--border2);font-size:11px;color:var(--text2)}
 .stat-pill strong{color:var(--cyan);font-weight:600}
 .btn-copy-map{
-  pointer-events:all;padding:4px 12px;border-radius:20px;
-  background:rgba(8,15,24,.92);border:1px solid var(--border2);
-  font-size:11px;color:var(--text2);cursor:pointer;font-family:var(--font);
-  display:flex;align-items:center;gap:5px;transition:background .15s,border-color .15s,color .15s;
+  pointer-events:all;padding:6px 14px;border-radius:6px;
+  background:#e8eaf0;border:1px solid #c8cdd8;
+  font-size:12px;font-weight:500;color:#2d3550;cursor:pointer;font-family:var(--font);
+  display:flex;align-items:center;gap:6px;transition:background .15s,border-color .15s,color .15s;
 }
-.btn-copy-map:hover{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan)}
-.btn-copy-map.copied{background:rgba(30,120,60,.3);border-color:var(--green-bd);color:var(--green-lt)}
+.btn-copy-map:hover{background:#dde0ec;border-color:#a0a8c0;color:#1a1d23}
+.btn-copy-map.copied{background:rgba(30,120,60,.18);border-color:var(--green-bd);color:var(--green-lt)}
 
 /* Tooltip label */
 .lbl-tt{
@@ -408,13 +408,15 @@ header{
   <div class="map-area">
     <div id="map"></div>
     <div class="stats-bar">
-      <button class="btn-copy-map" id="btn-copy-map" onclick="copyMapImage()" title="Copier la carte pour coller dans un mail">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Copier
-      </button>
       <div class="stat-pill"><strong id="sv">0</strong> actifs</div>
       <div class="stat-pill"><strong id="sc">0</strong> clôturés</div>
       <div class="stat-pill"><strong id="sl">0</strong> liens</div>
+    </div>
+    <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:400;pointer-events:all">
+      <button class="btn-copy-map" id="btn-copy-map" onclick="copyMapImage()" title="Copier la carte pour coller dans un mail">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copier la carte
+      </button>
     </div>
   </div>
 </div>
@@ -1038,19 +1040,29 @@ async function deleteAllFirebase(){
 }
 
 // ══════════════════════════════════════════════════════════════════
-// COPIER LA CARTE (image centrée, fond gris, prête pour mail)
+// COPIER LA CARTE (HTML centré Outlook-compatible, fond gris)
 // ══════════════════════════════════════════════════════════════════
 function copyMapImage(){
   const btn = document.getElementById('btn-copy-map');
   btn.innerHTML = '⏳ Capture…';
   btn.disabled = true;
 
+  // Forcer le zoom sur la CI puis attendre chargement tuiles
+  const _prevCenter = map.getCenter();
+  const _prevZoom   = map.getZoom();
+  map.setView([7.0, -5.8], 6.2, {animate: false});
+
+  setTimeout(function(){
+    _doCopyMapCapture(btn, _prevCenter, _prevZoom);
+  }, 900);
+}
+
+function _doCopyMapCapture(btn, _prevCenter, _prevZoom){
   const mapEl = document.getElementById('map');
-  // Cible : image finale ~600px de large (largeur mail standard)
-  const TARGET_W = 560;
-  const PAD = 20;
+  const TARGET_W = 520;
+  const PAD = 16;
   const mapW = mapEl.offsetWidth || 800;
-  const mapScale = Math.min(1, (TARGET_W - PAD * 2) / mapW);
+  const mapScale = Math.min(1.5, TARGET_W / mapW);
 
   html2canvas(mapEl, {
     useCORS: true,
@@ -1060,7 +1072,7 @@ function copyMapImage(){
     logging: false,
     ignoreElements: function(el){ return el.classList && el.classList.contains('stats-bar'); }
   }).then(function(canvas){
-    const PAD = 20;
+    // Canvas de sortie avec fond gris et padding
     const out = document.createElement('canvas');
     out.width  = canvas.width  + PAD * 2;
     out.height = canvas.height + PAD * 2;
@@ -1069,39 +1081,225 @@ function copyMapImage(){
     ctx.fillRect(0, 0, out.width, out.height);
     ctx.drawImage(canvas, PAD, PAD);
 
-    out.toBlob(function(blob){
-      if(navigator.clipboard && navigator.clipboard.write){
-        navigator.clipboard.write([new ClipboardItem({'image/png': blob})])
-          .then(function(){
-            btn.innerHTML = '✓ Copié !';
-            btn.classList.add('copied');
-            setTimeout(function(){
-              btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copier';
-              btn.classList.remove('copied');
-              btn.disabled = false;
-            }, 2200);
-          })
-          .catch(function(){
-            fallbackOpenBlob(blob, btn);
-          });
-      } else {
-        fallbackOpenBlob(blob, btn);
+    // ── Géométrie 3 colonnes — largeur fixe 1200px ──
+    const MAIL_W  = 1200;
+    const VPAD    = 16;
+    const HPAD    = 10;
+    const COL1_W  = 160;   // liste villes
+    const COL2_W  = 420;   // détail clients
+    const MAP_W_FIXED = MAIL_W - COL1_W - COL2_W - HPAD * 4; // carte prend le reste
+    const MAP_H   = out.height;
+    const MAP_SCALE_X = MAP_W_FIXED / out.width; // facteur pour redimensionner la carte
+
+    const final = document.createElement('canvas');
+    final.width  = MAIL_W;
+    final.height = MAP_H + VPAD * 2;
+    const fctx = final.getContext('2d');
+
+    // Fond gris complet
+    fctx.fillStyle = '#e2e4e8';
+    fctx.fillRect(0, 0, final.width, final.height);
+
+    // ── Carte à gauche (redimensionnée pour tenir dans MAP_W_FIXED) ──
+    fctx.drawImage(out, HPAD, VPAD, MAP_W_FIXED, MAP_H);
+
+    // ── Données ──
+    const villesActives = Object.values(zonesMap)
+      .filter(function(d){ return !d.clot && d.clients.length > 0; })
+      .sort(function(a,b){ return b.clients.length - a.clients.length; });
+
+    const dateStr = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+    // ════════════════════════════════════════
+    // COLONNE 1 — Liste villes
+    // ════════════════════════════════════════
+    const c1x = MAP_W_FIXED + HPAD * 2;
+    const c1y = VPAD;
+    const c1w = COL1_W;
+    const c1h = MAP_H;
+
+    fctx.fillStyle = '#ffffff';
+    _roundRect(fctx, c1x, c1y, c1w, c1h, 8);
+    fctx.fill();
+
+    // Header col1
+    fctx.fillStyle = '#E05A00';
+    fctx.font = 'bold 13px Segoe UI, Arial, sans-serif';
+    fctx.fillText('NOC B2B', c1x+14, c1y+24);
+    fctx.fillStyle = '#1a1d23';
+    fctx.font = 'bold 11px Segoe UI, Arial, sans-serif';
+    fctx.fillText('Congestion réseau', c1x+14, c1y+40);
+    fctx.fillStyle = '#7a808c';
+    fctx.font = '10px Segoe UI, Arial, sans-serif';
+    fctx.fillText(dateStr, c1x+14, c1y+55);
+    fctx.fillStyle = '#e4e7ed';
+    fctx.fillRect(c1x+10, c1y+63, c1w-20, 1);
+
+    const rowH1 = 20;
+    const maxR1 = Math.floor((c1h - 75) / rowH1);
+    let cy1 = c1y + 76;
+    villesActives.slice(0, maxR1).forEach(function(d, i){
+      if(i % 2 === 0){ fctx.fillStyle = '#f7f8fa'; fctx.fillRect(c1x+8, cy1-13, c1w-16, rowH1); }
+      fctx.fillStyle = '#1a1d23';
+      fctx.font = '11px Segoe UI, Arial, sans-serif';
+      fctx.fillText(d.zone, c1x+14, cy1);
+      const nbStr = String(d.clients.length);
+      fctx.fillStyle = '#e24b4a';
+      fctx.font = 'bold 11px Segoe UI, Arial, sans-serif';
+      const nbW = fctx.measureText(nbStr).width;
+      fctx.fillText(nbStr, c1x + c1w - 14 - nbW, cy1);
+      cy1 += rowH1;
+    });
+
+    fctx.fillStyle = '#9aa0ae';
+    fctx.font = '9px Segoe UI, Arial, sans-serif';
+    fctx.fillText("Orange CI · DDMS", c1x+14, c1y+c1h-10);
+
+    // ════════════════════════════════════════
+    // COLONNE 2 — Détail clients par ville
+    // ════════════════════════════════════════
+    const c2x = c1x + c1w + HPAD;
+    const c2y = VPAD;
+    const c2w = COL2_W;
+    const c2h = MAP_H;
+
+    fctx.fillStyle = '#ffffff';
+    _roundRect(fctx, c2x, c2y, c2w, c2h, 8);
+    fctx.fill();
+
+    // Header col2
+    fctx.fillStyle = '#1a1d23';
+    fctx.font = 'bold 12px Segoe UI, Arial, sans-serif';
+    fctx.fillText('Détail clients par ville', c2x+14, c2y+22);
+    fctx.fillStyle = '#e4e7ed';
+    fctx.fillRect(c2x+10, c2y+30, c2w-20, 1);
+
+    // Calcul multi-colonnes dans col2
+    const CITY_TITLE_H = 18;
+    const CLI_ROW_H    = 16;
+    const COL2_PAD     = 10;
+    const SUB_COL_W    = 200;
+    const nSubCols     = Math.floor((c2w - COL2_PAD * 2) / SUB_COL_W);
+    const subColW      = Math.floor((c2w - COL2_PAD * 2) / nSubCols);
+
+    let scol = 0, srow_y = c2y + 40;
+    let cur_x = c2x + COL2_PAD;
+    let cur_y = srow_y;
+    const maxY = c2y + c2h - 16;
+
+    villesActives.forEach(function(d){
+      const blockH = CITY_TITLE_H + d.clients.length * CLI_ROW_H + 6;
+      // Si débordement en y → colonne suivante
+      if(cur_y + blockH > maxY){
+        scol++;
+        if(scol >= nSubCols) return; // plus de place
+        cur_x = c2x + COL2_PAD + scol * subColW;
+        cur_y = srow_y;
       }
-    }, 'image/png');
+      // Titre ville (fond orange pâle)
+      fctx.fillStyle = '#fff3ec';
+      fctx.fillRect(cur_x, cur_y, subColW - 6, CITY_TITLE_H);
+      fctx.fillStyle = '#E05A00';
+      fctx.font = 'bold 10px Segoe UI, Arial, sans-serif';
+      fctx.fillText(d.zone + ' (' + d.clients.length + ')', cur_x + 6, cur_y + 12);
+      cur_y += CITY_TITLE_H;
+
+      d.clients.forEach(function(c){
+        if(cur_y + CLI_ROW_H > maxY) return;
+        // N°
+        fctx.fillStyle = '#7a808c';
+        fctx.font = '9px Segoe UI, Arial, sans-serif';
+        fctx.fillText(c.n || '-', cur_x + 6, cur_y + 10);
+        // Nom client
+        fctx.fillStyle = '#1a1d23';
+        fctx.font = '10px Segoe UI, Arial, sans-serif';
+        const cname = (c.name||'').length > 28 ? (c.name||'').slice(0,27)+'…' : (c.name||'');
+        fctx.fillText(cname, cur_x + 28, cur_y + 10);
+        // Lien si dispo
+        if(c.lien){
+          fctx.fillStyle = '#1e6fcc';
+          fctx.font = '9px Segoe UI, Arial, sans-serif';
+          const lien = c.lien.length > 22 ? c.lien.slice(0,21)+'…' : c.lien;
+          fctx.fillText(lien, cur_x + 28, cur_y + 20);
+          cur_y += CLI_ROW_H + 4;
+        } else {
+          cur_y += CLI_ROW_H;
+        }
+      });
+      cur_y += 6; // espace entre villes
+    });
+
+    // Convertir en base64 et copier comme HTML centré (seul moyen fiable dans Outlook)
+    const dataUrl = final.toDataURL('image/png');
+    const imgW = final.width;
+    const htmlStr = [
+      '<html><body>',
+      '<table width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%">',
+      '<tr><td align="center" style="text-align:center;padding:0">',
+      '<img src="' + dataUrl + '" width="' + imgW + '" style="display:block;margin:0 auto;border:0;outline:0" alt="Carte Congestion NOC B2B"/>',
+      '</td></tr>',
+      '</table>',
+      '</body></html>'
+    ].join('');
+
+    map.setView(_prevCenter, _prevZoom, {animate: false});
+
+    try {
+      const blob = new Blob([htmlStr], {type: 'text/html'});
+      navigator.clipboard.write([new ClipboardItem({'text/html': blob})])
+        .then(function(){ _copyMapFeedback(btn, true); })
+        .catch(function(){ _copyMapFallback(final, btn); });
+    } catch(e2){
+      _copyMapFallback(final, btn);
+    }
+
   }).catch(function(e){
+    map.setView(_prevCenter, _prevZoom, {animate: false});
     console.error('copyMapImage', e);
-    btn.innerHTML = 'Copier';
-    btn.disabled = false;
+    _copyMapFeedback(btn, false);
     toast('⚠ Erreur capture : ' + e.message, 'err');
   });
 }
 
-function fallbackOpenBlob(blob, btn){
-  const url = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  btn.innerHTML = 'Copier';
-  btn.disabled = false;
-  toast('Clipboard non disponible — image ouverte dans un onglet', 'err');
+function _roundRect(ctx, x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+function _copyMapFeedback(btn, ok){
+  const SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  if(ok){
+    btn.innerHTML = '✓ Copié !';
+    btn.classList.add('copied');
+    toast('✓ Image copiée — coller dans Outlook (Ctrl+V)', 'ok');
+    setTimeout(function(){
+      btn.innerHTML = SVG + ' Copier la carte';
+      btn.classList.remove('copied');
+      btn.disabled = false;
+    }, 2200);
+  } else {
+    btn.innerHTML = SVG + ' Copier la carte';
+    btn.disabled = false;
+  }
+}
+
+function _copyMapFallback(canvas, btn){
+  // Fallback : ouvrir l'image dans un onglet
+  canvas.toBlob(function(blob){
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    _copyMapFeedback(btn, false);
+    toast('Clipboard non disponible — image ouverte dans un onglet', 'err');
+  }, 'image/png');
 }
 
 // ══════════════════════════════════════════════════════════════════
