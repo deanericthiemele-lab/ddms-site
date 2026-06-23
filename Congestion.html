@@ -228,6 +228,56 @@ header{
 .fb-status.ok{background:rgba(30,120,60,.9);color:#6edfa0;border:1px solid rgba(50,160,80,.4)}
 .fb-status.err{background:rgba(160,40,40,.9);color:var(--red-lt);border:1px solid rgba(200,60,60,.4)}
 .fb-status.hidden{opacity:0}
+
+/* Bouton danger header */
+.btn-danger{
+  display:flex;align-items:center;gap:5px;padding:5px 12px;
+  background:transparent;border:1px solid var(--red-bd);border-radius:var(--r);
+  color:var(--red-lt);font:500 11px var(--font);cursor:pointer;
+  transition:background .15s;white-space:nowrap;flex-shrink:0;
+}
+.btn-danger:hover{background:var(--red-glow)}
+
+/* Password modal */
+.pwd-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;
+  display:flex;align-items:center;justify-content:center;
+}
+.pwd-overlay.hidden{display:none}
+.pwd-box{
+  background:var(--surface);border:1px solid var(--red-bd);border-radius:10px;
+  padding:24px 26px;max-width:320px;width:90%;
+}
+.pwd-box h3{font-size:14px;font-weight:600;color:var(--red-lt);margin-bottom:6px}
+.pwd-box p{font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.5}
+.pwd-input-row{display:flex;gap:6px;margin-bottom:10px}
+.pwd-input-row input{
+  flex:1;background:var(--surface2);border:1px solid var(--border2);
+  border-radius:5px;color:var(--text);font:13px var(--mono);
+  padding:7px 10px;outline:none;letter-spacing:.1em;
+}
+.pwd-input-row input:focus{border-color:var(--red)}
+.pwd-err{font-size:11px;color:var(--red-lt);margin-bottom:10px;display:none}
+.pwd-btns{display:flex;gap:8px;justify-content:flex-end}
+.pwd-btns button{padding:6px 16px;border-radius:var(--r);border:1px solid;cursor:pointer;font:500 12px var(--font)}
+.pwd-cancel{background:transparent;border-color:var(--border2);color:var(--text2)}
+.pwd-ok{background:var(--red);border-color:var(--red-bd);color:white}
+.pwd-ok:hover{opacity:.85}
+
+/* Client status toggle inline */
+.cli-status-row{display:flex;align-items:center;gap:6px;margin-top:5px}
+.cli-toggle{
+  display:flex;align-items:center;gap:4px;
+  padding:3px 8px;border-radius:4px;border:1px solid;
+  cursor:pointer;font:500 10px var(--font);transition:all .15s;
+}
+.cli-toggle.actif{border-color:var(--red-bd);color:var(--red-lt);background:var(--red-glow)}
+.cli-toggle.actif:hover{background:rgba(226,75,74,0.3)}
+.cli-toggle.clot{border-color:var(--green-bd);color:var(--green-lt);background:var(--green-glow)}
+.cli-toggle.clot:hover{background:rgba(61,184,122,0.25)}
+.cli-status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.cli-toggle.actif .cli-status-dot{background:var(--red)}
+.cli-toggle.clot  .cli-status-dot{background:var(--green)}
 </style>
 </head>
 <body>
@@ -240,6 +290,22 @@ header{
     <div class="dialog-btns">
       <button class="dlg-cancel" id="dlg-cancel">Annuler</button>
       <button class="dlg-confirm" id="dlg-confirm">Confirmer</button>
+    </div>
+  </div>
+</div>
+
+<!-- PASSWORD MODAL -->
+<div class="pwd-overlay hidden" id="pwd-overlay">
+  <div class="pwd-box">
+    <h3>⚠ Suppression totale</h3>
+    <p>Cette action supprimera <strong>toutes les données</strong> de Firebase (congestion_sites) de façon irréversible.<br>Entrez le mot de passe pour confirmer.</p>
+    <div class="pwd-input-row">
+      <input type="password" id="pwd-input" placeholder="Mot de passe" onkeydown="if(event.key==='Enter')checkPwd()">
+    </div>
+    <div class="pwd-err" id="pwd-err">❌ Mot de passe incorrect</div>
+    <div class="pwd-btns">
+      <button class="pwd-cancel" onclick="closePwdModal()">Annuler</button>
+      <button class="pwd-ok" onclick="checkPwd()">Supprimer tout</button>
     </div>
   </div>
 </div>
@@ -261,6 +327,7 @@ header{
     <div class="badge badge-green" id="hdr-clots">— clôturés</div>
     <div class="badge badge-amber" id="hdr-total">— total</div>
   </div>
+  <button class="btn-danger" onclick="openPwdModal()">🗑 Tout supprimer</button>
 </header>
 
 <div class="layout">
@@ -394,17 +461,50 @@ function toast(msg, type='ok'){
 }
 
 async function fbSaveZone(zone){
-  if(!fbOk) return;
+  if(!fbOk||!db) return;
   try{
     const z = zonesMap[zone];
+    if(!z) return;
     await db.collection(COLL).doc(zone).set({
       zone: z.zone, lat: z.lat, lon: z.lon,
       clot: z.clot||false,
-      clients: z.clients,
+      clients: z.clients.map(c=>({
+        id:c.id||uid(), n:c.n||'?', name:c.name||'',
+        lien:c.lien||'', circuit:c.circuit||'',
+        clot:c.clot||false, source:c.source||'import'
+      })),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
-    toast('✓ Enregistré dans Firebase');
-  } catch(e){ toast('⚠ Firebase : '+e.message,'err'); }
+    },{merge:false});
+    toast('✓ Enregistré — '+zone);
+  } catch(e){ toast('⚠ Firebase : '+e.message,'err'); console.error('fbSaveZone',zone,e); }
+}
+
+async function fbSaveAll(zones){
+  if(!fbOk||!db) return;
+  try{
+    const BATCH_SIZE = 400;
+    const keys = zones || Object.keys(zonesMap);
+    for(let i=0;i<keys.length;i+=BATCH_SIZE){
+      const batch = db.batch();
+      keys.slice(i,i+BATCH_SIZE).forEach(zk=>{
+        const z = zonesMap[zk];
+        if(!z) return;
+        const ref = db.collection(COLL).doc(zk);
+        batch.set(ref,{
+          zone:z.zone, lat:z.lat, lon:z.lon,
+          clot:z.clot||false,
+          clients:z.clients.map(c=>({
+            id:c.id||uid(), n:c.n||'?', name:c.name||'',
+            lien:c.lien||'', circuit:c.circuit||'',
+            clot:c.clot||false, source:c.source||'import'
+          })),
+          updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+        },{merge:false});
+      });
+      await batch.commit();
+    }
+    toast('✓ '+keys.length+' zones sauvegardées dans Firebase');
+  } catch(e){ toast('⚠ Erreur Firebase : '+e.message,'err'); console.error('fbSaveAll',e); }
 }
 
 async function fbDeleteZone(zone){
@@ -559,8 +659,11 @@ function setActiveCity(zk){
   const actionBtn = d.clot
     ? `<button class="det-btn det-btn-reopen" onclick="confirmReopen('${zk}')">↩ Réouvrir</button>`
     : `<button class="det-btn det-btn-clot"   onclick="confirmClot('${zk}')">✓ Clôturer</button>`;
-  const cards = d.clients.map(c=>`
-    <div class="cli-card">
+  const cards = d.clients.map(c=>{
+    const isClot = c.clot||false;
+    const toggleClass = isClot?'clot':'actif';
+    const toggleLabel = isClot?'✓ Clôturé':'● Actif';
+    return `<div class="cli-card" id="clicard-${c.id}">
       <div class="cli-top">
         <span class="cli-n">N°${c.n}</span>
         <span class="cli-name">${c.name}</span>
@@ -568,7 +671,13 @@ function setActiveCity(zk){
       </div>
       ${c.lien?`<div class="cli-lien">${c.lien}</div>`:''}
       ${c.circuit?`<div class="cli-circuit">↳ ${c.circuit}</div>`:''}
-    </div>`).join('');
+      <div class="cli-status-row">
+        <button class="cli-toggle ${toggleClass}" onclick="toggleClientClot('${zk}','${c.id}')">
+          <span class="cli-status-dot"></span>${toggleLabel}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
   panel.innerHTML = `
     <div class="det-header">
       <div class="det-zone">${d.zone}${d.clot?' <span style="font-size:10px;color:var(--green-lt)">(Clôturé)</span>':''}</div>
@@ -796,13 +905,14 @@ function parseExcel(file){
 
       render();
 
-      // Sauvegarder dans Firebase
+      // Sauvegarder dans Firebase (batch)
       if(fbOk){
-        for(const zk of Object.keys(zonesMap)) await fbSaveZone(zk);
-        toast(`✓ ${valid.length} zones importées et sauvegardées`);
+        showImpStatus('⏳ Sauvegarde Firebase en cours…','ok');
+        await fbSaveAll(Object.keys(zonesMap));
       }
 
-      showImpStatus(`✓ ${valid.length} villes · ${valid.reduce((s,d)=>s+d.clients.length,0)} clients importés`,'ok');
+      const totalClients = Object.values(zonesMap).reduce((s,d)=>s+d.clients.length,0);
+      showImpStatus(`✓ ${Object.keys(zonesMap).length} villes · ${totalClients} clients — Firebase OK`,'ok');
     } catch(e){ showImpStatus('Erreur : '+e.message,'err'); }
   };
   reader.readAsArrayBuffer(file);
@@ -850,6 +960,125 @@ dz.addEventListener('drop',ev=>{
 });
 
 // ══════════════════════════════════════════════════════════════════
+// MOT DE PASSE — SUPPRESSION TOTALE
+// ══════════════════════════════════════════════════════════════════
+const PWD = 'dean';
+
+function openPwdModal(){
+  document.getElementById('pwd-input').value='';
+  document.getElementById('pwd-err').style.display='none';
+  document.getElementById('pwd-overlay').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('pwd-input').focus(),100);
+}
+function closePwdModal(){
+  document.getElementById('pwd-overlay').classList.add('hidden');
+}
+function checkPwd(){
+  const v = document.getElementById('pwd-input').value;
+  if(v !== PWD){
+    document.getElementById('pwd-err').style.display='block';
+    document.getElementById('pwd-input').value='';
+    document.getElementById('pwd-input').focus();
+    return;
+  }
+  closePwdModal();
+  deleteAllFirebase();
+}
+
+async function deleteAllFirebase(){
+  toast('⏳ Suppression en cours…','ok');
+  try{
+    if(fbOk&&db){
+      const snap = await db.collection(COLL).get();
+      const BATCH_SIZE=400;
+      const docs=[...snap.docs];
+      for(let i=0;i<docs.length;i+=BATCH_SIZE){
+        const batch=db.batch();
+        docs.slice(i,i+BATCH_SIZE).forEach(doc=>batch.delete(doc.ref));
+        await batch.commit();
+      }
+    }
+    // Reset local state
+    zonesMap={};
+    Object.values(markers).forEach(m=>map.removeLayer(m));
+    markers={};
+    activeZone=null;
+    document.getElementById('city-list').innerHTML='';
+    document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+    updateStats();
+    toast('✓ Toutes les données supprimées');
+  } catch(e){
+    toast('⚠ Erreur suppression : '+e.message,'err');
+    console.error('deleteAll',e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// TOGGLE STATUT INDIVIDUEL CLIENT
+// ══════════════════════════════════════════════════════════════════
+async function toggleClientClot(zk, clientId){
+  const z = zonesMap[zk];
+  if(!z) return;
+  const c = z.clients.find(x=>x.id===clientId);
+  if(!c) return;
+
+  c.clot = !c.clot;
+
+  // Vérifier si tous les clients de la zone sont clôturés → clôturer la zone
+  const allClot = z.clients.every(x=>x.clot);
+  const anyActive = z.clients.some(x=>!x.clot);
+  if(allClot && !z.clot){
+    z.clot = true;
+  } else if(anyActive && z.clot){
+    z.clot = false;
+  }
+
+  // Mettre à jour le bouton inline sans re-render tout le panel
+  const card = document.getElementById('clicard-'+clientId);
+  if(card){
+    const btn = card.querySelector('.cli-toggle');
+    const dot = card.querySelector('.cli-status-dot');
+    if(c.clot){
+      btn.className='cli-toggle clot';
+      btn.innerHTML='<span class="cli-status-dot"></span>✓ Clôturé';
+    } else {
+      btn.className='cli-toggle actif';
+      btn.innerHTML='<span class="cli-status-dot"></span>● Actif';
+    }
+  }
+
+  // Mettre à jour le header du panel
+  const detZone = document.querySelector('.det-zone');
+  if(detZone){
+    detZone.innerHTML = z.zone+(z.clot?' <span style="font-size:10px;color:var(--green-lt)">(Clôturé)</span>':'');
+  }
+  // Mettre à jour bouton zone
+  const actionBtn = document.querySelector('.det-btn-clot, .det-btn-reopen');
+  if(actionBtn){
+    if(z.clot){
+      actionBtn.className='det-btn det-btn-reopen';
+      actionBtn.textContent='↩ Réouvrir';
+      actionBtn.setAttribute('onclick',`confirmReopen('${zk}')`);
+    } else {
+      actionBtn.className='det-btn det-btn-clot';
+      actionBtn.textContent='✓ Clôturer';
+      actionBtn.setAttribute('onclick',`confirmClot('${zk}')`);
+    }
+  }
+
+  // Mettre à jour marqueur et sidebar
+  buildMarker(zk);
+  const sideItem = document.querySelector(`.city-item[data-zone="${zk}"]`);
+  if(sideItem){
+    sideItem.classList.toggle('clot', z.clot);
+    const dot2=sideItem.querySelector('.city-dot');
+    if(dot2) dot2.style.background = z.clot?'var(--green)':'var(--red)';
+  }
+  updateStats();
+  await fbSaveZone(zk);
+}
+
+// ══════════════════════════════════════════════════════════════════
 // INIT — charger Firebase puis données par défaut
 // ══════════════════════════════════════════════════════════════════
 const DEFAULT_DATA = [
@@ -884,7 +1113,7 @@ const DEFAULT_DATA = [
   if(!loaded){
     DEFAULT_DATA.forEach(d=>{ zonesMap[d.zone]=d; });
     if(fbOk){
-      for(const zk of Object.keys(zonesMap)) await fbSaveZone(zk);
+      await fbSaveAll(Object.keys(zonesMap));
       toast('✓ Données initiales sauvegardées dans Firebase');
     }
   } else {
