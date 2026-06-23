@@ -240,14 +240,18 @@ td.num{text-align:right}
     <option value="novembre">Novembre</option>
     <option value="décembre">Décembre</option>
   </select>
-  <select id="statutFilter" style="padding:6px 8px;border:1px solid #aaa;border-radius:6px;cursor:pointer;">
-    <option value="">📋 Tous les statuts</option>
-    <option value="Autorisation mairie">Autorisation mairie</option>
-    <option value="Autorisation client">Autorisation client</option>
-    <option value="Autorisation DDPE">Autorisation DDPE</option>
-    <option value="Local en chantier">Local en chantier</option>
-    <option value="Appro">Appro</option>
-  </select>
+  <div id="statutFilterWrapper" style="position:relative;display:inline-block;">
+    <button id="statutFilterBtn" style="padding:6px 10px;border:1px solid #aaa;border-radius:6px;background:#fff;cursor:pointer;font-size:13px;min-width:160px;text-align:left;">
+      📋 Tous les statuts
+    </button>
+    <div id="statutFilterDropdown" style="display:none;position:absolute;top:100%;left:0;z-index:500;background:#fff;border:1px solid #bbb;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.15);min-width:260px;max-height:320px;overflow-y:auto;padding:6px 0;">
+      <div style="padding:4px 10px;border-bottom:1px solid #eee;display:flex;gap:8px;">
+        <span style="font-size:12px;color:#888;cursor:pointer;text-decoration:underline;" onclick="window._statutFilterToutCocher()">Tout cocher</span>
+        <span style="font-size:12px;color:#888;cursor:pointer;text-decoration:underline;" onclick="window._statutFilterToutDecocher()">Tout décocher</span>
+      </div>
+      <div id="statutFilterItems"></div>
+    </div>
+  </div>
   <button id="btnSolutionsTemp" style="background:#2563eb;color:white;">🔧 Solutions temporaires</button>
 </div>
 
@@ -659,9 +663,9 @@ function filtrerEtAfficher(){
   const _d=parseDate(r["DATE CREATION DOSSIER"]);
   const _moisFr=_d?_d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}):"";
   const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+statut+" "+_moisFr).toLowerCase();
-  const statFil=document.getElementById("statutFilter").value.toLowerCase();
+  const statsFil = window._statutFilterSelected || new Set();
   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
-  const statutOk=!statFil||statut.toLowerCase().includes(statFil);
+  const statutOk=statsFil.size===0||statsFil.has(statut);
   if(txt.includes(q)&&moisOk&&statutOk){
    cpt++;
    const id=(r["ID DOSSIER"]||"").toString().trim();
@@ -688,7 +692,7 @@ function filtrerEtAfficher(){
 }
 document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
 document.getElementById("moisFilter").addEventListener("change", filtrerEtAfficher);
-document.getElementById("statutFilter").addEventListener("change", filtrerEtAfficher);
+// statutFilter géré par le dropdown custom multi-sélection
 
 // Sync options custom dans statutFilter avec % et compteur statuts renseignés
 const origOnValue = window._statutOptions;
@@ -714,46 +718,95 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
   pctEl.innerHTML = `<span style="background:${color};color:white;border-radius:10px;padding:1px 8px;font-size:12px;">${pct}%</span>`;
 }
 
+// Multi-sélection statuts
+window._statutFilterSelected = new Set();
+
+window._statutFilterToutCocher = function(){
+  const items = document.querySelectorAll("#statutFilterItems input[type=checkbox]");
+  items.forEach(cb => { cb.checked = true; window._statutFilterSelected.add(cb.value); });
+  window._updateStatutFilterBtn();
+  filtrerEtAfficher();
+};
+window._statutFilterToutDecocher = function(){
+  const items = document.querySelectorAll("#statutFilterItems input[type=checkbox]");
+  items.forEach(cb => { cb.checked = false; });
+  window._statutFilterSelected.clear();
+  window._updateStatutFilterBtn();
+  filtrerEtAfficher();
+};
+window._updateStatutFilterBtn = function(){
+  const btn = document.getElementById("statutFilterBtn");
+  if(!btn) return;
+  const n = window._statutFilterSelected.size;
+  btn.textContent = n === 0 ? "📋 Tous les statuts" : `📋 ${n} statut${n>1?"s":""} sélectionné${n>1?"s":""}`;
+};
+
 window.syncStatutFilter = function syncStatutFilter(){
-  const sel=document.getElementById("statutFilter");
-  const cur=sel.value;
   const allStatuts = window._statuts || {};
   const q = document.getElementById("searchInput").value.toLowerCase();
   const mois = document.getElementById("moisFilter").value.toLowerCase();
 
-  // Compter sur les dossiers visibles (filtrés par recherche + mois, sans filtre statut)
   const counts = {};
-  let total = 0;
   dossiersGlobal.forEach(r=>{
     const key = (r["ID DOSSIER"]||"").toString().trim().replace(/[.#$\[\]/]/g,"_");
     const raw = allStatuts[key];
     const s = (raw && typeof raw === "object") ? (raw.value || "") : (raw || "");
     const _d = parseDate(r["DATE CREATION DOSSIER"]);
     const _moisFr = _d ? _d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}) : "";
-    const txt = (r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+s+" "+_moisFr).toLowerCase();
     const moisOk = !mois || _moisFr.toLowerCase().includes(mois);
+    const txt = (r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+s+" "+_moisFr).toLowerCase();
     if(txt.includes(q) && moisOk){
-      total++;
       if(s && s.trim()!=="") counts[s] = (counts[s]||0) + 1;
     }
   });
 
-  sel.innerHTML='<option value="">📋 Tous les statuts</option>';
-  const filtreActif = q !== "" || mois !== "";
-  const optionsTri = [...window._statutOptions]
+  // Construire la liste de tous les statuts présents (options + statuts Firebase non dans la liste)
+  const toutsStatuts = new Set([...window._statutOptions]);
+  Object.keys(counts).forEach(s => toutsStatuts.add(s));
+
+  const container = document.getElementById("statutFilterItems");
+  if(!container) return;
+
+  const optionsTri = [...toutsStatuts]
     .map(o => ({ o, cnt: counts[o]||0 }))
-    .filter(({cnt}) => !filtreActif || cnt > 0)
     .sort((a,b) => b.cnt - a.cnt);
+
+  container.innerHTML = "";
   optionsTri.forEach(({o, cnt})=>{
-    const opt=document.createElement("option");
-    opt.value=o;
     const pct = dossiersGlobal.length > 0 ? (cnt/dossiersGlobal.length*100).toFixed(1) : "0.0";
-    opt.textContent = cnt > 0 ? `${o} (${cnt} – ${pct}%)` : o;
-    if(o===cur) opt.selected=true;
-    sel.appendChild(opt);
+    const label = cnt > 0 ? `${o} <span style="color:#888;font-size:11px;">(${cnt} – ${pct}%)</span>` : `${o} <span style="color:#ccc;font-size:11px;">(0)</span>`;
+    const checked = window._statutFilterSelected.has(o);
+    const div = document.createElement("div");
+    div.style.cssText = "padding:5px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;";
+    div.innerHTML = `<input type="checkbox" value="${o.replace(/"/g,'&quot;')}" ${checked?"checked":""} style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;"/><span style="font-size:13px;">${label}</span>`;
+    const cb = div.querySelector("input");
+    cb.addEventListener("change", function(){
+      if(this.checked) window._statutFilterSelected.add(o);
+      else window._statutFilterSelected.delete(o);
+      window._updateStatutFilterBtn();
+      filtrerEtAfficher();
+    });
+    div.addEventListener("click", function(e){
+      if(e.target !== cb){ cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); }
+    });
+    container.appendChild(div);
   });
+
   updateStatutsCoverage();
 }
+
+// Ouvrir/fermer le dropdown filtre statut
+document.getElementById("statutFilterBtn").addEventListener("click", function(e){
+  e.stopPropagation();
+  const dd = document.getElementById("statutFilterDropdown");
+  dd.style.display = dd.style.display === "none" ? "block" : "none";
+});
+document.addEventListener("click", function(e){
+  if(!e.target.closest("#statutFilterWrapper")){
+    const dd = document.getElementById("statutFilterDropdown");
+    if(dd) dd.style.display = "none";
+  }
+});
 
 document.getElementById("fileInput").addEventListener("change",e=>{
  const file=e.target.files[0];
