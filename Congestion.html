@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Carte Congestion — NOC B2B</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- Firebase -->
@@ -191,6 +192,14 @@ header{
 .stats-bar{position:absolute;top:10px;right:10px;z-index:400;display:flex;gap:6px;pointer-events:none}
 .stat-pill{padding:4px 10px;border-radius:20px;background:rgba(8,15,24,.92);border:1px solid var(--border2);font-size:11px;color:var(--text2)}
 .stat-pill strong{color:var(--cyan);font-weight:600}
+.btn-copy-map{
+  pointer-events:all;padding:4px 12px;border-radius:20px;
+  background:rgba(8,15,24,.92);border:1px solid var(--border2);
+  font-size:11px;color:var(--text2);cursor:pointer;font-family:var(--font);
+  display:flex;align-items:center;gap:5px;transition:background .15s,border-color .15s,color .15s;
+}
+.btn-copy-map:hover{background:var(--cyan-dim);border-color:var(--cyan);color:var(--cyan)}
+.btn-copy-map.copied{background:rgba(30,120,60,.3);border-color:var(--green-bd);color:var(--green-lt)}
 
 /* Tooltip label */
 .lbl-tt{
@@ -399,6 +408,10 @@ header{
   <div class="map-area">
     <div id="map"></div>
     <div class="stats-bar">
+      <button class="btn-copy-map" id="btn-copy-map" onclick="copyMapImage()" title="Copier la carte pour coller dans un mail">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        Copier
+      </button>
       <div class="stat-pill"><strong id="sv">0</strong> actifs</div>
       <div class="stat-pill"><strong id="sc">0</strong> clôturés</div>
       <div class="stat-pill"><strong id="sl">0</strong> liens</div>
@@ -636,6 +649,15 @@ function buildSidebar(){
     item.dataset.zone = zk;
     item.innerHTML = `<div class="city-dot"></div><div class="city-name">${d.zone}</div><div class="city-count">${d.clients.length}</div>`;
     item.addEventListener('click',()=>{
+      if(activeZone === zk){
+        // Déjà actif → fermer
+        activeZone = null;
+        item.classList.remove('active');
+        highlightCity(null);
+        document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+        if(markers[zk]) markers[zk].closePopup();
+        return;
+      }
       document.querySelectorAll('.city-item').forEach(el=>el.classList.remove('active'));
       item.classList.add('active');
       activeZone = zk;
@@ -985,7 +1007,73 @@ function checkPwd(){
   deleteAllFirebase();
 }
 
-async function deleteAllFirebase(){
+// ══════════════════════════════════════════════════════════════════
+// COPIER LA CARTE (image centrée, fond gris, prête pour mail)
+// ══════════════════════════════════════════════════════════════════
+async function copyMapImage(){
+  const btn = document.getElementById('btn-copy-map');
+  btn.textContent = '⏳ Capture…';
+  btn.disabled = true;
+
+  try {
+    // Capturer uniquement la zone carte
+    const mapEl = document.getElementById('map');
+    const canvas = await html2canvas(mapEl, {
+      useCORS: true,
+      allowTaint: true,
+      scale: 1.5,
+      backgroundColor: '#0b1622',
+      logging: false,
+      ignoreElements: el => el.classList && el.classList.contains('stats-bar')
+    });
+
+    // Créer canvas final : fond gris, carte centrée avec padding
+    const PAD = 32;
+    const finalW = canvas.width + PAD * 2;
+    const finalH = canvas.height + PAD * 2;
+    const out = document.createElement('canvas');
+    out.width = finalW; out.height = finalH;
+    const ctx = out.getContext('2d');
+
+    // Fond gris clair (compatible mail Outlook)
+    ctx.fillStyle = '#e8e8e8';
+    ctx.fillRect(0, 0, finalW, finalH);
+
+    // Dessiner la carte centrée
+    ctx.drawImage(canvas, PAD, PAD, canvas.width, canvas.height);
+
+    // Copier dans le presse-papiers
+    out.toBlob(async blob => {
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': blob })
+        ]);
+        btn.innerHTML = '✓ Copié !';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copier`;
+          btn.classList.remove('copied');
+          btn.disabled = false;
+        }, 2200);
+      } catch(e) {
+        // Fallback : ouvrir dans nouvel onglet pour copie manuelle
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        btn.textContent = 'Copier';
+        btn.disabled = false;
+        toast('Clipboard non disponible — image ouverte dans un onglet','err');
+      }
+    }, 'image/png');
+
+  } catch(e) {
+    console.error('copyMapImage', e);
+    btn.textContent = 'Copier';
+    btn.disabled = false;
+    toast('⚠ Erreur capture : ' + e.message, 'err');
+  }
+}
+
+
   toast('⏳ Suppression en cours…','ok');
   try{
     if(fbOk&&db){
