@@ -30,33 +30,8 @@ window._firebaseStatutsReady = false;
 window._firebaseSolutionsReady = false;
 
 function _tryRenderAfterFirebase(){
-  // Si le tableau est déjà rendu (pipe chargé) et Firebase vient de répondre, re-remplir les inputs
-  document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
-    const id = inp.dataset.id;
-    if(id && document.activeElement !== inp){
-      const safeKey = id.replace(/[.#$\[\]/]/g, "_");
-      const entry = window._statuts[safeKey];
-      if(entry !== undefined){
-        const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
-        inp.value = val;
-        inp._prevVal = val;
-        const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
-        if(label){
-          const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
-          if(ts){
-            const {text, cls} = window._formatStatutDate ? window._formatStatutDate(ts) : {text:"màj : "+ts, cls:""};
-            label.textContent = text;
-            label.className = "statut-date-label " + cls;
-          } else {
-            label.textContent = "";
-            label.className = "statut-date-label";
-          }
-        }
-      }
-    }
-  });
-  // Si le pipe n'est pas encore chargé mais Firebase est prêt, déclencher renderMain quand le pipe arrivera
-  // (géré côté loadPipe via window._firebaseStatutsReady)
+  // Appeler peuplerDepuisFirebase si la table est déjà rendue
+  if(typeof window.peuplerDepuisFirebase === "function") window.peuplerDepuisFirebase();
   if(typeof window.syncStatutFilter === "function") window.syncStatutFilter();
   if(typeof window.updateStatutsCoverage === "function") window.updateStatutsCoverage();
 }
@@ -605,6 +580,38 @@ async function loadPipe(){
 }
 loadPipe();
 
+
+function peuplerDepuisFirebase(){
+ document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
+  const id = inp.dataset.id;
+  if(!id) return;
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  const entry = window._statuts[safeKey];
+  if(entry !== undefined){
+   const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+   inp.value = val;
+   inp._prevVal = val;
+   const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
+   if(label && entry && typeof entry === "object" && entry.updatedAt){
+    const {text, cls} = window._formatStatutDate ? window._formatStatutDate(entry.updatedAt) : {text:"màj : "+entry.updatedAt, cls:""};
+    label.textContent = text;
+    label.className = "statut-date-label " + cls;
+   }
+  }
+ });
+ document.querySelectorAll(".solution-input").forEach(inp => {
+  const id = inp.dataset.id;
+  if(!id) return;
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  const entry = window._solutions[safeKey];
+  if(entry !== undefined){
+   const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
+   inp.value = val;
+   inp._prevVal = val;
+  }
+ });
+}
+
 function renderMain(){
  document.getElementById("resume").textContent="Dossiers : "+dossiersGlobal.length;
  let ls=0,lsi=0,num=0;
@@ -616,10 +623,11 @@ function renderMain(){
  });
  document.getElementById("subresume").textContent=`LS : ${ls} | LSI : ${lsi} | Numérique : ${num}`;
  const tbody=document.querySelector("#tableDossiers tbody");
- tbody.innerHTML="";
+ // Construire tout le HTML d'un seul coup (évite que innerHTML+= reparse et efface les values)
+ const rows=[];
  dossiersGlobal.forEach(r=>{
   const id=(r["ID DOSSIER"]||"").toString().trim();
-  tbody.innerHTML+=`<tr>
+  rows.push(`<tr>
    <td>${r["CLIENT"]||""}</td>
    <td>${r["ID DOSSIER"]||""}</td>
    <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
@@ -630,46 +638,13 @@ function renderMain(){
    <td>${r["TYPE ABONNEMENT"]||""}</td>
    <td>${r["SUPPORT"]||""}</td>
    <td>${r["ADR. GEO"]||""}</td>
-  </tr>`;
+  </tr>`);
  });
+ tbody.innerHTML=rows.join("");
+ // Peupler les valeurs Firebase AVANT d'attacher les listeners
+ peuplerDepuisFirebase();
  attachStatutListeners();
  attachSolutionListeners();
- // Si Firebase est déjà prêt au moment du rendu, peupler immédiatement les inputs
- if(window._firebaseStatutsReady){
-  document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
-   const id = inp.dataset.id;
-   if(!id) return;
-   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
-   const entry = window._statuts[safeKey];
-   if(entry !== undefined){
-    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
-    inp.value = val;
-    inp._prevVal = val;
-    const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
-    if(label){
-     const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
-     if(ts){
-      const {text, cls} = window._formatStatutDate ? window._formatStatutDate(ts) : {text:"màj : "+ts, cls:""};
-      label.textContent = text;
-      label.className = "statut-date-label " + cls;
-     }
-    }
-   }
-  });
- }
- if(window._firebaseSolutionsReady){
-  document.querySelectorAll(".solution-input").forEach(inp => {
-   const id = inp.dataset.id;
-   if(!id) return;
-   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
-   const entry = window._solutions[safeKey];
-   if(entry !== undefined){
-    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
-    inp.value = val;
-    inp._prevVal = val;
-   }
-  });
- }
  syncStatutFilter();
 }
 
@@ -677,7 +652,7 @@ function filtrerEtAfficher(){
  const q=document.getElementById("searchInput").value.toLowerCase();
  const mois=document.getElementById("moisFilter").value.toLowerCase();
  const tbody=document.querySelector("#tableDossiers tbody");
- tbody.innerHTML="";
+ const rows=[];
  let cpt=0;
  dossiersGlobal.forEach(r=>{
   const statut = window._getStatut ? window._getStatut((r["ID DOSSIER"]||"").toString().trim()) : "";
@@ -690,7 +665,7 @@ function filtrerEtAfficher(){
   if(txt.includes(q)&&moisOk&&statutOk){
    cpt++;
    const id=(r["ID DOSSIER"]||"").toString().trim();
-   tbody.innerHTML+=`<tr>
+   rows.push(`<tr>
     <td>${r["CLIENT"]||""}</td>
     <td>${r["ID DOSSIER"]||""}</td>
     <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
@@ -701,47 +676,14 @@ function filtrerEtAfficher(){
     <td>${r["TYPE ABONNEMENT"]||""}</td>
     <td>${r["SUPPORT"]||""}</td>
     <td>${r["ADR. GEO"]||""}</td>
-   </tr>`;
+   </tr>`);
   }
  });
+ tbody.innerHTML=rows.join("");
  document.getElementById("resume").textContent="Dossiers : "+cpt;
+ peuplerDepuisFirebase();
  attachStatutListeners();
  attachSolutionListeners();
- if(window._firebaseStatutsReady){
-  document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
-   const id = inp.dataset.id;
-   if(!id) return;
-   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
-   const entry = window._statuts[safeKey];
-   if(entry !== undefined){
-    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
-    inp.value = val;
-    inp._prevVal = val;
-    const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
-    if(label){
-     const ts = (typeof entry === "object" && entry !== null) ? entry.updatedAt : null;
-     if(ts){
-      const {text, cls} = window._formatStatutDate ? window._formatStatutDate(ts) : {text:"màj : "+ts, cls:""};
-      label.textContent = text;
-      label.className = "statut-date-label " + cls;
-     }
-    }
-   }
-  });
- }
- if(window._firebaseSolutionsReady){
-  document.querySelectorAll(".solution-input").forEach(inp => {
-   const id = inp.dataset.id;
-   if(!id) return;
-   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
-   const entry = window._solutions[safeKey];
-   if(entry !== undefined){
-    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
-    inp.value = val;
-    inp._prevVal = val;
-   }
-  });
- }
  syncStatutFilter();
 }
 document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
