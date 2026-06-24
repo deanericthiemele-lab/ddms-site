@@ -221,7 +221,7 @@ tr:hover td{background:#fafbfc}
       <div class="cc-body"><div id="ch-seg"></div></div>
     </div>
   </div>
-  <div class="chart-card" style="margin-top:8px">
+  <div class="chart-card" style="margin-top:8px;max-width:50%">
     <div class="cc-hdr" onclick="toggleCard('cc-hv')"><span class="cc-ttl">💎 Dossiers haute valeur (≥ 100 MFCFA)</span><span class="cc-arrow">▾</span></div>
     <div class="cc-body cc-top" id="hv-body"></div>
   </div>
@@ -503,11 +503,18 @@ async function loadFromFirestore(){
   });
 }
 async function importSeed(){
-  const batch=db.batch();
-  SEED.forEach(d=>{ const ref=db.collection(COL).doc(String(d._key)); batch.set(ref,d); });
-  await batch.commit();
-  D=SEED.map(d=>({firestoreId:String(d._key),...d}));
-  finishLoad();
+  try {
+    // Firestore batch limit = 500 ops; split into chunks of 400
+    const chunks = [];
+    for(let i=0;i<SEED.length;i+=400) chunks.push(SEED.slice(i,i+400));
+    for(const chunk of chunks){
+      const batch=db.batch();
+      chunk.forEach(d=>{ const ref=db.collection(COL).doc(String(d._key)); batch.set(ref,d); });
+      await batch.commit();
+    }
+    D=SEED.map(d=>({firestoreId:String(d._key),...d}));
+    finishLoad();
+  } catch(e){ console.error('importSeed error',e); D=SEED.map(d=>({...d})); finishLoad(); }
 }
 function finishLoad(){ updateCount(); setStatus('✅ '+D.length+' dossiers','#1D9E75'); renderDash(); renderTable(); }
 
