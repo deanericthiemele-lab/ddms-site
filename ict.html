@@ -113,6 +113,8 @@ select.si{cursor:pointer}
 .dv-quick.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 #toast{position:fixed;bottom:20px;right:20px;z-index:9999;background:#1e2533;color:#fff;border-radius:var(--r);padding:10px 16px;font-size:12px;transform:translateY(80px);transition:transform .3s;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 #toast.show{transform:translateY(0)}
+#import-progress{display:none;position:fixed;top:0;left:0;right:0;z-index:10000;background:#1e2533;color:#fff;padding:12px 20px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+#import-progress-bar{height:4px;background:var(--accent);transition:width .3s;margin-top:6px;border-radius:2px}
 tr.sla-ko td:first-child{border-left:2px solid var(--red)}
 tr.dv-selected td{background:#fff3e8 !important;border-top:2px solid var(--accent);}
 tr.dv-expand-row td{padding:0 !important;background:#fff !important;}
@@ -472,6 +474,10 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 </div>
 </div>
 <div id="toast"></div>
+<div id="import-progress">
+  <span id="import-progress-text">⏳ Import en cours…</span>
+  <div style="background:rgba(255,255,255,.2);border-radius:2px;margin-top:6px"><div id="import-progress-bar" style="height:4px;background:var(--accent);width:0%;transition:width .3s;border-radius:2px"></div></div>
+</div>
 <script>
 
 // ===== FIREBASE INIT =====
@@ -2425,9 +2431,13 @@ async function confirmClear(){
     var batch=db.batch();
     snap.docs.forEach(function(d){batch.delete(d.ref);});
     await batch.commit();
-    showToast('✅ Tous les deals ont été supprimés.');
+    deals=[];
+    toast('✅ Tous les deals ont été supprimés.');
     if(typeof renderAll==='function') renderAll();
+    if(typeof renderDeliveryPage==='function') renderDeliveryPage();
     if(typeof renderPlanning==='function') renderPlanning();
+    if(typeof renderMaj==='function') renderMaj();
+    if(typeof buildFilters==='function') buildFilters();
   }catch(err){ showToast('❌ Erreur : '+err.message); }
 }
 
@@ -2484,8 +2494,8 @@ async function confirmExport(){
     var wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Deals');
     XLSX.writeFile(wb,'ict_deals_export_'+new Date().toISOString().slice(0,10)+'.xlsx');
-    showToast('✅ Export téléchargé ('+rows.length+' deals)');
-  }catch(err){ showToast('❌ Erreur export : '+err.message); }
+    toast('✅ Export téléchargé ('+rows.length+' deals)');
+  }catch(err){ toast('❌ Erreur export : '+err.message); }
 }
 
 function openImportModal(){
@@ -2562,27 +2572,50 @@ document.addEventListener('DOMContentLoaded',function(){
         // Import par batch de 50 avec délai pour éviter rate-limit Firestore
         var BATCH=50, batchIdx=0, imported=0;
         var totalToImport=deals2import.length;
-        showToast('⏳ Import de '+totalToImport+' deals en cours…');
+        var progBox=document.getElementById('import-progress');
+        var progBar=document.getElementById('import-progress-bar');
+        var progTxt=document.getElementById('import-progress-text');
+        function setProgress(n,total){
+          var pct=total?Math.round(n/total*100):0;
+          if(progBox) progBox.style.display='block';
+          if(progBar) progBar.style.width=pct+'%';
+          if(progTxt) progTxt.textContent='⏳ Import : '+n+' / '+total+' deals ('+pct+'%)';
+        }
+        function endProgress(msg){
+          if(progTxt) progTxt.textContent=msg;
+          if(progBar) progBar.style.width='100%';
+          setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
+          toast(msg);
+        }
+        setProgress(0, totalToImport);
         function importNextBatch(){
           var slice=deals2import.slice(batchIdx,batchIdx+BATCH);
           if(!slice.length){
-            if(typeof renderAll==='function') renderAll();
-            if(typeof renderPlanning==='function') renderPlanning();
-            if(typeof loadDealsFromFirestore==='function') loadDealsFromFirestore();
-            showToast('✅ '+imported+'/'+totalToImport+' deal(s) importé(s) dans Firebase');
+            endProgress('✅ '+imported+'/'+totalToImport+' deals importés avec succès !');
+            if(typeof loadDealsFromFirestore==='function'){
+              loadDealsFromFirestore();
+            } else {
+              if(typeof renderAll==='function') renderAll();
+              if(typeof renderDeliveryPage==='function') renderDeliveryPage();
+              if(typeof renderPlanning==='function') renderPlanning();
+              if(typeof renderMaj==='function') renderMaj();
+              if(typeof buildFilters==='function') buildFilters();
+            }
             return;
           }
           var promises=slice.map(function(deal){
-            return db.collection(ICT_COL).doc(deal.id).set(deal).then(function(){imported++;}).catch(function(e){console.warn('Import err',deal.id,e.message);});
+            return db.collection(ICT_COL).doc(deal.id).set(deal)
+              .then(function(){imported++;})
+              .catch(function(e){console.warn('Import err',deal.id,e.message);});
           });
           Promise.all(promises).then(function(){
             batchIdx+=BATCH;
-            showToast('⏳ '+imported+'/'+totalToImport+' importés…');
-            setTimeout(importNextBatch,300);
+            setProgress(imported, totalToImport);
+            setTimeout(importNextBatch,200);
           });
         }
-        if(db) importNextBatch(); else showToast('❌ Firebase non disponible');
-      }catch(err){ showToast('❌ Erreur import : '+err.message); }
+        if(db){ importNextBatch(); } else { endProgress('❌ Firebase non disponible'); }
+      }catch(err){ toast('❌ Erreur import : '+err.message); }
     };
     r.readAsArrayBuffer(f);
   });
