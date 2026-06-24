@@ -1690,14 +1690,14 @@ function dvInlinePanelHTML(d){
     +(d.pvPath?'<a href="'+d.pvPath+'" target="_blank" style="font-size:10px;color:var(--blue)">📄 Voir PV joint</a>':'')
     +'<small style="color:var(--muted);font-size:10px">Date PV + PV joint → statut PV signé</small></div>'
     // Raison retard
-    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Raison du retard</label>'
+    +'<div style="display:flex;flex-direction:column;gap:6px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Raison du retard</label>'
     +'<div style="display:flex;gap:6px;align-items:center">'
     +'<select id="dv-raison" class="si" style="font-size:12px;flex:1">'
     +(function(){var base=['','Client injoignable','Problème technique','Manque de ressources delivery','Dossier incomplet (vente)','Délai fournisseur','Cause externe','Autre'];var custom=getRaisonsList();var all=base.concat(custom.filter(function(c){return!base.includes(c);}));return all.map(function(s){return '<option value="'+s+'"'+(d.raison===s?' selected':'')+'>'+(s||'Aucune')+'</option>';}).join('');})()
     +'</select>'
-    +'<input id="dv-raison-new" type="text" class="si" placeholder="Nouveau motif…" style="font-size:12px;width:160px"/>'
-    +'<button onclick="addRaisonMotif()" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0">+</button>'
-    +'</div></div>'
+    +'<button onclick="openAddRaisonPopover(this)" title="Ajouter un motif" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:2px 9px;font-size:15px;font-weight:700;cursor:pointer;flex-shrink:0;line-height:1.6">+</button>'
+    +'</div>'
+    +'</div>'
     +'</div>'
     // Notes
     +'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Notes delivery</label>'
@@ -2044,11 +2044,32 @@ function planDayClick(el){
 var RAISON_KEY='ict_raisons_custom';
 function getRaisonsList(){try{return JSON.parse(localStorage.getItem(RAISON_KEY)||'[]');}catch(e){return[];}}
 function saveRaisonsList(list){try{localStorage.setItem(RAISON_KEY,JSON.stringify(list));}catch(e){}}
-function addRaisonMotif(){
-  var inp=document.getElementById('dv-raison-new');
+function openAddRaisonPopover(btn){
+  // remove existing popover if any
+  var old=document.getElementById('raison-popover');
+  if(old){old.remove();return;}
+  var pop=document.createElement('div');
+  pop.id='raison-popover';
+  var rect=btn.getBoundingClientRect();
+  pop.style.cssText='position:fixed;z-index:9999;background:#fff;border:1px solid var(--border);border-radius:8px;padding:10px;box-shadow:0 4px 16px rgba(0,0,0,.15);display:flex;gap:6px;align-items:center;min-width:260px;';
+  pop.style.top=(rect.bottom+6)+'px';
+  pop.style.left=Math.max(8,rect.right-260)+'px';
+  pop.innerHTML='<input id="raison-pop-input" type="text" placeholder="Nouveau motif…" style="flex:1;font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;outline:none"/>'
+    +'<button onclick="confirmAddRaison()" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer">OK</button>';
+  document.body.appendChild(pop);
+  document.getElementById('raison-pop-input').focus();
+  // close on outside click
+  setTimeout(function(){
+    document.addEventListener('mousedown',function handler(e){
+      if(!pop.contains(e.target)&&e.target!==btn){pop.remove();document.removeEventListener('mousedown',handler);}
+    });
+  },0);
+}
+function confirmAddRaison(){
+  var inp=document.getElementById('raison-pop-input');
   if(!inp) return;
   var val=inp.value.trim();
-  if(!val){toast('⚠️ Saisissez un motif'); return;}
+  if(!val){inp.focus();return;}
   var list=getRaisonsList();
   if(!list.includes(val)){list.push(val);saveRaisonsList(list);}
   var sel=document.getElementById('dv-raison');
@@ -2057,9 +2078,11 @@ function addRaisonMotif(){
     if(!exists){var opt=document.createElement('option');opt.value=val;opt.textContent=val;sel.appendChild(opt);}
     sel.value=val;
   }
-  inp.value='';
+  var pop=document.getElementById('raison-popover');
+  if(pop) pop.remove();
   toast('✅ Motif ajouté : '+val);
 }
+function addRaisonMotif(){}
 
 // ---- Autocomplete field values persistence ----
 var FV_KEY='ict_fv';
