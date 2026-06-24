@@ -225,6 +225,7 @@ tr:hover td{background:#fafbfc}
       <div class="cc-body"><div id="ch-seg"></div></div>
     </div>
   </div>
+  <div id="kpi-ao-bar" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;margin-bottom:0"></div>
   <div style="display:flex;gap:8px;margin-top:8px">
     <div class="chart-card" style="flex:1">
       <div class="cc-hdr" onclick="toggleCard('cc-hv')"><span class="cc-ttl">💎 Dossiers haute valeur (≥ 100 MFCFA)</span><span class="cc-arrow">▾</span></div>
@@ -657,6 +658,45 @@ function renderDash(){
   })();
     document.getElementById('ch-seg').innerHTML=donutSVG([{v:pub,l:'PUBLIC'},{v:pri,l:'PRIVÉ'}],['#378ADD','#5B21B6'],D.length)+'<div class="legend" style="padding:0 10px 8px"><div class="leg-item"><div class="leg-sq" style="background:#378ADD"></div>PUBLIC ('+pub+')</div><div class="leg-item"><div class="leg-sq" style="background:#5B21B6"></div>PRIVÉ ('+pri+')</div></div>';
   renderMoisEnCours();
+  renderKpiAO();
+}
+
+// KPI AO
+function renderKpiAO(){
+  const el=document.getElementById('kpi-ao-bar'); if(!el)return;
+  // Nbre moyen AO par mois : AO reçus en 2026 hors mois en cours ÷ nb de mois 2026 écoulés hors mois en cours
+  const now=new Date(), yCur=now.getFullYear(), mCur=now.getMonth()+1;
+  const prefixCur=yCur+'-'+String(mCur).padStart(2,'0');
+  // AO 2026 hors mois en cours
+  const ao2026=D.filter(d=>{const m=(d.recu_le||'').substring(0,7); return m.startsWith('2026-') && m<prefixCur;});
+  // Nb de mois écoulés en 2026 avant le mois en cours (janv=1 … mois précédent)
+  const nbMois2026=mCur-1; // ex: juin(6) → 5 mois (janv-mai)
+  let subMoy='', moy=0;
+  if(nbMois2026>0){
+    moy=ao2026.length/nbMois2026;
+    let mEnd=mCur-1; if(mEnd===0)mEnd=12;
+    subMoy=ao2026.length+' AO 2026 / '+nbMois2026+' mois (janv → '+['','janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'][mEnd]+')';
+  }
+  // % gagné sur terminés
+  const termines=D.filter(d=>['Gagné','Perdu','No GO','Abandonné','Infructueux'].includes(d.statut));
+  const gagnes=termines.filter(d=>d.statut==='Gagné');
+  const pctGagne=termines.length>0?Math.round(gagnes.length/termines.length*100):0;
+  // En cours
+  const enCours=D.filter(d=>['Attente notification','En cours de traitement','Standby'].includes(d.statut)).length;
+
+  const kpis=[
+    {icon:'📈',label:'Moy. AO / mois',val:moy.toFixed(1),sub:subMoy,color:'#378ADD',bg:'#EFF6FF'},
+    {icon:'🏆',label:'Taux de succès',val:pctGagne+'%',sub:gagnes.length+' gagné'+(gagnes.length>1?'s':'')+' / '+termines.length+' terminé'+(termines.length>1?'s':''),color:'#1D9E75',bg:'#E1F5EE'},
+    {icon:'⏳',label:'AO en cours',val:enCours,sub:'Attente not. + Traitement + Standby',color:'#F59E0B',bg:'#FFF4E5'},
+  ];
+  el.innerHTML=kpis.map(k=>`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rl);padding:14px 16px;display:flex;align-items:center;gap:12px">
+    <div style="width:40px;height:40px;border-radius:10px;background:${k.bg};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${k.icon}</div>
+    <div style="min-width:0">
+      <div style="font-size:10px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">${k.label}</div>
+      <div style="font-size:24px;font-weight:800;color:${k.color};line-height:1">${k.val}</div>
+      <div style="font-size:10px;color:var(--tx3);margin-top:3px">${k.sub}</div>
+    </div>
+  </div>`).join('');
 }
 
 // MOIS EN COURS
