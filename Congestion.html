@@ -712,12 +712,15 @@ function setActiveCity(zk){
   highlightCity(zk);
   const d = zonesMap[zk];
   const panel = document.getElementById('detail-panel');
-  const activeClients = d.clients.filter(c=>!c.clot);
+  const activeCount = d.clients.filter(c=>!c.clot).length;
   const actionBtn = d.clot
     ? `<button class="det-btn det-btn-reopen" onclick="confirmReopen('${zk}')">↩ Réouvrir</button>`
-    : `<button class="det-btn det-btn-clot"   onclick="confirmClot('${zk}')">✓ Clôturer</button>`;
-  const cards = activeClients.map(c=>{
-    return `<div class="cli-card" id="clicard-${c.id}">
+    : `<button class="det-btn det-btn-clot"   onclick="confirmClot('${zk}')">✓ Clôturer zone</button>`;
+  const cards = d.clients.map(c=>{
+    const isClot = c.clot||false;
+    const toggleClass = isClot ? 'clot' : 'actif';
+    const toggleLabel = isClot ? '✓ Clôturé' : '● Actif';
+    return `<div class="cli-card" id="clicard-${c.id}" ${isClot?'style="opacity:.55"':''}>
       <div class="cli-top">
         <span class="cli-name">${c.name}</span>
         ${c.source==='manual'?'<span class="cli-badge-new">nouveau</span>':''}
@@ -726,8 +729,8 @@ function setActiveCity(zk){
       ${c.circuit?`<div class="cli-circuit">↳ ${c.circuit}</div>`:''}
       <div class="cli-status-row">
         <button class="btn-edit-cli" onclick="openEditModal('${zk}','${c.id}')">✏ Éditer</button>
-        <button class="cli-toggle actif" onclick="toggleClientClot('${zk}','${c.id}')">
-          <span class="cli-status-dot"></span>● Actif
+        <button class="cli-toggle ${toggleClass}" id="clitoggle-${c.id}" onclick="toggleClientClot('${zk}','${c.id}')">
+          <span class="cli-status-dot"></span>${toggleLabel}
         </button>
       </div>
     </div>`;
@@ -735,13 +738,13 @@ function setActiveCity(zk){
   panel.innerHTML = `
     <div class="det-header">
       <div class="det-zone">${d.zone}${d.clot?' <span style="font-size:10px;color:var(--green-lt)">(Clôturé)</span>':''}</div>
-      <div class="det-sub">${activeClients.length} client${activeClients.length>1?'s':''} actif${activeClients.length>1?'s':''}</div>
+      <div class="det-sub" id="det-sub-${zk}">${activeCount} client${activeCount>1?'s':''} actif${activeCount>1?'s':''} · ${d.clients.length} total</div>
       <div class="det-actions">
         ${actionBtn}
         <button class="det-btn det-btn-del" onclick="confirmDelete('${zk}')">🗑 Supprimer</button>
       </div>
     </div>
-    ${cards||'<div class="det-empty" style="font-size:11px;padding:10px 13px;color:var(--text3)">Aucun client actif</div>'}`;
+    ${cards||'<div class="det-empty" style="font-size:11px;padding:10px 13px;color:var(--text3)">Aucun client</div>'}`;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1376,26 +1379,39 @@ async function toggleClientClot(zk, clientId){
 
   c.clot = !c.clot;
 
-  // Si tous les clients sont clôturés → clôturer la zone
-  const allClot = z.clients.every(x=>x.clot);
-  const anyActive = z.clients.some(x=>!x.clot);
-  if(allClot && !z.clot) z.clot = true;
-  else if(anyActive && z.clot) z.clot = false;
+  // Mise à jour du bouton inline — pas de rechargement du panel
+  const btn = document.getElementById('clitoggle-'+clientId);
+  const card = document.getElementById('clicard-'+clientId);
+  if(btn){
+    if(c.clot){
+      btn.className = 'cli-toggle clot';
+      btn.innerHTML = '<span class="cli-status-dot"></span>✓ Clôturé';
+    } else {
+      btn.className = 'cli-toggle actif';
+      btn.innerHTML = '<span class="cli-status-dot"></span>● Actif';
+    }
+  }
+  if(card) card.style.opacity = c.clot ? '0.55' : '1';
 
-  // Reconstruire marqueur (disparaît si plus de clients actifs)
+  // Mise à jour compteur dans le header du panel
+  const activeCount = z.clients.filter(x=>!x.clot).length;
+  const sub = document.getElementById('det-sub-'+zk);
+  if(sub) sub.textContent = activeCount+' client'+(activeCount>1?'s':'')+' actif'+(activeCount>1?'s':'')+' · '+z.clients.length+' total';
+
+  // Zone : clôturer si tous clients clôturés, réouvrir si au moins 1 actif
+  const allClot = z.clients.every(x=>x.clot);
+  if(allClot && !z.clot) z.clot = true;
+  else if(!allClot && z.clot) z.clot = false;
+
+  // Mettre à jour marqueur et sidebar (sans toucher au panel)
   buildMarker(zk);
   buildSidebar();
-  updateStats();
-
-  // Rafraîchir le panel — si plus de clients actifs, fermer le panel
-  const activeCount = z.clients.filter(x=>!x.clot).length;
-  if(activeCount === 0){
-    activeZone = null;
-    document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
-  } else {
-    setActiveCity(zk);
+  // Restaurer l'item actif dans la sidebar
+  if(activeZone === zk){
+    const sideItem = document.querySelector(`.city-item[data-zone="${zk}"]`);
+    if(sideItem) sideItem.classList.add('active');
   }
-
+  updateStats();
   await fbSaveZone(zk);
 }
 
