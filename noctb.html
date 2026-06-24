@@ -1429,30 +1429,41 @@ NOC B2B</textarea>
       <div style="font-size:13px;color:var(--n3);margin-top:2px;">Étapes · Délais · Prérequis · Actions</div>
     </div>
     <div style="flex:1"></div>
+    <span id="plan-fb-status" style="font-family:var(--mono);font-size:10px;color:var(--n4)"></span>
     <button class="btn btn-v btn-sm" onclick="planAddEtape()">＋ Étape</button>
   </div>
-  <div id="plan-evolution-container"></div>
+  <div id="plan-evolution-container"><div style="padding:20px;color:var(--n4);font-size:12px">Chargement…</div></div>
 </div>
 
 <style>
 /* ── Plan d'évolution ── */
 .plan-etape{background:#fff;border:1px solid var(--n5);border-radius:8px;margin-bottom:18px;overflow:hidden;box-shadow:var(--sd)}
-.plan-etape.encours{border-left:4px solid #2E7D32;background:#f6fff8}
-.plan-etape.encours .plan-etape-hdr{background:#edfaf0}
-.plan-etape.termine{border-left:4px solid var(--n4)}
+/* À venir = blanc neutre (défaut) */
+.plan-etape.avenir{background:#fff}
+.plan-etape.avenir .plan-etape-hdr{background:#f7f7f7}
+/* En cours = rosé */
+.plan-etape.encours{border-left:4px solid #e8536a;background:#fff5f7}
+.plan-etape.encours .plan-etape-hdr{background:#fdeef1}
+.plan-etape.encours .plan-etape-num{background:#e8536a}
+.plan-etape.encours .plan-etape-del{color:#c0364e;background:#fcd8df}
+.plan-etape.encours .plan-etape-hdr:hover{background:#fcd8df}
+/* Terminé = vert */
+.plan-etape.termine{border-left:4px solid #2E7D32;background:#f4fbf5}
+.plan-etape.termine .plan-etape-hdr{background:#e8f5ea}
+.plan-etape.termine .plan-etape-num{background:#2E7D32}
+.plan-etape.termine .plan-etape-del{color:#1A6B3C;background:#c8eecf}
+.plan-etape.termine .plan-etape-hdr:hover{background:#c8eecf}
 .plan-etape-hdr{display:flex;align-items:center;gap:10px;padding:13px 16px;background:var(--n6);border-bottom:1px solid var(--n5);cursor:pointer;user-select:none;transition:.12s}
 .plan-etape-hdr:hover{background:var(--vl)}
-.plan-etape.encours .plan-etape-hdr:hover{background:#d6f5de}
 .plan-etape-num{background:var(--v);color:#fff;font-family:var(--mono);font-size:11px;font-weight:700;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
-.plan-etape.encours .plan-etape-num{background:#2E7D32}
 .plan-etape-title{font-family:var(--cond);font-size:16px;font-weight:700;color:var(--n1);flex:1}
 .plan-etape-del{font-family:var(--mono);font-size:10px;color:var(--v);background:var(--vl);padding:2px 8px;border-radius:3px;white-space:nowrap}
-.plan-etape.encours .plan-etape-del{color:#2E7D32;background:#d6f5de}
 .plan-etape-porteur{font-size:11px;color:var(--n3);font-style:italic;white-space:nowrap}
 /* badge statut */
 .plan-statut-badge{font-family:var(--mono);font-size:9.5px;font-weight:700;padding:2px 9px;border-radius:3px;white-space:nowrap;flex-shrink:0}
-.plan-statut-badge.encours{background:#d6f5de;color:#1A6B3C}
-.plan-statut-badge.termine{background:var(--n5);color:var(--n3)}
+.plan-statut-badge.avenir{background:#f0f0f0;color:#888}
+.plan-statut-badge.encours{background:#fcd8df;color:#c0364e}
+.plan-statut-badge.termine{background:#c8eecf;color:#1A6B3C}
 /* flèche */
 .plan-etape-toggle{font-size:12px;color:var(--n3);transition:transform .2s;display:inline-block;flex-shrink:0;line-height:1}
 .plan-etape-hdr.is-open .plan-etape-toggle{transform:rotate(180deg)}
@@ -1481,23 +1492,75 @@ NOC B2B</textarea>
 </style>
 
 <script>
-/* ══ PLAN ÉVOLUTION — toutes les fonctions exposées sur window ══ */
-window._planData = [
-  { id:'e1', statut:'En cours', etape:'Consolidation supervision SolarWinds', delai:'Juil — Août 2025', porteur:'NOC B2B / Infra', commentaire:'Finaliser le tuning des seuils, SWQL custom widgets, alertes P1/P2/P3.', open:true,
-    prerequis:[{ id:'r1a', nom:'Accès admin SolarWinds NPM', delai:'Juil 2025', commentaire:'Compte ServiceDesk admin requis',
-      actions:[{ _id:'a1001', action:'Demande accès DSI', delai:'Juil S1', porteur:'Chef NOC', commentaire:'' },
-               { _id:'a1002', action:'Validation et déploiement', delai:'Juil S2', porteur:'DSI / Infra', commentaire:'' }] }] },
-  { id:'e2', statut:'À venir', etape:'Déploiement outil DDMS v2', delai:'Sep — Oct 2025', porteur:'Datalink CI / DDMS', commentaire:'Dashboard NOC, Bid, ICT Tracker, Congestion Map — migration Firebase Blaze.', open:false,
-    prerequis:[{ id:'r2a', nom:'Budget Firebase Blaze confirmé', delai:'Août 2025', commentaire:'',
-      actions:[{ _id:'a1003', action:'Estimation coût mensuel', delai:'Août S1', porteur:'Dean', commentaire:'' },
-               { _id:'a1004', action:'Validation direction', delai:'Août S2', porteur:'Direction', commentaire:'' }] }] }
-];
+/* ══════════════════════════════════════════════════════
+   PLAN ÉVOLUTION — Firebase Firestore
+   Collection : plan_evolution  (doc unique id="main")
+   Structure  : { etapes: [ {id, statut, etape, delai, porteur, commentaire, open, prerequis:[...]} ] }
+══════════════════════════════════════════════════════ */
+const PLAN_COL = 'plan_evolution';
+const PLAN_DOC = 'main';
+
+window._planData = [];
 window._planCtr  = 10;
 window._planRCtr = 200;
 window._planACtr = 2000;
 
+/* ── utilitaires ── */
 function _pEsc(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function _pStatus(msg, ok){
+  const el=document.getElementById('plan-fb-status');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.color = ok===true?'#1A6B3C': ok===false?'#B22222':'#B07700';
+}
+
+/* ── Firebase load ── */
+async function planLoad(){
+  if(!window._db){ _pStatus('Firebase non prêt','err'); return; }
+  try{
+    const snap = await window._gets(window._col(window._db, PLAN_COL));
+    // cherche doc id=main
+    let found = null;
+    snap.forEach(d=>{ if(d.id===PLAN_DOC) found=d.data(); });
+    if(found && Array.isArray(found.etapes)){
+      window._planData = found.etapes;
+      // recalc compteurs
+      found.etapes.forEach(e=>{
+        const n=parseInt((e.id||'').replace(/\D/g,''));
+        if(n>=window._planCtr) window._planCtr=n+1;
+        (e.prerequis||[]).forEach(r=>{
+          const rn=parseInt((r.id||'').replace(/\D/g,''));
+          if(rn>=window._planRCtr) window._planRCtr=rn+1;
+          (r.actions||[]).forEach(a=>{
+            const an=parseInt((a._id||'').replace(/\D/g,''));
+            if(an>=window._planACtr) window._planACtr=an+1;
+          });
+        });
+      });
+    }
+    _pRender();
+    _pStatus('Firebase OK ✓', true);
+  }catch(err){ _pStatus('Erreur chargement: '+err.message, false); _pRender(); }
+}
+
+/* ── Firebase save (écrase le doc entier) ── */
+async function planFbSave(){
+  if(!window._db){ _pStatus('Firebase non disponible', false); return; }
+  _pStatus('Enregistrement…');
+  try{
+    const docRef = window._doc(window._db, PLAN_COL, PLAN_DOC);
+    await window._upd(docRef, { etapes: window._planData, updatedAt: new Date().toISOString() })
+      .catch(async ()=>{
+        // doc n'existe pas encore → addDoc avec id fixe via setDoc workaround
+        const { setDoc } = await import("https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js");
+        await setDoc(docRef, { etapes: window._planData, updatedAt: new Date().toISOString() });
+      });
+    _pStatus('Enregistré ✓', true);
+  }catch(err){ _pStatus('Erreur save: '+err.message, false); console.error(err); }
+}
+
+/* ── lecture DOM → _planData ── */
 function _pSave(){
   window._planData.forEach(e => {
     const el = document.getElementById('pe-'+e.id); if(!el) return;
@@ -1522,6 +1585,7 @@ function _pSave(){
   });
 }
 
+/* ── rendu ── */
 function _pRenderAction(a){
   return `<tr id="pa-${a._id}">
     <td><input class="pa-action"  value="${_pEsc(a.action||'')}"      placeholder="Action"></td>
@@ -1536,9 +1600,9 @@ function _pRenderPrereq(r, eid){
   if(!r.actions) r.actions=[];
   return `<div class="plan-req-block" id="pr-${r.id}">
   <div class="plan-req-hdr">
-    <input class="pr-nom"   value="${_pEsc(r.nom)}"           placeholder="Nom du prérequis" style="font-weight:700;font-size:12.5px;border:1px solid transparent;border-radius:3px;padding:3px 6px;flex:1;font-family:var(--body);background:transparent">
-    <input class="pr-delai" value="${_pEsc(r.delai)}"         placeholder="Délai"            style="width:110px;font-size:11px;border:1px solid var(--n5);border-radius:3px;padding:3px 6px;font-family:var(--body)">
-    <input class="pr-com"   value="${_pEsc(r.commentaire||'')}" placeholder="Commentaire"   style="width:180px;font-size:11px;border:1px solid var(--n5);border-radius:3px;padding:3px 6px;font-family:var(--body)">
+    <input class="pr-nom"   value="${_pEsc(r.nom)}"             placeholder="Nom du prérequis" style="font-weight:700;font-size:12.5px;border:1px solid transparent;border-radius:3px;padding:3px 6px;flex:1;font-family:var(--body);background:transparent">
+    <input class="pr-delai" value="${_pEsc(r.delai)}"           placeholder="Délai"            style="width:110px;font-size:11px;border:1px solid var(--n5);border-radius:3px;padding:3px 6px;font-family:var(--body)">
+    <input class="pr-com"   value="${_pEsc(r.commentaire||'')}" placeholder="Commentaire"      style="width:180px;font-size:11px;border:1px solid var(--n5);border-radius:3px;padding:3px 6px;font-family:var(--body)">
     <button class="plan-actions-del" onclick="planDeletePrereq('${eid}','${r.id}')">✕</button>
   </div>
   <table class="plan-tbl">
@@ -1549,22 +1613,19 @@ function _pRenderPrereq(r, eid){
 </div>`;
 }
 
-function _pStatutBadge(statut){
-  const ec = statut==='En cours';
-  const tr = statut==='Terminé';
-  const cls = ec?'encours':tr?'termine':'';
-  const lbl = ec?'● En cours': tr?'✓ Terminé': statut||'À venir';
+function _pStatutCls(s){ return s==='En cours'?'encours': s==='Terminé'?'termine':'avenir'; }
+function _pStatutBadge(s){
+  const cls=_pStatutCls(s);
+  const lbl=s==='En cours'?'● En cours': s==='Terminé'?'✓ Terminé':'○ À venir';
   return `<span class="plan-statut-badge ${cls}">${lbl}</span>`;
 }
 
 function _pRenderEtape(e, num){
-  const ec = e.statut==='En cours';
-  const tr = e.statut==='Terminé';
-  const wrapCls = ec?'plan-etape encours': tr?'plan-etape termine':'plan-etape';
+  const cls = _pStatutCls(e.statut);
   const hdrCls  = 'plan-etape-hdr'+(e.open?' is-open':'');
   const bodyCls = 'plan-etape-body'+(e.open?' is-open':'');
   const statutOpts = ['À venir','En cours','Terminé'].map(s=>`<option${s===e.statut?' selected':''}>${s}</option>`).join('');
-  return `<div class="${wrapCls}" id="pe-${e.id}">
+  return `<div class="plan-etape ${cls}" id="pe-${e.id}">
   <div class="${hdrCls}" onclick="planToggle('${e.id}')">
     <span class="plan-etape-num">${num}</span>
     <span class="plan-etape-title">${_pEsc(e.etape)||'Nouvelle étape'}</span>
@@ -1585,41 +1646,50 @@ function _pRenderEtape(e, num){
       <div class="plan-field" style="grid-column:1/-1"><label>Commentaire</label><textarea class="pe-commentaire" rows="2" placeholder="Contexte, objectif…">${_pEsc(e.commentaire)}</textarea></div>
     </div>
     <div class="plan-section-lbl">🔗 Prérequis</div>
-    <div id="preqs-${e.id}">${e.prerequis.map(r=>_pRenderPrereq(r,e.id)).join('')}</div>
+    <div id="preqs-${e.id}">${(e.prerequis||[]).map(r=>_pRenderPrereq(r,e.id)).join('')}</div>
     <button class="btn btn-out btn-sm" style="margin-top:6px" onclick="planAddPrereq('${e.id}')">＋ Prérequis</button>
+    <div style="margin-top:14px;text-align:right">
+      <button class="btn btn-g btn-sm" onclick="planSaveEtape('${e.id}')">💾 Enregistrer</button>
+    </div>
   </div>
 </div>`;
 }
 
 function _pRender(){
   const c = document.getElementById('plan-evolution-container'); if(!c) return;
-  c.innerHTML = window._planData.map((e,i)=>_pRenderEtape(e,i+1)).join('');
+  c.innerHTML = window._planData.length
+    ? window._planData.map((e,i)=>_pRenderEtape(e,i+1)).join('')
+    : '<div style="padding:20px;color:var(--n4);font-size:12px">Aucune étape. Cliquez sur ＋ Étape.</div>';
 }
 
-/* ── fonctions globales appelées par onclick ── */
+/* ── actions globales ── */
 window.planToggle = function(eid){
   _pSave();
-  const e = window._planData.find(x=>x.id===eid); if(!e) return;
-  e.open = !e.open;
+  const e=window._planData.find(x=>x.id===eid); if(!e) return;
+  e.open=!e.open;
   _pRender();
 };
 
 window.planChangeStatut = function(eid, val){
   _pSave();
-  const e = window._planData.find(x=>x.id===eid); if(!e) return;
-  e.statut = val;
+  const e=window._planData.find(x=>x.id===eid); if(!e) return;
+  e.statut=val;
   _pRender();
+  planFbSave();
 };
 
 window.planSyncHdr = function(inp, eid, field){
-  const e = window._planData.find(x=>x.id===eid); if(!e) return;
-  e[field] = inp.value;
-  const hdr = document.querySelector('#pe-'+eid+' .plan-etape-hdr');
-  if(!hdr) return;
-  if(field==='etape')   hdr.querySelector('.plan-etape-title')?.setAttribute('data-v', inp.value);
-  if(field==='etape')   { const t=hdr.querySelector('.plan-etape-title'); if(t) t.textContent=inp.value||'Nouvelle étape'; }
-  if(field==='delai')   { const t=hdr.querySelector('.plan-etape-del');   if(t) t.textContent=inp.value||'—'; }
-  if(field==='porteur') { const t=hdr.querySelector('.plan-etape-porteur');if(t) t.textContent=inp.value||''; }
+  const e=window._planData.find(x=>x.id===eid); if(!e) return;
+  e[field]=inp.value;
+  const hdr=document.querySelector('#pe-'+eid+' .plan-etape-hdr'); if(!hdr) return;
+  if(field==='etape') { const t=hdr.querySelector('.plan-etape-title'); if(t) t.textContent=inp.value||'Nouvelle étape'; }
+  if(field==='delai') { const t=hdr.querySelector('.plan-etape-del');   if(t) t.textContent=inp.value||'—'; }
+  if(field==='porteur'){const t=hdr.querySelector('.plan-etape-porteur');if(t) t.textContent=inp.value||''; }
+};
+
+window.planSaveEtape = function(eid){
+  _pSave();
+  planFbSave();
 };
 
 window.planAddEtape = function(){
@@ -1627,22 +1697,26 @@ window.planAddEtape = function(){
   const id='e'+(window._planCtr++);
   window._planData.push({id, statut:'À venir', etape:'Nouvelle étape', delai:'', porteur:'', commentaire:'', open:true, prerequis:[]});
   _pRender();
+  planFbSave();
   setTimeout(()=>{ const el=document.querySelector('#pe-'+id+' .pe-etape'); if(el){el.focus();el.select();} },40);
 };
 
 window.planDeleteEtape = function(eid){
   if(!confirm('Supprimer cette étape ?')) return;
   _pSave();
-  window._planData = window._planData.filter(e=>e.id!==eid);
+  window._planData=window._planData.filter(e=>e.id!==eid);
   _pRender();
+  planFbSave();
 };
 
 window.planAddPrereq = function(eid){
   _pSave();
   const e=window._planData.find(x=>x.id===eid); if(!e) return;
   const rid='r'+(window._planRCtr++);
+  if(!e.prerequis) e.prerequis=[];
   e.prerequis.push({id:rid, nom:'Nouveau prérequis', delai:'', commentaire:'', actions:[]});
   _pRender();
+  planFbSave();
 };
 
 window.planDeletePrereq = function(eid, rid){
@@ -1651,6 +1725,7 @@ window.planDeletePrereq = function(eid, rid){
   const e=window._planData.find(x=>x.id===eid); if(!e) return;
   e.prerequis=e.prerequis.filter(r=>r.id!==rid);
   _pRender();
+  planFbSave();
 };
 
 window.planAddAction = function(eid, rid){
@@ -1659,19 +1734,25 @@ window.planAddAction = function(eid, rid){
   const r=e.prerequis.find(x=>x.id===rid); if(!r) return;
   r.actions.push({_id:'a'+(window._planACtr++), action:'', delai:'', porteur:'', commentaire:''});
   _pRender();
+  planFbSave();
 };
 
 window.planDeleteAction = function(actId){
   _pSave();
-  window._planData.forEach(e=>e.prerequis.forEach(r=>{
+  window._planData.forEach(e=>(e.prerequis||[]).forEach(r=>{
     r.actions=r.actions.filter(a=>a._id!==actId);
   }));
   _pRender();
+  planFbSave();
 };
 
-/* init */
-if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded',_pRender); }
-else { setTimeout(_pRender,0); }
+/* ── init : attendre Firebase puis charger ── */
+function _planInit(){
+  if(window._db){ planLoad(); }
+  else { window.addEventListener('fbReady', planLoad, {once:true}); }
+}
+if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded',_planInit); }
+else { _planInit(); }
 </script>
 
 </div><!-- /page-missions -->
