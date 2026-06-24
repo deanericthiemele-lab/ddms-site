@@ -217,7 +217,7 @@ tr:hover td{background:#fafbfc}
       <div class="cc-body"><div id="ch-univers"></div></div>
     </div>
     <div class="chart-card" id="cc-mois">
-      <div class="cc-hdr" onclick="toggleCard('cc-mois')"><span class="cc-ttl">Entrées par mois 2026</span><span class="cc-arrow">▾</span></div>
+      <div class="cc-hdr" onclick="toggleCard('cc-mois')" style="display:flex;align-items:center;gap:6px"><span class="cc-ttl" id="cc-mois-ttl">Entrées par mois</span><span class="cc-arrow" style="margin-left:auto">▾</span><select id="sel-mois-an" class="fsel" style="font-size:10px;padding:2px 5px;margin-left:4px;height:22px" onclick="event.stopPropagation()" onchange="renderChMois()"></select></div>
       <div class="cc-body"><div id="ch-mois"></div></div>
     </div>
     <div class="chart-card" id="cc-seg">
@@ -621,6 +621,23 @@ function donutSVG(data,colors,tot){
 function hbarSVG(data,W=460){ const H=data.length*28+20,mx=data[0]?.v||1; return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg">`+data.map((d,i)=>{ const bw=Math.max(4,(d.v/mx)*(W-180)),y=i*28+8; return `<text x="0" y="${y+14}" class="bar-lbl" dominant-baseline="middle">${String(d.l).substring(0,28)}</text><rect x="180" y="${y}" height="18" width="${bw}" rx="3" fill="${d.c||'#1D9E75'}"/><text x="${182+bw}" y="${y+14}" class="bar-val" dominant-baseline="middle"> ${d.v>999?(d.v/1000).toFixed(1)+'k':d.v}</text>`; }).join('')+'</svg>'; }
 function barSVG(data,W=300){ const H=160,mx=Math.max(...data.map(d=>d.v),1),bw=Math.floor((W-20)/data.length)-4; return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg">`+data.map((d,i)=>{ const bh=Math.max(4,(d.v/mx)*(H-40)),x=10+i*(bw+4),y=H-30-bh; return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" rx="3" fill="${UV_COLOR[d.l]||'#1D9E75'}"/><text x="${x+bw/2}" y="${H-16}" text-anchor="middle" font-size="9" fill="#6c757d">${String(d.l).substring(0,4)}</text><text x="${x+bw/2}" y="${y-4}" text-anchor="middle" font-size="9" fill="#1a1a1a" font-weight="600">${d.v}</text>`; }).join('')+'</svg>'; }
 
+// CHART MOIS
+function renderChMois(){
+  const sel=document.getElementById('sel-mois-an'); if(!sel)return;
+  // Peupler les années disponibles
+  const ans=[...new Set(D.map(d=>(d.recu_le||'').substring(0,4)).filter(y=>y.length===4&&!isNaN(y)))].sort();
+  const curVal=sel.value;
+  sel.innerHTML=ans.map(y=>`<option value="${y}">${y}</option>`).join('');
+  // Garder la sélection ou prendre l'année en cours
+  const now=new Date();
+  sel.value=(curVal&&ans.includes(curVal))?curVal:String(now.getFullYear());
+  const yr=sel.value;
+  document.getElementById('cc-mois-ttl').textContent='Entrées par mois '+yr;
+  const mois=['janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'];
+  document.getElementById('ch-mois').innerHTML=barSVG(mois.map((l,i)=>({l,v:D.filter(d=>(d.recu_le||'').startsWith(yr+'-'+String(i+1).padStart(2,'0'))).length})),300);
+  renderKpiAO(yr);
+}
+
 // DASHBOARD
 function renderDash(){
   const gagnes=D.filter(d=>d.statut==='Gagné'), actif=D.filter(d=>['Attente notification','En cours de traitement','Standby'].includes(d.statut));
@@ -633,8 +650,7 @@ function renderDash(){
   const uvM={};D.forEach(d=>{if(d.univers)uvM[d.univers]=(uvM[d.univers]||0)+(d.cas_potentiel||0);});
   const uvData=Object.entries(uvM).sort((a,b)=>b[1]-a[1]).map(([l,v])=>({l,v:+v.toFixed(1),c:UV_COLOR[l]||'#888'}));
   document.getElementById('ch-univers').innerHTML=uvData.length?hbarSVG(uvData,360):'<p style="padding:12px;color:var(--tx3)">—</p>';
-  const mois=['janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'];
-  document.getElementById('ch-mois').innerHTML=barSVG(mois.map((l,i)=>({l,v:D.filter(d=>(d.recu_le||'').startsWith('2026-'+String(i+1).padStart(2,'0'))).length})),300);
+  renderChMois();
   const pub=D.filter(d=>d.segment==='PUBLIC').length,pri=D.filter(d=>d.segment==='PRIVÉ').length;
       // Haute valeur >= 100M
   (function(){
@@ -662,32 +678,44 @@ function renderDash(){
 }
 
 // KPI AO
-function renderKpiAO(){
+function renderKpiAO(yr){
   const el=document.getElementById('kpi-ao-bar'); if(!el)return;
-  // Nbre moyen AO par mois : AO reçus en 2026 hors mois en cours ÷ nb de mois 2026 écoulés hors mois en cours
   const now=new Date(), yCur=now.getFullYear(), mCur=now.getMonth()+1;
-  const prefixCur=yCur+'-'+String(mCur).padStart(2,'0');
-  // AO 2026 hors mois en cours
-  const ao2026=D.filter(d=>{const m=(d.recu_le||'').substring(0,7); return m.startsWith('2026-') && m<prefixCur;});
-  // Nb de mois écoulés en 2026 avant le mois en cours (janv=1 … mois précédent)
-  const nbMois2026=mCur-1; // ex: juin(6) → 5 mois (janv-mai)
-  let subMoy='', moy=0;
-  if(nbMois2026>0){
-    moy=ao2026.length/nbMois2026;
-    let mEnd=mCur-1; if(mEnd===0)mEnd=12;
-    subMoy=ao2026.length+' AO 2026 / '+nbMois2026+' mois (janv → '+['','janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'][mEnd]+')';
+  // Année sélectionnée (depuis select ou défaut année en cours)
+  if(!yr){ const sel=document.getElementById('sel-mois-an'); yr=sel?sel.value:String(yCur); }
+  const nomsMois=['','janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'];
+  const isCurrentYear=(parseInt(yr)===yCur);
+
+  // --- MOY AO / MOIS ---
+  // Pour l'année en cours : AO reçus hors mois en cours ÷ nb mois écoulés hors mois en cours
+  // Pour une année passée : tous les AO de l'année ÷ 12
+  let moy=0, subMoy='';
+  if(isCurrentYear){
+    const prefixCur=yr+'-'+String(mCur).padStart(2,'0');
+    const aoAn=D.filter(d=>{const m=(d.recu_le||'').substring(0,7); return m.startsWith(yr+'-') && m<prefixCur;});
+    const nbMois=mCur-1;
+    if(nbMois>0){
+      moy=aoAn.length/nbMois;
+      subMoy=aoAn.length+' AO / '+nbMois+' mois (janv → '+nomsMois[nbMois]+')';
+    }
+  } else {
+    const aoAn=D.filter(d=>(d.recu_le||'').startsWith(yr+'-'));
+    moy=aoAn.length/12;
+    subMoy=aoAn.length+' AO / 12 mois ('+yr+')';
   }
-  // % gagné sur terminés
-  const termines=D.filter(d=>['Gagné','Perdu','No GO','Abandonné','Infructueux'].includes(d.statut));
+
+  // --- TAUX DE SUCCÈS sur l'année sélectionnée ---
+  const termines=D.filter(d=>(d.recu_le||'').startsWith(yr+'-') && ['Gagné','Perdu','No GO','Abandonné','Infructueux'].includes(d.statut));
   const gagnes=termines.filter(d=>d.statut==='Gagné');
   const pctGagne=termines.length>0?Math.round(gagnes.length/termines.length*100):0;
-  // En cours
+
+  // --- AO EN COURS : global toutes années ---
   const enCours=D.filter(d=>['Attente notification','En cours de traitement','Standby'].includes(d.statut)).length;
 
   const kpis=[
-    {icon:'📈',label:'Moy. AO / mois',val:moy.toFixed(1),sub:subMoy,color:'#378ADD',bg:'#EFF6FF'},
-    {icon:'🏆',label:'Taux de succès',val:pctGagne+'%',sub:gagnes.length+' gagné'+(gagnes.length>1?'s':'')+' / '+termines.length+' terminé'+(termines.length>1?'s':''),color:'#1D9E75',bg:'#E1F5EE'},
-    {icon:'⏳',label:'AO en cours',val:enCours,sub:'Attente not. + Traitement + Standby',color:'#F59E0B',bg:'#FFF4E5'},
+    {icon:'📈',label:'Moy. AO / mois '+yr,val:moy.toFixed(1),sub:subMoy,color:'#378ADD',bg:'#EFF6FF'},
+    {icon:'🏆',label:'Taux de succès '+yr,val:pctGagne+'%',sub:gagnes.length+' gagné'+(gagnes.length>1?'s':'')+' / '+termines.length+' terminé'+(termines.length>1?'s':''),color:'#1D9E75',bg:'#E1F5EE'},
+    {icon:'⏳',label:'AO en cours (global)',val:enCours,sub:'Attente not. + Traitement + Standby',color:'#F59E0B',bg:'#FFF4E5'},
   ];
   el.innerHTML=kpis.map(k=>`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--rl);padding:14px 16px;display:flex;align-items:center;gap:12px">
     <div style="width:40px;height:40px;border-radius:10px;background:${k.bg};display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">${k.icon}</div>
