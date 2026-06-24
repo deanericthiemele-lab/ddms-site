@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Carte Congestion — NOC B2B</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -65,20 +64,7 @@ header{
   color:var(--text2);font:500 10px var(--font);cursor:pointer;text-align:center;transition:all .15s}
 .tab.active{background:var(--surface2);border-color:var(--cyan);color:var(--cyan)}
 
-/* Import zone */
-.drop-zone{
-  border:1px dashed var(--border2);border-radius:var(--r);
-  padding:9px;text-align:center;cursor:pointer;position:relative;
-  transition:background .15s,border-color .15s;
-}
-.drop-zone:hover,.drop-zone.drag{background:var(--cyan-dim);border-color:var(--cyan)}
-.drop-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-.drop-zone .ico{font-size:18px;margin-bottom:3px;display:block}
-.drop-zone p{font-size:10px;color:var(--text2);line-height:1.45}
-.drop-zone strong{color:var(--cyan)}
-.imp-status{margin-top:6px;padding:5px 8px;border-radius:5px;font-size:11px;display:none}
-.imp-status.ok{background:rgba(30,120,60,.18);border:1px solid rgba(50,160,80,.3);color:#6edfa0}
-.imp-status.err{background:rgba(160,40,40,.18);border:1px solid rgba(200,60,60,.3);color:var(--red-lt)}
+
 
 /* ADD FORM */
 .add-form{display:flex;flex-direction:column;gap:7px}
@@ -287,6 +273,29 @@ header{
 .cli-status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
 .cli-toggle.actif .cli-status-dot{background:var(--red)}
 .cli-toggle.clot  .cli-status-dot{background:var(--green)}
+/* Edit modal */
+.edit-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9100;
+  display:flex;align-items:center;justify-content:center;
+}
+.edit-overlay.hidden{display:none}
+.edit-box{
+  background:var(--surface);border:1px solid var(--border2);border-radius:10px;
+  padding:20px 22px;max-width:360px;width:92%;max-height:90vh;overflow-y:auto;
+}
+.edit-box h3{font-size:13px;font-weight:600;color:var(--cyan);margin-bottom:14px}
+.edit-box-btns{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
+.edit-box-btns button{padding:6px 16px;border-radius:var(--r);border:1px solid;cursor:pointer;font:500 12px var(--font)}
+.edit-cancel{background:transparent;border-color:var(--border2);color:var(--text2)}
+.edit-save{background:var(--cyan);border-color:var(--cyan);color:#0b1622;font-weight:600}
+.edit-save:hover{opacity:.85}
+.gps-preview{margin-top:3px;font-size:10px;color:var(--green-lt);display:none}
+.btn-edit-cli{
+  display:flex;align-items:center;gap:3px;padding:3px 8px;border-radius:4px;
+  border:1px solid var(--border2);color:var(--cyan);background:var(--cyan-dim);
+  cursor:pointer;font:500 10px var(--font);transition:all .15s;
+}
+.btn-edit-cli:hover{border-color:var(--cyan);background:rgba(77,184,212,0.2)}
 </style>
 </head>
 <body>
@@ -322,6 +331,42 @@ header{
 <!-- FIREBASE TOAST -->
 <div class="fb-status hidden" id="fb-toast"></div>
 
+<!-- EDIT CLIENT MODAL -->
+<div class="edit-overlay hidden" id="edit-overlay">
+  <div class="edit-box">
+    <h3>✏ Modifier le client</h3>
+    <div class="add-form">
+      <input type="hidden" id="e-zone">
+      <input type="hidden" id="e-client-id">
+      <div class="form-row">
+        <label>Nom client *</label>
+        <input type="text" id="e-client" placeholder="Ex: STE XYZ">
+      </div>
+      <div class="form-row">
+        <label>Ville / Zone *</label>
+        <input type="text" id="e-zone-name" placeholder="Ex: ABIDJAN" style="text-transform:uppercase">
+      </div>
+      <div class="form-row">
+        <label>GPS (ex: 5.3558N, 3.8885W)</label>
+        <input type="text" id="e-gps" placeholder="5.3558N, 3.8885W" oninput="previewGPSEdit()">
+        <div class="gps-preview" id="e-gps-preview"></div>
+      </div>
+      <div class="form-row">
+        <label>Lien / Référence circuit</label>
+        <input type="text" id="e-lien" placeholder="Ex: SYTHD240123">
+      </div>
+      <div class="form-row">
+        <label>Circuits congestionnés</label>
+        <input type="text" id="e-circuit" placeholder="Ex: ABIDJAN - YAMOUSSOUKRO">
+      </div>
+    </div>
+    <div class="edit-box-btns">
+      <button class="edit-cancel" onclick="closeEditModal()">Annuler</button>
+      <button class="edit-save" onclick="saveEditClient()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
 <header>
   <a href="ingenierie.html" class="btn-back">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -343,29 +388,10 @@ header{
   <!-- SIDEBAR -->
   <aside class="sidebar">
     <div class="sb-top">
-      <!-- TABS -->
-      <div class="tabs">
-        <button class="tab active" id="tab-import" onclick="switchTab('import')">📂 Import</button>
-        <button class="tab" id="tab-add"    onclick="switchTab('add')">➕ Ajouter</button>
-      </div>
-
-      <!-- PANEL IMPORT -->
-      <div id="panel-import">
-        <div class="drop-zone" id="dropzone">
-          <input type="file" id="file-input" accept=".xlsx,.xls">
-          <span class="ico">📂</span>
-          <p><strong>Glisser / Cliquer</strong><br>Fichier .xlsx — N°, CLIENT,<br>ZONE, GPS, LIEN, CIRCUITS CONGESTIONNES</p>
-        </div>
-        <div class="imp-status" id="imp-status"></div>
-      </div>
-
-      <!-- PANEL AJOUTER -->
-      <div id="panel-add" style="display:none">
+      <!-- ADD FORM only -->
+      <div class="sec-lbl" style="margin-bottom:9px">➕ Ajouter un site</div>
+      <div id="panel-add">
         <div class="add-form">
-          <div class="form-row">
-            <label>N° client</label>
-            <input type="text" id="f-num" placeholder="Ex: 41">
-          </div>
           <div class="form-row">
             <label>Nom client *</label>
             <input type="text" id="f-client" placeholder="Ex: STE XYZ">
@@ -376,7 +402,8 @@ header{
           </div>
           <div class="form-row">
             <label>GPS (ex: 5.3558N, 3.8885W)</label>
-            <input type="text" id="f-gps" placeholder="5.3558N, 3.8885W">
+            <input type="text" id="f-gps" placeholder="5.3558N, 3.8885W" oninput="previewGPS()">
+            <div class="gps-preview" id="gps-preview"></div>
           </div>
           <div class="form-row">
             <label>Lien / Référence circuit</label>
@@ -394,7 +421,6 @@ header{
     <!-- FILTER BAR -->
     <div class="filter-bar">
       <input type="text" id="search-input" placeholder="Rechercher une ville…" oninput="applyFilters()">
-      <button class="filter-toggle" id="toggle-clot" onclick="toggleShowClot()">Voir clôturés</button>
     </div>
 
     <div class="city-list" id="city-list"></div>
@@ -577,15 +603,16 @@ function makeIcon(n, clot){
 // ══════════════════════════════════════════════════════════════════
 function popHtml(z){
   const d = zonesMap[z];
+  const activeClients = d.clients.filter(c=>!c.clot);
   const clotBadge = d.clot ? '<span class="pop-clot">✓ Clôturé</span>' : '';
-  const cards = d.clients.map(c=>`
+  const cards = activeClients.map(c=>`
     <div class="pop-card">
-      <div class="pop-name">N°${c.n} — ${c.name}</div>
+      <div class="pop-name">${c.name}</div>
       ${c.lien?`<div class="pop-lien">${c.lien}</div>`:''}
       ${c.circuit?`<div class="pop-circuit">↳ ${c.circuit}</div>`:''}
     </div>`).join('');
   return`<div class="pop-inner">
-    <div class="pop-zone">${d.zone}${clotBadge}<span class="pop-sub">${d.clients.length} client${d.clients.length>1?'s':''}</span></div>
+    <div class="pop-zone">${d.zone}${clotBadge}<span class="pop-sub">${activeClients.length} client${activeClients.length>1?'s':''}</span></div>
     ${cards}
   </div>`;
 }
@@ -601,13 +628,16 @@ function clearAllMarkers(){
 function buildMarker(zk){
   const d = zonesMap[zk];
   if(markers[zk]) map.removeLayer(markers[zk]);
+  // Ne pas afficher sur la carte si clôturé ou si tous les clients sont clôturés
+  const activeCount = d.clients.filter(c=>!c.clot).length;
+  if(d.clot || activeCount === 0) return;
   const m = L.marker([d.lat,d.lon],{
-    icon: makeIcon(d.clients.length, d.clot),
-    zIndexOffset: d.clot ? 0 : d.clients.length*10
+    icon: makeIcon(activeCount, false),
+    zIndexOffset: activeCount*10
   }).addTo(map)
     .bindPopup(popHtml(zk),{maxWidth:290,minWidth:200,closeButton:true})
     .bindTooltip(d.zone,{permanent:true,direction:'right',offset:[10,-8],
-      className:'lbl-tt'+(d.clot?' clot-tt':''),opacity:1});
+      className:'lbl-tt',opacity:1});
 
   m.on('click',()=>{
     activeZone = zk;
@@ -629,10 +659,7 @@ function applyFilters(){
   const q = document.getElementById('search-input').value.toLowerCase();
   document.querySelectorAll('.city-item').forEach(el=>{
     const z = el.dataset.zone.toLowerCase();
-    const matchQ = !q || z.includes(q);
-    const d = zonesMap[el.dataset.zone];
-    const matchClot = showClot || !d.clot;
-    el.style.display = (matchQ && matchClot) ? 'flex' : 'none';
+    el.style.display = (!q || z.includes(q)) ? 'flex' : 'none';
   });
 }
 
@@ -641,24 +668,26 @@ function buildSidebar(){
   list.innerHTML = '';
   const sorted = Object.keys(zonesMap).sort((a,b)=>{
     const da=zonesMap[a], db=zonesMap[b];
-    if(da.clot !== db.clot) return da.clot ? 1 : -1;
-    return db.clients.length - da.clients.length;
+    const ca=da.clients.filter(c=>!c.clot).length;
+    const cb=db.clients.filter(c=>!c.clot).length;
+    return cb - ca;
   });
   sorted.forEach(zk=>{
     const d = zonesMap[zk];
+    const activeCount = d.clients.filter(c=>!c.clot).length;
+    // Ne pas afficher dans la sidebar si clôturé ou sans client actif
+    if(d.clot || activeCount === 0) return;
     const item = document.createElement('div');
-    item.className = 'city-item'+(d.clot?' clot':'');
+    item.className = 'city-item';
     item.dataset.zone = zk;
-    item.innerHTML = `<div class="city-dot"></div><div class="city-name">${d.zone}</div><div class="city-count">${d.clients.length}</div>`;
+    item.innerHTML = `<div class="city-dot"></div><div class="city-name">${d.zone}</div><div class="city-count">${activeCount}</div>`;
     item.addEventListener('click',()=>{
       if(activeZone === zk){
-        // Déjà actif → fermer et revenir à la vue globale
         activeZone = null;
         item.classList.remove('active');
         highlightCity(null);
         document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
         if(markers[zk]) markers[zk].closePopup();
-        // Revenir à la vue d'ensemble
         const grp = L.featureGroup(Object.values(markers));
         if(Object.keys(markers).length) map.fitBounds(grp.getBounds().pad(0.06),{animate:true});
         return;
@@ -683,24 +712,22 @@ function setActiveCity(zk){
   highlightCity(zk);
   const d = zonesMap[zk];
   const panel = document.getElementById('detail-panel');
+  const activeClients = d.clients.filter(c=>!c.clot);
   const actionBtn = d.clot
     ? `<button class="det-btn det-btn-reopen" onclick="confirmReopen('${zk}')">↩ Réouvrir</button>`
     : `<button class="det-btn det-btn-clot"   onclick="confirmClot('${zk}')">✓ Clôturer</button>`;
-  const cards = d.clients.map(c=>{
-    const isClot = c.clot||false;
-    const toggleClass = isClot?'clot':'actif';
-    const toggleLabel = isClot?'✓ Clôturé':'● Actif';
+  const cards = activeClients.map(c=>{
     return `<div class="cli-card" id="clicard-${c.id}">
       <div class="cli-top">
-        <span class="cli-n">N°${c.n}</span>
         <span class="cli-name">${c.name}</span>
         ${c.source==='manual'?'<span class="cli-badge-new">nouveau</span>':''}
       </div>
       ${c.lien?`<div class="cli-lien">${c.lien}</div>`:''}
       ${c.circuit?`<div class="cli-circuit">↳ ${c.circuit}</div>`:''}
       <div class="cli-status-row">
-        <button class="cli-toggle ${toggleClass}" onclick="toggleClientClot('${zk}','${c.id}')">
-          <span class="cli-status-dot"></span>${toggleLabel}
+        <button class="btn-edit-cli" onclick="openEditModal('${zk}','${c.id}')">✏ Éditer</button>
+        <button class="cli-toggle actif" onclick="toggleClientClot('${zk}','${c.id}')">
+          <span class="cli-status-dot"></span>● Actif
         </button>
       </div>
     </div>`;
@@ -708,13 +735,13 @@ function setActiveCity(zk){
   panel.innerHTML = `
     <div class="det-header">
       <div class="det-zone">${d.zone}${d.clot?' <span style="font-size:10px;color:var(--green-lt)">(Clôturé)</span>':''}</div>
-      <div class="det-sub">${d.clients.length} client${d.clients.length>1?'s':''}</div>
+      <div class="det-sub">${activeClients.length} client${activeClients.length>1?'s':''} actif${activeClients.length>1?'s':''}</div>
       <div class="det-actions">
         ${actionBtn}
         <button class="det-btn det-btn-del" onclick="confirmDelete('${zk}')">🗑 Supprimer</button>
       </div>
     </div>
-    ${cards}`;
+    ${cards||'<div class="det-empty" style="font-size:11px;padding:10px 13px;color:var(--text3)">Aucun client actif</div>'}`;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -762,10 +789,17 @@ function confirmDelete(zk){
 
 async function doClot(zk, clot){
   zonesMap[zk].clot = clot;
+  // Si on clôture, retirer de la carte + sidebar
   buildMarker(zk);
   buildSidebar();
-  setActiveCity(zk);
   updateStats();
+  if(clot){
+    // Zone clôturée → masquer panel
+    activeZone = null;
+    document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+  } else {
+    setActiveCity(zk);
+  }
   await fbSaveZone(zk);
 }
 
@@ -783,7 +817,6 @@ async function doDelete(zk){
 // AJOUTER UN CLIENT
 // ══════════════════════════════════════════════════════════════════
 async function addClient(){
-  const num    = document.getElementById('f-num').value.trim();
   const client = document.getElementById('f-client').value.trim();
   const zone   = document.getElementById('f-zone').value.trim().toUpperCase();
   const gps    = document.getElementById('f-gps').value.trim();
@@ -802,14 +835,12 @@ async function addClient(){
     lat=c.lat; lon=c.lon;
   }
 
-  const newClient = {id:uid(), n:num||'?', name:client, lien, circuit, clot:false, source:'manual'};
+  const newClient = {id:uid(), name:client, lien, circuit, clot:false, source:'manual'};
 
   if(zonesMap[zone]){
-    // Zone existante
     if(lat){ zonesMap[zone].lat=lat; zonesMap[zone].lon=lon; }
     zonesMap[zone].clients.push(newClient);
   } else {
-    // Nouvelle zone
     if(!lat){ alert('Coordonnées GPS requises pour une nouvelle ville.'); btn.disabled=false; btn.textContent='+ Ajouter le client'; return; }
     zonesMap[zone] = {zone, lat, lon, clot:false, clients:[newClient]};
   }
@@ -819,13 +850,16 @@ async function addClient(){
   activeZone = zone;
   setActiveCity(zone);
   updateStats();
+  // Pan carte vers la zone ajoutée
+  const zData = zonesMap[zone];
+  map.setView([zData.lat, zData.lon], 10, {animate:true});
+  if(markers[zone]) markers[zone].openPopup();
   await fbSaveZone(zone);
 
-  // Reset form
-  ['f-num','f-client','f-zone','f-gps','f-lien','f-circuit'].forEach(id=>document.getElementById(id).value='');
+  ['f-client','f-zone','f-gps','f-lien','f-circuit'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('gps-preview').style.display='none';
   btn.disabled=false; btn.textContent='+ Ajouter le client';
   toast('✓ Client ajouté');
-  switchTab('import');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -846,16 +880,17 @@ function highlightCity(zone){
 // ══════════════════════════════════════════════════════════════════
 function updateStats(){
   const all = Object.values(zonesMap);
-  const actifs = all.filter(d=>!d.clot);
-  const clots  = all.filter(d=>d.clot);
-  const tc = all.reduce((s,d)=>s+d.clients.length,0);
-  const tl = all.reduce((s,d)=>s+d.clients.filter(c=>c.lien).length,0);
+  // Actifs = zones non clôturées avec au moins 1 client actif
+  const actifs = all.filter(d=>!d.clot && d.clients.some(c=>!c.clot));
+  const clots  = all.filter(d=>d.clot || d.clients.every(c=>c.clot));
+  const activeClients = all.reduce((s,d)=>s+d.clients.filter(c=>!c.clot).length,0);
+  const tl = all.reduce((s,d)=>s+d.clients.filter(c=>!c.clot&&c.lien).length,0);
   document.getElementById('sv').textContent = actifs.length;
   document.getElementById('sc').textContent = clots.length;
   document.getElementById('sl').textContent = tl;
   document.getElementById('hdr-actifs').textContent = actifs.length+' actifs';
   document.getElementById('hdr-clots').textContent  = clots.length+' clôturés';
-  document.getElementById('hdr-total').textContent  = tc+' clients';
+  document.getElementById('hdr-total').textContent  = activeClients+' clients';
   document.getElementById('hdr-sub').textContent =
     'Sites en congestion — '+new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
 }
@@ -890,100 +925,125 @@ function parseGPS(s){
 }
 
 // ══════════════════════════════════════════════════════════════════
-// IMPORT EXCEL
+// GPS PREVIEW LIVE
 // ══════════════════════════════════════════════════════════════════
-function parseExcel(file){
-  const reader = new FileReader();
-  reader.onload = async ev=>{
-    try{
-      const wb = XLSX.read(ev.target.result,{type:'array'});
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
-      const zm = {};
-      rows.forEach(r=>{
-        const zone   = (r['ZONE']||r['Zone']||'').toString().trim().toUpperCase();
-        const client = (r['CLIENT']||r['Client']||'').toString().trim();
-        const gps    = (r['GPS']||r['Gps']||'').toString().trim();
-        const num    = r['N°']||'';
-        const lien   = (r['LIEN']||r['Lien']||'').toString().trim();
-        const circuit= (r['CIRCUITS CONGESTIONNES']||r['Circuits Congestionnes']||'').toString().trim();
-        if(!zone||!client) return;
-        const coord = parseGPS(gps);
-        if(!zm[zone]) zm[zone]={zone,lat:coord?coord.lat:null,lon:coord?coord.lon:null,clot:false,clients:[]};
-        if(coord&&!zm[zone].lat){zm[zone].lat=coord.lat;zm[zone].lon=coord.lon;}
-        zm[zone].clients.push({id:uid(),n:num||'?',name:client,lien,circuit,clot:false,source:'import'});
-      });
-      const valid = Object.values(zm).filter(d=>d.lat&&d.lon);
-      if(!valid.length) throw new Error('Aucune donnée GPS valide');
-
-      // Merge avec existant (préserve clot status)
-      valid.forEach(d=>{
-        const zk = d.zone;
-        if(zonesMap[zk]){
-          // ajoute clients non dupliqués
-          d.clients.forEach(c=>{
-            if(!zonesMap[zk].clients.find(x=>x.name===c.name&&x.n===c.n))
-              zonesMap[zk].clients.push(c);
-          });
-          if(!zonesMap[zk].lat){ zonesMap[zk].lat=d.lat; zonesMap[zk].lon=d.lon; }
-        } else {
-          zonesMap[zk] = d;
-        }
-      });
-
-      render();
-
-      // Sauvegarder dans Firebase (batch)
-      if(fbOk){
-        showImpStatus('⏳ Sauvegarde Firebase en cours…','ok');
-        await fbSaveAll(Object.keys(zonesMap));
-      }
-
-      const totalClients = Object.values(zonesMap).reduce((s,d)=>s+d.clients.length,0);
-      showImpStatus(`✓ ${Object.keys(zonesMap).length} villes · ${totalClients} clients — Firebase OK`,'ok');
-    } catch(e){ showImpStatus('Erreur : '+e.message,'err'); }
-  };
-  reader.readAsArrayBuffer(file);
+function previewGPS(){
+  const gps = document.getElementById('f-gps').value.trim();
+  const el = document.getElementById('gps-preview');
+  if(!gps){ el.style.display='none'; return; }
+  const c = parseGPS(gps);
+  if(c){
+    el.textContent = `✓ lat:${c.lat.toFixed(4)}, lon:${c.lon.toFixed(4)}`;
+    el.style.display='block';
+    map.setView([c.lat, c.lon], 9, {animate:true});
+    // Marqueur temporaire
+    if(window._previewMarker) map.removeLayer(window._previewMarker);
+    window._previewMarker = L.circleMarker([c.lat, c.lon],{
+      radius:8, color:'#4db8d4', fillColor:'#4db8d4', fillOpacity:0.5, weight:2
+    }).addTo(map);
+    setTimeout(()=>{ if(window._previewMarker) map.removeLayer(window._previewMarker); }, 5000);
+  } else {
+    el.textContent = '⚠ Format invalide (ex: 5.3558N, 3.8885W)';
+    el.style.color='var(--red-lt)';
+    el.style.display='block';
+  }
 }
 
-function showImpStatus(msg,type){
-  const el = document.getElementById('imp-status');
-  el.textContent=msg; el.className='imp-status '+type; el.style.display='block';
-  if(type==='ok') setTimeout(()=>el.style.display='none',4000);
+function previewGPSEdit(){
+  const gps = document.getElementById('e-gps').value.trim();
+  const el = document.getElementById('e-gps-preview');
+  if(!gps){ el.style.display='none'; return; }
+  const c = parseGPS(gps);
+  if(c){
+    el.textContent = `✓ lat:${c.lat.toFixed(4)}, lon:${c.lon.toFixed(4)}`;
+    el.style.color='var(--green-lt)';
+    el.style.display='block';
+    map.setView([c.lat, c.lon], 9, {animate:true});
+  } else {
+    el.textContent = '⚠ Format invalide';
+    el.style.color='var(--red-lt)';
+    el.style.display='block';
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// TOGGLE CLÔTURÉS
+// EDIT CLIENT
 // ══════════════════════════════════════════════════════════════════
-function toggleShowClot(){
-  showClot = !showClot;
-  const btn = document.getElementById('toggle-clot');
-  btn.classList.toggle('on', showClot);
-  btn.textContent = showClot ? '✓ Clôturés visibles' : 'Voir clôturés';
-  applyFilters();
+function openEditModal(zk, clientId){
+  const z = zonesMap[zk];
+  if(!z) return;
+  const c = z.clients.find(x=>x.id===clientId);
+  if(!c) return;
+  document.getElementById('e-zone').value = zk;
+  document.getElementById('e-client-id').value = clientId;
+  document.getElementById('e-client').value = c.name||'';
+  document.getElementById('e-zone-name').value = z.zone||'';
+  // GPS inverse : lat positif = N, lon négatif = W pour CI
+  const latN = z.lat ? z.lat.toFixed(4)+'N' : '';
+  const lonW = z.lon ? Math.abs(z.lon).toFixed(4)+'W' : '';
+  document.getElementById('e-gps').value = latN && lonW ? latN+', '+lonW : '';
+  document.getElementById('e-lien').value = c.lien||'';
+  document.getElementById('e-circuit').value = c.circuit||'';
+  document.getElementById('e-gps-preview').style.display='none';
+  document.getElementById('edit-overlay').classList.remove('hidden');
 }
 
-// ══════════════════════════════════════════════════════════════════
-// TABS
-// ══════════════════════════════════════════════════════════════════
-function switchTab(t){
-  document.getElementById('panel-import').style.display = t==='import'?'block':'none';
-  document.getElementById('panel-add').style.display    = t==='add'?'block':'none';
-  document.getElementById('tab-import').classList.toggle('active',t==='import');
-  document.getElementById('tab-add').classList.toggle('active',t==='add');
+function closeEditModal(){
+  document.getElementById('edit-overlay').classList.add('hidden');
 }
 
-// ══════════════════════════════════════════════════════════════════
-// EVENTS
-// ══════════════════════════════════════════════════════════════════
-document.getElementById('file-input').addEventListener('change',ev=>{
-  if(ev.target.files[0]) parseExcel(ev.target.files[0]); ev.target.value='';
-});
-const dz = document.getElementById('dropzone');
-dz.addEventListener('dragover',ev=>{ev.preventDefault();dz.classList.add('drag')});
-dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
-dz.addEventListener('drop',ev=>{
-  ev.preventDefault();dz.classList.remove('drag');
-  if(ev.dataTransfer.files[0]) parseExcel(ev.dataTransfer.files[0]);
+async function saveEditClient(){
+  const oldZk = document.getElementById('e-zone').value;
+  const clientId = document.getElementById('e-client-id').value;
+  const newName = document.getElementById('e-client').value.trim();
+  const newZoneName = document.getElementById('e-zone-name').value.trim().toUpperCase();
+  const gps = document.getElementById('e-gps').value.trim();
+  const newLien = document.getElementById('e-lien').value.trim();
+  const newCircuit = document.getElementById('e-circuit').value.trim();
+
+  if(!newName||!newZoneName){ alert('Nom client et Zone sont obligatoires.'); return; }
+
+  const z = zonesMap[oldZk];
+  if(!z) return;
+  const c = z.clients.find(x=>x.id===clientId);
+  if(!c) return;
+
+  // Mise à jour GPS si fourni
+  if(gps){
+    const coord = parseGPS(gps);
+    if(!coord){ alert('Format GPS invalide. Exemple : 5.3558N, 3.8885W'); return; }
+    z.lat = coord.lat; z.lon = coord.lon;
+  }
+
+  // Mise à jour du nom de zone (renommage de la clé)
+  if(newZoneName !== oldZk){
+    // Nouvelle clé zone
+    z.zone = newZoneName;
+    zonesMap[newZoneName] = z;
+    delete zonesMap[oldZk];
+    if(markers[oldZk]){ map.removeLayer(markers[oldZk]); delete markers[oldZk]; }
+    await fbDeleteZone(oldZk);
+    c.name = newName; c.lien = newLien; c.circuit = newCircuit;
+    buildMarker(newZoneName);
+    buildSidebar();
+    activeZone = newZoneName;
+    setActiveCity(newZoneName);
+    await fbSaveZone(newZoneName);
+  } else {
+    c.name = newName; c.lien = newLien; c.circuit = newCircuit;
+    buildMarker(oldZk);
+    buildSidebar();
+    setActiveCity(oldZk);
+    await fbSaveZone(oldZk);
+  }
+
+  updateStats();
+  closeEditModal();
+  toast('✓ Client modifié');
+}
+
+document.getElementById('edit-overlay').addEventListener('click', function(e){
+  if(e.target === this) closeEditModal();
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -1316,57 +1376,26 @@ async function toggleClientClot(zk, clientId){
 
   c.clot = !c.clot;
 
-  // Vérifier si tous les clients de la zone sont clôturés → clôturer la zone
+  // Si tous les clients sont clôturés → clôturer la zone
   const allClot = z.clients.every(x=>x.clot);
   const anyActive = z.clients.some(x=>!x.clot);
-  if(allClot && !z.clot){
-    z.clot = true;
-  } else if(anyActive && z.clot){
-    z.clot = false;
-  }
+  if(allClot && !z.clot) z.clot = true;
+  else if(anyActive && z.clot) z.clot = false;
 
-  // Mettre à jour le bouton inline sans re-render tout le panel
-  const card = document.getElementById('clicard-'+clientId);
-  if(card){
-    const btn = card.querySelector('.cli-toggle');
-    const dot = card.querySelector('.cli-status-dot');
-    if(c.clot){
-      btn.className='cli-toggle clot';
-      btn.innerHTML='<span class="cli-status-dot"></span>✓ Clôturé';
-    } else {
-      btn.className='cli-toggle actif';
-      btn.innerHTML='<span class="cli-status-dot"></span>● Actif';
-    }
-  }
-
-  // Mettre à jour le header du panel
-  const detZone = document.querySelector('.det-zone');
-  if(detZone){
-    detZone.innerHTML = z.zone+(z.clot?' <span style="font-size:10px;color:var(--green-lt)">(Clôturé)</span>':'');
-  }
-  // Mettre à jour bouton zone
-  const actionBtn = document.querySelector('.det-btn-clot, .det-btn-reopen');
-  if(actionBtn){
-    if(z.clot){
-      actionBtn.className='det-btn det-btn-reopen';
-      actionBtn.textContent='↩ Réouvrir';
-      actionBtn.setAttribute('onclick',`confirmReopen('${zk}')`);
-    } else {
-      actionBtn.className='det-btn det-btn-clot';
-      actionBtn.textContent='✓ Clôturer';
-      actionBtn.setAttribute('onclick',`confirmClot('${zk}')`);
-    }
-  }
-
-  // Mettre à jour marqueur et sidebar
+  // Reconstruire marqueur (disparaît si plus de clients actifs)
   buildMarker(zk);
-  const sideItem = document.querySelector(`.city-item[data-zone="${zk}"]`);
-  if(sideItem){
-    sideItem.classList.toggle('clot', z.clot);
-    const dot2=sideItem.querySelector('.city-dot');
-    if(dot2) dot2.style.background = z.clot?'var(--green)':'var(--red)';
-  }
+  buildSidebar();
   updateStats();
+
+  // Rafraîchir le panel — si plus de clients actifs, fermer le panel
+  const activeCount = z.clients.filter(x=>!x.clot).length;
+  if(activeCount === 0){
+    activeZone = null;
+    document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+  } else {
+    setActiveCity(zk);
+  }
+
   await fbSaveZone(zk);
 }
 
