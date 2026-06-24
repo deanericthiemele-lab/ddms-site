@@ -2524,29 +2524,43 @@ document.addEventListener('DOMContentLoaded',function(){
         var wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
         var ws=wb.Sheets[wb.SheetNames[0]];
         var rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        // Convertit un numéro de série Excel en date ISO YYYY-MM-DD
+        function xlDate(v){
+          if(!v) return '';
+          if(typeof v==='string'&&v.match(/\d{4}-\d{2}-\d{2}/)) return v.slice(0,10);
+          var n=Number(v);
+          if(!n||isNaN(n)) return String(v);
+          var d=new Date(Math.round((n-25569)*86400*1000));
+          return d.toISOString().slice(0,10);
+        }
         var count=0;
-        rows.forEach(function(row){
+        rows.forEach(function(row,idx){
           var rClient=row.Client||row.client||row['Nom du client']||'';
+          // Skipper la ligne parasite "Colonne1, Colonne2..."
+          if(!rClient||rClient.toString().toLowerCase().startsWith('colonne')) return;
           var rDesc=row.Description||row.description||row['Description du deal']||'';
           var rCommercial=row.Commercial||row.commercial||row['Ingénieur Commercial']||row['Ingenieur Commercial']||'';
           var rMontant=Number(row.Montant||row.montant||row['Montant HT']||0);
-          var rClosing=row.Closing||row.closing||row['Date du closing']||'';
-          var rDlivPrev=row.DateLivraison||row.dlivPrev||row['Date de livraison prévue *']||row['Date de livraison prevue']||'';
+          var rClosing=xlDate(row.Closing||row.closing||row['Date du closing']||'');
+          var rDlivPrev=xlDate(row.DateLivraison||row.dlivPrev||row['Date de livraison prévue *']||row['Date de livraison prevue']||'');
           var rDeliveryResp=row['Ingénieur Delivery']||row['Ingenieur Delivery']||row.deliveryResp||'';
           var rStatut=row.Statut||row.statut||'À livrer';
           var rSecteur=row.Secteur||row.secteur||'';
-          var idBase=(rClient+'|'+rDesc+'|'+rClosing).toLowerCase().trim().replace(/[^a-z0-9]/g,'_');
+          var rNotes=row.Notes||row.notes||'';
+          var rDateLivReelle=xlDate(row.DateLivraisonReelle||row.dateLivraison||'');
+          var rCreatedAt=row.CreatedAt||new Date().toISOString();
+          var idBase='imp_'+(rClient+'|'+rDesc+'|'+rClosing).toLowerCase().trim().replace(/[^a-z0-9]/g,'_').slice(0,60)+'_'+idx;
           var deal={
-            id:idBase||('imp_'+Date.now()+'_'+count),
+            id:idBase,
             client:rClient, desc:rDesc,
             commercial:rCommercial,
             deliveryResp:rDeliveryResp,
             montant:rMontant, closing:rClosing,
             dlivPrev:rDlivPrev,
-            dateLivraison:row.dateLivraison||row.DateLivraisonReelle||'',
-            statut:rStatut, notes:row.Notes||row.notes||'',
+            dateLivraison:rDateLivReelle,
+            statut:rStatut, notes:rNotes,
             secteur:rSecteur,
-            createdAt:row.CreatedAt||new Date().toISOString()
+            createdAt:rCreatedAt
           };
           if(typeof saveToFirestore==='function') saveToFirestore(deal);
           count++;
