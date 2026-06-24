@@ -314,11 +314,14 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
         <datalist id="dl-client"></datalist>
       </div>
       <div class="ff"><label>Objet de la commande *</label>
-        <div style="display:flex;gap:6px;align-items:center">
-          <input type="text" id="np-desc" placeholder="Objet de la commande" list="dl-desc" autocomplete="off" style="flex:1" oninput="saveFV('desc',this.value)" onclick="this.value='';this.dispatchEvent(new Event('input'))"/>
+        <div style="position:relative;display:flex;gap:6px;align-items:center">
+          <input type="text" id="np-desc" placeholder="Objet de la commande" autocomplete="off" style="flex:1"
+            oninput="descDropdownFilter(this.value);saveFV('desc',this.value)"
+            onfocus="descDropdownOpen()"
+            onkeydown="descDropdownKey(event)"/>
           <button type="button" onclick="openAddDescPopover(this)" title="Ajouter une description" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:2px 9px;font-size:15px;font-weight:700;cursor:pointer;flex-shrink:0;line-height:1.6">+</button>
+          <div id="desc-dropdown" style="display:none;position:absolute;top:100%;left:0;right:32px;background:#fff;border:1px solid var(--border);border-radius:6px;max-height:220px;overflow-y:auto;z-index:5000;box-shadow:0 4px 16px rgba(0,0,0,.12);margin-top:2px;"></div>
         </div>
-        <datalist id="dl-desc"></datalist>
       </div>
       <div class="ff"><label>Commercial *</label>
         <input type="text" id="np-comm" placeholder="Ingénieur commercial" list="dl-comm" autocomplete="off" oninput="saveFV('comm',this.value);addListValue('commerciaux',this.value)"/>
@@ -504,43 +507,25 @@ async function loadListValues(listName,datalistId){
  }catch(e){console.warn(e);}
 }
 
-async function loadListValuesWithSeed(listName,datalistId,seed){
-  if(!db) return;
-  const dl=document.getElementById(datalistId);
-  if(!dl) return;
+async function loadListValuesWithSeed(listName,seed){
+  // Build combined list: Firebase custom entries + seed
+  var combined = seed.slice();
   try{
-    const snap=await db.collection('ict_lists').doc(listName).collection('values').get();
-    dl.innerHTML='';
-    var vals=new Set();
-    snap.forEach(doc=>{
-      const v=doc.data().value;
-      vals.add(v);
-      const o=document.createElement('option');
-      o.value=v;
-      dl.appendChild(o);
-    });
-    // Add seed entries not already in Firebase
-    seed.forEach(function(v){
-      if(!vals.has(v)){
-        const o=document.createElement('option');
-        o.value=v;
-        dl.appendChild(o);
-      }
-    });
-  }catch(e){
-    // fallback: just show seed
-    seed.forEach(function(v){
-      const o=document.createElement('option');
-      o.value=v;
-      dl.appendChild(o);
-    });
-  }
+    if(db){
+      const snap=await db.collection('ict_lists').doc(listName).collection('values').get();
+      snap.forEach(doc=>{
+        const v=doc.data().value;
+        if(!combined.includes(v)) combined.push(v);
+      });
+    }
+  }catch(e){}
+  descDropdownBuild(combined);
 }
 
 function initFirebaseLists(){
   loadListValues('clients','dl-client');
   // Seed descriptions from built-in list if datalist is empty after load
-  loadListValuesWithSeed('descriptions','dl-desc',DESC_SEED);
+  loadListValuesWithSeed('descriptions',DESC_SEED);
   loadListValues('commerciaux','dl-comm');
   loadListValues('delivery','dl-dv-resp');
 
@@ -2123,6 +2108,59 @@ function addRaisonMotif(){}
 
 var DESC_SEED=["Easy Office FIBRE 20M", "Easy Office FIBRE 50M", "Easy Office FIBRE 100M", "Easy Office FIBRE 200M", "Easy Office FIBRE 300M", "Easy Office FIBRE 400M", "Easy Office FIBRE 500M", "Easy Office 201", "Easy Office 203", "Easy Office 405", "Easy Office 608", "Easy Office 610 FIBRE", "Easy Office 620 FIBRE", "Easy Office 6150 FIBRE", "MSSP LSI 10 Mbs", "MSSP LSI 20 Mbs", "MSSP LSI 30 Mbs", "MSSP LSI 40 Mbs", "MSSP LSI 50 Mbs", "MSSP LSI 60 Mbs", "MSSP LSI 100 Mbs", "MSSP LSI 125 Mbs", "MSSP LSI 150 Mbs", "MSSP SUR FTTH", "MSSP SUR LSI 5M", "MSSP SUR LSI 10M", "MSSP SUR LSI 20M", "MSSP SUR LSI 40M", "MSSP SUR LSI 50M", "MSSP SUR LSI 100M", "MSSP GOLD", "MSSP ELITE", "MSSP PACK FULL GOLD", "BUNDLE MSSP LSI", "BUNDLE MSSP LSI 50M", "BUNDLE MSSP LSI 100M", "MSSP Option Antivirus Réseau", "MSSP Option Filtrage Web", "MSSP Option Wireless Controller", "MSSP Option IPSEC VPN", "Mail Pro Pack Smart", "Mail Pro Pack Smart Plus", "Mail Pro Pack Pro", "Mail Pro Pack Pro Plus", "E-mail Pro Pack Smart", "E-mail Pro Pack Smart Plus", "E-mail Pro Pack Pro", "E-mail Pro Pack Pro Plus", "Pack Smart", "Pack Smart Plus", "Pack Pro", "Pack Pro Plus", "Pack Prestige", "Web Pro", "Web Pro+", "Web Prime", "Microsoft 365 Business Basic", "Microsoft 365 Business Standard", "Microsoft 365 Business Premium", "Licences MS365", "Renouvellement Licences MS365", "Migration Messagerie vers MS365", "Microsoft Teams Essentials with Phone", "MSSP SUR LSI", "Orange Protect+ (EDR)", "EDR Elastic", "EDR Harmony Basic", "NDR Darktrace", "Licence XSIAM Palo Alto", "MicroSoc - Récurrent Annuel", "MicroSoc 30 Postes", "MicroSoc 100 Endpoints", "MicroSoc 200 Endpoints", "MicroSoc 260 Endpoints", "MicroSoc 300 Licences", "Renouvellement MicroSoc", "Renouvellement Licences MicroSoc", "Pack Start Premium", "Cybersec Pack Start Premium", "CYBERSEC_MSSP_LSI FO 10M", "CYBERSEC_MSSP_LSI FO 20M", "CYBERSEC_MSSP_LSI FO 30M", "CYBERSEC_MSSP_LSI FO 50M", "CYBERSEC_MSSP_LSI FO 100M", "Acquisition Firewall Sophos", "Fortigate FG 60F", "Fortigate 400F", "Renouvellement Licence Fortigate", "Refresh Fortinet", "Solution NAC Fortinet", "Refresh F5 AWAF/APM", "CSIRT - Réponse à Incident", "OBF - PenTest", "OBF - Prestation CSIRT & Forensic", "Orange Guard", "Solution Anti-Spam", "WAF - Acquisition & Déploiement", "Cloud Backup Pack Access", "Cloud Backup Pack Confort", "Cloud Backup Pack Expert", "Cloud Backup Pack Prestige", "Cloud Backup Pack Start Premium", "BaaS 250 Go", "BaaS 500 Go", "BaaS 1 To", "BaaS 2,5 To", "BaaS 4 To", "VPS Starter Server", "VPS Diamond", "VPS Copper Server", "Cloud VDC - Location Annuelle", "Virtual Data Center (VDC)", "Renouvellement VDC", "Colocation Baie 42U", "Renouvellement Colocation", "Hébergement VM", "Hébergement Web", "Nom de Domaine", "Certificat SSL", "Transfert Nom de Domaine", "Cloud Mail Pro Pack Pro", "Cloud Mail Pro Pack Pro Plus", "Cloud Mail Pro Pack Smart", "YouScribe 5000", "YouScribe 10000", "YouScribe 15000", "YouScribe 30000", "Carte de Recharge 2500", "Carte de Recharge 5000", "Carte de Recharge 10000", "LSI TEMPORAIRE 20M", "FTTH 50 Mbs", "FTTH 100 Mbs", "Adresse IP Fixe", "Adresse IP Publique", "Adresse IP Supplémentaire", "SIM Monitoring - Support & Maintenance", "Commande SIM APN MALIMA", "Connectivité LTE", "Connectivité Wi-Fi Enrichie", "IPBX Grandstream UCM6300A", "IPBX Grandstream UCM6301", "IPBX Yeastar S20", "IPBX Yeastar P520", "IPBX Yeastar P550", "Renouvellement Contrat de Maintenance IPBX", "Maintenance Annuelle Autocom", "Renouvellement Autocom", "Achat Autocom", "Poste IP Fanvil X1SP", "Poste IP Fanvil X301P", "Poste IP Fanvil X303P", "Poste IP Fanvil X303W", "Poste IP Global CS U31P", "Poste IP Global CS U33P", "Poste IP Yealink T31", "Poste IP Yealink T31P", "Terminal IP SIP Fanvil X1SP", "Call Center - Installation & Configuration", "Call Center - Licence Annuelle", "Call Center - Maintenance Récurrente", "UCC - Câblage Réseaux", "UCC - Interconnexion de Bâtiments", "UCC - Passerelle GSM", "UCC - Messagerie Vocale", "Serveur Vocal Interactif (SVI)", "SMS Affaires", "SMS Pro", "Téléphonie IP sur MS Teams", "LifeSize Icon 600 - 1 An", "Equipements ICT", "Equipements ICT - Routeur Cisco", "Equipements ICT - Switch Cisco", "Equipements ICT - Onduleur", "Equipements ICT - Energie", "Wifi Extender ZTE ZXHN H3601P", "Devolo Magic 1 Wifi", "Couverture Wi-Fi", "Cablage LAN", "Cablage Informatique & Couverture Wi-Fi", "Solution SDWAN", "HEBERGEMENT ANTENNE VSAT GOS", "Contrat de Maintenance Annuel", "Renouvellement Contrat de Maintenance", "Maintenance Postel 2026", "Maintenance Annuelle LAN", "Professional Services", "Accompagnement Déploiement", "Renouvellement Hébergement Machine Virtuelle", "Projet de Déménagement - Câblage & Téléphonie"];
 
+// ---- Description dropdown custom ----
+var _descAllItems = [];
+function descDropdownBuild(items){
+  _descAllItems = items.slice().sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});
+}
+function descDropdownOpen(){
+  descDropdownFilter(document.getElementById('np-desc').value||'');
+}
+function descDropdownFilter(q){
+  var dd=document.getElementById('desc-dropdown');
+  if(!dd) return;
+  q=q.trim().toLowerCase();
+  var list = q ? _descAllItems.filter(function(v){return v.toLowerCase().indexOf(q)!==-1;}) : _descAllItems;
+  if(!list.length){dd.style.display='none';return;}
+  dd.innerHTML=list.map(function(v,i){
+    var hl = q ? v.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\]/g,'\$&')+')','gi'),'<b>$1</b>') : v;
+    return '<div class="dd-item" data-val="'+v.replace(/"/g,'&quot;')+'" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--s3)" onmousedown="descDropdownSelect(this)" onmouseover="this.style.background='var(--s2)'" onmouseout="this.style.background=''">'+hl+'</div>';
+  }).join('');
+  dd.style.display='block';
+}
+function descDropdownSelect(el){
+  var val=el.getAttribute('data-val');
+  var inp=document.getElementById('np-desc');
+  if(inp){inp.value=val;saveFV('desc',val);}
+  document.getElementById('desc-dropdown').style.display='none';
+}
+function descDropdownKey(e){
+  var dd=document.getElementById('desc-dropdown');
+  if(!dd||dd.style.display==='none') return;
+  var items=dd.querySelectorAll('.dd-item');
+  var cur=dd.querySelector('.dd-active');
+  if(e.key==='ArrowDown'){
+    e.preventDefault();
+    var next=cur?cur.nextSibling:items[0];
+    if(cur) cur.classList.remove('dd-active'),cur.style.background='';
+    if(next){next.classList.add('dd-active');next.style.background='var(--s3)';next.scrollIntoView({block:'nearest'});}
+  } else if(e.key==='ArrowUp'){
+    e.preventDefault();
+    var prev=cur?cur.previousSibling:null;
+    if(cur) cur.classList.remove('dd-active'),cur.style.background='';
+    if(prev){prev.classList.add('dd-active');prev.style.background='var(--s3)';prev.scrollIntoView({block:'nearest'});}
+  } else if(e.key==='Enter'&&cur){
+    e.preventDefault();descDropdownSelect(cur);
+  } else if(e.key==='Escape'){
+    dd.style.display='none';
+  }
+}
+document.addEventListener('mousedown',function(e){
+  var dd=document.getElementById('desc-dropdown');
+  var inp=document.getElementById('np-desc');
+  if(dd&&inp&&!dd.contains(e.target)&&e.target!==inp) dd.style.display='none';
+});
+
 // ---- Description popover ----
 function openAddDescPopover(btn){
   var old=document.getElementById('desc-popover');
@@ -2149,11 +2187,7 @@ function confirmAddDesc(){
   var val=inp.value.trim();
   if(!val){inp.focus();return;}
   addListValue('descriptions',val);
-  var dl=document.getElementById('dl-desc');
-  if(dl){
-    var exists=Array.from(dl.options).some(function(o){return o.value===val;});
-    if(!exists){var opt=document.createElement('option');opt.value=val;dl.appendChild(opt);}
-  }
+  if(!_descAllItems.includes(val)){_descAllItems.push(val);_descAllItems.sort(function(a,b){return a.localeCompare(b,'fr',{sensitivity:'base'});});}
   var inp2=document.getElementById('np-desc');
   if(inp2) inp2.value=val;
   var pop=document.getElementById('desc-popover');
