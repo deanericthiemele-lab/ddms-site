@@ -2426,8 +2426,7 @@ async function confirmClear(){
     return;
   }
   closeClearModal();
-  try{
-    var snap=await db.collection(ICT_COL).get();
+  db.collection(ICT_COL).get().then(function(snap){
     var docs=snap.docs;
     var total=docs.length;
     var deleted=0;
@@ -2437,26 +2436,33 @@ async function confirmClear(){
     if(progBox) progBox.style.display='block';
     if(progBar) progBar.style.width='0%';
     if(progTxt) progTxt.textContent='⏳ Suppression : 0 / '+total;
-    for(var i=0;i<docs.length;i+=400){
+    function deleteChunk(i){
+      if(i>=docs.length){
+        deals=[];
+        if(progTxt) progTxt.textContent='✅ '+total+' deals supprimés.';
+        if(progBar) progBar.style.width='100%';
+        setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
+        toast('✅ '+total+' deals supprimés.');
+        if(typeof renderAll==='function') renderAll();
+        if(typeof renderDeliveryPage==='function') renderDeliveryPage();
+        if(typeof renderPlanning==='function') renderPlanning();
+        if(typeof renderMaj==='function') renderMaj();
+        if(typeof buildFilters==='function') buildFilters();
+        return;
+      }
       var batch=db.batch();
-      docs.slice(i,i+400).forEach(function(d){batch.delete(d.ref);});
-      await batch.commit();
-      deleted+=Math.min(400,docs.length-i);
-      var pct=Math.round(deleted/total*100);
-      if(progBar) progBar.style.width=pct+'%';
-      if(progTxt) progTxt.textContent='⏳ Suppression : '+deleted+' / '+total+' ('+pct+'%)';
+      var chunk=docs.slice(i,i+400);
+      chunk.forEach(function(d){batch.delete(d.ref);});
+      batch.commit().then(function(){
+        deleted+=chunk.length;
+        var pct=Math.round(deleted/total*100);
+        if(progBar) progBar.style.width=pct+'%';
+        if(progTxt) progTxt.textContent='⏳ Suppression : '+deleted+' / '+total+' ('+pct+'%)';
+        deleteChunk(i+400);
+      }).catch(function(e){ toast('❌ Erreur suppression : '+e.message); });
     }
-    deals=[];
-    if(progTxt) progTxt.textContent='✅ '+total+' deals supprimés.';
-    if(progBar) progBar.style.width='100%';
-    setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
-    toast('✅ '+total+' deals supprimés.');
-    if(typeof renderAll==='function') renderAll();
-    if(typeof renderDeliveryPage==='function') renderDeliveryPage();
-    if(typeof renderPlanning==='function') renderPlanning();
-    if(typeof renderMaj==='function') renderMaj();
-    if(typeof buildFilters==='function') buildFilters();
-  }catch(err){ toast('❌ Erreur : '+err.message); }
+    deleteChunk(0);
+  }).catch(function(e){ toast('❌ Erreur : '+e.message); });
 }
 
 function openExportModal(){
