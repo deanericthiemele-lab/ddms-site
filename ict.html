@@ -113,8 +113,6 @@ select.si{cursor:pointer}
 .dv-quick.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 #toast{position:fixed;bottom:20px;right:20px;z-index:9999;background:#1e2533;color:#fff;border-radius:var(--r);padding:10px 16px;font-size:12px;transform:translateY(80px);transition:transform .3s;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 #toast.show{transform:translateY(0)}
-#import-progress{display:none;position:fixed;top:0;left:0;right:0;z-index:10000;background:#1e2533;color:#fff;padding:12px 20px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.3)}
-#import-progress-bar{height:4px;background:var(--accent);transition:width .3s;margin-top:6px;border-radius:2px}
 tr.sla-ko td:first-child{border-left:2px solid var(--red)}
 tr.dv-selected td{background:#fff3e8 !important;border-top:2px solid var(--accent);}
 tr.dv-expand-row td{padding:0 !important;background:#fff !important;}
@@ -206,7 +204,6 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   <div class="tab" data-page="5" onclick="switchTabEx(5)">➕ Nouveau projet</div>
   <div class="tab" data-page="6" onclick="switchTabEx(6)">🚚 Suivi Delivery</div>
   <div class="tab" data-page="7" onclick="switchTabEx(7)">📅 Planning Livraison</div>
-  <div class="tab" data-page="8" onclick="switchTabEx(8)">✏️ MAJ Delivery</div>
 </div>
 <div class="main">
 
@@ -334,7 +331,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
         <input type="text" id="np-montant" placeholder="0" inputmode="numeric" oninput="fmtMontantInput(this)"/>
       </div>
       <div class="ff"><label>Date de closing *</label><input type="date" id="np-closing"/></div>
-      <div class="ff"><label>Prévision *</label><input type="date" id="np-prevision" required title="Date prévisionnelle de livraison au client"/></div>
+      <div class="ff"><label>Date de livraison prévue *</label><input type="date" id="np-dliv-prev" required title="Date prévisionnelle de livraison au client"/></div>
 
       <div class="ff full"><label>Notes commerciales</label><textarea id="np-notes" placeholder="Notes internes, remarques commerciales…"></textarea></div>
     </div>
@@ -391,7 +388,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
             <th onclick="dvSort('client')" style="cursor:pointer">Client ↕</th>
             <th>Description</th>
             <th onclick="dvSort('commercial')" style="cursor:pointer">Commercial ↕</th>
-            <th onclick="dvSort('prevision')" style="cursor:pointer">Prévision ↕</th>
+            <th onclick="dvSort('dlivPrev')" style="cursor:pointer">Date prévue ↕</th>
             <th onclick="dvSort('deliveryResp')" style="cursor:pointer">Ingénieur ↕</th>
             <th>Statut</th><th>Montant</th><th></th>
           </tr></thead>
@@ -442,42 +439,10 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   </div>
 </div>
 
-<!-- PAGE 8 : MAJ DELIVERY -->
-<div id="page-8" class="page">
-  <div style="padding:8px 0 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-    <div style="display:flex;align-items:center;gap:10px">
-      <h3 style="margin:0;font-size:13px">✏️ MAJ Delivery</h3>
-      <span id="maj-count" style="font-size:11px;color:var(--muted);background:var(--s2);padding:2px 8px;border-radius:10px;font-weight:600"></span>
-    </div>
-    <input type="text" id="maj-search" placeholder="🔍 Rechercher client / description…" oninput="renderMaj()" style="font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;width:260px"/>
-  </div>
-  <div style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
-      <thead>
-        <tr style="background:var(--s2);text-align:left">
-          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">CLIENT</th>
-          <th style="padding:7px 10px;border-bottom:1px solid var(--border)">DESCRIPTION</th>
-          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">MONTANT</th>
-          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">INGÉNIEUR DELIVERY *</th>
-          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">DATE LIVRAISON RÉELLE *</th>
-          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">STATUT *</th>
-          <th style="padding:7px 10px;border-bottom:1px solid var(--border)"></th>
-        </tr>
-      </thead>
-      <tbody id="maj-tbody"></tbody>
-    </table>
-  </div>
-  <p id="maj-empty" style="display:none;text-align:center;color:var(--muted);padding:30px;font-size:12px">✅ Tous les deals ont leurs 3 champs renseignés.</p>
-</div>
-
 
 </div>
 </div>
 <div id="toast"></div>
-<div id="import-progress">
-  <span id="import-progress-text">⏳ Import en cours…</span>
-  <div style="background:rgba(255,255,255,.2);border-radius:2px;margin-top:6px"><div id="import-progress-bar" style="height:4px;background:var(--accent);width:0%;transition:width .3s;border-radius:2px"></div></div>
-</div>
 <script>
 
 // ===== FIREBASE INIT =====
@@ -487,12 +452,12 @@ function initFirebase(){
   try {
     if(typeof firebase === 'undefined') { return; } // SDK not loaded (sandbox/offline)
     var _fbConfig = {
-      apiKey: "AIzaSyC-d7saT3uypHic_AHUsOlb0H7_nKWSxsE",
-      authDomain: "ddms-ict-2.firebaseapp.com",
-      projectId: "ddms-ict-2",
-      storageBucket: "ddms-ict-2.firebasestorage.app",
-      messagingSenderId: "971322552287",
-      appId: "1:971322552287:web:e1ba4b9aac9a87d7521e6a"
+      apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+      authDomain: "ddms-architectures.firebaseapp.com",
+      projectId: "ddms-architectures",
+      storageBucket: "ddms-architectures.firebasestorage.app",
+      messagingSenderId: "767552965189",
+      appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
     };
     if (!firebase.apps.length) {
       firebase.initializeApp(_fbConfig);
@@ -726,18 +691,18 @@ function renderAll(){
 
 function slaStatus(d){
   if(d.statut==='PV signé'||d.statut==='Livré') return 'ok';
-  if(!d.prevision) return 'none';
-  var diff=Math.ceil((new Date(d.prevision).getTime()-Date.now())/86400000);
+  if(!d.dlivPrev) return 'none';
+  var diff=Math.ceil((new Date(d.dlivPrev).getTime()-Date.now())/86400000);
   if(diff<0) return 'ko';
   if(diff<=SLA_CFG.warn) return 'warn';
   return 'ok';
 }
 function slaDays(d){
-  if(!d.prevision) return null;
-  return Math.ceil((new Date(d.prevision).getTime()-Date.now())/86400000);
+  if(!d.dlivPrev) return null;
+  return Math.ceil((new Date(d.dlivPrev).getTime()-Date.now())/86400000);
 }
 function deadlineFmt(d){
-  return d.prevision ? fDate(d.prevision) : '—';
+  return d.dlivPrev ? fDate(d.dlivPrev) : '—';
 }
 function fDate(s){
   if(!s) return '—';
@@ -815,62 +780,6 @@ function switchTab(n){
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
   var pg=document.getElementById('page-'+n);if(pg)pg.classList.add('active');
 }
-function renderMaj(){
-  var q=(document.getElementById('maj-search')||{value:''}).value.trim().toLowerCase();
-  // Deals where at least one of the 3 fields is missing
-  var list=deals.filter(function(d){
-    return d.deliveryResp&&d.deliveryResp.trim().toUpperCase().indexOf('MOUSSA')!==-1;
-  }).filter(function(d){
-    if(!q) return true;
-    return (d.client||'').toLowerCase().indexOf(q)!==-1||(d.desc||'').toLowerCase().indexOf(q)!==-1;
-  });
-  var cnt=document.getElementById('maj-count');
-  if(cnt) cnt.textContent=list.length+' deal(s) à compléter';
-  var empty=document.getElementById('maj-empty');
-  var tbody=document.getElementById('maj-tbody');
-  if(!tbody) return;
-  if(!list.length){tbody.innerHTML='';if(empty)empty.style.display='block';return;}
-  if(empty) empty.style.display='none';
-  tbody.innerHTML=list.map(function(d){
-    return '<tr style="border-bottom:1px solid var(--s3)" id="maj-row-'+d.id+'">'
-      +'<td style="padding:6px 10px;font-weight:600;white-space:nowrap">'+escH(d.client||'—')+'</td>'
-      +'<td style="padding:6px 10px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escH(d.desc||'')+'">'+escH(d.desc||'—')+'</td>'
-      +'<td style="padding:6px 10px;white-space:nowrap">'+fF(d.montant||0)+'</td>'
-      +'<td style="padding:6px 10px"><input type="text" value="'+escH(d.deliveryResp||'')+'" placeholder="Nom ingénieur…" data-id="'+d.id+'" data-field="deliveryResp" onchange="majFieldChange(this)" style="width:140px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;'+(d.deliveryResp?'':'border-color:#f97316;')+'"/></td>'
-      +'<td style="padding:6px 10px"><input type="date" value="'+(d.dateLivraison||'')+'" data-id="'+d.id+'" data-field="dateLivraison" onchange="majFieldChange(this)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;'+(d.dateLivraison?'':'border-color:#f97316;')+'"/></td>'
-      +'<td style="padding:6px 10px"><select data-id="'+d.id+'" data-field="statut" onchange="majFieldChange(this)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;'+(d.statut&&d.statut!=='À livrer'?'':'border-color:#f97316;')+'">'
-      +['À livrer','En cours','Livré','PV signé'].map(function(s){return '<option'+(d.statut===s?' selected':'')+'>'+s+'</option>';}).join('')
-      +'</select></td>'
-      +'<td style="padding:6px 10px"><button onclick="majSave(\'+d.id+\')\" style="background:var(--accent);color:#fff;border:none;border-radius:5px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">💾</button></td>'
-      +'</tr>';
-  }).join('');
-}
-
-function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-
-function majFieldChange(el){
-  // orange border removed when filled
-  if(el.value&&el.value.trim()) el.style.borderColor='';
-  else el.style.borderColor='#f97316';
-}
-
-function majSave(id){
-  var row=document.getElementById('maj-row-'+id);
-  if(!row) return;
-  var resp=(row.querySelector('[data-field="deliveryResp"]')||{value:''}).value.trim();
-  var dateLiv=(row.querySelector('[data-field="dateLivraison"]')||{value:''}).value.trim();
-  var statut=(row.querySelector('[data-field="statut"]')||{value:''}).value.trim();
-  if(!resp){toast('⚠️ Ingénieur delivery obligatoire');row.querySelector('[data-field="deliveryResp"]').focus();return;}
-  if(!dateLiv){toast('⚠️ Date de livraison réelle obligatoire');row.querySelector('[data-field="dateLivraison"]').focus();return;}
-  if(!statut){toast('⚠️ Statut obligatoire');return;}
-  var d=deals.find(function(x){return x.id===id;});
-  if(!d) return;
-  d.deliveryResp=resp; d.dateLivraison=dateLiv; d.statut=statut;
-  updateFirestore(id,{deliveryResp:resp,dateLivraison:dateLiv,statut:statut});
-  toast('✅ '+d.client+' mis à jour');
-  setTimeout(function(){renderMaj();},400);
-}
-
 function switchTabEx(pageN){
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', parseInt(t.getAttribute('data-page'))===pageN); });
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
@@ -882,7 +791,6 @@ function switchTabEx(pageN){
     renderDeliveryPage();
   }
   if(pageN===7) renderPlanning();
-  if(pageN===8) renderMaj();
   if(pageN===5){ document.getElementById('np-closing').value=new Date().toISOString().split('T')[0]; initFormDatalist(); initFirebaseLists(); }
 }
 
@@ -937,13 +845,13 @@ function renderGlobal(){
   setText('k-car',fC(caR)); setText('k-sko',risk.length); setText('k-taux',taux+'%');
   var mO=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
   var MONTHS_IDX={'Janvier':0,'Février':1,'Mars':2,'Avril':3,'Mai':4,'Juin':5,'Juillet':6,'Aout':7,'Septembre':8,'Octobre':9,'Novembre':10,'Décembre':11};
-  // Fonction : mois d'un deal basé sur prevision (référence unique)
+  // Fonction : mois d'un deal basé sur dlivPrev (référence unique)
   function dealMoisIdx(d){
-    // Uniquement prevision — si vide, deal hors graphe
-    if(!d.prevision) return -1;
-    return new Date(d.prevision).getMonth();
+    // Uniquement dlivPrev — si vide, deal hors graphe
+    if(!d.dlivPrev) return -1;
+    return new Date(d.dlivPrev).getMonth();
   }
-  // Calcul par mois via prevision — source unique de vérité
+  // Calcul par mois via dlivPrev — source unique de vérité
   var caClose=mO.map(function(m,i){return deals.filter(function(d){return dealMoisIdx(d)===i&&(d.statut==='PV signé'||d.statut==='Livré');}).reduce(function(a,d){return a+d.montant;},0);});
   var caPrev=mO.map(function(m,i){return deals.filter(function(d){return dealMoisIdx(d)===i&&d.statut!=='PV signé'&&d.statut!=='Livré';}).reduce(function(a,d){return a+d.montant;},0);});
   // KPI totaux cohérents
@@ -980,7 +888,7 @@ function renderGlobal(){
       if(!pts.length) return;
       var moisIdx=pts[0].index, dsIdx=pts[0].datasetIndex;
       var moisName=mO[moisIdx];
-      // Popup basé sur prevision (source unique)
+      // Popup basé sur dlivPrev (source unique)
       var dealsList=deals.filter(function(d){
         return dealMoisIdx(d)===moisIdx && (dsIdx===0 ? (d.statut!=='PV signé'&&d.statut!=='Livré') : (d.statut==='PV signé'||d.statut==='Livré'));
       });
@@ -1039,7 +947,7 @@ function renderGlobal(){
   
 
   // SLA bar
-  // Delivery status based on prevision (date livraison prévue)
+  // Delivery status based on dlivPrev (date livraison prévue)
   var slaBarData = {
     'retard': deals.filter(function(d){ return dvAlertLevel(d)==='red'; }),
     'proche': deals.filter(function(d){ return dvAlertLevel(d)==='orange'; }),
@@ -1083,8 +991,8 @@ function renderGlobal(){
       var colors=['#dc2626','#f97316','#16a34a','#2563eb','#7c3aed'];
       var k=keys[pts[0].index]; var list=slaBarData[k]||[];
       showPopup(evt,'Delivery - '+labels[pts[0].index],colors[pts[0].index],list.length,list.map(function(d){
-        return [d.client||'',d.desc||'',d.commercial||'',d.deliveryResp||'—',fF(d.montant),d.prevision||'—',d.statut||''];
-      }),['Client','Description','Commercial','Ing. Delivery','Montant','Prévision','Statut']);
+        return [d.client||'',d.desc||'',d.commercial||'',d.deliveryResp||'—',fF(d.montant),d.dlivPrev||'—',d.statut||''];
+      }),['Client','Description','Commercial','Ing. Delivery','Montant','Date prévue','Statut']);
     };
   })();
 
@@ -1103,13 +1011,13 @@ function renderGlobal(){
     }),['Client','Description','Commercial','Ing. Delivery','Montant','Closing','Statut']);
   };
 
-  // Top 10 delivery dans délais : livré ET prevision renseigné
+  // Top 10 delivery dans délais : livré ET dlivPrev renseigné
   var dOk2 = {};
   deals.forEach(function(d){
     var ing = d.deliveryResp; if(!ing||ing==='--') return;
     if(!dOk2[ing]) dOk2[ing]={n:0,list:[]};
     var estLivre=(d.statut==='PV signé'||d.statut==='Livré');
-    if(estLivre && d.prevision){
+    if(estLivre && d.dlivPrev){
       dOk2[ing].n++; dOk2[ing].list.push(d);
     }
   });
@@ -1121,8 +1029,8 @@ function renderGlobal(){
     if (!pts.length||!pdOk2.length) return;
     var e = pdOk2[pts[0].index]; var list = e[1].list;
     showPopup(evt,'Dans les délais — '+e[0],'#16a34a',list.length,list.map(function(d){
-      return [d.client||'',d.desc||'',d.commercial||'',e[0],fF(d.montant||0),fDate(d.prevision),d.statut||''];
-    }),['Client','Description','Commercial','Ingénieur','Montant','Prévision','Statut']);
+      return [d.client||'',d.desc||'',d.commercial||'',e[0],fF(d.montant||0),fDate(d.dlivPrev),d.statut||''];
+    }),['Client','Description','Commercial','Ingénieur','Montant','Date prévue','Statut']);
   };
 
   // Top 10 ingénieurs qui livrent les dossiers : statut PV signé ou Livré
@@ -1140,8 +1048,8 @@ function renderGlobal(){
     if (!pts.length||!pdDone2.length) return;
     var e = pdDone2[pts[0].index]; var list = e[1].list;
     showPopup(evt,'Dossiers livrés — '+e[0],'#2563eb',list.length,list.map(function(d){
-      return [d.client||'',d.desc||'',d.commercial||'',e[0],fF(d.montant||0),fDate(d.prevision),d.statut||''];
-    }),['Client','Description','Commercial','Ingénieur','Montant','Prévision','Statut']);
+      return [d.client||'',d.desc||'',d.commercial||'',e[0],fF(d.montant||0),fDate(d.dlivPrev),d.statut||''];
+    }),['Client','Description','Commercial','Ingénieur','Montant','Date prévue','Statut']);
   };
 
   // Maintenance chart
@@ -1172,7 +1080,7 @@ function renderGlobal(){
   deals.forEach(function(d){
     var ing=d.deliveryResp||'—'; if(!dOkG[ing]) dOkG[ing]={n:0,list:[]};
     var estLivre=d.statut==='PV signé'||d.statut==='Livré';
-    if(estLivre&&d.dateLivraison&&d.prevision&&new Date(d.dateLivraison)<=new Date(d.prevision)){
+    if(estLivre&&d.dateLivraison&&d.dlivPrev&&new Date(d.dateLivraison)<=new Date(d.dlivPrev)){
       dOkG[ing].n++;dOkG[ing].list.push(d);
     }
   });
@@ -1186,8 +1094,8 @@ function renderGlobal(){
       if(!pts.length||!pdOkG.length) return;
       var e=pdOkG[pts[0].index]; if(!e) return;
       showPopup(evt,'Dans les délais — '+e[0],'#16a34a',e[1].list.length,e[1].list.map(function(d){
-        return [d.client||'—',d.desc||'—',d.commercial||'—',e[0],fF(d.montant),fDate(d.prevision),d.statut||'—'];
-      }),['Client','Description','Commercial','Ingénieur','Montant','Prévision','Statut']);
+        return [d.client||'—',d.desc||'—',d.commercial||'—',e[0],fF(d.montant),fDate(d.dlivPrev),d.statut||'—'];
+      }),['Client','Description','Commercial','Ingénieur','Montant','Date prévue','Statut']);
     };
   })();
 
@@ -1207,8 +1115,8 @@ function renderGlobal(){
       if(!pts.length||!pdDoneG.length) return;
       var e=pdDoneG[pts[0].index]; if(!e) return;
       showPopup(evt,'Dossiers livrés — '+e[0],'#2563eb',e[1].list.length,e[1].list.map(function(d){
-        return [d.client||'—',d.desc||'—',d.commercial||'—',e[0],fF(d.montant),fDate(d.prevision),d.statut||'—'];
-      }),['Client','Description','Commercial','Ingénieur','Montant','Prévision','Statut']);
+        return [d.client||'—',d.desc||'—',d.commercial||'—',e[0],fF(d.montant),fDate(d.dlivPrev),d.statut||'—'];
+      }),['Client','Description','Commercial','Ingénieur','Montant','Date prévue','Statut']);
     };
   })();
 }
@@ -1265,8 +1173,8 @@ function chPage(dir){ var n=Math.ceil(filteredD.length/perPage); curPage=Math.ma
 
 var _MO_FR=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
 function dealMoisByName(d){
-  if(!d.prevision) return '';
-  return _MO_FR[new Date(d.prevision).getMonth()]||'';
+  if(!d.dlivPrev) return '';
+  return _MO_FR[new Date(d.dlivPrev).getMonth()]||'';
 }
 
 function renderDeals(){
@@ -1358,12 +1266,12 @@ function renderPerf(){
     }),['Client','Description','Commercial','Ing. Delivery','Montant','Closing','Statut']);
   };
 
-  // Delivery dans délais: livré (PV signé/Livré) et date réelle <= prevision
+  // Delivery dans délais: livré (PV signé/Livré) et date réelle <= dlivPrev
   var dOkP = {};
   deals.forEach(function(d){
     var ing = d.deliveryResp||'--'; if(!dOkP[ing]) dOkP[ing]={n:0,list:[]};
     var estLivre=(d.statut==='PV signé'||d.statut==='Livré');
-    if(estLivre && d.prevision){
+    if(estLivre && d.dlivPrev){
       dOkP[ing].n++;dOkP[ing].list.push(d);
     }
   });
@@ -1375,7 +1283,7 @@ function renderPerf(){
     if (!pts.length||!pdOkP.length) return;
     var e = pdOkP[pts[0].index]; var list = e[1].list;
     showPopup(evt,'Delivery delais - '+e[0],'#16a34a',list.length,list.map(function(d){
-      return [d.client||'',d.desc||'',d.commercial||'',e[0],fF(d.montant),fDate(d.prevision)];
+      return [d.client||'',d.desc||'',d.commercial||'',e[0],fF(d.montant),fDate(d.dlivPrev)];
     }),['Client','Description','Commercial','Ing. Delivery','Montant','Closing','Date installation']);
   };
 
@@ -1393,7 +1301,7 @@ function renderPerf(){
     if (!pts.length||!pdDoneP.length) return;
     var e = pdDoneP[pts[0].index]; var list = e[1].list;
     showPopup(evt,'Delivery termine - '+e[0],'#2563eb',list.length,list.map(function(d){
-      return [d.client||'',d.desc||'',d.commercial||'',e[0],fF(d.montant),fDate(d.prevision)];
+      return [d.client||'',d.desc||'',d.commercial||'',e[0],fF(d.montant),fDate(d.dlivPrev)];
     }),['Client','Description','Commercial','Ing. Delivery','Montant','Closing','Date installation']);
   };
 
@@ -1417,10 +1325,10 @@ function renderPerf(){
     byIng[ing].n++;byIng[ing].nList.push(d);
     var estLivre=d.statut==='PV signé'||d.statut==='Livré';
     var enCours=d.statut==='En cours'||d.statut==='À livrer';
-    var dansDelaiEnCours=d.prevision&&(new Date()<=new Date(d.prevision));
+    var dansDelaiEnCours=d.dlivPrev&&(new Date()<=new Date(d.dlivPrev));
     if(estLivre){
-      if(d.dateLivraison&&d.prevision){
-        if(new Date(d.dateLivraison)<=new Date(d.prevision)){byIng[ing].okD++;byIng[ing].okDList.push(d);}
+      if(d.dateLivraison&&d.dlivPrev){
+        if(new Date(d.dateLivraison)<=new Date(d.dlivPrev)){byIng[ing].okD++;byIng[ing].okDList.push(d);}
         else{byIng[ing].koD++;byIng[ing].koDList.push(d);}
       } else {byIng[ing].koD++;byIng[ing].koDList.push(d);}
     } else if(enCours){
@@ -1494,9 +1402,9 @@ function pdCellClick(e,data){
   var isLivre=t==='okD'||t==='koD'; var isVol=t==='n';
   var titles={n:'Volume total',okD:'Livré dans délais',koD:'Livré hors délais',okE:'En cours dans délais',koE:'En cours hors délais'};
   var colors={n:'#6b7a90',okD:'#16a34a',koD:'#dc2626',okE:'#2563eb',koE:'#d97706'};
-  var headers=isVol?['Client','Description','Prévision','Date livraison','Statut']:(isLivre?['Client','Description','Date livraison','Statut']:['Client','Description','Prévision','Statut']);
+  var headers=isVol?['Client','Description','Date prévue','Date livraison','Statut']:(isLivre?['Client','Description','Date livraison','Statut']:['Client','Description','Date prévue','Statut']);
   var rows=list.map(function(d){
-    return isVol?[d.client||'—',d.desc||'—',fDate(d.prevision),fDate(d.dateLivraison),d.statut||'—']:(isLivre?[d.client||'—',d.desc||'—',fDate(d.dateLivraison),d.statut||'—']:[d.client||'—',d.desc||'—',fDate(d.prevision),d.statut||'—']);
+    return isVol?[d.client||'—',d.desc||'—',fDate(d.dlivPrev),fDate(d.dateLivraison),d.statut||'—']:(isLivre?[d.client||'—',d.desc||'—',fDate(d.dateLivraison),d.statut||'—']:[d.client||'—',d.desc||'—',fDate(d.dlivPrev),d.statut||'—']);
   });
   showPopup(e,titles[t]+' — '+n,colors[t],list.length,rows,headers);
 }
@@ -1583,8 +1491,8 @@ function toast(msg){
 // ============================================================
 function dvAlertLevel(d){
   if(d.statut==='Livré'||d.statut==='PV signé') return 'done';
-  if(!d.prevision) return 'none';
-  var now=Date.now(), prev=new Date(d.prevision).getTime();
+  if(!d.dlivPrev) return 'none';
+  var now=Date.now(), prev=new Date(d.dlivPrev).getTime();
   var diff=Math.ceil((prev-now)/86400000);
   if(diff<0) return 'red';
   if(diff<=7) return 'orange';
@@ -1592,8 +1500,8 @@ function dvAlertLevel(d){
 }
 function dvAlertBadge(d){
   var level=dvAlertLevel(d);
-  if(!d.prevision&&level==='none') return '<span style="color:#94a3b8;font-size:10px">⚪ Sans date</span>';
-  var diff=d.prevision?Math.ceil((new Date(d.prevision).getTime()-Date.now())/86400000):null;
+  if(!d.dlivPrev&&level==='none') return '<span style="color:#94a3b8;font-size:10px">⚪ Sans date</span>';
+  var diff=d.dlivPrev?Math.ceil((new Date(d.dlivPrev).getTime()-Date.now())/86400000):null;
   var map={
     red:'<span style="color:#dc2626;font-weight:700;font-size:11px">🔴 Retard '+(diff!==null?Math.abs(diff)+'j':'')+'</span>',
     orange:'<span style="color:#f97316;font-weight:700;font-size:11px">🟠 J-'+diff+'</span>',
@@ -1613,7 +1521,7 @@ function dvAlertBg(level){
 // ============================================================
 // SUIVI DELIVERY — page-6
 // ============================================================
-var dvSortCol='prevision', dvSortDir=1, dvEditId=null;
+var dvSortCol='dlivPrev', dvSortDir=1, dvEditId=null;
 
 function renderDeliveryPage(){
   // Populate ing filter
@@ -1653,7 +1561,7 @@ function dvRenderTable(list){
       +'<td style="font-weight:700">'+d.client+'</td>'
       +'<td style="color:var(--muted);font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+d.desc.substring(0,35)+'</td>'
       +'<td style="font-size:11px">'+((d.commercial||'').split(' ').slice(-1)[0])+'</td>'
-      +'<td style="font-size:11px;font-weight:600;color:'+border+'">'+(d.prevision?fDate(d.prevision):'<span style="color:#94a3b8">—</span>')+'</td>'
+      +'<td style="font-size:11px;font-weight:600;color:'+border+'">'+(d.dlivPrev?fDate(d.dlivPrev):'<span style="color:#94a3b8">—</span>')+'</td>'
       +'<td style="font-size:11px">'+(d.deliveryResp||'<span style="color:#94a3b8;font-style:italic">Non assigné</span>')+'</td>'
       +'<td><span class="badge '+(statMap[d.statut]||'bm')+'">'+d.statut+'</span></td>'
       +'<td style="font-size:11px;font-weight:600;color:var(--blue)">'+fC(d.montant)+'</td>'
@@ -1746,8 +1654,8 @@ function dvSearchDeals(){
 function dvInlinePanelHTML(d){
   var lvl=dvAlertLevel(d);
   var alertHtml='';
-  if(d.prevision){
-    var diff=Math.ceil((new Date(d.prevision).getTime()-Date.now())/86400000);
+  if(d.dlivPrev){
+    var diff=Math.ceil((new Date(d.dlivPrev).getTime()-Date.now())/86400000);
     var bg,col,msg;
     if(diff<0){bg='#fef2f2';col='#dc2626';msg='🔴 En retard de '+Math.abs(diff)+' jour(s)';}
     else if(diff===0){bg='#fff7ed';col='#f97316';msg='🟠 Livraison prévue aujourd\'hui';}
@@ -1774,7 +1682,7 @@ function dvInlinePanelHTML(d){
     +dvROField('Commercial',d.commercial)
     +dvROField('Montant',d.montant?d.montant.toLocaleString('fr-FR')+' FCFA':'—')
     +dvROField('Closing',fDate(d.closing))
-    +dvROField('Prévision',d.prevision?fDate(d.prevision):'—')
+    +dvROField('Date prévue (com.)',d.dlivPrev?fDate(d.dlivPrev):'—')
 
     +'</div></div>'
     // Delivery
@@ -1789,7 +1697,7 @@ function dvInlinePanelHTML(d){
     +'<select id="dv-statut" class="si" style="font-size:12px" onchange="dvStatutChange()">'
     +['À livrer','En cours','PV signé','Livré'].map(function(s){return '<option'+(d.statut===s?' selected':'')+'>'+s+'</option>';}).join('')
     +'</select></div>'
-    // Date livraison supprimée — calculée depuis prevision commercial
+    // Date livraison supprimée — calculée depuis dlivPrev commercial
     // Date de livraison réelle
     +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Date de livraison</label>'
     +'<input id="dv-date-livraison" type="date" class="si" value="'+(d.dateLivraison||'')+'" style="font-size:12px"/>'
@@ -1868,13 +1776,13 @@ function dvCloseEdit(){
 }
 
 function dvRefreshAlerte(){
-  var prev=(window._dvCurrentDeal&&window._dvCurrentDeal.prevision)||'';
+  var prev=document.getElementById('dv-dliv-prev').value;
   var ap=document.getElementById('dv-alerte-preview'); if(!ap) return;
   if(!prev){ap.style.display='none';return;}
   var diff=Math.ceil((new Date(prev).getTime()-Date.now())/86400000);
   var level,msg,bg,col;
   if(diff<0){level='red';msg='🔴 En retard de '+Math.abs(diff)+' jour(s) par rapport à la date prévue';bg='#fef2f2';col='#dc2626';}
-  else if(diff===0){level='orange';msg='🟠 Livraison prévue aujourd\'hui';bg='#fff7ed';col='#f97316';}
+  else if(diff===0){level='orange';msg='🟠 Livraison prévue aujourd’hui';bg='#fff7ed';col='#f97316';}
   else if(diff<=7){level='orange';msg='🟠 Échéance dans '+diff+' jour(s) — Urgent';bg='#fff7ed';col='#f97316';}
   else{level='green';msg='🟢 Dans les délais — J-'+diff;bg='#f0fdf4';col='#16a34a';}
   ap.style.display='block'; ap.style.background=bg; ap.style.color=col; ap.style.border='1px solid '+col+'44';
@@ -1992,11 +1900,11 @@ function renderPlanning(){
   }
   var selIng=ingF?ingF.value:'';
 
-  // Filter deals for this month — prevision uniquement
+  // Filter deals for this month — dlivPrev uniquement
   var monthDeals=deals.filter(function(d){
     if(selIng&&d.deliveryResp!==selIng) return false;
-    if(!d.prevision) return false;
-    var dt=new Date(d.prevision);
+    if(!d.dlivPrev) return false;
+    var dt=new Date(d.dlivPrev);
     return dt.getFullYear()===planYear&&dt.getMonth()===planMonth;
   });
 
@@ -2008,11 +1916,11 @@ function renderPlanning(){
     +'('+fC(caFacture)+' facturé / '+fC(caAttendu)+' attendu)'
     +'</span>';
   var el=document.getElementById('plan-month-label'); if(el) el.innerHTML=label;
-  // Deals sans aucune date (ni prevision ni closing)
+  // Deals sans aucune date (ni dlivPrev ni closing)
   var noDeal=deals.filter(function(d){
     if(selIng&&d.deliveryResp!==selIng) return false;
     if(d.statut==='Livré'||d.statut==='PV signé') return false;
-    return !d.prevision;
+    return !d.dlivPrev;
   });
 
   // KPIs
@@ -2031,11 +1939,11 @@ function renderPlanning(){
   var startDow=(first.getDay()+6)%7; // Monday=0
   var today=new Date(); var todayStr=today.toISOString().split('T')[0];
 
-  // Index deals by date (prevision en priorité, sinon closing)
+  // Index deals by date (dlivPrev en priorité, sinon closing)
   var byDate={};
   monthDeals.forEach(function(d){
-    if(!byDate[d.prevision]) byDate[d.prevision]=[];
-    byDate[d.prevision].push(d);
+    if(!byDate[d.dlivPrev]) byDate[d.dlivPrev]=[];
+    byDate[d.dlivPrev].push(d);
   });
 
   var html='<div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--border);gap:1px">';
@@ -2063,7 +1971,7 @@ function renderPlanning(){
       // Couleurs calendrier : vert=futur non livré, rouge=dépassé/aujourd'hui non livré, noir=PV signé
       var isPv=d.statut==='PV signé'||d.statut==='Livré';
       var now=new Date(); now.setHours(0,0,0,0);
-      var prev=d.prevision?new Date(d.prevision):null; if(prev) prev.setHours(0,0,0,0);
+      var prev=d.dlivPrev?new Date(d.dlivPrev):null; if(prev) prev.setHours(0,0,0,0);
       var chipBg, chipBorder, chipTxt;
       if(isPv){
         chipBg='#1e2533'; chipBorder='#1e2533'; chipTxt='#ffffff';
@@ -2091,10 +1999,10 @@ function renderPlanning(){
   for(var j=0;j<rem;j++){html+='<div style="background:#fafbfc;min-height:110px"></div>';}
   html+='</div>';
 
-  // Deals avec prevision dans d'autres mois
+  // Deals avec dlivPrev dans d'autres mois
   var otherMonths=deals.filter(function(d){
-    if(!d.prevision) return false;
-    var dt=new Date(d.prevision);
+    if(!d.dlivPrev) return false;
+    var dt=new Date(d.dlivPrev);
     return !(dt.getFullYear()===planYear&&dt.getMonth()===planMonth);
   });
   // No-date deals row
@@ -2215,8 +2123,8 @@ function descDropdownFilter(q){
   var list = q ? _descAllItems.filter(function(v){return v.toLowerCase().indexOf(q)!==-1;}) : _descAllItems;
   if(!list.length){dd.style.display='none';return;}
   dd.innerHTML=list.map(function(v,i){
-    var hl = q ? v.replace(new RegExp('('+q.replace(/[-\/\\^$*+?.()|[\]{}]/g,'\\$&')+')','gi'),'<b>$1</b>') : v;
-    return '<div class="dd-item" data-val="'+v.replace(/"/g,'&quot;')+'" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--s3)" onmousedown="descDropdownSelect(this)">'+hl+'</div>';
+    var hl = q ? v.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\]/g,'\$&')+')','gi'),'<b>$1</b>') : v;
+    return '<div class="dd-item" data-val="'+v.replace(/"/g,'&quot;')+'" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--s3)" onmousedown="descDropdownSelect(this)" onmouseover="this.style.background='var(--s2)'" onmouseout="this.style.background=''">'+hl+'</div>';
   }).join('');
   dd.style.display='block';
 }
@@ -2334,19 +2242,19 @@ function saveNewDeal(){
   var montant=getMontantRaw(montantEl);
   var closing=document.getElementById('np-closing').value;
   var secteur=''; var categorie=''; var univers='';
-  var previsionVal=document.getElementById('np-prevision').value;
+  var dlivPrevVal=document.getElementById('np-dliv-prev').value;
   if(!client||!desc||!comm||!montant||!closing){
     toast('⚠️ Champs obligatoires manquants (Client, Description, Commercial, Montant, Closing)');
     return;
   }
-  if(!previsionVal){
-    toast('⚠️ La Prévision est obligatoire');
-    document.getElementById('np-prevision').focus();
+  if(!dlivPrevVal){
+    toast('⚠️ La Date de livraison prévue est obligatoire');
+    document.getElementById('np-dliv-prev').focus();
     return;
   }
 
   var mois=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'][new Date(closing).getMonth()];
-  var prevision=previsionVal;
+  var dlivPrev=dlivPrevVal;
   var newDeal={
     id:'np_'+Date.now(),
     client:client, desc:desc, commercial:comm, montant:montant,
@@ -2355,7 +2263,7 @@ function saveNewDeal(){
     categorie:categorie,
     statut:'À livrer',
     dateDelivery:'',
-    prevision:prevision,
+    dlivPrev:dlivPrev,
     deliveryResp:'',
     univers:univers,
     sla:30,
@@ -2379,7 +2287,7 @@ function saveNewDeal(){
   });
 }
 function resetNewDeal(){
-  ['np-client','np-desc','np-comm','np-prevision','np-notes'].forEach(function(id){
+  ['np-client','np-desc','np-comm','np-dliv-prev','np-notes'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value='';
   });
   var me=document.getElementById('np-montant'); if(me){me.value='';me.dataset.raw='';}
@@ -2393,10 +2301,10 @@ function showPrevisionPopup(){
   var mo=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Décembre'];
   var rows=[];
   deals.forEach(function(d){
-    var moisLabel=d.prevision?mo[new Date(d.prevision).getMonth()]:'—';
-    rows.push([moisLabel,d.client||'',d.desc||'',d.commercial||'',fF(d.montant),fDate(d.closing),fDate(d.prevision),d.statut||'']);
+    var moisLabel=d.dlivPrev?mo[new Date(d.dlivPrev).getMonth()]:'—';
+    rows.push([moisLabel,d.client||'',d.desc||'',d.commercial||'',fF(d.montant),fDate(d.closing),fDate(d.dlivPrev),d.statut||'']);
   });
-  var headers=['Mois','Client','Description','Commercial','Montant','Closing','Prévision','Statut'];
+  var headers=['Mois','Client','Description','Commercial','Montant','Closing','Date prévue','Statut'];
   rows.sort(function(a,b){
     var mi=mo.indexOf(a[0]),mj=mo.indexOf(b[0]);
     if(mi!==mj) return mi-mj;
@@ -2426,43 +2334,15 @@ async function confirmClear(){
     return;
   }
   closeClearModal();
-  db.collection(ICT_COL).get().then(function(snap){
-    var docs=snap.docs;
-    var total=docs.length;
-    var deleted=0;
-    var progBox=document.getElementById('import-progress');
-    var progBar=document.getElementById('import-progress-bar');
-    var progTxt=document.getElementById('import-progress-text');
-    if(progBox) progBox.style.display='block';
-    if(progBar) progBar.style.width='0%';
-    if(progTxt) progTxt.textContent='⏳ Suppression : 0 / '+total;
-    function deleteChunk(i){
-      if(i>=docs.length){
-        deals=[];
-        if(progTxt) progTxt.textContent='✅ '+total+' deals supprimés.';
-        if(progBar) progBar.style.width='100%';
-        setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
-        toast('✅ '+total+' deals supprimés.');
-        if(typeof renderAll==='function') renderAll();
-        if(typeof renderDeliveryPage==='function') renderDeliveryPage();
-        if(typeof renderPlanning==='function') renderPlanning();
-        if(typeof renderMaj==='function') renderMaj();
-        if(typeof buildFilters==='function') buildFilters();
-        return;
-      }
-      var batch=db.batch();
-      var chunk=docs.slice(i,i+400);
-      chunk.forEach(function(d){batch.delete(d.ref);});
-      batch.commit().then(function(){
-        deleted+=chunk.length;
-        var pct=Math.round(deleted/total*100);
-        if(progBar) progBar.style.width=pct+'%';
-        if(progTxt) progTxt.textContent='⏳ Suppression : '+deleted+' / '+total+' ('+pct+'%)';
-        deleteChunk(i+400);
-      }).catch(function(e){ toast('❌ Erreur suppression : '+e.message); });
-    }
-    deleteChunk(0);
-  }).catch(function(e){ toast('❌ Erreur : '+e.message); });
+  try{
+    var snap=await db.collection(ICT_COL).get();
+    var batch=db.batch();
+    snap.docs.forEach(function(d){batch.delete(d.ref);});
+    await batch.commit();
+    showToast('✅ Tous les deals ont été supprimés.');
+    if(typeof renderAll==='function') renderAll();
+    if(typeof renderPlanning==='function') renderPlanning();
+  }catch(err){ showToast('❌ Erreur : '+err.message); }
 }
 
 function openExportModal(){
@@ -2501,7 +2381,7 @@ async function confirmExport(){
         'Montant (FCFA)'       : x.montant||0,
         'Mois Closing'         : x.mois||'',
         'Date Closing'         : x.closing||'',
-        'Prévision': x.prevision||'',
+        'Date Livraison Prévue': x.dlivPrev||'',
         'Date Delivery'        : x.dateDelivery||'',
         'Date Livraison Réelle': x.dateLivraison||'',
         'Statut'               : x.statut||'',
@@ -2512,14 +2392,14 @@ async function confirmExport(){
         'Créé le'              : x.createdAt||''
       });
     });
-    var cols=['ID','Client','Description','Référence','Secteur','Univers','Catégorie','Commercial','Ingénieur Delivery','Montant (FCFA)','Mois Closing','Date Closing','Prévision','Date Delivery','Date Livraison Réelle','Statut','SLA (jours)','Raison Retard','PV / Fichier','Notes','Créé le'];
+    var cols=['ID','Client','Description','Référence','Secteur','Univers','Catégorie','Commercial','Ingénieur Delivery','Montant (FCFA)','Mois Closing','Date Closing','Date Livraison Prévue','Date Delivery','Date Livraison Réelle','Statut','SLA (jours)','Raison Retard','PV / Fichier','Notes','Créé le'];
     var ws=XLSX.utils.json_to_sheet(rows.length?rows:[{}],{header:cols});
     if(!rows.length){ws['!ref']='A1:'+XLSX.utils.encode_col(cols.length-1)+'1';}
     var wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Deals');
     XLSX.writeFile(wb,'ict_deals_export_'+new Date().toISOString().slice(0,10)+'.xlsx');
-    toast('✅ Export téléchargé ('+rows.length+' deals)');
-  }catch(err){ toast('❌ Erreur export : '+err.message); }
+    showToast('✅ Export téléchargé ('+rows.length+' deals)');
+  }catch(err){ showToast('❌ Erreur export : '+err.message); }
 }
 
 function openImportModal(){
@@ -2555,104 +2435,40 @@ document.addEventListener('DOMContentLoaded',function(){
     var r=new FileReader();
     r.onload=function(ev){
       try{
-        var wb=XLSX.read(new Uint8Array(ev.target.result),{type:"array",cellDates:true});
+        var wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
         var ws=wb.Sheets[wb.SheetNames[0]];
-        var rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
-        // Convertit une valeur date (objet Date, serial number, string) en ISO YYYY-MM-DD
-        function xlDate(v){
-          if(v===null||v===undefined||v==='') return '';
-          // Objet Date JS (cellDates:true)
-          if(v&&typeof v==='object'&&(v instanceof Date||v.constructor&&v.constructor.name==='Date')){
-            try{ var s=new Date(v.getTime?v.getTime():v); return isNaN(s)?'':s.toISOString().slice(0,10); }catch(e){}
-          }
-          // String ISO ou date
-          if(typeof v==='string'){
-            var m=v.match(/(\d{4})[-\/](\d{2})[-\/](\d{2})/);
-            if(m) return m[1]+'-'+m[2]+'-'+m[3];
-            // Format DD/MM/YYYY
-            var m2=v.match(/(\d{2})[-\/](\d{2})[-\/](\d{4})/);
-            if(m2) return m2[3]+'-'+m2[2]+'-'+m2[1];
-          }
-          // Numéro série Excel
-          var n=Number(v);
-          if(n&&!isNaN(n)&&n>1000){
-            var d=new Date(Math.round((n-25569)*86400*1000));
-            return isNaN(d)?'':d.toISOString().slice(0,10);
-          }
-          return '';
-        }
-        var deals2import=[];
-        rows.forEach(function(row,idx){
-          var rClient=(row.Client||row.client||row['Nom du client']||'').toString().trim();
-          if(!rClient||rClient.toLowerCase().startsWith('colonne')) return;
-          var rDesc=(row.Description||row.description||row['Description du deal']||'').toString().trim();
-          var rCommercial=(row.Commercial||row.commercial||row['Ingénieur Commercial']||row['Ingenieur Commercial']||'').toString().trim();
-          var rMontant=Number(row.Montant||row.montant||row['Montant HT']||0)||0;
-          var rClosing=xlDate(row.Closing||row.closing||'');
-          var rPrevision=xlDate(row.prevision||row['prevision']||row.Prevision||row['Prévision']||row['prévision']||'');
-var rDeliveryResp=(row['Ingénieur Delivery']||row['Ingenieur Delivery']||row.deliveryResp||'').toString().trim();
-          var rStatut=(row.Statut||row.statut||'À livrer').toString().trim();
-          var rSecteur=(row.Secteur||row.secteur||'').toString().trim();
-          var rUnivers=(row.Univers||row.univers||'').toString().trim();
-          var rNotes=(row.Notes||row.notes||'').toString().trim();
-          var rDateLivReelle=xlDate(row.DateLivraisonReelle||row.dateLivraison||'');
-          var rCreatedAt=row.CreatedAt||new Date().toISOString();
-          var idBase='imp_'+idx+'_'+(rClient+rDesc).toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,30);
-          deals2import.push({
-            id:idBase, client:rClient, desc:rDesc, commercial:rCommercial,
-            deliveryResp:rDeliveryResp, montant:rMontant, closing:rClosing,
-            prevision:rPrevision, dateLivraison:rDateLivReelle,
-            statut:rStatut, notes:rNotes, secteur:rSecteur, univers:rUnivers,
-            createdAt:rCreatedAt
-          });
+        var rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+        var count=0;
+        rows.forEach(function(row){
+          var rClient=row.Client||row.client||row['Nom du client']||'';
+          var rDesc=row.Description||row.description||row['Description du deal']||'';
+          var rCommercial=row.Commercial||row.commercial||row['Ingénieur Commercial']||row['Ingenieur Commercial']||'';
+          var rMontant=Number(row.Montant||row.montant||row['Montant HT']||0);
+          var rClosing=row.Closing||row.closing||row['Date du closing']||'';
+          var rDlivPrev=row.DateLivraison||row.dlivPrev||row['Date de livraison prévue *']||row['Date de livraison prevue']||'';
+          var rDeliveryResp=row['Ingénieur Delivery']||row['Ingenieur Delivery']||row.deliveryResp||'';
+          var rStatut=row.Statut||row.statut||'À livrer';
+          var rSecteur=row.Secteur||row.secteur||'';
+          var idBase=(rClient+'|'+rDesc+'|'+rClosing).toLowerCase().trim().replace(/[^a-z0-9]/g,'_');
+          var deal={
+            id:idBase||('imp_'+Date.now()+'_'+count),
+            client:rClient, desc:rDesc,
+            commercial:rCommercial,
+            deliveryResp:rDeliveryResp,
+            montant:rMontant, closing:rClosing,
+            dlivPrev:rDlivPrev,
+            dateLivraison:row.dateLivraison||row.DateLivraisonReelle||'',
+            statut:rStatut, notes:row.Notes||row.notes||'',
+            secteur:rSecteur,
+            createdAt:row.CreatedAt||new Date().toISOString()
+          };
+          if(typeof saveToFirestore==='function') saveToFirestore(deal);
+          count++;
         });
-        // Import par batch de 50 avec délai pour éviter rate-limit Firestore
-        var BATCH=50, batchIdx=0, imported=0;
-        var totalToImport=deals2import.length;
-        var progBox=document.getElementById('import-progress');
-        var progBar=document.getElementById('import-progress-bar');
-        var progTxt=document.getElementById('import-progress-text');
-        function setProgress(n,total){
-          var pct=total?Math.round(n/total*100):0;
-          if(progBox) progBox.style.display='block';
-          if(progBar) progBar.style.width=pct+'%';
-          if(progTxt) progTxt.textContent='⏳ Import : '+n+' / '+total+' deals ('+pct+'%)';
-        }
-        function endProgress(msg){
-          if(progTxt) progTxt.textContent=msg;
-          if(progBar) progBar.style.width='100%';
-          setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
-          toast(msg);
-        }
-        setProgress(0, totalToImport);
-        function importNextBatch(){
-          var slice=deals2import.slice(batchIdx,batchIdx+BATCH);
-          if(!slice.length){
-            endProgress('✅ '+imported+'/'+totalToImport+' deals importés avec succès !');
-            if(typeof loadDealsFromFirestore==='function'){
-              loadDealsFromFirestore();
-            } else {
-              if(typeof renderAll==='function') renderAll();
-              if(typeof renderDeliveryPage==='function') renderDeliveryPage();
-              if(typeof renderPlanning==='function') renderPlanning();
-              if(typeof renderMaj==='function') renderMaj();
-              if(typeof buildFilters==='function') buildFilters();
-            }
-            return;
-          }
-          var promises=slice.map(function(deal){
-            return db.collection(ICT_COL).doc(deal.id).set(deal)
-              .then(function(){imported++;})
-              .catch(function(e){console.warn('Import err',deal.id,e.message);});
-          });
-          Promise.all(promises).then(function(){
-            batchIdx+=BATCH;
-            setProgress(imported, totalToImport);
-            setTimeout(importNextBatch,200);
-          });
-        }
-        if(db){ importNextBatch(); } else { endProgress('❌ Firebase non disponible'); }
-      }catch(err){ toast('❌ Erreur import : '+err.message); }
+        if(typeof renderAll==='function') renderAll();
+        if(typeof renderPlanning==='function') renderPlanning();
+        showToast('✅ '+count+' deal(s) importé(s) dans Firebase');
+      }catch(err){ showToast('❌ Erreur import : '+err.message); }
     };
     r.readAsArrayBuffer(f);
   });
