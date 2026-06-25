@@ -113,6 +113,8 @@ select.si{cursor:pointer}
 .dv-quick.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 #toast{position:fixed;bottom:20px;right:20px;z-index:9999;background:#1e2533;color:#fff;border-radius:var(--r);padding:10px 16px;font-size:12px;transform:translateY(80px);transition:transform .3s;pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.2)}
 #toast.show{transform:translateY(0)}
+#import-progress{display:none;position:fixed;top:0;left:0;right:0;z-index:10000;background:#1e2533;color:#fff;padding:12px 20px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+#import-progress-bar{height:4px;background:var(--accent);transition:width .3s;margin-top:6px;border-radius:2px}
 tr.sla-ko td:first-child{border-left:2px solid var(--red)}
 tr.dv-selected td{background:#fff3e8 !important;border-top:2px solid var(--accent);}
 tr.dv-expand-row td{padding:0 !important;background:#fff !important;}
@@ -204,6 +206,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   <div class="tab" data-page="5" onclick="switchTabEx(5)">➕ Nouveau projet</div>
   <div class="tab" data-page="6" onclick="switchTabEx(6)">🚚 Suivi Delivery</div>
   <div class="tab" data-page="7" onclick="switchTabEx(7)">📅 Planning Livraison</div>
+  <div class="tab" data-page="8" onclick="switchTabEx(8)">✏️ MAJ Delivery</div>
 </div>
 <div class="main">
 
@@ -439,10 +442,42 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   </div>
 </div>
 
+<!-- PAGE 8 : MAJ DELIVERY -->
+<div id="page-8" class="page">
+  <div style="padding:8px 0 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px">
+      <h3 style="margin:0;font-size:13px">✏️ MAJ Delivery</h3>
+      <span id="maj-count" style="font-size:11px;color:var(--muted);background:var(--s2);padding:2px 8px;border-radius:10px;font-weight:600"></span>
+    </div>
+    <input type="text" id="maj-search" placeholder="🔍 Rechercher client / description…" oninput="renderMaj()" style="font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:6px;width:260px"/>
+  </div>
+  <div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="background:var(--s2);text-align:left">
+          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">CLIENT</th>
+          <th style="padding:7px 10px;border-bottom:1px solid var(--border)">DESCRIPTION</th>
+          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">MONTANT</th>
+          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">INGÉNIEUR DELIVERY *</th>
+          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">DATE LIVRAISON RÉELLE *</th>
+          <th style="padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap">STATUT *</th>
+          <th style="padding:7px 10px;border-bottom:1px solid var(--border)"></th>
+        </tr>
+      </thead>
+      <tbody id="maj-tbody"></tbody>
+    </table>
+  </div>
+  <p id="maj-empty" style="display:none;text-align:center;color:var(--muted);padding:30px;font-size:12px">✅ Tous les deals ont leurs 3 champs renseignés.</p>
+</div>
+
 
 </div>
 </div>
 <div id="toast"></div>
+<div id="import-progress">
+  <span id="import-progress-text">⏳ Import en cours…</span>
+  <div style="background:rgba(255,255,255,.2);border-radius:2px;margin-top:6px"><div id="import-progress-bar" style="height:4px;background:var(--accent);width:0%;transition:width .3s;border-radius:2px"></div></div>
+</div>
 <script>
 
 // ===== FIREBASE INIT =====
@@ -780,6 +815,62 @@ function switchTab(n){
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
   var pg=document.getElementById('page-'+n);if(pg)pg.classList.add('active');
 }
+function renderMaj(){
+  var q=(document.getElementById('maj-search')||{value:''}).value.trim().toLowerCase();
+  // Deals where at least one of the 3 fields is missing
+  var list=deals.filter(function(d){
+    return d.deliveryResp&&d.deliveryResp.trim().toUpperCase().indexOf('MOUSSA')!==-1;
+  }).filter(function(d){
+    if(!q) return true;
+    return (d.client||'').toLowerCase().indexOf(q)!==-1||(d.desc||'').toLowerCase().indexOf(q)!==-1;
+  });
+  var cnt=document.getElementById('maj-count');
+  if(cnt) cnt.textContent=list.length+' deal(s) à compléter';
+  var empty=document.getElementById('maj-empty');
+  var tbody=document.getElementById('maj-tbody');
+  if(!tbody) return;
+  if(!list.length){tbody.innerHTML='';if(empty)empty.style.display='block';return;}
+  if(empty) empty.style.display='none';
+  tbody.innerHTML=list.map(function(d){
+    return '<tr style="border-bottom:1px solid var(--s3)" id="maj-row-'+d.id+'">'
+      +'<td style="padding:6px 10px;font-weight:600;white-space:nowrap">'+escH(d.client||'—')+'</td>'
+      +'<td style="padding:6px 10px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escH(d.desc||'')+'">'+escH(d.desc||'—')+'</td>'
+      +'<td style="padding:6px 10px;white-space:nowrap">'+fF(d.montant||0)+'</td>'
+      +'<td style="padding:6px 10px"><input type="text" value="'+escH(d.deliveryResp||'')+'" placeholder="Nom ingénieur…" data-id="'+d.id+'" data-field="deliveryResp" onchange="majFieldChange(this)" style="width:140px;font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;'+(d.deliveryResp?'':'border-color:#f97316;')+'"/></td>'
+      +'<td style="padding:6px 10px"><input type="date" value="'+(d.dateLivraison||'')+'" data-id="'+d.id+'" data-field="dateLivraison" onchange="majFieldChange(this)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;'+(d.dateLivraison?'':'border-color:#f97316;')+'"/></td>'
+      +'<td style="padding:6px 10px"><select data-id="'+d.id+'" data-field="statut" onchange="majFieldChange(this)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:4px;'+(d.statut&&d.statut!=='À livrer'?'':'border-color:#f97316;')+'">'
+      +['À livrer','En cours','Livré','PV signé'].map(function(s){return '<option'+(d.statut===s?' selected':'')+'>'+s+'</option>';}).join('')
+      +'</select></td>'
+      +'<td style="padding:6px 10px"><button onclick="majSave(\'+d.id+\')\" style="background:var(--accent);color:#fff;border:none;border-radius:5px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer">💾</button></td>'
+      +'</tr>';
+  }).join('');
+}
+
+function escH(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function majFieldChange(el){
+  // orange border removed when filled
+  if(el.value&&el.value.trim()) el.style.borderColor='';
+  else el.style.borderColor='#f97316';
+}
+
+function majSave(id){
+  var row=document.getElementById('maj-row-'+id);
+  if(!row) return;
+  var resp=(row.querySelector('[data-field="deliveryResp"]')||{value:''}).value.trim();
+  var dateLiv=(row.querySelector('[data-field="dateLivraison"]')||{value:''}).value.trim();
+  var statut=(row.querySelector('[data-field="statut"]')||{value:''}).value.trim();
+  if(!resp){toast('⚠️ Ingénieur delivery obligatoire');row.querySelector('[data-field="deliveryResp"]').focus();return;}
+  if(!dateLiv){toast('⚠️ Date de livraison réelle obligatoire');row.querySelector('[data-field="dateLivraison"]').focus();return;}
+  if(!statut){toast('⚠️ Statut obligatoire');return;}
+  var d=deals.find(function(x){return x.id===id;});
+  if(!d) return;
+  d.deliveryResp=resp; d.dateLivraison=dateLiv; d.statut=statut;
+  updateFirestore(id,{deliveryResp:resp,dateLivraison:dateLiv,statut:statut});
+  toast('✅ '+d.client+' mis à jour');
+  setTimeout(function(){renderMaj();},400);
+}
+
 function switchTabEx(pageN){
   document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', parseInt(t.getAttribute('data-page'))===pageN); });
   document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('active'); });
@@ -791,6 +882,7 @@ function switchTabEx(pageN){
     renderDeliveryPage();
   }
   if(pageN===7) renderPlanning();
+  if(pageN===8) renderMaj();
   if(pageN===5){ document.getElementById('np-closing').value=new Date().toISOString().split('T')[0]; initFormDatalist(); initFirebaseLists(); }
 }
 
@@ -1782,7 +1874,7 @@ function dvRefreshAlerte(){
   var diff=Math.ceil((new Date(prev).getTime()-Date.now())/86400000);
   var level,msg,bg,col;
   if(diff<0){level='red';msg='🔴 En retard de '+Math.abs(diff)+' jour(s) par rapport à la date prévue';bg='#fef2f2';col='#dc2626';}
-  else if(diff===0){level='orange';msg='🟠 Livraison prévue aujourd’hui';bg='#fff7ed';col='#f97316';}
+  else if(diff===0){level='orange';msg='🟠 Livraison prévue aujourd\'hui';bg='#fff7ed';col='#f97316';}
   else if(diff<=7){level='orange';msg='🟠 Échéance dans '+diff+' jour(s) — Urgent';bg='#fff7ed';col='#f97316';}
   else{level='green';msg='🟢 Dans les délais — J-'+diff;bg='#f0fdf4';col='#16a34a';}
   ap.style.display='block'; ap.style.background=bg; ap.style.color=col; ap.style.border='1px solid '+col+'44';
@@ -2123,8 +2215,8 @@ function descDropdownFilter(q){
   var list = q ? _descAllItems.filter(function(v){return v.toLowerCase().indexOf(q)!==-1;}) : _descAllItems;
   if(!list.length){dd.style.display='none';return;}
   dd.innerHTML=list.map(function(v,i){
-    var hl = q ? v.replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\]/g,'\$&')+')','gi'),'<b>$1</b>') : v;
-    return '<div class="dd-item" data-val="'+v.replace(/"/g,'&quot;')+'" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--s3)" onmousedown="descDropdownSelect(this)" onmouseover="this.style.background='var(--s2)'" onmouseout="this.style.background=''">'+hl+'</div>';
+    var hl = q ? v.replace(new RegExp('('+q.replace(/[-\/\\^$*+?.()|[\]{}]/g,'\\$&')+')','gi'),'<b>$1</b>') : v;
+    return '<div class="dd-item" data-val="'+v.replace(/"/g,'&quot;')+'" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--s3)" onmousedown="descDropdownSelect(this)">'+hl+'</div>';
   }).join('');
   dd.style.display='block';
 }
@@ -2339,9 +2431,13 @@ async function confirmClear(){
     var batch=db.batch();
     snap.docs.forEach(function(d){batch.delete(d.ref);});
     await batch.commit();
-    showToast('✅ Tous les deals ont été supprimés.');
+    deals=[];
+    toast('✅ Tous les deals ont été supprimés.');
     if(typeof renderAll==='function') renderAll();
+    if(typeof renderDeliveryPage==='function') renderDeliveryPage();
     if(typeof renderPlanning==='function') renderPlanning();
+    if(typeof renderMaj==='function') renderMaj();
+    if(typeof buildFilters==='function') buildFilters();
   }catch(err){ showToast('❌ Erreur : '+err.message); }
 }
 
@@ -2398,8 +2494,8 @@ async function confirmExport(){
     var wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,ws,'Deals');
     XLSX.writeFile(wb,'ict_deals_export_'+new Date().toISOString().slice(0,10)+'.xlsx');
-    showToast('✅ Export téléchargé ('+rows.length+' deals)');
-  }catch(err){ showToast('❌ Erreur export : '+err.message); }
+    toast('✅ Export téléchargé ('+rows.length+' deals)');
+  }catch(err){ toast('❌ Erreur export : '+err.message); }
 }
 
 function openImportModal(){
@@ -2437,38 +2533,89 @@ document.addEventListener('DOMContentLoaded',function(){
       try{
         var wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
         var ws=wb.Sheets[wb.SheetNames[0]];
-        var rows=XLSX.utils.sheet_to_json(ws,{defval:''});
-        var count=0;
-        rows.forEach(function(row){
-          var rClient=row.Client||row.client||row['Nom du client']||'';
-          var rDesc=row.Description||row.description||row['Description du deal']||'';
-          var rCommercial=row.Commercial||row.commercial||row['Ingénieur Commercial']||row['Ingenieur Commercial']||'';
-          var rMontant=Number(row.Montant||row.montant||row['Montant HT']||0);
-          var rClosing=row.Closing||row.closing||row['Date du closing']||'';
-          var rDlivPrev=row.DateLivraison||row.dlivPrev||row['Date de livraison prévue *']||row['Date de livraison prevue']||'';
-          var rDeliveryResp=row['Ingénieur Delivery']||row['Ingenieur Delivery']||row.deliveryResp||'';
-          var rStatut=row.Statut||row.statut||'À livrer';
-          var rSecteur=row.Secteur||row.secteur||'';
-          var idBase=(rClient+'|'+rDesc+'|'+rClosing).toLowerCase().trim().replace(/[^a-z0-9]/g,'_');
-          var deal={
-            id:idBase||('imp_'+Date.now()+'_'+count),
-            client:rClient, desc:rDesc,
-            commercial:rCommercial,
-            deliveryResp:rDeliveryResp,
-            montant:rMontant, closing:rClosing,
-            dlivPrev:rDlivPrev,
-            dateLivraison:row.dateLivraison||row.DateLivraisonReelle||'',
-            statut:rStatut, notes:row.Notes||row.notes||'',
-            secteur:rSecteur,
-            createdAt:row.CreatedAt||new Date().toISOString()
-          };
-          if(typeof saveToFirestore==='function') saveToFirestore(deal);
-          count++;
+        var rows=XLSX.utils.sheet_to_json(ws,{defval:'',cellDates:true});
+        // Convertit une valeur date (objet Date, serial number, string) en ISO YYYY-MM-DD
+        function xlDate(v){
+          if(!v) return '';
+          if(v instanceof Date) return isNaN(v)?'':v.toISOString().slice(0,10);
+          if(typeof v==='string'&&v.match(/\d{4}-\d{2}-\d{2}/)) return v.slice(0,10);
+          var n=Number(v);
+          if(!n||isNaN(n)) return '';
+          var d=new Date(Math.round((n-25569)*86400*1000));
+          return d.toISOString().slice(0,10);
+        }
+        var deals2import=[];
+        rows.forEach(function(row,idx){
+          var rClient=(row.Client||row.client||row['Nom du client']||'').toString().trim();
+          if(!rClient||rClient.toLowerCase().startsWith('colonne')) return;
+          var rDesc=(row.Description||row.description||row['Description du deal']||'').toString().trim();
+          var rCommercial=(row.Commercial||row.commercial||row['Ingénieur Commercial']||row['Ingenieur Commercial']||'').toString().trim();
+          var rMontant=Number(row.Montant||row.montant||row['Montant HT']||0)||0;
+          var rClosing=xlDate(row.Closing||row.closing||'');
+          var rDlivPrev=xlDate(row.dlivPrev||row.DateLivraison||row['Date de livraison prévue']||row['Date de livraison prévue *']||row['Date de livraison prevue']||'');
+          var rDeliveryResp=(row['Ingénieur Delivery']||row['Ingenieur Delivery']||row.deliveryResp||'').toString().trim();
+          var rStatut=(row.Statut||row.statut||'À livrer').toString().trim();
+          var rSecteur=(row.Secteur||row.secteur||'').toString().trim();
+          var rUnivers=(row.Univers||row.univers||'').toString().trim();
+          var rNotes=(row.Notes||row.notes||'').toString().trim();
+          var rDateLivReelle=xlDate(row.DateLivraisonReelle||row.dateLivraison||'');
+          var rCreatedAt=row.CreatedAt||new Date().toISOString();
+          var idBase='imp_'+idx+'_'+(rClient+rDesc).toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,30);
+          deals2import.push({
+            id:idBase, client:rClient, desc:rDesc, commercial:rCommercial,
+            deliveryResp:rDeliveryResp, montant:rMontant, closing:rClosing,
+            dlivPrev:rDlivPrev, dateLivraison:rDateLivReelle,
+            statut:rStatut, notes:rNotes, secteur:rSecteur, univers:rUnivers,
+            createdAt:rCreatedAt
+          });
         });
-        if(typeof renderAll==='function') renderAll();
-        if(typeof renderPlanning==='function') renderPlanning();
-        showToast('✅ '+count+' deal(s) importé(s) dans Firebase');
-      }catch(err){ showToast('❌ Erreur import : '+err.message); }
+        // Import par batch de 50 avec délai pour éviter rate-limit Firestore
+        var BATCH=50, batchIdx=0, imported=0;
+        var totalToImport=deals2import.length;
+        var progBox=document.getElementById('import-progress');
+        var progBar=document.getElementById('import-progress-bar');
+        var progTxt=document.getElementById('import-progress-text');
+        function setProgress(n,total){
+          var pct=total?Math.round(n/total*100):0;
+          if(progBox) progBox.style.display='block';
+          if(progBar) progBar.style.width=pct+'%';
+          if(progTxt) progTxt.textContent='⏳ Import : '+n+' / '+total+' deals ('+pct+'%)';
+        }
+        function endProgress(msg){
+          if(progTxt) progTxt.textContent=msg;
+          if(progBar) progBar.style.width='100%';
+          setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
+          toast(msg);
+        }
+        setProgress(0, totalToImport);
+        function importNextBatch(){
+          var slice=deals2import.slice(batchIdx,batchIdx+BATCH);
+          if(!slice.length){
+            endProgress('✅ '+imported+'/'+totalToImport+' deals importés avec succès !');
+            if(typeof loadDealsFromFirestore==='function'){
+              loadDealsFromFirestore();
+            } else {
+              if(typeof renderAll==='function') renderAll();
+              if(typeof renderDeliveryPage==='function') renderDeliveryPage();
+              if(typeof renderPlanning==='function') renderPlanning();
+              if(typeof renderMaj==='function') renderMaj();
+              if(typeof buildFilters==='function') buildFilters();
+            }
+            return;
+          }
+          var promises=slice.map(function(deal){
+            return db.collection(ICT_COL).doc(deal.id).set(deal)
+              .then(function(){imported++;})
+              .catch(function(e){console.warn('Import err',deal.id,e.message);});
+          });
+          Promise.all(promises).then(function(){
+            batchIdx+=BATCH;
+            setProgress(imported, totalToImport);
+            setTimeout(importNextBatch,200);
+          });
+        }
+        if(db){ importNextBatch(); } else { endProgress('❌ Firebase non disponible'); }
+      }catch(err){ toast('❌ Erreur import : '+err.message); }
     };
     r.readAsArrayBuffer(f);
   });
