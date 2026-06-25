@@ -2417,7 +2417,7 @@ function openClearModal(){
 function closeClearModal(){
   document.getElementById('clear-modal-bg').style.display='none';
 }
-async function confirmClear(){
+function confirmClear(){
   var pwd=document.getElementById('clear-pwd-input').value;
   if(pwd!==CLEAR_PWD){
     document.getElementById('clear-error').style.display='block';
@@ -2426,19 +2426,41 @@ async function confirmClear(){
     return;
   }
   closeClearModal();
-  try{
-    var snap=await db.collection(ICT_COL).get();
-    var batch=db.batch();
-    snap.docs.forEach(function(d){batch.delete(d.ref);});
-    await batch.commit();
-    deals=[];
-    toast('✅ Tous les deals ont été supprimés.');
-    if(typeof renderAll==='function') renderAll();
-    if(typeof renderDeliveryPage==='function') renderDeliveryPage();
-    if(typeof renderPlanning==='function') renderPlanning();
-    if(typeof renderMaj==='function') renderMaj();
-    if(typeof buildFilters==='function') buildFilters();
-  }catch(err){ showToast('❌ Erreur : '+err.message); }
+  db.collection(ICT_COL).get().then(function(snap){
+    var docs=snap.docs, total=docs.length, deleted=0;
+    var progBox=document.getElementById('import-progress');
+    var progBar=document.getElementById('import-progress-bar');
+    var progTxt=document.getElementById('import-progress-text');
+    if(progBox) progBox.style.display='block';
+    if(progBar) progBar.style.width='0%';
+    if(progTxt) progTxt.textContent='⏳ Suppression : 0 / '+total;
+    function nextChunk(i){
+      if(i>=docs.length){
+        deals=[];
+        if(progTxt) progTxt.textContent='✅ '+total+' deals supprimés.';
+        if(progBar) progBar.style.width='100%';
+        setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
+        toast('✅ '+total+' deals supprimés.');
+        if(typeof renderAll==='function') renderAll();
+        if(typeof renderDeliveryPage==='function') renderDeliveryPage();
+        if(typeof renderPlanning==='function') renderPlanning();
+        if(typeof renderMaj==='function') renderMaj();
+        if(typeof buildFilters==='function') buildFilters();
+        return;
+      }
+      var batch=db.batch();
+      var chunk=docs.slice(i,i+400);
+      chunk.forEach(function(d){batch.delete(d.ref);});
+      batch.commit().then(function(){
+        deleted+=chunk.length;
+        var pct=Math.round(deleted/total*100);
+        if(progBar) progBar.style.width=pct+'%';
+        if(progTxt) progTxt.textContent='⏳ Suppression : '+deleted+' / '+total+' ('+pct+'%)';
+        nextChunk(i+400);
+      }).catch(function(e){ toast('❌ Erreur : '+e.message); });
+    }
+    nextChunk(0);
+  }).catch(function(e){ toast('❌ Erreur : '+e.message); });
 }
 
 function openExportModal(){
