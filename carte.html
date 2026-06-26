@@ -217,6 +217,29 @@
     }
     #analyseExportBtn:hover { background:#1344b0; }
 
+    #analyseFooter {
+      background:#f0f0f0;
+      border-top:1px solid #ddd;
+      padding:12px 20px;
+      display:flex;
+      gap:10px;
+      justify-content:center;
+      align-items:center;
+    }
+    .analyse-footer-btn {
+      padding:9px 22px;
+      border:none;
+      border-radius:6px;
+      font-size:13px;
+      font-weight:bold;
+      cursor:pointer;
+    }
+    .analyse-footer-btn.blue { background:#1a56db; color:#fff; }
+    .analyse-footer-btn.blue:hover { background:#1344b0; }
+    .analyse-footer-btn.grey { background:#555; color:#fff; }
+    .analyse-footer-btn.grey:hover { background:#333; }
+    #copyStatus { font-size:12px; color:#1a7a1a; display:none; }
+
     /* Résumé incidents (sous mois) */
     #summaryBox{
       position:absolute;
@@ -447,7 +470,11 @@
         <button onclick="closeAnalyseModal()">✕</button>
       </div>
       <div id="analyseModalBody"></div>
-      <button id="analyseExportBtn" onclick="exportAnalyseExcel()">⬇ Exporter Excel</button>
+      <div id="analyseFooter">
+        <button class="analyse-footer-btn blue" onclick="exportAnalyseExcel()">⬇ Exporter Excel</button>
+        <button class="analyse-footer-btn grey" onclick="copierRapportImage()">📋 Copier image</button>
+        <span id="copyStatus">✅ Copié dans le presse-papiers !</span>
+      </div>
     </div>
   </div>
 
@@ -476,6 +503,7 @@
   <!-- Libs -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
   <script>
     // === MAP INIT ===
@@ -1534,6 +1562,104 @@ sorted.forEach(([k,v])=>{
     function togglePanel(id){
       const el = document.getElementById(id);
       el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async function copierRapportImage(){
+      const btn = document.querySelector('.analyse-footer-btn.grey');
+      const status = document.getElementById('copyStatus');
+      btn.textContent = '⏳ Capture…';
+      btn.disabled = true;
+      status.style.display = 'none';
+
+      try {
+        // 1. Capturer la carte (uniquement la zone du polygon Abidjan)
+        const mapEl = document.getElementById('map');
+        const mapCanvas = await html2canvas(mapEl, {
+          scale: 1.5,
+          backgroundColor: '#fff',
+          useCORS: true,
+          logging: false
+        });
+
+        // Recadrer sur la zone Abidjan via les bounds du polygon
+        const bounds = abidjanBoundary.getBounds();
+        const topLeft     = map.latLngToContainerPoint(bounds.getNorthWest());
+        const bottomRight = map.latLngToContainerPoint(bounds.getSouthEast());
+        const margin = 30;
+        const cx = Math.max(0, topLeft.x - margin);
+        const cy = Math.max(0, topLeft.y - margin);
+        const cw = Math.min(mapEl.offsetWidth, bottomRight.x + margin) - cx;
+        const ch = Math.min(mapEl.offsetHeight, bottomRight.y + margin) - cy;
+        const scale = 1.5;
+
+        const mapCropped = document.createElement('canvas');
+        mapCropped.width  = Math.round(cw * scale);
+        mapCropped.height = Math.round(ch * scale);
+        mapCropped.getContext('2d').drawImage(
+          mapCanvas,
+          Math.round(cx * scale), Math.round(cy * scale),
+          Math.round(cw * scale), Math.round(ch * scale),
+          0, 0,
+          Math.round(cw * scale), Math.round(ch * scale)
+        );
+
+        // 2. Capturer le rapport
+        const body = document.getElementById('analyseModalBody');
+        const rapportCanvas = await html2canvas(body, {
+          scale: 2,
+          backgroundColor: '#f8f9fa',
+          useCORS: true,
+          scrollY: 0,
+          windowWidth: body.scrollWidth,
+          height: body.scrollHeight
+        });
+
+        // 3. Assembler : carte en haut, rapport en dessous
+        const W = Math.max(mapCropped.width, rapportCanvas.width);
+        const H = mapCropped.height + 16 + rapportCanvas.height;
+        const final = document.createElement('canvas');
+        final.width  = W;
+        final.height = H;
+        const ctx = final.getContext('2d');
+        ctx.fillStyle = '#f8f9fa';
+        ctx.fillRect(0, 0, W, H);
+
+        // Centrer la carte
+        const mapX = Math.round((W - mapCropped.width) / 2);
+        ctx.drawImage(mapCropped, mapX, 0);
+
+        // Trait séparateur
+        ctx.strokeStyle = '#ddd';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(20, mapCropped.height + 8);
+        ctx.lineTo(W - 20, mapCropped.height + 8);
+        ctx.stroke();
+
+        // Rapport
+        ctx.drawImage(rapportCanvas, 0, mapCropped.height + 16);
+
+        // 4. Copier ou télécharger
+        final.toBlob(async blob => {
+          try {
+            await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+            status.style.display = 'inline';
+            setTimeout(() => { status.style.display = 'none'; }, 3000);
+          } catch(e) {
+            const a = document.createElement('a');
+            a.href = final.toDataURL('image/png');
+            a.download = (document.getElementById('analyseModalTitle').textContent||'rapport') + '.png';
+            a.click();
+          }
+          btn.textContent = '📋 Copier image';
+          btn.disabled = false;
+        });
+
+      } catch(e) {
+        btn.textContent = '📋 Copier image';
+        btn.disabled = false;
+        alert('Erreur : ' + e.message);
+      }
     }
 
     // Auto load
