@@ -1350,6 +1350,124 @@ sorted.forEach(([k,v])=>{
         html += `</tbody></table></div>`;
       }
 
+      // ── Abidjan vs Intérieur (cumulé) ──
+      const allRows = DATA_JSON.filter(r => {
+        const d = toJSDate(r["DATE DE CRÉATION"]);
+        return d && months.includes(d.getMonth()+1);
+      });
+      const totAll = allRows.length;
+      let totAbj = 0, totInt = 0;
+      const abjLoc2 = {}, intLoc2 = {};
+      allRows.forEach(r => {
+        const locRaw = (r["LOCALISATION CLIENT"]||"").toUpperCase().trim();
+        if(isAbidjan(locRaw)){ totAbj++; const loc=normaliserAbidjan(locRaw); abjLoc2[loc]=(abjLoc2[loc]||0)+1; }
+        else { totInt++; const v=normaliserVille(locRaw); intLoc2[v]=(intLoc2[v]||0)+1; }
+      });
+      const sortedAbj2 = Object.entries(abjLoc2).sort((a,b)=>b[1]-a[1]);
+      const sortedInt2 = Object.entries(intLoc2).sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+      html += `<div class="analyse-section">
+        <h3>🗺️ Abidjan vs Intérieur (cumulé)</h3>
+        <div class="analyse-kpi-row" style="margin-bottom:14px">
+          <div class="akpi"><div class="val">${totAbj}</div><div class="lbl">Abidjan (${pct(totAbj,totAll)}%)</div></div>
+          <div class="akpi blue"><div class="val">${totInt}</div><div class="lbl">Intérieur (${pct(totInt,totAll)}%)</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Communes Abidjan</div>
+            <table class="analyse-table"><thead><tr><th>Zone</th><th class="num">Nb</th><th class="num">%</th></tr></thead><tbody>
+            ${sortedAbj2.map(([z,v])=>`<tr><td>${communesCoords[z]?'<b>'+z+'</b>':z}</td><td class="num">${v}</td><td class="num" style="${parseFloat(pct(v,totAll))>=15?'color:#b30000;font-weight:bold':''}">${pct(v,totAll)}%</td></tr>`).join('')}
+            </tbody></table>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Villes Intérieur (Top 8)</div>
+            <table class="analyse-table"><thead><tr><th>Ville</th><th class="num">Nb</th><th class="num">%</th></tr></thead><tbody>
+            ${sortedInt2.map(([z,v])=>`<tr><td>${z}</td><td class="num">${v}</td><td class="num">${pct(v,totAll)}%</td></tr>`).join('')}
+            </tbody></table>
+          </div>
+        </div>
+      </div>`;
+
+      // ── Zones Abidjan touchées (cumulé) ──
+      const zones2 = {};
+      allRows.forEach(r => {
+        const loc=(r["LOCALISATION CLIENT"]||"").toUpperCase().trim();
+        const locN=normaliserAbidjan(loc);
+        const c=(r["CAUSE RÉELLE"]||"").toUpperCase().trim();
+        if(!zones2[locN]) zones2[locN]={total:0,cable:0};
+        zones2[locN].total++;
+        if(causesCable.includes(c)) zones2[locN].cable++;
+      });
+      const sortedZones2=Object.entries(zones2).filter(([z])=>communesCoords[z]).sort((a,b)=>b[1].total-a[1].total);
+      const maxZ2=sortedZones2[0]?.[1].total||1;
+      html += `<div class="analyse-section">
+        <h3>📍 Zones Abidjan touchées (${sortedZones2.length}/8) — cumulé</h3>
+        <table class="analyse-table">
+          <thead><tr><th>Zone</th><th class="num">Total</th><th class="num">Cable</th><th class="num">Autre</th><th>Volume</th></tr></thead><tbody>`;
+      sortedZones2.forEach(([z,v])=>{
+        const w=Math.round(v.total/maxZ2*100);
+        html+=`<tr><td><b>${z}</b></td><td class="num">${v.total}</td><td class="num" style="color:#b30000">${v.cable} <small>(${pct(v.cable,v.total)}%)</small></td><td class="num" style="color:#1a56db">${v.total-v.cable} <small>(${pct(v.total-v.cable,v.total)}%)</small></td><td><div class="bar-bg"><div class="bar-fill" style="width:${w}%"></div></div></td></tr>`;
+      });
+      html += `</tbody></table></div>`;
+
+      // ── Répartition par catégorie (cumulé) ──
+      const catCounts2={};
+      Object.keys(causeGroups).forEach(k=>catCounts2[k]=0);
+      allRows.forEach(r=>{
+        const c=(r["CAUSE RÉELLE"]||"").toUpperCase().trim();
+        let matched=false;
+        for(const g in causeGroups){if(causeGroups[g].includes(c)){catCounts2[g]++;matched=true;break;}}
+        if(!matched) catCounts2["Autres"]++;
+      });
+      const sortedCats2=Object.entries(catCounts2).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+      const maxCat2=sortedCats2[0]?.[1]||1;
+      html+=`<div class="analyse-section">
+        <h3>📊 Répartition par catégorie de cause (cumulé)</h3>
+        <table class="analyse-table"><thead><tr><th>Catégorie</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead><tbody>`;
+      sortedCats2.forEach(([cat,v])=>{
+        const isCab=cat==='Cable';
+        const w=Math.round(v/maxCat2*100);
+        const style=isCab?'color:#b30000;font-weight:bold':parseFloat(pct(v,totAll))>=15?'color:#e34a33':'';
+        html+=`<tr><td style="${style}">${isCab?'🔴 ':''}<b>${cat}</b></td><td class="num" style="${style}">${v}</td><td class="num">${pct(v,totAll)}%</td><td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td></tr>`;
+      });
+      html+=`</tbody></table></div>`;
+
+      // ── Top 10 causes réelles (cumulé) ──
+      const causes2={};
+      allRows.forEach(r=>{const c=(r["CAUSE RÉELLE"]||"—").toUpperCase().trim();causes2[c]=(causes2[c]||0)+1;});
+      const sortedCauses2=Object.entries(causes2).sort((a,b)=>b[1]-a[1]).slice(0,10);
+      const maxCause2=sortedCauses2[0]?.[1]||1;
+      html+=`<div class="analyse-section">
+        <h3>🔍 Top 10 causes réelles (cumulé)</h3>
+        <table class="analyse-table"><thead><tr><th>Cause</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead><tbody>`;
+      sortedCauses2.forEach(([c,v])=>{
+        const isCab=causesCable.includes(c);
+        const w=Math.round(v/maxCause2*100);
+        html+=`<tr><td>${isCab?'<span class="tag-cable">Cable</span> ':''}<b>${c}</b></td><td class="num">${v}</td><td class="num">${pct(v,totAll)}%</td><td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td></tr>`;
+      });
+      html+=`</tbody></table></div>`;
+
+      // ── ND récurrents (cumulé) ──
+      const nds2={};
+      allRows.forEach(r=>{
+        const nd=(r["ND"]||"—").toString().trim();
+        const loc=normaliserAbidjan((r["LOCALISATION CLIENT"]||"").toUpperCase().trim());
+        const client=r["RAISON SOCIALE"]||"—";
+        if(!nds2[nd]) nds2[nd]={nd,client,loc,count:0};
+        nds2[nd].count++;
+      });
+      const recurrents2=Object.values(nds2).filter(n=>n.count>=2).sort((a,b)=>b.count-a.count).slice(0,15);
+      if(recurrents2.length){
+        html+=`<div class="analyse-section">
+          <h3>⚠️ ND récurrents ≥ 2 incidents (cumulé)</h3>
+          <table class="analyse-table"><thead><tr><th>ND</th><th>Client</th><th>Zone</th><th class="num">Incidents</th></tr></thead><tbody>`;
+        recurrents2.forEach(n=>{
+          const s=n.count>=3?'color:#b30000;font-weight:bold':n.count>=2?'color:#e34a33':'';
+          html+=`<tr><td style="color:#555">${n.nd}</td><td><b>${n.client}</b></td><td>${n.loc}</td><td class="num" style="${s}">${n.count}</td></tr>`;
+        });
+        html+=`</tbody></table></div>`;
+      }
+
       return html;
     }
 
