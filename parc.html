@@ -1340,12 +1340,20 @@ function apparier(allRows) {
   return { pairs, orphBck };
 }
 
+let baseViewType = 'PAIR'; // PRI | BCK | PAIR
+
 async function chargerBase(type) {
   fermerPicker();
+  baseViewType = type;
 
-  document.getElementById('base-modal-title').textContent = 'Liens PRI ↔ BCK';
-  document.getElementById('base-type-badge').innerHTML =
-    '<span class="base-badge-pri">● PRI</span> <span class="base-badge-bck">● BCK</span>';
+  const titles = { PRI: 'Liens Primaires', BCK: 'Liens Backup', PAIR: 'Liens PRI ↔ BCK (paires complètes)' };
+  const badges = {
+    PRI:  '<span class="base-badge-pri">● PRI</span>',
+    BCK:  '<span class="base-badge-bck">● BCK</span>',
+    PAIR: '<span class="base-badge-pri">● PRI</span> <span class="base-badge-bck">● BCK</span>'
+  };
+  document.getElementById('base-modal-title').textContent = titles[type];
+  document.getElementById('base-type-badge').innerHTML = badges[type];
   document.getElementById('badge-base').textContent = '…';
   document.getElementById('search-base').value = '';
   document.getElementById('popup-table-base').innerHTML =
@@ -1378,7 +1386,14 @@ async function chargerBase(type) {
       (pairs.length + orphBck.length).toLocaleString('fr-FR');
     document.getElementById('export-base').onclick = () => exporterBase();
 
-    renderPairsTable(pairs, orphBck);
+    if (baseViewType === 'PRI') {
+      renderSimpleTable(baseAllParsed.filter(r => r.TYPE_LIEN === 'PRI'));
+    } else if (baseViewType === 'BCK') {
+      renderSimpleTable(baseAllParsed.filter(r => r.TYPE_LIEN === 'BCK'));
+    } else {
+      // PAIR — uniquement les paires complètes (bck != null)
+      renderPairsTable(pairs.filter(p => p.bck !== null), []);
+    }
 
   } catch(err) {
     document.getElementById('popup-table-base').innerHTML =
@@ -1401,6 +1416,63 @@ function rowCells(r) {
           <td>${stBadge(r.STATUT_1)} / ${stBadge(r.STATUT_2)}</td>
           <td style="font-family:monospace;font-size:11px;">${r.ROUTEUR}<br><span style="color:var(--text-3);font-size:10px;">${r.INTERFACE}</span></td>
           <td style="font-size:11px;color:var(--text-3);">${r.STATUT_LIEN}</td>`;
+}
+
+
+function renderSimpleTable(rows, search='') {
+  const q = search.toUpperCase().trim();
+  const mots = q ? q.split(/\s*,\s*/) : [];
+  const filtered = mots.length
+    ? rows.filter(r => {
+        const t = [r.ND,r.DEBIT,r.CLIENT,r.LIBELLE,r.ROUTEUR,r.INTERFACE,r.STATUT_LIEN].join(' ').toUpperCase();
+        return mots.every(m => t.includes(m));
+      })
+    : rows;
+
+  // Sort by client then libelle
+  filtered.sort((a,b) => a.CLIENT.localeCompare(b.CLIENT) || a.LIBELLE.localeCompare(b.LIBELLE));
+
+  document.getElementById('badge-base').textContent = filtered.length.toLocaleString('fr-FR');
+
+  if (!filtered.length) {
+    document.getElementById('popup-table-base').innerHTML =
+      '<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div>Aucun résultat</div></div>';
+    return;
+  }
+
+  const isBck = baseViewType === 'BCK';
+  const borderColor = isBck ? '#e5c077' : '#c8e6a0';
+
+  let html = '<table id="table-base"><thead><tr>'
+    + '<th>Client</th><th>Libellé site</th><th>ND</th><th>Débit</th>'
+    + '<th>Statut</th><th>Routeur</th><th>Interface</th><th>Type lien</th>'
+    + '</tr></thead><tbody>';
+
+  let lastClient = null;
+  filtered.forEach(r => {
+    if (r.CLIENT !== lastClient) {
+      lastClient = r.CLIENT;
+      const cnt = filtered.filter(x => x.CLIENT === r.CLIENT).length;
+      html += '<tr class="base-group-header"><td colspan="8">\u{1F464} '
+        + (r.CLIENT||'(non renseigné)') + ' <span style="font-weight:400;color:var(--text-3);font-size:11px;">('
+        + cnt + ' lien' + (cnt>1?'s':'') + ')</span></td></tr>';
+    }
+    const typeBadge = r.TYPE_LIEN === 'PRI'
+      ? '<span class="link-badge primaire">PRI</span>'
+      : '<span class="link-badge backup">BCK</span>';
+    html += '<tr>'
+      + '<td style="font-weight:600;font-size:12px;">' + r.CLIENT + '</td>'
+      + '<td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + r.LIBELLE.replace(/"/g,'&quot;') + '">' + r.LIBELLE + '</td>'
+      + '<td style="font-family:monospace;font-size:11px;border-left:2px solid ' + borderColor + ';">' + r.ND + '</td>'
+      + '<td style="white-space:nowrap;">' + r.DEBIT + '</td>'
+      + '<td>' + stBadge(r.STATUT_1) + ' / ' + stBadge(r.STATUT_2) + '</td>'
+      + '<td style="font-family:monospace;font-size:11px;">' + r.ROUTEUR + '</td>'
+      + '<td style="font-family:monospace;font-size:11px;">' + r.INTERFACE + '</td>'
+      + '<td>' + typeBadge + '</td>'
+      + '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('popup-table-base').innerHTML = html;
 }
 
 function renderPairsTable(pairs, orphBck, search='') {
@@ -1487,7 +1559,13 @@ function renderPairsTable(pairs, orphBck, search='') {
 
 function filtrerBase() {
   const val = document.getElementById('search-base').value;
-  renderPairsTable(basePairsData, baseOrphBck, val);
+  if (baseViewType === 'PRI') {
+    renderSimpleTable(baseAllParsed.filter(r => r.TYPE_LIEN === 'PRI'), val);
+  } else if (baseViewType === 'BCK') {
+    renderSimpleTable(baseAllParsed.filter(r => r.TYPE_LIEN === 'BCK'), val);
+  } else {
+    renderPairsTable(basePairsData.filter(p => p.bck !== null), [], val);
+  }
 }
 
 function exporterBase() {
@@ -1498,29 +1576,42 @@ function exporterBase() {
     const t = [r.ND,r.DEBIT,r.CLIENT,r.LIBELLE,r.ROUTEUR,r.INTERFACE].join(' ').toUpperCase();
     return mots.every(m => t.includes(m));
   }
-  const pairs  = mots.length ? basePairsData.filter(({pri,bck}) => matchRow(pri)||matchRow(bck)) : basePairsData;
-  const orphBck = mots.length ? baseOrphBck.filter(b => matchRow(b)) : baseOrphBck;
-  const data = [];
-  const cols = ['CLIENT','LIBELLE','ND_PRI','DEBIT_PRI','STATUT_PRI','ROUTEUR_PRI','IFACE_PRI','ND_BCK','DEBIT_BCK','STATUT_BCK','ROUTEUR_BCK','IFACE_BCK'];
-  pairs.forEach(({pri,bck}) => {
-    data.push({
-      CLIENT:pri.CLIENT, LIBELLE:pri.LIBELLE||bck?.LIBELLE||'',
-      ND_PRI:pri.ND, DEBIT_PRI:pri.DEBIT, STATUT_PRI:`${pri.STATUT_1}/${pri.STATUT_2}`, ROUTEUR_PRI:pri.ROUTEUR, IFACE_PRI:pri.INTERFACE,
-      ND_BCK:bck?.ND||'', DEBIT_BCK:bck?.DEBIT||'', STATUT_BCK:bck?`${bck.STATUT_1}/${bck.STATUT_2}`:'', ROUTEUR_BCK:bck?.ROUTEUR||'', IFACE_BCK:bck?.INTERFACE||''
+  let data = [];
+  let filename = 'Liens_Base.xlsx';
+
+  if (baseViewType === 'PRI' || baseViewType === 'BCK') {
+    const rows = baseAllParsed.filter(r => r.TYPE_LIEN === baseViewType);
+    const filtered = mots.length ? rows.filter(matchRow) : rows;
+    filtered.sort((a,b) => a.CLIENT.localeCompare(b.CLIENT) || a.LIBELLE.localeCompare(b.LIBELLE));
+    data = filtered.map(r => ({
+      CLIENT: r.CLIENT, LIBELLE: r.LIBELLE, ND: r.ND, DEBIT: r.DEBIT,
+      STATUT_1: r.STATUT_1, STATUT_2: r.STATUT_2,
+      ROUTEUR: r.ROUTEUR, INTERFACE: r.INTERFACE, TYPE_LIEN: r.TYPE_LIEN
+    }));
+    filename = baseViewType === 'PRI' ? 'Liens_Primaires.xlsx' : 'Liens_Backup.xlsx';
+  } else {
+    // PAIR — paires complètes seulement
+    const pairs = basePairsData.filter(p => p.bck !== null);
+    const filtered = mots.length ? pairs.filter(({pri,bck}) => matchRow(pri)||matchRow(bck)) : pairs;
+    filtered.forEach(({pri,bck}) => {
+      data.push({
+        CLIENT: pri.CLIENT, LIBELLE: pri.LIBELLE || bck.LIBELLE || '',
+        ND_PRI: pri.ND, DEBIT_PRI: pri.DEBIT,
+        STATUT_PRI: pri.STATUT_1 + '/' + pri.STATUT_2,
+        ROUTEUR_PRI: pri.ROUTEUR, IFACE_PRI: pri.INTERFACE,
+        ND_BCK: bck.ND, DEBIT_BCK: bck.DEBIT,
+        STATUT_BCK: bck.STATUT_1 + '/' + bck.STATUT_2,
+        ROUTEUR_BCK: bck.ROUTEUR, IFACE_BCK: bck.INTERFACE
+      });
     });
-  });
-  orphBck.forEach(b => {
-    data.push({
-      CLIENT:b.CLIENT, LIBELLE:b.LIBELLE,
-      ND_PRI:'', DEBIT_PRI:'', STATUT_PRI:'', ROUTEUR_PRI:'', IFACE_PRI:'',
-      ND_BCK:b.ND, DEBIT_BCK:b.DEBIT, STATUT_BCK:`${b.STATUT_1}/${b.STATUT_2}`, ROUTEUR_BCK:b.ROUTEUR, IFACE_BCK:b.INTERFACE
-    });
-  });
+    filename = 'Liens_PRI_BCK.xlsx';
+  }
+
   if (!data.length) { alert('Aucune donnée !'); return; }
   const ws2 = XLSX.utils.json_to_sheet(data);
   const wb2 = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb2, ws2, 'Liens PRI-BCK');
-  XLSX.writeFile(wb2, 'Liens_PRI_BCK.xlsx');
+  XLSX.utils.book_append_sheet(wb2, ws2, 'Base');
+  XLSX.writeFile(wb2, filename);
 }
 
 chargerExcelParc();
@@ -1544,13 +1635,23 @@ window.addEventListener('DOMContentLoaded', () => {
           <polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
         </svg>
       </div>
-      <div class="picker-title">Liens PRI ↔ BCK</div>
-      <div class="picker-sub">Affiche tous les liens Primaires avec leur Backup associé, groupés par client</div>
-      <div class="picker-choices" style="grid-template-columns:1fr;">
-        <button class="picker-choice" style="border-color:var(--blue);padding:20px 16px;" onclick="chargerBase()">
+      <div class="picker-title">Type de lien</div>
+      <div class="picker-sub">Choisissez le mode d'affichage depuis la Base Technique</div>
+      <div class="picker-choices" style="grid-template-columns:1fr 1fr 1fr;">
+        <button class="picker-choice pri" onclick="chargerBase('PRI')">
+          <div class="picker-choice-icon">🔵</div>
+          <div class="picker-choice-label">Primaires</div>
+          <div class="picker-choice-sub">Liens PRI uniquement</div>
+        </button>
+        <button class="picker-choice bck" onclick="chargerBase('BCK')">
+          <div class="picker-choice-icon">🟡</div>
+          <div class="picker-choice-label">Backup</div>
+          <div class="picker-choice-sub">Liens BCK uniquement</div>
+        </button>
+        <button class="picker-choice" style="border-color:var(--blue);" onclick="chargerBase('PAIR')">
           <div class="picker-choice-icon">🔵🟡</div>
-          <div class="picker-choice-label">Afficher PRI + BCK appariés</div>
-          <div class="picker-choice-sub">Base Technique — dernier onglet</div>
+          <div class="picker-choice-label">PRI + BCK</div>
+          <div class="picker-choice-sub">Paires complètes seulement</div>
         </button>
       </div>
       <button class="picker-cancel" onclick="fermerPicker()">Annuler</button>
