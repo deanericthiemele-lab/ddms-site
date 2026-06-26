@@ -1566,48 +1566,103 @@ sorted.forEach(([k,v])=>{
 
     async function copierRapportImage(){
       const btn = document.querySelector('.analyse-footer-btn.grey');
-      const status = document.getElementById('copyStatus');
       btn.textContent = '⏳ Capture…';
       btn.disabled = true;
-      status.style.display = 'none';
 
       try {
-        // 1. Capturer la carte — recadrer sur le polygon Abidjan
-        const mapEl = document.getElementById('map');
-        const mapCanvas = await html2canvas(mapEl, {
-          scale: 1,
-          backgroundColor: '#fff',
-          useCORS: true,
-          logging: false
+        const EMAIL_W  = 1800; // taille finale (sera affichée à 900px dans Outlook)
+        const RAPPORT_W = 1200;
+        const PADDING  = 40;
+        const SCALE    = 2;
+
+        // ── 1. Carte dessinée manuellement (sans tiles CORS) ──────────
+        const bounds   = abidjanBoundary.getBounds();
+        const mapEl    = document.getElementById('map');
+        const margin   = 30;
+        const tl       = map.latLngToContainerPoint(bounds.getNorthWest());
+        const br       = map.latLngToContainerPoint(bounds.getSouthEast());
+        const cx = Math.max(0, tl.x - margin);
+        const cy = Math.max(0, tl.y - margin);
+        const cw = Math.min(mapEl.offsetWidth,  br.x + margin) - cx;
+        const ch = Math.min(mapEl.offsetHeight, br.y + margin) - cy;
+
+        const MAP_W = EMAIL_W;
+        const MAP_H = Math.round(ch / cw * MAP_W);
+
+        const mapC = document.createElement('canvas');
+        mapC.width  = MAP_W;
+        mapC.height = MAP_H;
+        const mc = mapC.getContext('2d');
+
+        // Fond carte (couleur eau / terre neutre)
+        mc.fillStyle = '#d4e8f0';
+        mc.fillRect(0, 0, MAP_W, MAP_H);
+        mc.fillStyle = '#e8e0d4';
+        mc.fillRect(0, 0, MAP_W, MAP_H * 0.7);
+
+        // Helpers de projection (crop → canvas)
+        function projX(pt){ return Math.round((pt.x - cx) / cw * MAP_W); }
+        function projY(pt){ return Math.round((pt.y - cy) / ch * MAP_H); }
+        function ll2c(lat, lng){
+          const pt = map.latLngToContainerPoint([lat, lng]);
+          return { x: projX(pt), y: projY(pt) };
+        }
+
+        // Polygon Abidjan
+        mc.strokeStyle = '#222';
+        mc.lineWidth = 3;
+        mc.beginPath();
+        abidjanBoundary.getLatLngs()[0].forEach((ll, i) => {
+          const p = ll2c(ll.lat, ll.lng);
+          i === 0 ? mc.moveTo(p.x, p.y) : mc.lineTo(p.x, p.y);
         });
+        mc.closePath();
+        mc.stroke();
 
-        const bounds = abidjanBoundary.getBounds();
-        const topLeft     = map.latLngToContainerPoint(bounds.getNorthWest());
-        const bottomRight = map.latLngToContainerPoint(bounds.getSouthEast());
-        const margin = 20;
-        const cx = Math.max(0, topLeft.x - margin);
-        const cy = Math.max(0, topLeft.y - margin);
-        const cw = Math.min(mapEl.offsetWidth,  bottomRight.x + margin) - cx;
-        const ch = Math.min(mapEl.offsetHeight, bottomRight.y + margin) - cy;
+        // Cercles des zones (même données que la carte)
+        const months = getSelectedMonths();
+        const r = computeForMonths(DATA_JSON, months);
+        const RADIUS = Math.round(MAP_W * 0.055);
 
-        const mapCropped = document.createElement('canvas');
-        mapCropped.width  = Math.round(cw);
-        mapCropped.height = Math.round(ch);
-        mapCropped.getContext('2d').drawImage(
-          mapCanvas, Math.round(cx), Math.round(cy),
-          Math.round(cw), Math.round(ch),
-          0, 0, Math.round(cw), Math.round(ch)
-        );
+        for(const loc in r.zoneCounts){
+          if(!communesCoords[loc]) continue;
+          const cable  = r.zoneCounts[loc].cable;
+          const autre  = r.zoneCounts[loc].autre;
+          const total  = cable + autre;
+          const p      = ll2c(communesCoords[loc][0], communesCoords[loc][1]);
+          const color  = getColor(total);
 
-        // 2. Capturer tout le rapport (contenu complet)
+          mc.beginPath();
+          mc.arc(p.x, p.y, RADIUS, 0, Math.PI*2);
+          mc.fillStyle = color;
+          mc.globalAlpha = 0.9;
+          mc.fill();
+          mc.globalAlpha = 1;
+          mc.strokeStyle = '#111';
+          mc.lineWidth = 2;
+          mc.stroke();
+
+          // Texte
+          mc.fillStyle = '#fff';
+          mc.font = `bold ${Math.round(RADIUS*0.38)}px Arial`;
+          mc.textAlign = 'center';
+          mc.textBaseline = 'middle';
+          const pctC = total ? Math.round(cable/total*100) : 0;
+          mc.fillText(loc, p.x, p.y - RADIUS*0.22);
+          mc.font = `${Math.round(RADIUS*0.3)}px Arial`;
+          mc.fillText(`Cbl:${cable}(${pctC}%)`, p.x, p.y + RADIUS*0.12);
+          mc.fillText(`Aut:${autre}(${100-pctC}%)`, p.x, p.y + RADIUS*0.42);
+        }
+
+        // ── 2. Rapport en haute résolution ──────────────────────────
         const body = document.getElementById('analyseModalBody');
-        const prevOverflow = body.style.overflowY;
-        const prevMaxH    = body.style.maxHeight;
+        const prevOv = body.style.overflowY;
+        const prevMH = body.style.maxHeight;
         body.style.overflowY = 'visible';
         body.style.maxHeight  = 'none';
 
-        const rapportCanvas = await html2canvas(body, {
-          scale: 1,
+        const rapC = await html2canvas(body, {
+          scale: SCALE,
           backgroundColor: '#f8f9fa',
           useCORS: true,
           scrollY: -window.scrollY,
@@ -1615,56 +1670,44 @@ sorted.forEach(([k,v])=>{
           height: body.scrollHeight
         });
 
-        body.style.overflowY = prevOverflow;
-        body.style.maxHeight  = prevMaxH;
+        body.style.overflowY = prevOv;
+        body.style.maxHeight  = prevMH;
 
-        // 3. Assembler : fond gris pleine largeur, rapport centré et réduit
-        const EMAIL_W = 900;        // largeur totale de l'image mail
-        const RAPPORT_W = 600;      // largeur du rapport (centré, plus petit)
-        const PADDING = 24;         // espace autour du rapport
-
-        // Redimensionner la carte à EMAIL_W
-        const mapRatio = EMAIL_W / mapCropped.width;
-        const mapFinalH = Math.round(mapCropped.height * mapRatio);
-
-        // Redimensionner le rapport à RAPPORT_W
-        const rapRatio = RAPPORT_W / rapportCanvas.width;
-        const rapFinalH = Math.round(rapportCanvas.height * rapRatio);
-
-        const totalH = mapFinalH + PADDING + rapFinalH + PADDING;
+        // ── 3. Assembler ────────────────────────────────────────────
+        const rapRatio  = RAPPORT_W / rapC.width;
+        const rapFinalH = Math.round(rapC.height * rapRatio);
+        const totalH    = MAP_H + PADDING + rapFinalH + PADDING;
 
         const final = document.createElement('canvas');
         final.width  = EMAIL_W;
         final.height = totalH;
         const ctx = final.getContext('2d');
 
-        // Fond gris pleine largeur
-        ctx.fillStyle = '#e8e8e8';
+        // Fond gris global
+        ctx.fillStyle = '#e0e0e0';
         ctx.fillRect(0, 0, EMAIL_W, totalH);
 
-        // Carte pleine largeur en haut
-        ctx.drawImage(mapCropped, 0, 0, EMAIL_W, mapFinalH);
+        // Carte
+        ctx.drawImage(mapC, 0, 0);
 
-        // Trait séparateur
-        ctx.strokeStyle = '#ccc';
-        ctx.lineWidth = 1;
+        // Séparateur
+        ctx.strokeStyle = '#bbb';
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(0, mapFinalH);
-        ctx.lineTo(EMAIL_W, mapFinalH);
+        ctx.moveTo(0, MAP_H);
+        ctx.lineTo(EMAIL_W, MAP_H);
         ctx.stroke();
 
-        // Rapport centré avec fond blanc arrondi
+        // Rapport centré, fond blanc arrondi
         const rapX = Math.round((EMAIL_W - RAPPORT_W) / 2);
-        const rapY = mapFinalH + PADDING;
-
+        const rapY = MAP_H + PADDING;
         ctx.fillStyle = '#fff';
         ctx.beginPath();
-        ctx.roundRect(rapX - 8, rapY - 8, RAPPORT_W + 16, rapFinalH + 16, 8);
+        ctx.roundRect(rapX - 12, rapY - 12, RAPPORT_W + 24, rapFinalH + 24, 10);
         ctx.fill();
+        ctx.drawImage(rapC, rapX, rapY, RAPPORT_W, rapFinalH);
 
-        ctx.drawImage(rapportCanvas, rapX, rapY, RAPPORT_W, rapFinalH);
-
-        // 4. Copier + toast visible
+        // ── 4. Copier ou télécharger ────────────────────────────────
         final.toBlob(async blob => {
           try {
             await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
