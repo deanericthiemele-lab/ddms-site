@@ -1244,116 +1244,113 @@ function exporterSegment() {
 
 
 // ── Base Technique — Type de lien (PRI + BCK appariés) ──
-let basePairsData = [];   // [{pri, bck|null}] paires appariées
-let baseOrphBck   = [];   // BCK sans PRI
-let baseAllParsed = [];   // toutes les lignes parsées (PRI + BCK)
+let basePairsData = [];  // paires {pri, bck|null, client, libelle}
+let baseOrphBck   = [];  // BCK sans PRI
+let baseAllParsed = [];  // toutes lignes PRI+BCK
+let baseViewType  = 'PAIR';
 
-function ouvrirPickerLien() {
-  document.getElementById('picker-lien').classList.add('open');
-}
-function fermerPicker() {
-  document.getElementById('picker-lien').classList.remove('open');
-}
+function ouvrirPickerLien() { document.getElementById('picker-lien').classList.add('open'); }
+function fermerPicker()     { document.getElementById('picker-lien').classList.remove('open'); }
 
-// Normalise un libellé pour comparaison : majuscules, retire non-alphanum
-function normLib(s) {
-  return (s||'').toUpperCase().replace(/[^A-Z0-9]/g,' ').replace(/\s+/g,' ').trim();
-}
-
-// Nombre de mots significatifs (>=3 chars) en commun
-function sharedWords(a, b) {
-  const wa = new Set(normLib(a).split(' ').filter(w => w.length >= 3));
-  const wb = new Set(normLib(b).split(' ').filter(w => w.length >= 3));
-  let n = 0; wa.forEach(w => { if(wb.has(w)) n++; });
-  return n;
-}
-
-// Parser une ligne DESCRIPTION
+// Parser une ligne de la Base: positions fixes depuis la fin
+// parts[-1]=PRI/BCK, parts[-2]=TYPE(LL/LSI), parts[-3]=STATUT(NORMAL/FO), 
+// parts[-4]=LIBELLE, parts[-5]=CLIENT
 function parseDesc(row) {
   const desc  = String(row[4] || '');
   const parts = desc.split('!');
   const last  = parts[parts.length-1].trim().toUpperCase();
   if (last !== 'PRI' && last !== 'BCK') return null;
-  // positions fixes : parts[0]=ND, parts[1]=DEBIT, parts[4]=CLIENT, parts[5]=LIBELLE
+  const n = parts.length;
   return {
-    ROUTEUR    : String(row[0] || ''),
-    INTERFACE  : String(row[1] || ''),
-    STATUT_1   : String(row[2] || ''),
-    STATUT_2   : String(row[3] || ''),
-    ND         : parts[0] || '',
-    DEBIT      : parts[1] || '',
-    CLIENT     : (parts[4] || '').trim(),
-    LIBELLE    : (parts[5] || '').trim(),
-    STATUT_LIEN: (parts[parts.length-2] || '').trim(),
-    TYPE_LIEN  : last,
-    DESC       : desc
+    ROUTEUR : String(row[0] || ''),
+    IFACE   : String(row[1] || ''),
+    ST1     : String(row[2] || ''),
+    ST2     : String(row[3] || ''),
+    ND      : parts[0] || '',
+    DEBIT   : parts[1] || '',
+    CLIENT  : n >= 5 ? parts[n-5].trim() : '',
+    LIBELLE : n >= 4 ? parts[n-4].trim() : '',
+    TYPE    : last,
+    DESC    : desc
   };
 }
 
-// Apparier PRI et BCK : même CLIENT + libellé similaire
-function apparier(allRows) {
-  const pri = allRows.filter(r => r.TYPE_LIEN === 'PRI');
-  const bck = allRows.filter(r => r.TYPE_LIEN === 'BCK');
+// Normalise pour comparaison: majuscules, retire ponctuation
+function norm(s) {
+  return (s||'').toUpperCase().replace(/[_\-]/g,' ').replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+}
 
-  // Index BCK par client normalisé
+// Mots significatifs (>=4 chars) en commun entre deux libellés
+function motsCom(a, b) {
+  const wa = new Set(norm(a).split(' ').filter(w => w.length >= 4));
+  const wb = new Set(norm(b).split(' ').filter(w => w.length >= 4));
+  const inter = [...wa].filter(w => wb.has(w));
+  return inter;
+}
+
+// Appariement PRI ↔ BCK :
+// 1. Même CLIENT + même LIBELLE exact (priorité max)
+// 2. Même CLIENT + libellé similaire (mots en commun) UNIQUEMENT si 1 seul candidat
+// => évite les faux positifs sur les gros clients (SGBCI) qui ont plusieurs BCK par ville
+function apparier(allRows) {
+  const pri = allRows.filter(r => r.TYPE === 'PRI');
+  const bck = allRows.filter(r => r.TYPE === 'BCK');
+
+  // Index BCK par client
   const bckByClient = {};
   bck.forEach((b, idx) => {
-    const nc = normLib(b.CLIENT);
-    if (!bckByClient[nc]) bckByClient[nc] = [];
-    bckByClient[nc].push({b, idx, used: false});
+    const c = norm(b.CLIENT);
+    if (!bckByClient[c]) bckByClient[c] = [];
+    bckByClient[c].push({ b, idx, used: false });
   });
 
-  const pairs = [];
-  const usedBck = new Set();
+  const pairs  = [];
+  const usedIdx = new Set();
 
   pri.forEach(p => {
-    const nc = normLib(p.CLIENT);
-    const candidates = bckByClient[nc] || [];
-    let best = null, bestScore = 0;
-    candidates.forEach(entry => {
-      if (entry.used) return;
-      // Score: libellé exact=100, mots communs sinon
-      const nl_p = normLib(p.LIBELLE);
-      const nl_b = normLib(entry.b.LIBELLE);
-      let score = nl_p === nl_b ? 100 : sharedWords(p.LIBELLE, entry.b.LIBELLE);
-      if (score > bestScore) { bestScore = score; best = entry; }
-    });
-    if (best && bestScore > 0) {
-      best.used = true;
-      usedBck.add(best.idx);
-      pairs.push({ pri: p, bck: best.b, score: bestScore });
+    const nc = norm(p.CLIENT);
+    const nl = norm(p.LIBELLE);
+    const cands = bckByClient[nc] || [];
+
+    // Passe 1 : libellé exactement identique
+    let match = cands.find(e => !e.used && norm(e.b.LIBELLE) === nl);
+
+    // Passe 2 : libellé similaire (mots en commun) — seulement si UN SEUL candidat similaire
+    if (!match) {
+      const similaires = cands.filter(e => !e.used && motsCom(p.LIBELLE, e.b.LIBELLE).length > 0);
+      if (similaires.length === 1) match = similaires[0];
+      // Si >1 similaire => ambigu => pas d'appariement (affichera PRI orphelin)
+    }
+
+    if (match) {
+      match.used = true;
+      usedIdx.add(match.idx);
+      pairs.push({ pri: p, bck: match.b, client: p.CLIENT, libelle: p.LIBELLE });
     } else {
-      pairs.push({ pri: p, bck: null, score: 0 });
+      pairs.push({ pri: p, bck: null, client: p.CLIENT, libelle: p.LIBELLE });
     }
   });
 
-  // BCK sans PRI
-  const orphBck = bck.filter((_, idx) => !usedBck.has(idx));
+  const orphBck = bck.filter((_, i) => !usedIdx.has(i));
 
-  // Trier pairs par CLIENT puis LIBELLE
-  pairs.sort((a, b) => {
-    const nc = a.pri.CLIENT.localeCompare(b.pri.CLIENT);
-    return nc !== 0 ? nc : a.pri.LIBELLE.localeCompare(b.pri.LIBELLE);
-  });
+  pairs.sort((a, b) => a.client.localeCompare(b.client) || a.libelle.localeCompare(b.libelle));
   orphBck.sort((a, b) => a.CLIENT.localeCompare(b.CLIENT) || a.LIBELLE.localeCompare(b.LIBELLE));
 
   return { pairs, orphBck };
 }
 
-let baseViewType = 'PAIR'; // PRI | BCK | PAIR
-
 async function chargerBase(type) {
   fermerPicker();
   baseViewType = type;
 
-  const titles = { PRI: 'Liens Primaires', BCK: 'Liens Backup', PAIR: 'Liens PRI ↔ BCK (paires complètes)' };
+  const titles = { PRI:'Liens Primaires', BCK:'Liens Backup', PAIR:'Liens PRI ↔ BCK (paires complètes)' };
   const badges = {
-    PRI:  '<span class="base-badge-pri">● PRI</span>',
-    BCK:  '<span class="base-badge-bck">● BCK</span>',
+    PRI : '<span class="base-badge-pri">● PRI</span>',
+    BCK : '<span class="base-badge-bck">● BCK</span>',
     PAIR: '<span class="base-badge-pri">● PRI</span> <span class="base-badge-bck">● BCK</span>'
   };
   document.getElementById('base-modal-title').textContent = titles[type];
-  document.getElementById('base-type-badge').innerHTML = badges[type];
+  document.getElementById('base-type-badge').innerHTML   = badges[type];
   document.getElementById('badge-base').textContent = '…';
   document.getElementById('search-base').value = '';
   document.getElementById('popup-table-base').innerHTML =
@@ -1362,20 +1359,19 @@ async function chargerBase(type) {
 
   try {
     const resp = await fetch('Base.xlsx');
-    if (!resp.ok) throw new Error('Fichier Base.xlsx introuvable (vérifier le nom exact sur le serveur)');
+    if (!resp.ok) throw new Error('Fichier Base.xlsx introuvable');
     const ab  = await resp.arrayBuffer();
-    const wb  = XLSX.read(ab, { type: 'array' });
+    const wb  = XLSX.read(ab, { type:'array' });
 
     // Dernier onglet non vide
     let sheet = null;
-    for (let i = wb.SheetNames.length - 1; i >= 0; i--) {
-      const ws   = wb.Sheets[wb.SheetNames[i]];
-      const test = XLSX.utils.sheet_to_json(ws, { header: 1 });
-      if (test.length > 2) { sheet = ws; break; }
+    for (let i = wb.SheetNames.length-1; i >= 0; i--) {
+      const ws = wb.Sheets[wb.SheetNames[i]];
+      if (XLSX.utils.sheet_to_json(ws,{header:1}).length > 2) { sheet = ws; break; }
     }
-    if (!sheet) throw new Error('Aucun onglet valide trouvé');
+    if (!sheet) throw new Error('Aucun onglet valide');
 
-    const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1 }).slice(1);
+    const allRows = XLSX.utils.sheet_to_json(sheet, {header:1}).slice(1);
     baseAllParsed = allRows.map(parseDesc).filter(Boolean);
 
     const { pairs, orphBck } = apparier(baseAllParsed);
@@ -1386,20 +1382,15 @@ async function chargerBase(type) {
       (pairs.length + orphBck.length).toLocaleString('fr-FR');
     document.getElementById('export-base').onclick = () => exporterBase();
 
-    if (baseViewType === 'PRI') {
-      renderSimpleTable(baseAllParsed.filter(r => r.TYPE_LIEN === 'PRI'));
-    } else if (baseViewType === 'BCK') {
-      renderSimpleTable(baseAllParsed.filter(r => r.TYPE_LIEN === 'BCK'));
-    } else {
-      // PAIR — uniquement les paires complètes (bck != null)
-      renderPairsTable(pairs.filter(p => p.bck !== null), []);
-    }
+    if      (type === 'PRI')  renderSimpleTable(baseAllParsed.filter(r => r.TYPE === 'PRI'));
+    else if (type === 'BCK')  renderSimpleTable(baseAllParsed.filter(r => r.TYPE === 'BCK'));
+    else                      renderPairsTable(pairs.filter(p => p.bck !== null), []);
 
   } catch(err) {
     document.getElementById('popup-table-base').innerHTML =
-      `<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div>Erreur : ${err.message}</div></div>`;
+      `<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div>Erreur : ${err.message}</div></div>`;
     document.getElementById('badge-base').textContent = '!';
-    console.error('Erreur Base:', err);
+    console.error(err);
   }
 }
 
@@ -1413,143 +1404,96 @@ function rowCells(r) {
   if (!r) return '<td colspan="5" style="color:var(--text-3);text-align:center;font-style:italic;">—</td>';
   return `<td style="font-family:monospace;font-size:11px;">${r.ND}</td>
           <td>${r.DEBIT}</td>
-          <td>${stBadge(r.STATUT_1)} / ${stBadge(r.STATUT_2)}</td>
-          <td style="font-family:monospace;font-size:11px;">${r.ROUTEUR}<br><span style="color:var(--text-3);font-size:10px;">${r.INTERFACE}</span></td>
-          <td style="font-size:11px;color:var(--text-3);">${r.STATUT_LIEN}</td>`;
+          <td>${stBadge(r.ST1)} / ${stBadge(r.ST2)}</td>
+          <td style="font-family:monospace;font-size:11px;">${r.ROUTEUR}<br><span style="color:var(--text-3);font-size:10px;">${r.IFACE}</span></td>
+          <td style="font-size:11px;color:var(--text-3);">${r.TYPE}</td>`;
 }
 
-
 function renderSimpleTable(rows, search='') {
-  const q = search.toUpperCase().trim();
-  const mots = q ? q.split(/\s*,\s*/) : [];
-  const filtered = mots.length
-    ? rows.filter(r => {
-        const t = [r.ND,r.DEBIT,r.CLIENT,r.LIBELLE,r.ROUTEUR,r.INTERFACE,r.STATUT_LIEN].join(' ').toUpperCase();
-        return mots.every(m => t.includes(m));
-      })
-    : rows;
+  const mots = search.toUpperCase().trim().split(/\s*,\s*/).filter(Boolean);
+  const data = mots.length
+    ? rows.filter(r => { const t=[r.ND,r.CLIENT,r.LIBELLE,r.ROUTEUR,r.IFACE,r.DEBIT].join(' ').toUpperCase(); return mots.every(m=>t.includes(m)); })
+    : [...rows];
+  data.sort((a,b) => a.CLIENT.localeCompare(b.CLIENT) || a.LIBELLE.localeCompare(b.LIBELLE));
+  document.getElementById('badge-base').textContent = data.length.toLocaleString('fr-FR');
 
-  // Sort by client then libelle
-  filtered.sort((a,b) => a.CLIENT.localeCompare(b.CLIENT) || a.LIBELLE.localeCompare(b.LIBELLE));
+  if (!data.length) { document.getElementById('popup-table-base').innerHTML = '<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div>Aucun résultat</div></div>'; return; }
 
-  document.getElementById('badge-base').textContent = filtered.length.toLocaleString('fr-FR');
-
-  if (!filtered.length) {
-    document.getElementById('popup-table-base').innerHTML =
-      '<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div>Aucun résultat</div></div>';
-    return;
-  }
-
-  const isBck = baseViewType === 'BCK';
-  const borderColor = isBck ? '#e5c077' : '#c8e6a0';
-
-  let html = '<table id="table-base"><thead><tr>'
-    + '<th>Client</th><th>Libellé site</th><th>ND</th><th>Débit</th>'
-    + '<th>Statut</th><th>Routeur</th><th>Interface</th><th>Type lien</th>'
-    + '</tr></thead><tbody>';
-
-  let lastClient = null;
-  filtered.forEach(r => {
-    if (r.CLIENT !== lastClient) {
-      lastClient = r.CLIENT;
-      const cnt = filtered.filter(x => x.CLIENT === r.CLIENT).length;
-      html += '<tr class="base-group-header"><td colspan="8">\u{1F464} '
-        + (r.CLIENT||'(non renseigné)') + ' <span style="font-weight:400;color:var(--text-3);font-size:11px;">('
-        + cnt + ' lien' + (cnt>1?'s':'') + ')</span></td></tr>';
+  const border = baseViewType==='BCK' ? '#e5c077' : '#c8e6a0';
+  let html = '<table id="table-base"><thead><tr><th>Client</th><th>Libellé</th><th>ND</th><th>Débit</th><th>Statut</th><th>Routeur / Iface</th><th>Type</th></tr></thead><tbody>';
+  let lastC = null;
+  data.forEach(r => {
+    if (r.CLIENT !== lastC) {
+      lastC = r.CLIENT;
+      const cnt = data.filter(x => x.CLIENT===r.CLIENT).length;
+      html += `<tr class="base-group-header"><td colspan="7">👤 ${r.CLIENT||'—'} <span style="font-weight:400;color:var(--text-3);font-size:11px;">(${cnt} lien${cnt>1?'s':''})</span></td></tr>`;
     }
-    const typeBadge = r.TYPE_LIEN === 'PRI'
-      ? '<span class="link-badge primaire">PRI</span>'
-      : '<span class="link-badge backup">BCK</span>';
-    html += '<tr>'
-      + '<td style="font-weight:600;font-size:12px;">' + r.CLIENT + '</td>'
-      + '<td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + r.LIBELLE.replace(/"/g,'&quot;') + '">' + r.LIBELLE + '</td>'
-      + '<td style="font-family:monospace;font-size:11px;border-left:2px solid ' + borderColor + ';">' + r.ND + '</td>'
-      + '<td style="white-space:nowrap;">' + r.DEBIT + '</td>'
-      + '<td>' + stBadge(r.STATUT_1) + ' / ' + stBadge(r.STATUT_2) + '</td>'
-      + '<td style="font-family:monospace;font-size:11px;">' + r.ROUTEUR + '</td>'
-      + '<td style="font-family:monospace;font-size:11px;">' + r.INTERFACE + '</td>'
-      + '<td>' + typeBadge + '</td>'
-      + '</tr>';
+    const badge = r.TYPE==='PRI' ? '<span class="link-badge primaire">PRI</span>' : '<span class="link-badge backup">BCK</span>';
+    html += `<tr>
+      <td style="font-weight:600;font-size:12px;">${r.CLIENT}</td>
+      <td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${r.LIBELLE}">${r.LIBELLE}</td>
+      <td style="font-family:monospace;font-size:11px;border-left:2px solid ${border};">${r.ND}</td>
+      <td>${r.DEBIT}</td>
+      <td>${stBadge(r.ST1)} / ${stBadge(r.ST2)}</td>
+      <td style="font-family:monospace;font-size:11px;">${r.ROUTEUR}<br><span style="color:var(--text-3);font-size:10px;">${r.IFACE}</span></td>
+      <td>${badge}</td>
+    </tr>`;
   });
   html += '</tbody></table>';
   document.getElementById('popup-table-base').innerHTML = html;
 }
 
 function renderPairsTable(pairs, orphBck, search='') {
-  const q = search.toUpperCase().trim();
-  const mots = q ? q.split(/\s*,\s*/) : [];
-
+  const mots = search.toUpperCase().trim().split(/\s*,\s*/).filter(Boolean);
   function matchRow(r) {
     if (!r) return false;
-    const t = [r.ND,r.DEBIT,r.CLIENT,r.LIBELLE,r.ROUTEUR,r.INTERFACE,r.STATUT_LIEN].join(' ').toUpperCase();
-    return mots.every(m => t.includes(m));
+    return mots.every(m => [r.ND,r.CLIENT,r.LIBELLE,r.ROUTEUR,r.IFACE].join(' ').toUpperCase().includes(m));
   }
+  const fp = mots.length ? pairs.filter(({pri,bck}) => matchRow(pri)||matchRow(bck)) : pairs;
+  const fo = mots.length ? orphBck.filter(b => matchRow(b)) : orphBck;
 
-  const filteredPairs = mots.length
-    ? pairs.filter(({pri, bck}) => matchRow(pri) || matchRow(bck))
-    : pairs;
-  const filteredOrph = mots.length
-    ? orphBck.filter(b => matchRow(b))
-    : orphBck;
-
-  const total = filteredPairs.length + filteredOrph.length;
-  document.getElementById('badge-base').textContent = total.toLocaleString('fr-FR');
-
-  if (!total) {
-    document.getElementById('popup-table-base').innerHTML =
-      '<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div>Aucun résultat</div></div>';
+  document.getElementById('badge-base').textContent = (fp.length+fo.length).toLocaleString('fr-FR');
+  if (!fp.length && !fo.length) {
+    document.getElementById('popup-table-base').innerHTML = '<div class="empty-state"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><div>Aucun résultat</div></div>';
     return;
   }
 
-  // En-têtes colonnes doublées PRI | BCK
   let html = `<table id="table-base" style="table-layout:auto;">
     <thead>
       <tr>
-        <th rowspan="2" style="min-width:140px;">Client</th>
-        <th rowspan="2" style="min-width:160px;">Libellé site</th>
+        <th rowspan="2" style="min-width:120px;">Client</th>
+        <th rowspan="2" style="min-width:140px;">Libellé</th>
         <th colspan="5" style="background:var(--green-light);color:var(--green);text-align:center;border-left:2px solid #a8d476;">🔵 Lien Primaire (PRI)</th>
         <th colspan="5" style="background:var(--amber-light);color:var(--amber);text-align:center;border-left:2px solid #e5c077;">🟡 Lien Backup (BCK)</th>
       </tr>
       <tr>
-        <th style="border-left:2px solid #a8d476;">ND</th><th>Débit</th><th>Statut</th><th>Routeur / Iface</th><th>Type lien</th>
-        <th style="border-left:2px solid #e5c077;">ND</th><th>Débit</th><th>Statut</th><th>Routeur / Iface</th><th>Type lien</th>
+        <th style="border-left:2px solid #a8d476;">ND</th><th>Débit</th><th>Statut</th><th>Routeur / Iface</th><th>Type</th>
+        <th style="border-left:2px solid #e5c077;">ND</th><th>Débit</th><th>Statut</th><th>Routeur / Iface</th><th>Type</th>
       </tr>
     </thead><tbody>`;
 
-  let lastClient = null;
-
-  // Paires PRI↔BCK
-  filteredPairs.forEach(({pri, bck}) => {
-    const client = pri.CLIENT || '(non renseigné)';
-    if (client !== lastClient) {
-      lastClient = client;
-      const cntP = filteredPairs.filter(x => x.pri.CLIENT === pri.CLIENT).length;
-      const cntO = filteredOrph.filter(x => x.CLIENT === pri.CLIENT).length;
-      const cnt  = cntP + cntO;
-      html += '<tr class="base-group-header"><td colspan="12">\u{1F464} ' + client + ' <span style="font-weight:400;color:var(--text-3);font-size:11px;">(' + cnt + ' lien' + (cnt>1?'s':'') + ')</span></td></tr>';
+  let lastC = null;
+  fp.forEach(pair => {
+    const {pri, bck} = pair;
+    const client = pair.client || '—';
+    if (client !== lastC) {
+      lastC = client;
+      const cnt = fp.filter(x => x.client===pair.client).length + fo.filter(x=>x.CLIENT===pair.client).length;
+      html += `<tr class="base-group-header"><td colspan="12">👤 ${client} <span style="font-weight:400;color:var(--text-3);font-size:11px;">(${cnt} paire${cnt>1?'s':''})</span></td></tr>`;
     }
-    const hasBck = !!bck;
-    const priCells = rowCells(pri).replace('<td ', '<td style="border-left:2px solid #c8e6a0;" ');
-    const bckCells = hasBck
+    const priC = rowCells(pri).replace('<td ', '<td style="border-left:2px solid #c8e6a0;" ');
+    const bckC = bck
       ? rowCells(bck).replace('<td ', '<td style="border-left:2px solid #e5c077;" ')
       : '<td colspan="5" style="border-left:2px solid #e5c077;color:var(--text-3);text-align:center;font-style:italic;font-size:11px;">Pas de backup identifié</td>';
-    const libelle = (pri.LIBELLE || (bck && bck.LIBELLE) || '—').replace(/"/g,'&quot;');
-    html += '<tr style="' + (!hasBck ? 'opacity:.8' : '') + '">'
-      + '<td style="font-weight:600;font-size:12px;">' + pri.CLIENT + '</td>'
-      + '<td style="font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + libelle + '">' + libelle + '</td>'
-      + priCells + bckCells + '</tr>';
+    const lib = (pair.libelle||'—').replace(/"/g,'&quot;');
+    html += `<tr><td style="font-weight:600;font-size:12px;">${client}</td><td style="font-size:12px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${lib}">${lib}</td>${priC}${bckC}</tr>`;
   });
 
-  // BCK sans PRI
-  if (filteredOrph.length) {
-    html += `<tr class="base-group-header" style="background:#fff3cd;"><td colspan="12">⚠️ Backup sans lien primaire identifié (${filteredOrph.length})</td></tr>`;
-    filteredOrph.forEach(b => {
-      html += `<tr style="opacity:.75;">
-        <td style="font-weight:600;font-size:12px;">${b.CLIENT}</td>
-        <td style="font-size:12px;" title="${b.LIBELLE}">${b.LIBELLE || '—'}</td>
-        <td colspan="5" style="border-left:2px solid #c8e6a0;color:var(--text-3);text-align:center;font-style:italic;font-size:11px;">Pas de primaire identifié</td>
-        ${rowCells(b).replace('<td ', '<td style="border-left:2px solid #e5c077;" ')}
-      </tr>`;
+  if (fo.length) {
+    html += `<tr class="base-group-header" style="background:#fff3cd;"><td colspan="12">⚠️ Backup sans primaire identifié (${fo.length})</td></tr>`;
+    fo.forEach(b => {
+      const bckC = rowCells(b).replace('<td ', '<td style="border-left:2px solid #e5c077;" ');
+      html += `<tr style="opacity:.75;"><td style="font-weight:600;font-size:12px;">${b.CLIENT}</td><td style="font-size:12px;">${b.LIBELLE||'—'}</td><td colspan="5" style="border-left:2px solid #c8e6a0;color:var(--text-3);text-align:center;font-style:italic;font-size:11px;">—</td>${bckC}</tr>`;
     });
   }
 
@@ -1559,61 +1503,36 @@ function renderPairsTable(pairs, orphBck, search='') {
 
 function filtrerBase() {
   const val = document.getElementById('search-base').value;
-  if (baseViewType === 'PRI') {
-    renderSimpleTable(baseAllParsed.filter(r => r.TYPE_LIEN === 'PRI'), val);
-  } else if (baseViewType === 'BCK') {
-    renderSimpleTable(baseAllParsed.filter(r => r.TYPE_LIEN === 'BCK'), val);
-  } else {
-    renderPairsTable(basePairsData.filter(p => p.bck !== null), [], val);
-  }
+  if      (baseViewType==='PRI')  renderSimpleTable(baseAllParsed.filter(r=>r.TYPE==='PRI'), val);
+  else if (baseViewType==='BCK')  renderSimpleTable(baseAllParsed.filter(r=>r.TYPE==='BCK'), val);
+  else                            renderPairsTable(basePairsData.filter(p=>p.bck!==null), [], val);
 }
 
 function exporterBase() {
   const val  = document.getElementById('search-base').value.toUpperCase().trim();
-  const mots = val ? val.split(/\s*,\s*/) : [];
-  function matchRow(r) {
-    if (!r) return false;
-    const t = [r.ND,r.DEBIT,r.CLIENT,r.LIBELLE,r.ROUTEUR,r.INTERFACE].join(' ').toUpperCase();
-    return mots.every(m => t.includes(m));
-  }
-  let data = [];
-  let filename = 'Liens_Base.xlsx';
+  const mots = val ? val.split(/\s*,\s*/).filter(Boolean) : [];
+  function match(r) { if(!r)return false; const t=[r.ND,r.CLIENT,r.LIBELLE,r.ROUTEUR,r.IFACE].join(' ').toUpperCase(); return mots.every(m=>t.includes(m)); }
+  let data = [], filename = 'Liens_Base.xlsx';
 
-  if (baseViewType === 'PRI' || baseViewType === 'BCK') {
-    const rows = baseAllParsed.filter(r => r.TYPE_LIEN === baseViewType);
-    const filtered = mots.length ? rows.filter(matchRow) : rows;
-    filtered.sort((a,b) => a.CLIENT.localeCompare(b.CLIENT) || a.LIBELLE.localeCompare(b.LIBELLE));
-    data = filtered.map(r => ({
-      CLIENT: r.CLIENT, LIBELLE: r.LIBELLE, ND: r.ND, DEBIT: r.DEBIT,
-      STATUT_1: r.STATUT_1, STATUT_2: r.STATUT_2,
-      ROUTEUR: r.ROUTEUR, INTERFACE: r.INTERFACE, TYPE_LIEN: r.TYPE_LIEN
-    }));
-    filename = baseViewType === 'PRI' ? 'Liens_Primaires.xlsx' : 'Liens_Backup.xlsx';
+  if (baseViewType==='PRI' || baseViewType==='BCK') {
+    const rows = (mots.length ? baseAllParsed.filter(r=>r.TYPE===baseViewType&&match(r)) : baseAllParsed.filter(r=>r.TYPE===baseViewType));
+    rows.sort((a,b)=>a.CLIENT.localeCompare(b.CLIENT)||a.LIBELLE.localeCompare(b.LIBELLE));
+    data = rows.map(r=>({CLIENT:r.CLIENT,LIBELLE:r.LIBELLE,ND:r.ND,DEBIT:r.DEBIT,ST1:r.ST1,ST2:r.ST2,ROUTEUR:r.ROUTEUR,INTERFACE:r.IFACE,TYPE:r.TYPE}));
+    filename = baseViewType==='PRI' ? 'Liens_Primaires.xlsx' : 'Liens_Backup.xlsx';
   } else {
-    // PAIR — paires complètes seulement
-    const pairs = basePairsData.filter(p => p.bck !== null);
-    const filtered = mots.length ? pairs.filter(({pri,bck}) => matchRow(pri)||matchRow(bck)) : pairs;
-    filtered.forEach(({pri,bck}) => {
-      data.push({
-        CLIENT: pri.CLIENT, LIBELLE: pri.LIBELLE || bck.LIBELLE || '',
-        ND_PRI: pri.ND, DEBIT_PRI: pri.DEBIT,
-        STATUT_PRI: pri.STATUT_1 + '/' + pri.STATUT_2,
-        ROUTEUR_PRI: pri.ROUTEUR, IFACE_PRI: pri.INTERFACE,
-        ND_BCK: bck.ND, DEBIT_BCK: bck.DEBIT,
-        STATUT_BCK: bck.STATUT_1 + '/' + bck.STATUT_2,
-        ROUTEUR_BCK: bck.ROUTEUR, IFACE_BCK: bck.INTERFACE
-      });
-    });
+    const fp = mots.length ? basePairsData.filter(p=>p.bck!==null&&(match(p.pri)||match(p.bck))) : basePairsData.filter(p=>p.bck!==null);
+    fp.forEach(({pri,bck,client,libelle}) => data.push({
+      CLIENT:client, LIBELLE:libelle,
+      ND_PRI:pri.ND, DEBIT_PRI:pri.DEBIT, ST_PRI:pri.ST1+'/'+pri.ST2, ROUTEUR_PRI:pri.ROUTEUR, IFACE_PRI:pri.IFACE,
+      ND_BCK:bck.ND, DEBIT_BCK:bck.DEBIT, ST_BCK:bck.ST1+'/'+bck.ST2, ROUTEUR_BCK:bck.ROUTEUR, IFACE_BCK:bck.IFACE
+    }));
     filename = 'Liens_PRI_BCK.xlsx';
   }
-
   if (!data.length) { alert('Aucune donnée !'); return; }
-  const ws2 = XLSX.utils.json_to_sheet(data);
-  const wb2 = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb2, ws2, 'Base');
-  XLSX.writeFile(wb2, filename);
+  const ws2=XLSX.utils.json_to_sheet(data), wb2=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2,ws2,'Base');
+  XLSX.writeFile(wb2,filename);
 }
-
 chargerExcelParc();
 
 // Fermer picker et modal-base en cliquant l'overlay — après chargement DOM
