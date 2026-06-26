@@ -1570,61 +1570,6 @@ sorted.forEach(([k,v])=>{
       btn.disabled = true;
 
       try {
-        // Dessiner la carte sur canvas
-        const bounds = abidjanBoundary.getBounds();
-        const mapEl  = document.getElementById('map');
-        const margin = 30;
-        const tl = map.latLngToContainerPoint(bounds.getNorthWest());
-        const br = map.latLngToContainerPoint(bounds.getSouthEast());
-        const cx = Math.max(0, tl.x - margin);
-        const cy = Math.max(0, tl.y - margin);
-        const cw = Math.min(mapEl.offsetWidth,  br.x + margin) - cx;
-        const ch = Math.min(mapEl.offsetHeight, br.y + margin) - cy;
-
-        const MAP_W = 900, MAP_H = Math.round(ch / cw * MAP_W);
-        const mc2 = document.createElement('canvas');
-        mc2.width = MAP_W; mc2.height = MAP_H;
-        const mc = mc2.getContext('2d');
-
-        mc.fillStyle = '#d4e8f0'; mc.fillRect(0, 0, MAP_W, MAP_H);
-        mc.fillStyle = '#e8e0d4'; mc.fillRect(0, 0, MAP_W, MAP_H * 0.72);
-
-        function ll2c(lat, lng){
-          const pt = map.latLngToContainerPoint([lat, lng]);
-          return { x: Math.round((pt.x - cx) / cw * MAP_W), y: Math.round((pt.y - cy) / ch * MAP_H) };
-        }
-
-        mc.strokeStyle = '#222'; mc.lineWidth = 2.5; mc.beginPath();
-        abidjanBoundary.getLatLngs()[0].forEach((ll, i) => {
-          const p = ll2c(ll.lat, ll.lng);
-          i === 0 ? mc.moveTo(p.x, p.y) : mc.lineTo(p.x, p.y);
-        });
-        mc.closePath(); mc.stroke();
-
-        const months = getSelectedMonths();
-        const r = computeForMonths(DATA_JSON, months);
-        const RADIUS = Math.round(MAP_W * 0.055);
-
-        for(const loc in r.zoneCounts){
-          if(!communesCoords[loc]) continue;
-          const cable = r.zoneCounts[loc].cable;
-          const autre = r.zoneCounts[loc].autre;
-          const total = cable + autre;
-          const p = ll2c(communesCoords[loc][0], communesCoords[loc][1]);
-          mc.beginPath(); mc.arc(p.x, p.y, RADIUS, 0, Math.PI*2);
-          mc.fillStyle = getColor(total); mc.globalAlpha = 0.9; mc.fill();
-          mc.globalAlpha = 1; mc.strokeStyle = '#111'; mc.lineWidth = 2; mc.stroke();
-          mc.fillStyle = '#fff'; mc.textAlign = 'center'; mc.textBaseline = 'middle';
-          mc.font = `bold ${Math.round(RADIUS*0.36)}px Arial`;
-          mc.fillText(loc, p.x, p.y - RADIUS*0.22);
-          mc.font = `${Math.round(RADIUS*0.28)}px Arial`;
-          const pC = total ? Math.round(cable/total*100) : 0;
-          mc.fillText(`Cbl:${cable}(${pC}%)`, p.x, p.y + RADIUS*0.12);
-          mc.fillText(`Aut:${autre}(${100-pC}%)`, p.x, p.y + RADIUS*0.42);
-        }
-
-        const mapDataUrl = mc2.toDataURL('image/png');
-
         // Récupérer le HTML du rapport
         const body = document.getElementById('analyseModalBody');
         const prevOv = body.style.overflowY;
@@ -1642,33 +1587,89 @@ sorted.forEach(([k,v])=>{
 
         const titre = document.getElementById('analyseModalTitle').textContent;
 
-        // Ouvrir popup
-        const popup = window.open('', '_blank', 'width=960,height=900,scrollbars=yes,resizable=yes');
+        const popup = window.open('', '_blank', 'width=1000,height=900,scrollbars=yes,resizable=yes');
         popup.document.write(`<!DOCTYPE html><html><head>
           <meta charset="utf-8">
           <title>${titre}</title>
           <style>
-            * { box-sizing: border-box; }
-            body { margin:0; font-family:Arial,sans-serif; background:#e0e0e0; padding:0; }
-            .email-wrap { width:900px; margin:0 auto; background:#e0e0e0; padding-bottom:32px; }
-            .map-block { width:100%; }
-            .map-block img { width:100%; display:block; }
-            .rapport-wrap { width:680px; margin:0 auto; background:#fff; border-radius:8px; padding:8px; margin-top:16px; }
-            ${styles}
-            /* reset modal-specific positioning */
-            #analyseModalBody { overflow:visible!important; max-height:none!important; padding:0; }
-            .analyse-section { margin-bottom:14px; }
+            * { box-sizing:border-box; margin:0; padding:0; }
+            body {
+              font-family: Arial, sans-serif;
+              background: #f0f0f0;
+              padding: 30px 0 60px;
+            }
+            .page {
+              width: 900px;
+              margin: 0 auto;
+              background: #fff;
+              padding: 32px 36px;
+              box-shadow: 0 2px 16px rgba(0,0,0,0.15);
+            }
+            .page-title {
+              font-size: 18px;
+              font-weight: bold;
+              color: #111;
+              border-bottom: 3px solid #111;
+              padding-bottom: 10px;
+              margin-bottom: 20px;
+            }
+            .analyse-section {
+              background: #f8f9fa;
+              border-radius: 6px;
+              padding: 14px 16px;
+              margin-bottom: 12px;
+            }
+            .analyse-section h3 {
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: .5px;
+              color: #555;
+              border-bottom: 2px solid #e0e0e0;
+              padding-bottom: 7px;
+              margin-bottom: 10px;
+            }
+            .analyse-kpi-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+            .akpi { background:#fff; border-radius:6px; padding:8px 14px; text-align:center; flex:1; min-width:80px; border:1px solid #eee; }
+            .akpi .val { font-size:20px; font-weight:bold; color:#111; }
+            .akpi .lbl { font-size:10px; color:#777; margin-top:2px; }
+            .akpi.red .val { color:#b30000; }
+            .akpi.blue .val { color:#1a56db; }
+            .akpi.green .val { color:#1a7a1a; }
+            .analyse-table { width:100%; border-collapse:collapse; font-size:11px; }
+            .analyse-table th { background:#ececec; padding:6px 8px; text-align:left; font-weight:bold; color:#444; border-bottom:2px solid #ddd; }
+            .analyse-table td { padding:5px 8px; border-bottom:1px solid #eee; }
+            .analyse-table .num { text-align:right; font-weight:bold; }
+            .bar-bg { background:#eee; border-radius:3px; height:7px; min-width:50px; }
+            .bar-fill { height:7px; border-radius:3px; background:#b30000; }
+            .bar-fill.blue { background:#1a56db; }
+            .tag-cable { background:#fde8e8; color:#b30000; border-radius:3px; padding:1px 5px; font-size:10px; font-weight:bold; }
+            .tag-autre { background:#e8f0fe; color:#1a56db; border-radius:3px; padding:1px 5px; font-size:10px; }
+            .trend-up { color:#b30000; } .trend-dn { color:#1a7a1a; } .trend-eq { color:#888; }
+            .cmp-grid { display:flex; flex-direction:column; gap:6px; }
+            .cmp-row { display:flex; align-items:center; gap:8px; font-size:11px; }
+            .cmp-mois { width:32px; font-weight:bold; color:#555; }
+            .cmp-bars { flex:1; display:flex; flex-direction:column; gap:3px; }
+
+            /* Barre instructions fixe en bas */
+            .instructions {
+              position: fixed;
+              bottom: 0; left: 0; right: 0;
+              background: #111;
+              color: #fff;
+              text-align: center;
+              padding: 11px;
+              font-size: 13px;
+              font-weight: bold;
+              z-index: 999;
+            }
           </style>
         </head><body>
-          <div class="email-wrap">
-            <div class="map-block"><img src="${mapDataUrl}"></div>
-            <div class="rapport-wrap">
-              <div id="analyseModalBody">${rapportHTML}</div>
-            </div>
+          <div class="page">
+            <div class="page-title">${titre}</div>
+            ${rapportHTML}
           </div>
-          <div style="position:fixed;bottom:0;left:0;right:0;background:#111;color:#fff;
-            text-align:center;padding:12px;font-size:13px;font-weight:bold;">
-            👆 Sélectionner tout (Ctrl+A) puis Copier (Ctrl+C) — coller dans Outlook avec Ctrl+V
+          <div class="instructions">
+            Ctrl+A &nbsp;→&nbsp; Ctrl+C &nbsp;→&nbsp; coller dans Outlook avec Ctrl+V
           </div>
         </body></html>`);
         popup.document.close();
