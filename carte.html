@@ -686,13 +686,13 @@ function computeForMonth(json, selectedMonth){
     }
 
     // === MODAL ZONE ===
-    let _zoneRows = []; // cache pour search + export
+    let _zoneRows = []; // cache pour search + export (une ligne = un ND)
 
     function openZoneModal(locName){
       const selectedMonth = parseInt(document.getElementById('monthSelect').value, 10);
       if(!DATA_JSON) return;
 
-      const rows = DATA_JSON.filter(row => {
+      const raw = DATA_JSON.filter(row => {
         const d = toJSDate(row["DATE DE CRÉATION"]);
         if(!d) return false;
         if(d.getMonth()+1 !== selectedMonth) return false;
@@ -700,48 +700,57 @@ function computeForMonth(json, selectedMonth){
         return normaliserAbidjan(locRaw) === locName;
       });
 
-      // Compte incidents par ND
-      const ndCount = {};
-      rows.forEach(r => {
-        const nd = (r["ND"] || "—").toString().trim();
-        ndCount[nd] = (ndCount[nd] || 0) + 1;
-      });
-
-      // Enrichir chaque ligne avec nbIncidents du ND
-      _zoneRows = rows.map(r => {
+      // Grouper par ND — une ligne par ND
+      const ndMap = {};
+      raw.forEach(r => {
         const nd = (r["ND"] || "—").toString().trim();
         const cause = (r["CAUSE RÉELLE"] || "—").toUpperCase().trim();
         const dateRaw = r["DATE DE CRÉATION"];
         const d = toJSDate(dateRaw);
-        return {
-          client: r["RAISON SOCIALE"] || "—",
-          nd,
-          date: d ? d.toLocaleDateString('fr-FR') : (dateRaw || "—"),
-          dateSort: d ? d.getTime() : 0,
+        if(!ndMap[nd]) {
+          ndMap[nd] = { nd, client: r["RAISON SOCIALE"] || "—", entries: [] };
+        }
+        ndMap[nd].entries.push({
+          dateStr: d ? d.toLocaleDateString('fr-FR') : (dateRaw || "—"),
+          dateTs: d ? d.getTime() : 0,
           cause,
-          isCable: causesCable.includes(cause),
-          nbIncidents: ndCount[nd] || 1
+          isCable: causesCable.includes(cause)
+        });
+      });
+
+      // Construire _zoneRows : trier les entrées de chaque ND chronologiquement
+      _zoneRows = Object.values(ndMap).map(g => {
+        g.entries.sort((a,b) => a.dateTs - b.dateTs);
+        const dates  = g.entries.map(e => e.dateStr).join(' | ');
+        const causes = g.entries.map(e => e.cause).join(' | ');
+        const nbIncidents = g.entries.length;
+        const isCableAny  = g.entries.some(e => e.isCable);
+        return {
+          nd: g.nd, client: g.client, nbIncidents,
+          dates, causes, isCableAny,
+          firstTs: g.entries[0]?.dateTs || 0,
+          _search: (g.nd + ' ' + g.client + ' ' + dates + ' ' + causes).toLowerCase()
         };
       });
 
-      // Tri décroissant par nbIncidents puis par date
-      _zoneRows.sort((a,b) => b.nbIncidents - a.nbIncidents || b.dateSort - a.dateSort);
+      // Tri décroissant par nbIncidents
+      _zoneRows.sort((a,b) => b.nbIncidents - a.nbIncidents || b.firstTs - a.firstTs);
 
-      let cable = 0, autre = 0;
-      _zoneRows.forEach(r => { if(r.isCable) cable++; else autre++; });
+      const totalIncidents = raw.length;
+      const cable = raw.filter(r => causesCable.includes((r["CAUSE RÉELLE"]||"").toUpperCase().trim())).length;
+      const autre = totalIncidents - cable;
 
       const moisNoms = ["","Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];
       document.getElementById('zoneModalTitle').textContent =
         `Incidents — ${locName} · ${moisNoms[selectedMonth]}`;
 
       document.getElementById('zoneModalKpis').innerHTML = `
-        <div class="kpi-chip">Total <span>${_zoneRows.length}</span></div>
+        <div class="kpi-chip">Total incidents <span>${totalIncidents}</span></div>
         <div class="kpi-chip">Cable <span style="color:#b30000">${cable}</span></div>
         <div class="kpi-chip">Autre <span style="color:#1a56db">${autre}</span></div>
-        <div class="kpi-chip">ND distincts <span style="color:#555">${Object.keys(ndCount).length}</span></div>
+        <div class="kpi-chip">ND distincts <span style="color:#555">${_zoneRows.length}</span></div>
       `;
 
-      // Reset search
       document.getElementById('zoneSearch').value = '';
       renderZoneTable(_zoneRows);
       document.getElementById('zoneModal').classList.add('open');
@@ -749,7 +758,7 @@ function computeForMonth(json, selectedMonth){
     }
 
     function renderZoneTable(rows){
-      document.getElementById('zoneResultCount').textContent = rows.length + ' ligne(s)';
+      document.getElementById('zoneResultCount').textContent = rows.length + ' ND';
       if(rows.length === 0){
         document.getElementById('zoneModalBody').innerHTML =
           '<div style="padding:24px;text-align:center;color:#999;">Aucun résultat.</div>';
@@ -760,27 +769,32 @@ function computeForMonth(json, selectedMonth){
           <th>#</th>
           <th>Client (Raison Sociale)</th>
           <th>ND</th>
-          <th>Nb incidents</th>
-          <th>Date</th>
-          <th>Cause réelle</th>
-          <th>Type</th>
+          <th style="text-align:center">Nb incidents</th>
+          <th>Dates (chronologiques)</th>
+          <th>Causes réelles (chronologiques)</th>
         </tr></thead><tbody>`;
 
       rows.forEach((r, i) => {
-        const tag = r.isCable
-          ? `<span class="tag-cable">Cable</span>`
-          : `<span class="tag-autre">Autre</span>`;
         const nbStyle = r.nbIncidents >= 3
           ? 'font-weight:bold;color:#b30000'
           : r.nbIncidents >= 2 ? 'color:#e34a33' : 'color:#555';
+
+        const datesArr  = r.dates.split(' | ');
+        const causesArr = r.causes.split(' | ');
+
+        const datesHtml  = datesArr.map(d => `<div style="padding:1px 0">${d}</div>`).join('');
+        const causesHtml = causesArr.map(c => {
+          const isCable = causesCable.includes(c.trim());
+          return `<div style="padding:1px 0"><span class="${isCable?'tag-cable':'tag-autre'}">${c}</span></div>`;
+        }).join('');
+
         html += `<tr>
-          <td style="color:#aaa">${i+1}</td>
-          <td><b>${r.client}</b></td>
-          <td style="color:#555">${r.nd}</td>
-          <td style="${nbStyle};text-align:center">${r.nbIncidents}</td>
-          <td>${r.date}</td>
-          <td>${r.cause}</td>
-          <td>${tag}</td>
+          <td style="color:#aaa;vertical-align:top">${i+1}</td>
+          <td style="vertical-align:top"><b>${r.client}</b></td>
+          <td style="vertical-align:top;color:#555;white-space:nowrap">${r.nd}</td>
+          <td style="${nbStyle};text-align:center;vertical-align:top;font-size:15px">${r.nbIncidents}</td>
+          <td style="vertical-align:top;white-space:nowrap;font-size:12px">${datesHtml}</td>
+          <td style="vertical-align:top;font-size:12px">${causesHtml}</td>
         </tr>`;
       });
       html += `</tbody></table>`;
@@ -790,35 +804,21 @@ function computeForMonth(json, selectedMonth){
     function filterZoneTable(){
       const q = document.getElementById('zoneSearch').value.trim().toLowerCase();
       if(!q){ renderZoneTable(_zoneRows); return; }
-      const filtered = _zoneRows.filter(r =>
-        r.client.toLowerCase().includes(q) ||
-        r.nd.toLowerCase().includes(q) ||
-        r.cause.toLowerCase().includes(q) ||
-        r.date.toLowerCase().includes(q) ||
-        (r.isCable ? 'cable' : 'autre').includes(q)
-      );
-      renderZoneTable(filtered);
+      renderZoneTable(_zoneRows.filter(r => r._search.includes(q)));
     }
 
     function exportZoneExcel(){
       const q = document.getElementById('zoneSearch').value.trim().toLowerCase();
-      const rows = q ? _zoneRows.filter(r =>
-        r.client.toLowerCase().includes(q) ||
-        r.nd.toLowerCase().includes(q) ||
-        r.cause.toLowerCase().includes(q) ||
-        r.date.toLowerCase().includes(q) ||
-        (r.isCable ? 'cable' : 'autre').includes(q)
-      ) : _zoneRows;
+      const rows = q ? _zoneRows.filter(r => r._search.includes(q)) : _zoneRows;
 
-      const wsData = [["#","Client (Raison Sociale)","ND","Nb incidents","Date","Cause réelle","Type"]];
+      const wsData = [["#","Client (Raison Sociale)","ND","Nb incidents","Dates","Causes réelles"]];
       rows.forEach((r,i) => {
-        wsData.push([i+1, r.client, r.nd, r.nbIncidents, r.date, r.cause, r.isCable ? 'Cable' : 'Autre']);
+        wsData.push([i+1, r.client, r.nd, r.nbIncidents, r.dates, r.causes]);
       });
 
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(wsData);
-      // Largeurs colonnes
-      ws['!cols'] = [{wch:4},{wch:40},{wch:18},{wch:13},{wch:12},{wch:35},{wch:8}];
+      ws['!cols'] = [{wch:4},{wch:40},{wch:18},{wch:13},{wch:35},{wch:60}];
       XLSX.utils.book_append_sheet(wb, ws, 'Incidents');
       const title = document.getElementById('zoneModalTitle').textContent
         .replace(/[^a-zA-Z0-9_\- ]/g,'').trim();
@@ -829,7 +829,6 @@ function computeForMonth(json, selectedMonth){
       document.getElementById('zoneModal').classList.remove('open');
     }
 
-    // Touche Échap pour fermer
     document.addEventListener('keydown', e => { if(e.key === 'Escape') closeZoneModal(); });
 
     function renderSummary(groupCounts, total, totalAbj, totalInt){
