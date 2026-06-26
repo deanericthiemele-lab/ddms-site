@@ -103,6 +103,93 @@
       font-size:14px;
       box-shadow:0 0 8px rgba(0,0,0,0.2);
     }
+
+    /* Modal popup zone */
+    #zoneModal {
+      display:none;
+      position:fixed;
+      inset:0;
+      z-index:9999;
+      background:rgba(0,0,0,0.45);
+      align-items:center;
+      justify-content:center;
+    }
+    #zoneModal.open { display:flex; }
+    #zoneModalBox {
+      background:#fff;
+      border-radius:10px;
+      width:620px;
+      max-width:95vw;
+      max-height:80vh;
+      display:flex;
+      flex-direction:column;
+      box-shadow:0 8px 32px rgba(0,0,0,0.28);
+      overflow:hidden;
+    }
+    #zoneModalHeader {
+      background:#111;
+      color:#fff;
+      padding:14px 18px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      font-size:15px;
+      font-weight:bold;
+      letter-spacing:.3px;
+    }
+    #zoneModalHeader button {
+      background:none;
+      border:none;
+      color:#fff;
+      font-size:20px;
+      cursor:pointer;
+      line-height:1;
+      padding:0 2px;
+    }
+    #zoneModalKpis {
+      display:flex;
+      gap:10px;
+      padding:12px 18px 8px;
+      border-bottom:1px solid #eee;
+      flex-wrap:wrap;
+    }
+    .kpi-chip {
+      background:#f4f4f4;
+      border-radius:6px;
+      padding:5px 12px;
+      font-size:12px;
+      font-weight:bold;
+      color:#333;
+    }
+    .kpi-chip span { color:#b30000; font-size:14px; }
+    #zoneModalBody {
+      overflow-y:auto;
+      flex:1;
+      padding:0;
+    }
+    #zoneModalBody table {
+      width:100%;
+      border-collapse:collapse;
+      font-size:12px;
+    }
+    #zoneModalBody thead th {
+      background:#f0f0f0;
+      padding:8px 10px;
+      text-align:left;
+      font-weight:bold;
+      color:#444;
+      border-bottom:2px solid #ddd;
+      position:sticky;
+      top:0;
+    }
+    #zoneModalBody tbody tr:hover { background:#fafafa; }
+    #zoneModalBody tbody td {
+      padding:7px 10px;
+      border-bottom:1px solid #eee;
+      vertical-align:top;
+    }
+    .tag-cable { background:#fde8e8; color:#b30000; border-radius:4px; padding:1px 6px; font-size:11px; font-weight:bold; }
+    .tag-autre { background:#e8f0fe; color:#1a56db; border-radius:4px; padding:1px 6px; font-size:11px; }
   </style>
 </head>
 <body>
@@ -122,6 +209,18 @@
   <div id="leftPanel"><b>Localisations</b><hr>Chargement…</div>
 
   <div id="map"></div>
+
+  <!-- Modal zone incidents -->
+  <div id="zoneModal" onclick="if(event.target===this) closeZoneModal()">
+    <div id="zoneModalBox">
+      <div id="zoneModalHeader">
+        <span id="zoneModalTitle">Incidents — ZONE</span>
+        <button onclick="closeZoneModal()" title="Fermer">✕</button>
+      </div>
+      <div id="zoneModalKpis"></div>
+      <div id="zoneModalBody"></div>
+    </div>
+  </div>
 
   <!-- Libs -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js">
@@ -509,7 +608,6 @@ function computeForMonth(json, selectedMonth){
     function renderMap(zoneCounts){
       clearMapLayers();
 
-      // Cercles uniquement pour communes Abidjan connues
       for(const loc in zoneCounts){
         if(!communesCoords[loc]) continue;
 
@@ -526,6 +624,14 @@ function computeForMonth(json, selectedMonth){
           fillColor: getColor(totalZone),
           fillOpacity: 0.9
         }).addTo(map);
+
+        // Clic → popup liste incidents
+        circle.on('click', (function(locName){ return function(){
+          openZoneModal(locName);
+        };})(loc));
+        circle.getElement && circle.on('mouseover', function(){ this.setStyle({weight:4}); });
+        circle.on('mouseout', function(){ this.setStyle({weight:2}); });
+
         layers.push(circle);
 
         const label = L.marker(communesCoords[loc],{
@@ -542,6 +648,88 @@ function computeForMonth(json, selectedMonth){
         layers.push(label);
       }
     }
+
+    // === MODAL ZONE ===
+    function openZoneModal(locName){
+      const selectedMonth = parseInt(document.getElementById('monthSelect').value, 10);
+      if(!DATA_JSON) return;
+
+      const rows = DATA_JSON.filter(row => {
+        const d = toJSDate(row["DATE DE CRÉATION"]);
+        if(!d) return false;
+        if(d.getMonth()+1 !== selectedMonth) return false;
+        const locRaw = (row["LOCALISATION CLIENT"] || "").toUpperCase().trim();
+        const locNorm = normaliserAbidjan(locRaw);
+        return locNorm === locName;
+      });
+
+      const total = rows.length;
+      let cable = 0, autre = 0;
+      rows.forEach(r => {
+        const c = (r["CAUSE RÉELLE"] || "").toUpperCase().trim();
+        if(causesCable.includes(c)) cable++; else autre++;
+      });
+
+      // KPIs
+      const moisNoms = ["","Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];
+      document.getElementById('zoneModalTitle').textContent =
+        `Incidents — ${locName} · ${moisNoms[selectedMonth]}`;
+
+      document.getElementById('zoneModalKpis').innerHTML = `
+        <div class="kpi-chip">Total <span>${total}</span></div>
+        <div class="kpi-chip">Cable <span style="color:#b30000">${cable}</span></div>
+        <div class="kpi-chip">Autre <span style="color:#1a56db">${autre}</span></div>
+      `;
+
+      // Table
+      if(total === 0){
+        document.getElementById('zoneModalBody').innerHTML =
+          '<div style="padding:24px;text-align:center;color:#999;">Aucun incident pour cette zone ce mois.</div>';
+      } else {
+        let html = `<table>
+          <thead><tr>
+            <th>#</th>
+            <th>Client (Raison Sociale)</th>
+            <th>ND</th>
+            <th>Date</th>
+            <th>Cause réelle</th>
+            <th>Type</th>
+          </tr></thead><tbody>`;
+
+        rows.forEach((r, i) => {
+          const cause = (r["CAUSE RÉELLE"] || "—").toUpperCase();
+          const isCable = causesCable.includes(cause.trim());
+          const tag = isCable
+            ? `<span class="tag-cable">Cable</span>`
+            : `<span class="tag-autre">Autre</span>`;
+          const dateRaw = r["DATE DE CRÉATION"];
+          const d = toJSDate(dateRaw);
+          const dateStr = d ? d.toLocaleDateString('fr-FR') : (dateRaw || "—");
+          const client = r["RAISON SOCIALE"] || "—";
+          const nd = r["ND"] || "—";
+          html += `<tr>
+            <td style="color:#aaa">${i+1}</td>
+            <td><b>${client}</b></td>
+            <td style="color:#555">${nd}</td>
+            <td>${dateStr}</td>
+            <td>${cause}</td>
+            <td>${tag}</td>
+          </tr>`;
+        });
+
+        html += `</tbody></table>`;
+        document.getElementById('zoneModalBody').innerHTML = html;
+      }
+
+      document.getElementById('zoneModal').classList.add('open');
+    }
+
+    function closeZoneModal(){
+      document.getElementById('zoneModal').classList.remove('open');
+    }
+
+    // Touche Échap pour fermer
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') closeZoneModal(); });
 
     function renderSummary(groupCounts, total, totalAbj, totalInt){
       // Cable vs non-cable global
