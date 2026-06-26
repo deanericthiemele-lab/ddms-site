@@ -401,12 +401,12 @@
 </head>
 <body>
 
-  <div id="topLeftBar" style="display:flex; gap:8px;">
+  <div id="topLeftBar" style="position:absolute;top:15px;left:20px;z-index:1000;display:flex;gap:8px;">
     <button class="btn-back" onclick="window.location.href='ingenierie.html'">⬅ Retour Ingénierie</button>
     <button class="btn-back" onclick="window.location.href='cic.html'">CIC</button>
   </div>
 
-  <div class="month-selector" style="position:relative">
+  <div class="month-selector">
     <span style="font-size:13px">Période :</span>
     <div style="position:relative">
       <button id="monthDropdownBtn" onclick="toggleMonthPanel(event)">Jun ▾</button>
@@ -753,11 +753,10 @@ function computeForMonth(json, selectedMonth){
       const cable = raw.filter(r => causesCable.includes((r["CAUSE RÉELLE"]||"").toUpperCase().trim())).length;
       const autre = totalIncidents - cable;
 
-      const months = getSelectedMonths();
-      const moisNoms = ["Année","Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];
+      const moisNoms_local = ["Année","Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];
       const periodLabel = months.includes(0) ? 'Année'
-        : months.length === 1 ? moisNoms[months[0]]
-        : months.map(m=>moisNoms[m]).join(', ');
+        : months.length === 1 ? moisNoms_local[months[0]]
+        : months.map(m=>moisNoms_local[m]).join(', ');
       document.getElementById('zoneModalTitle').textContent =
         `Incidents — ${locName} · ${periodLabel}`;
 
@@ -876,7 +875,7 @@ sorted.forEach(([k,v])=>{
              (parseFloat(pct) >= 15) ? "style='color:#e34a33;cursor:pointer'" :
              "style='cursor:pointer'";
 
-  html += `<div ${st} onmouseenter="showCategoryDetails('${k}', parseInt(document.getElementById('monthSelect').value))" onmouseleave="map.closePopup()">${k} : ${v} (${pct}%)</div>`;
+  html += `<div ${st} onmouseenter="showCategoryDetails('${k}', getSelectedMonths())" onmouseleave="map.closePopup()">${k} : ${v} (${pct}%)</div>`;
 });
 
 
@@ -1328,46 +1327,33 @@ function showCableDetails(groupCounts, total){
 }
 
 
-function showCategoryDetails(categoryName, selectedMonth){
-
+function showCategoryDetails(categoryName, monthsArg){
   let html = "<b>Détail Causes - " + categoryName + "</b><hr>";
-
   const causesList = causeGroups[categoryName] || [];
+  const months = Array.isArray(monthsArg) ? monthsArg : [monthsArg];
   let detail = {};
   let totalMonth = 0;
 
   DATA_JSON.forEach(row=>{
       const d = toJSDate(row["DATE DE CRÉATION"]);
       if(!d) return;
-      const m = d.getMonth() + 1;
-      if(m !== selectedMonth) return;
-
+      if(!monthMatchesRow(d, months)) return;
       totalMonth++;
-
       const cause = (row["CAUSE RÉELLE"] || "").toUpperCase().trim();
-
       if(causesList.includes(cause)){
           if(!detail[cause]) detail[cause] = 0;
           detail[cause]++;
       }
   });
 
-  const sorted = Object.entries(detail)
-      .sort((a,b)=> b[1]-a[1]);
-
+  const sorted = Object.entries(detail).sort((a,b)=> b[1]-a[1]);
   sorted.forEach(([c,v])=>{
-      const pct = totalMonth ? ((v/totalMonth)*100).toFixed(1) : "0.0";
-      html += c + " : " + v + " (" + pct + "%)<br>";
+      const p = totalMonth ? ((v/totalMonth)*100).toFixed(1) : "0.0";
+      html += c + " : " + v + " (" + p + "%)<br>";
   });
+  if(sorted.length === 0) html += "Aucune donnée";
 
-  if(sorted.length === 0){
-      html += "Aucune donnée";
-  }
-
-  L.popup()
-    .setLatLng(map.getCenter())
-    .setContent(html)
-    .openOn(map);
+  L.popup().setLatLng(map.getCenter()).setContent(html).openOn(map);
 }
 
 </script>
