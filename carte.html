@@ -152,7 +152,37 @@
       padding:12px 18px 8px;
       border-bottom:1px solid #eee;
       flex-wrap:wrap;
+      align-items:center;
     }
+    #zoneModalToolbar {
+      display:flex;
+      gap:8px;
+      padding:8px 18px;
+      border-bottom:1px solid #eee;
+      align-items:center;
+    }
+    #zoneSearch {
+      flex:1;
+      padding:6px 10px;
+      border:1px solid #ddd;
+      border-radius:6px;
+      font-size:12px;
+      outline:none;
+    }
+    #zoneSearch:focus { border-color:#111; }
+    #btnExportZone {
+      padding:6px 14px;
+      background:#1a56db;
+      color:#fff;
+      border:none;
+      border-radius:6px;
+      font-size:12px;
+      font-weight:bold;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    #btnExportZone:hover { background:#1344b0; }
+    #zoneResultCount { font-size:11px; color:#888; white-space:nowrap; }
     .kpi-chip {
       background:#f4f4f4;
       border-radius:6px;
@@ -218,6 +248,11 @@
         <button onclick="closeZoneModal()" title="Fermer">✕</button>
       </div>
       <div id="zoneModalKpis"></div>
+      <div id="zoneModalToolbar">
+        <input id="zoneSearch" type="text" placeholder="🔍 Rechercher (client, ND, cause, date…)" oninput="filterZoneTable()">
+        <span id="zoneResultCount"></span>
+        <button id="btnExportZone" onclick="exportZoneExcel()">⬇ Excel</button>
+      </div>
       <div id="zoneModalBody"></div>
     </div>
   </div>
@@ -651,6 +686,8 @@ function computeForMonth(json, selectedMonth){
     }
 
     // === MODAL ZONE ===
+    let _zoneRows = []; // cache pour search + export
+
     function openZoneModal(locName){
       const selectedMonth = parseInt(document.getElementById('monthSelect').value, 10);
       if(!DATA_JSON) return;
@@ -660,69 +697,132 @@ function computeForMonth(json, selectedMonth){
         if(!d) return false;
         if(d.getMonth()+1 !== selectedMonth) return false;
         const locRaw = (row["LOCALISATION CLIENT"] || "").toUpperCase().trim();
-        const locNorm = normaliserAbidjan(locRaw);
-        return locNorm === locName;
+        return normaliserAbidjan(locRaw) === locName;
       });
 
-      const total = rows.length;
-      let cable = 0, autre = 0;
+      // Compte incidents par ND
+      const ndCount = {};
       rows.forEach(r => {
-        const c = (r["CAUSE RÉELLE"] || "").toUpperCase().trim();
-        if(causesCable.includes(c)) cable++; else autre++;
+        const nd = (r["ND"] || "—").toString().trim();
+        ndCount[nd] = (ndCount[nd] || 0) + 1;
       });
 
-      // KPIs
+      // Enrichir chaque ligne avec nbIncidents du ND
+      _zoneRows = rows.map(r => {
+        const nd = (r["ND"] || "—").toString().trim();
+        const cause = (r["CAUSE RÉELLE"] || "—").toUpperCase().trim();
+        const dateRaw = r["DATE DE CRÉATION"];
+        const d = toJSDate(dateRaw);
+        return {
+          client: r["RAISON SOCIALE"] || "—",
+          nd,
+          date: d ? d.toLocaleDateString('fr-FR') : (dateRaw || "—"),
+          dateSort: d ? d.getTime() : 0,
+          cause,
+          isCable: causesCable.includes(cause),
+          nbIncidents: ndCount[nd] || 1
+        };
+      });
+
+      // Tri décroissant par nbIncidents puis par date
+      _zoneRows.sort((a,b) => b.nbIncidents - a.nbIncidents || b.dateSort - a.dateSort);
+
+      let cable = 0, autre = 0;
+      _zoneRows.forEach(r => { if(r.isCable) cable++; else autre++; });
+
       const moisNoms = ["","Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];
       document.getElementById('zoneModalTitle').textContent =
         `Incidents — ${locName} · ${moisNoms[selectedMonth]}`;
 
       document.getElementById('zoneModalKpis').innerHTML = `
-        <div class="kpi-chip">Total <span>${total}</span></div>
+        <div class="kpi-chip">Total <span>${_zoneRows.length}</span></div>
         <div class="kpi-chip">Cable <span style="color:#b30000">${cable}</span></div>
         <div class="kpi-chip">Autre <span style="color:#1a56db">${autre}</span></div>
+        <div class="kpi-chip">ND distincts <span style="color:#555">${Object.keys(ndCount).length}</span></div>
       `;
 
-      // Table
-      if(total === 0){
-        document.getElementById('zoneModalBody').innerHTML =
-          '<div style="padding:24px;text-align:center;color:#999;">Aucun incident pour cette zone ce mois.</div>';
-      } else {
-        let html = `<table>
-          <thead><tr>
-            <th>#</th>
-            <th>Client (Raison Sociale)</th>
-            <th>ND</th>
-            <th>Date</th>
-            <th>Cause réelle</th>
-            <th>Type</th>
-          </tr></thead><tbody>`;
-
-        rows.forEach((r, i) => {
-          const cause = (r["CAUSE RÉELLE"] || "—").toUpperCase();
-          const isCable = causesCable.includes(cause.trim());
-          const tag = isCable
-            ? `<span class="tag-cable">Cable</span>`
-            : `<span class="tag-autre">Autre</span>`;
-          const dateRaw = r["DATE DE CRÉATION"];
-          const d = toJSDate(dateRaw);
-          const dateStr = d ? d.toLocaleDateString('fr-FR') : (dateRaw || "—");
-          const client = r["RAISON SOCIALE"] || "—";
-          const nd = r["ND"] || "—";
-          html += `<tr>
-            <td style="color:#aaa">${i+1}</td>
-            <td><b>${client}</b></td>
-            <td style="color:#555">${nd}</td>
-            <td>${dateStr}</td>
-            <td>${cause}</td>
-            <td>${tag}</td>
-          </tr>`;
-        });
-
-        html += `</tbody></table>`;
-        document.getElementById('zoneModalBody').innerHTML = html;
-      }
-
+      // Reset search
+      document.getElementById('zoneSearch').value = '';
+      renderZoneTable(_zoneRows);
       document.getElementById('zoneModal').classList.add('open');
+      document.getElementById('zoneSearch').focus();
+    }
+
+    function renderZoneTable(rows){
+      document.getElementById('zoneResultCount').textContent = rows.length + ' ligne(s)';
+      if(rows.length === 0){
+        document.getElementById('zoneModalBody').innerHTML =
+          '<div style="padding:24px;text-align:center;color:#999;">Aucun résultat.</div>';
+        return;
+      }
+      let html = `<table>
+        <thead><tr>
+          <th>#</th>
+          <th>Client (Raison Sociale)</th>
+          <th>ND</th>
+          <th>Nb incidents</th>
+          <th>Date</th>
+          <th>Cause réelle</th>
+          <th>Type</th>
+        </tr></thead><tbody>`;
+
+      rows.forEach((r, i) => {
+        const tag = r.isCable
+          ? `<span class="tag-cable">Cable</span>`
+          : `<span class="tag-autre">Autre</span>`;
+        const nbStyle = r.nbIncidents >= 3
+          ? 'font-weight:bold;color:#b30000'
+          : r.nbIncidents >= 2 ? 'color:#e34a33' : 'color:#555';
+        html += `<tr>
+          <td style="color:#aaa">${i+1}</td>
+          <td><b>${r.client}</b></td>
+          <td style="color:#555">${r.nd}</td>
+          <td style="${nbStyle};text-align:center">${r.nbIncidents}</td>
+          <td>${r.date}</td>
+          <td>${r.cause}</td>
+          <td>${tag}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+      document.getElementById('zoneModalBody').innerHTML = html;
+    }
+
+    function filterZoneTable(){
+      const q = document.getElementById('zoneSearch').value.trim().toLowerCase();
+      if(!q){ renderZoneTable(_zoneRows); return; }
+      const filtered = _zoneRows.filter(r =>
+        r.client.toLowerCase().includes(q) ||
+        r.nd.toLowerCase().includes(q) ||
+        r.cause.toLowerCase().includes(q) ||
+        r.date.toLowerCase().includes(q) ||
+        (r.isCable ? 'cable' : 'autre').includes(q)
+      );
+      renderZoneTable(filtered);
+    }
+
+    function exportZoneExcel(){
+      const q = document.getElementById('zoneSearch').value.trim().toLowerCase();
+      const rows = q ? _zoneRows.filter(r =>
+        r.client.toLowerCase().includes(q) ||
+        r.nd.toLowerCase().includes(q) ||
+        r.cause.toLowerCase().includes(q) ||
+        r.date.toLowerCase().includes(q) ||
+        (r.isCable ? 'cable' : 'autre').includes(q)
+      ) : _zoneRows;
+
+      const wsData = [["#","Client (Raison Sociale)","ND","Nb incidents","Date","Cause réelle","Type"]];
+      rows.forEach((r,i) => {
+        wsData.push([i+1, r.client, r.nd, r.nbIncidents, r.date, r.cause, r.isCable ? 'Cable' : 'Autre']);
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      // Largeurs colonnes
+      ws['!cols'] = [{wch:4},{wch:40},{wch:18},{wch:13},{wch:12},{wch:35},{wch:8}];
+      XLSX.utils.book_append_sheet(wb, ws, 'Incidents');
+      const title = document.getElementById('zoneModalTitle').textContent
+        .replace(/[^a-zA-Z0-9_\- ]/g,'').trim();
+      XLSX.writeFile(wb, title + '.xlsx');
     }
 
     function closeZoneModal(){
