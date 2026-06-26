@@ -683,20 +683,6 @@ function computeForMonth(json, selectedMonth){
         circle.on('mouseout', function(){ this.setStyle({weight:2}); });
 
         layers.push(circle);
-
-        const label = L.marker(communesCoords[loc],{
-          icon: L.divIcon({
-            className:'circle-label',
-            html:`<div style="pointer-events:none;">
-                    <div style="font-size:13px">${loc}</div>
-                    <div>Cable: ${cable} (${pctCable}%)</div>
-                    <div>Autre: ${autre} (${pctAutre}%)</div>
-                  </div>`,
-            iconSize:[320,150]
-          }),
-          interactive: false
-        }).addTo(map);
-        layers.push(label);
       }
     }
 
@@ -1050,13 +1036,32 @@ sorted.forEach(([k,v])=>{
       if(!total) return '<div style="padding:30px;text-align:center;color:#999">Aucune donnée.</div>';
 
       const cable = rows.filter(r => causesCable.includes((r["CAUSE RÉELLE"]||"").toUpperCase().trim())).length;
-      const pctC  = pct(cable, total);
 
-      // Par zone
+      // Abidjan vs Intérieur
+      let totalAbj = 0, totalInt = 0;
+      const abjLoc = {}, intLoc = {};
+      rows.forEach(r => {
+        const locRaw = (r["LOCALISATION CLIENT"]||"").toUpperCase().trim();
+        if(isAbidjan(locRaw)){
+          totalAbj++;
+          const loc = normaliserAbidjan(locRaw);
+          abjLoc[loc] = (abjLoc[loc]||0)+1;
+        } else {
+          totalInt++;
+          const v = normaliserVille(locRaw);
+          intLoc[v] = (intLoc[v]||0)+1;
+        }
+      });
+      const sortedAbj = Object.entries(abjLoc).sort((a,b)=>b[1]-a[1]);
+      const sortedInt = Object.entries(intLoc).sort((a,b)=>b[1]-a[1]).slice(0,8);
+      const zonesAbj = sortedAbj.filter(([z])=>communesCoords[z]);
+      const zonesTouchees = zonesAbj.length;
+
+      // Par zone (pour barres)
       const zones = {};
       rows.forEach(r => {
-        const loc  = normaliserAbidjan((r["LOCALISATION CLIENT"]||"").toUpperCase().trim());
-        const c    = (r["CAUSE RÉELLE"]||"").toUpperCase().trim();
+        const loc = normaliserAbidjan((r["LOCALISATION CLIENT"]||"").toUpperCase().trim());
+        const c   = (r["CAUSE RÉELLE"]||"").toUpperCase().trim();
         if(!zones[loc]) zones[loc] = {total:0, cable:0};
         zones[loc].total++;
         if(causesCable.includes(c)) zones[loc].cable++;
@@ -1064,13 +1069,28 @@ sorted.forEach(([k,v])=>{
       const sortedZones = Object.entries(zones).sort((a,b)=>b[1].total-a[1].total);
       const maxZ = sortedZones[0]?.[1].total || 1;
 
-      // Par cause
+      // Répartition par catégorie de cause (causeGroups)
+      const catCounts = {};
+      Object.keys(causeGroups).forEach(k => catCounts[k] = 0);
+      rows.forEach(r => {
+        const c = (r["CAUSE RÉELLE"]||"").toUpperCase().trim();
+        let matched = false;
+        for(const g in causeGroups){
+          if(causeGroups[g].includes(c)){ catCounts[g]++; matched=true; break; }
+        }
+        if(!matched) catCounts["Autres"]++;
+      });
+      const sortedCats = Object.entries(catCounts).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
+      const maxCat = sortedCats[0]?.[1]||1;
+
+      // Top causes détaillées
       const causes = {};
       rows.forEach(r => {
         const c = (r["CAUSE RÉELLE"]||"—").toUpperCase().trim();
         causes[c] = (causes[c]||0)+1;
       });
       const sortedCauses = Object.entries(causes).sort((a,b)=>b[1]-a[1]).slice(0,10);
+      const maxCause = sortedCauses[0]?.[1]||1;
 
       // ND récurrents
       const nds = {};
@@ -1085,40 +1105,93 @@ sorted.forEach(([k,v])=>{
 
       let html = '';
 
-      // KPIs globaux
+      // ── KPIs globaux ──
       html += `<div class="analyse-section">
         <h3>Vue globale</h3>
         <div class="analyse-kpi-row">
           <div class="akpi"><div class="val">${total}</div><div class="lbl">Total incidents</div></div>
-          <div class="akpi red"><div class="val">${cable}</div><div class="lbl">Cable (${pctC}%)</div></div>
+          <div class="akpi red"><div class="val">${cable}</div><div class="lbl">Cable (${pct(cable,total)}%)</div></div>
           <div class="akpi blue"><div class="val">${total-cable}</div><div class="lbl">Non-cable (${pct(total-cable,total)}%)</div></div>
-          <div class="akpi"><div class="val">${sortedZones.length}</div><div class="lbl">Zones touchées</div></div>
+          <div class="akpi"><div class="val">${zonesTouchees}</div><div class="lbl">Zones Abidjan</div></div>
           <div class="akpi green"><div class="val">${recurrents.length}</div><div class="lbl">ND récurrents</div></div>
         </div>
       </div>`;
 
-      // Top zones
+      // ── Abidjan vs Intérieur ──
       html += `<div class="analyse-section">
-        <h3>📍 Incidents par zone (Top 10)</h3>
+        <h3>🗺️ Abidjan vs Intérieur</h3>
+        <div class="analyse-kpi-row" style="margin-bottom:14px">
+          <div class="akpi"><div class="val">${totalAbj}</div><div class="lbl">Abidjan (${pct(totalAbj,total)}%)</div></div>
+          <div class="akpi blue"><div class="val">${totalInt}</div><div class="lbl">Intérieur (${pct(totalInt,total)}%)</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Communes Abidjan</div>
+            <table class="analyse-table">
+              <thead><tr><th>Zone</th><th class="num">Nb</th><th class="num">%</th></tr></thead>
+              <tbody>
+              ${sortedAbj.map(([z,v])=>`<tr>
+                <td>${communesCoords[z]?'<b>'+z+'</b>':z}</td>
+                <td class="num">${v}</td>
+                <td class="num" style="${parseFloat(pct(v,total))>=15?'color:#b30000;font-weight:bold':''}">${pct(v,total)}%</td>
+              </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Villes Intérieur (Top 8)</div>
+            <table class="analyse-table">
+              <thead><tr><th>Ville</th><th class="num">Nb</th><th class="num">%</th></tr></thead>
+              <tbody>
+              ${sortedInt.map(([z,v])=>`<tr>
+                <td>${z}</td>
+                <td class="num">${v}</td>
+                <td class="num">${pct(v,total)}%</td>
+              </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+
+      // ── Zones touchées Abidjan ──
+      html += `<div class="analyse-section">
+        <h3>📍 Zones Abidjan touchées (${zonesTouchees}/8)</h3>
         <table class="analyse-table">
-          <thead><tr><th>Zone</th><th class="num">Total</th><th class="num">Cable</th><th class="num">Autre</th><th>Répartition</th></tr></thead>
+          <thead><tr><th>Zone</th><th class="num">Total</th><th class="num">Cable</th><th class="num">Autre</th><th>Volume</th></tr></thead>
           <tbody>`;
-      sortedZones.slice(0,10).forEach(([z,v]) => {
-        const pC = pct(v.cable, v.total);
-        const pA = pct(v.total-v.cable, v.total);
-        const w  = Math.round(v.total/maxZ*100);
+      sortedZones.filter(([z])=>communesCoords[z]).forEach(([z,v]) => {
+        const w = Math.round(v.total/maxZ*100);
         html += `<tr>
           <td><b>${z}</b></td>
           <td class="num">${v.total}</td>
-          <td class="num" style="color:#b30000">${v.cable} <small>(${pC}%)</small></td>
-          <td class="num" style="color:#1a56db">${v.total-v.cable} <small>(${pA}%)</small></td>
+          <td class="num" style="color:#b30000">${v.cable} <small>(${pct(v.cable,v.total)}%)</small></td>
+          <td class="num" style="color:#1a56db">${v.total-v.cable} <small>(${pct(v.total-v.cable,v.total)}%)</small></td>
           <td><div class="bar-bg"><div class="bar-fill" style="width:${w}%"></div></div></td>
         </tr>`;
       });
       html += `</tbody></table></div>`;
 
-      // Top causes
-      const maxCause = sortedCauses[0]?.[1]||1;
+      // ── Répartition par catégorie ──
+      html += `<div class="analyse-section">
+        <h3>📊 Répartition par catégorie de cause</h3>
+        <table class="analyse-table">
+          <thead><tr><th>Catégorie</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead>
+          <tbody>`;
+      sortedCats.forEach(([cat,v]) => {
+        const isCab = cat === 'Cable';
+        const w = Math.round(v/maxCat*100);
+        const style = isCab ? 'color:#b30000;font-weight:bold' : parseFloat(pct(v,total))>=15 ? 'color:#e34a33' : '';
+        html += `<tr>
+          <td style="${style}">${isCab?'🔴 ':''}<b>${cat}</b></td>
+          <td class="num" style="${style}">${v}</td>
+          <td class="num">${pct(v,total)}%</td>
+          <td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+
+      // ── Top 10 causes détaillées ──
       html += `<div class="analyse-section">
         <h3>🔍 Top 10 causes réelles</h3>
         <table class="analyse-table">
@@ -1136,7 +1209,7 @@ sorted.forEach(([k,v])=>{
       });
       html += `</tbody></table></div>`;
 
-      // ND récurrents
+      // ── ND récurrents ──
       if(recurrents.length){
         html += `<div class="analyse-section">
           <h3>⚠️ ND récurrents (≥ 2 incidents)</h3>
@@ -1144,12 +1217,12 @@ sorted.forEach(([k,v])=>{
             <thead><tr><th>ND</th><th>Client</th><th>Zone</th><th class="num">Incidents</th></tr></thead>
             <tbody>`;
         recurrents.forEach(n => {
-          const style = n.count>=3?'color:#b30000;font-weight:bold':n.count>=2?'color:#e34a33':'';
+          const s = n.count>=3?'color:#b30000;font-weight:bold':n.count>=2?'color:#e34a33':'';
           html += `<tr>
             <td style="color:#555">${n.nd}</td>
             <td><b>${n.client}</b></td>
             <td>${n.loc}</td>
-            <td class="num" style="${style}">${n.count}</td>
+            <td class="num" style="${s}">${n.count}</td>
           </tr>`;
         });
         html += `</tbody></table></div>`;
