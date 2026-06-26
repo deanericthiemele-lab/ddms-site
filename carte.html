@@ -118,9 +118,9 @@
     #analyseModalBox {
       background:#f8f9fa;
       border-radius:12px;
-      width:900px;
-      max-width:96vw;
-      max-height:88vh;
+      width:96vw;
+      max-width:1200px;
+      max-height:92vh;
       display:flex;
       flex-direction:column;
       box-shadow:0 12px 40px rgba(0,0,0,0.3);
@@ -1572,84 +1572,109 @@ sorted.forEach(([k,v])=>{
       status.style.display = 'none';
 
       try {
-        // 1. Capturer la carte (uniquement la zone du polygon Abidjan)
+        // 1. Capturer la carte — recadrer sur le polygon Abidjan
         const mapEl = document.getElementById('map');
         const mapCanvas = await html2canvas(mapEl, {
-          scale: 1.5,
+          scale: 1,
           backgroundColor: '#fff',
           useCORS: true,
           logging: false
         });
 
-        // Recadrer sur la zone Abidjan via les bounds du polygon
         const bounds = abidjanBoundary.getBounds();
         const topLeft     = map.latLngToContainerPoint(bounds.getNorthWest());
         const bottomRight = map.latLngToContainerPoint(bounds.getSouthEast());
-        const margin = 30;
+        const margin = 20;
         const cx = Math.max(0, topLeft.x - margin);
         const cy = Math.max(0, topLeft.y - margin);
-        const cw = Math.min(mapEl.offsetWidth, bottomRight.x + margin) - cx;
+        const cw = Math.min(mapEl.offsetWidth,  bottomRight.x + margin) - cx;
         const ch = Math.min(mapEl.offsetHeight, bottomRight.y + margin) - cy;
-        const scale = 1.5;
 
         const mapCropped = document.createElement('canvas');
-        mapCropped.width  = Math.round(cw * scale);
-        mapCropped.height = Math.round(ch * scale);
+        mapCropped.width  = Math.round(cw);
+        mapCropped.height = Math.round(ch);
         mapCropped.getContext('2d').drawImage(
-          mapCanvas,
-          Math.round(cx * scale), Math.round(cy * scale),
-          Math.round(cw * scale), Math.round(ch * scale),
-          0, 0,
-          Math.round(cw * scale), Math.round(ch * scale)
+          mapCanvas, Math.round(cx), Math.round(cy),
+          Math.round(cw), Math.round(ch),
+          0, 0, Math.round(cw), Math.round(ch)
         );
 
-        // 2. Capturer le rapport
+        // 2. Capturer tout le rapport (contenu complet)
         const body = document.getElementById('analyseModalBody');
+        const prevOverflow = body.style.overflowY;
+        const prevMaxH    = body.style.maxHeight;
+        body.style.overflowY = 'visible';
+        body.style.maxHeight  = 'none';
+
         const rapportCanvas = await html2canvas(body, {
-          scale: 2,
+          scale: 1,
           backgroundColor: '#f8f9fa',
           useCORS: true,
-          scrollY: 0,
-          windowWidth: body.scrollWidth,
+          scrollY: -window.scrollY,
+          width:  body.scrollWidth,
           height: body.scrollHeight
         });
 
-        // 3. Assembler : carte en haut, rapport en dessous
-        const W = Math.max(mapCropped.width, rapportCanvas.width);
-        const H = mapCropped.height + 16 + rapportCanvas.height;
-        const final = document.createElement('canvas');
-        final.width  = W;
-        final.height = H;
-        const ctx = final.getContext('2d');
-        ctx.fillStyle = '#f8f9fa';
-        ctx.fillRect(0, 0, W, H);
+        body.style.overflowY = prevOverflow;
+        body.style.maxHeight  = prevMaxH;
 
-        // Centrer la carte
-        const mapX = Math.round((W - mapCropped.width) / 2);
-        ctx.drawImage(mapCropped, mapX, 0);
+        // 3. Assembler : fond gris pleine largeur, rapport centré et réduit
+        const EMAIL_W = 900;        // largeur totale de l'image mail
+        const RAPPORT_W = 600;      // largeur du rapport (centré, plus petit)
+        const PADDING = 24;         // espace autour du rapport
+
+        // Redimensionner la carte à EMAIL_W
+        const mapRatio = EMAIL_W / mapCropped.width;
+        const mapFinalH = Math.round(mapCropped.height * mapRatio);
+
+        // Redimensionner le rapport à RAPPORT_W
+        const rapRatio = RAPPORT_W / rapportCanvas.width;
+        const rapFinalH = Math.round(rapportCanvas.height * rapRatio);
+
+        const totalH = mapFinalH + PADDING + rapFinalH + PADDING;
+
+        const final = document.createElement('canvas');
+        final.width  = EMAIL_W;
+        final.height = totalH;
+        const ctx = final.getContext('2d');
+
+        // Fond gris pleine largeur
+        ctx.fillStyle = '#e8e8e8';
+        ctx.fillRect(0, 0, EMAIL_W, totalH);
+
+        // Carte pleine largeur en haut
+        ctx.drawImage(mapCropped, 0, 0, EMAIL_W, mapFinalH);
 
         // Trait séparateur
-        ctx.strokeStyle = '#ddd';
+        ctx.strokeStyle = '#ccc';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(20, mapCropped.height + 8);
-        ctx.lineTo(W - 20, mapCropped.height + 8);
+        ctx.moveTo(0, mapFinalH);
+        ctx.lineTo(EMAIL_W, mapFinalH);
         ctx.stroke();
 
-        // Rapport
-        ctx.drawImage(rapportCanvas, 0, mapCropped.height + 16);
+        // Rapport centré avec fond blanc arrondi
+        const rapX = Math.round((EMAIL_W - RAPPORT_W) / 2);
+        const rapY = mapFinalH + PADDING;
 
-        // 4. Copier ou télécharger
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.roundRect(rapX - 8, rapY - 8, RAPPORT_W + 16, rapFinalH + 16, 8);
+        ctx.fill();
+
+        ctx.drawImage(rapportCanvas, rapX, rapY, RAPPORT_W, rapFinalH);
+
+        // 4. Copier + toast visible
         final.toBlob(async blob => {
           try {
             await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
-            status.style.display = 'inline';
-            setTimeout(() => { status.style.display = 'none'; }, 3000);
+            showToast('✅ Image copiée — vous pouvez coller dans Outlook (Ctrl+V)');
           } catch(e) {
             const a = document.createElement('a');
             a.href = final.toDataURL('image/png');
             a.download = (document.getElementById('analyseModalTitle').textContent||'rapport') + '.png';
             a.click();
+            showToast('📥 Image téléchargée — insérez-la dans votre mail');
           }
           btn.textContent = '📋 Copier image';
           btn.disabled = false;
@@ -1660,6 +1685,24 @@ sorted.forEach(([k,v])=>{
         btn.disabled = false;
         alert('Erreur : ' + e.message);
       }
+    }
+
+    function showToast(msg){
+      let t = document.getElementById('toastMsg');
+      if(!t){
+        t = document.createElement('div');
+        t.id = 'toastMsg';
+        t.style.cssText = `position:fixed;top:24px;left:50%;transform:translateX(-50%);
+          background:#111;color:#fff;padding:14px 28px;border-radius:8px;
+          font-size:14px;font-weight:bold;z-index:99999;
+          box-shadow:0 4px 20px rgba(0,0,0,0.4);pointer-events:none;
+          transition:opacity .4s`;
+        document.body.appendChild(t);
+      }
+      t.textContent = msg;
+      t.style.opacity = '1';
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => { t.style.opacity = '0'; }, 4000);
     }
 
     // Auto load
