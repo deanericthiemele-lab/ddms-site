@@ -1566,168 +1566,121 @@ sorted.forEach(([k,v])=>{
 
     async function copierRapportImage(){
       const btn = document.querySelector('.analyse-footer-btn.grey');
-      btn.textContent = '⏳ Capture…';
+      btn.textContent = '⏳ Génération…';
       btn.disabled = true;
 
       try {
-        const EMAIL_W  = 1800; // taille finale (sera affichée à 900px dans Outlook)
-        const RAPPORT_W = 1200;
-        const PADDING  = 40;
-        const SCALE    = 2;
-
-        // ── 1. Carte dessinée manuellement (sans tiles CORS) ──────────
-        const bounds   = abidjanBoundary.getBounds();
-        const mapEl    = document.getElementById('map');
-        const margin   = 30;
-        const tl       = map.latLngToContainerPoint(bounds.getNorthWest());
-        const br       = map.latLngToContainerPoint(bounds.getSouthEast());
+        // Dessiner la carte sur canvas
+        const bounds = abidjanBoundary.getBounds();
+        const mapEl  = document.getElementById('map');
+        const margin = 30;
+        const tl = map.latLngToContainerPoint(bounds.getNorthWest());
+        const br = map.latLngToContainerPoint(bounds.getSouthEast());
         const cx = Math.max(0, tl.x - margin);
         const cy = Math.max(0, tl.y - margin);
         const cw = Math.min(mapEl.offsetWidth,  br.x + margin) - cx;
         const ch = Math.min(mapEl.offsetHeight, br.y + margin) - cy;
 
-        const MAP_W = EMAIL_W;
-        const MAP_H = Math.round(ch / cw * MAP_W);
+        const MAP_W = 900, MAP_H = Math.round(ch / cw * MAP_W);
+        const mc2 = document.createElement('canvas');
+        mc2.width = MAP_W; mc2.height = MAP_H;
+        const mc = mc2.getContext('2d');
 
-        const mapC = document.createElement('canvas');
-        mapC.width  = MAP_W;
-        mapC.height = MAP_H;
-        const mc = mapC.getContext('2d');
+        mc.fillStyle = '#d4e8f0'; mc.fillRect(0, 0, MAP_W, MAP_H);
+        mc.fillStyle = '#e8e0d4'; mc.fillRect(0, 0, MAP_W, MAP_H * 0.72);
 
-        // Fond carte (couleur eau / terre neutre)
-        mc.fillStyle = '#d4e8f0';
-        mc.fillRect(0, 0, MAP_W, MAP_H);
-        mc.fillStyle = '#e8e0d4';
-        mc.fillRect(0, 0, MAP_W, MAP_H * 0.7);
-
-        // Helpers de projection (crop → canvas)
-        function projX(pt){ return Math.round((pt.x - cx) / cw * MAP_W); }
-        function projY(pt){ return Math.round((pt.y - cy) / ch * MAP_H); }
         function ll2c(lat, lng){
           const pt = map.latLngToContainerPoint([lat, lng]);
-          return { x: projX(pt), y: projY(pt) };
+          return { x: Math.round((pt.x - cx) / cw * MAP_W), y: Math.round((pt.y - cy) / ch * MAP_H) };
         }
 
-        // Polygon Abidjan
-        mc.strokeStyle = '#222';
-        mc.lineWidth = 3;
-        mc.beginPath();
+        mc.strokeStyle = '#222'; mc.lineWidth = 2.5; mc.beginPath();
         abidjanBoundary.getLatLngs()[0].forEach((ll, i) => {
           const p = ll2c(ll.lat, ll.lng);
           i === 0 ? mc.moveTo(p.x, p.y) : mc.lineTo(p.x, p.y);
         });
-        mc.closePath();
-        mc.stroke();
+        mc.closePath(); mc.stroke();
 
-        // Cercles des zones (même données que la carte)
         const months = getSelectedMonths();
         const r = computeForMonths(DATA_JSON, months);
         const RADIUS = Math.round(MAP_W * 0.055);
 
         for(const loc in r.zoneCounts){
           if(!communesCoords[loc]) continue;
-          const cable  = r.zoneCounts[loc].cable;
-          const autre  = r.zoneCounts[loc].autre;
-          const total  = cable + autre;
-          const p      = ll2c(communesCoords[loc][0], communesCoords[loc][1]);
-          const color  = getColor(total);
-
-          mc.beginPath();
-          mc.arc(p.x, p.y, RADIUS, 0, Math.PI*2);
-          mc.fillStyle = color;
-          mc.globalAlpha = 0.9;
-          mc.fill();
-          mc.globalAlpha = 1;
-          mc.strokeStyle = '#111';
-          mc.lineWidth = 2;
-          mc.stroke();
-
-          // Texte
-          mc.fillStyle = '#fff';
-          mc.font = `bold ${Math.round(RADIUS*0.38)}px Arial`;
-          mc.textAlign = 'center';
-          mc.textBaseline = 'middle';
-          const pctC = total ? Math.round(cable/total*100) : 0;
+          const cable = r.zoneCounts[loc].cable;
+          const autre = r.zoneCounts[loc].autre;
+          const total = cable + autre;
+          const p = ll2c(communesCoords[loc][0], communesCoords[loc][1]);
+          mc.beginPath(); mc.arc(p.x, p.y, RADIUS, 0, Math.PI*2);
+          mc.fillStyle = getColor(total); mc.globalAlpha = 0.9; mc.fill();
+          mc.globalAlpha = 1; mc.strokeStyle = '#111'; mc.lineWidth = 2; mc.stroke();
+          mc.fillStyle = '#fff'; mc.textAlign = 'center'; mc.textBaseline = 'middle';
+          mc.font = `bold ${Math.round(RADIUS*0.36)}px Arial`;
           mc.fillText(loc, p.x, p.y - RADIUS*0.22);
-          mc.font = `${Math.round(RADIUS*0.3)}px Arial`;
-          mc.fillText(`Cbl:${cable}(${pctC}%)`, p.x, p.y + RADIUS*0.12);
-          mc.fillText(`Aut:${autre}(${100-pctC}%)`, p.x, p.y + RADIUS*0.42);
+          mc.font = `${Math.round(RADIUS*0.28)}px Arial`;
+          const pC = total ? Math.round(cable/total*100) : 0;
+          mc.fillText(`Cbl:${cable}(${pC}%)`, p.x, p.y + RADIUS*0.12);
+          mc.fillText(`Aut:${autre}(${100-pC}%)`, p.x, p.y + RADIUS*0.42);
         }
 
-        // ── 2. Rapport en haute résolution ──────────────────────────
+        const mapDataUrl = mc2.toDataURL('image/png');
+
+        // Récupérer le HTML du rapport
         const body = document.getElementById('analyseModalBody');
         const prevOv = body.style.overflowY;
         const prevMH = body.style.maxHeight;
         body.style.overflowY = 'visible';
         body.style.maxHeight  = 'none';
-
-        const rapC = await html2canvas(body, {
-          scale: SCALE,
-          backgroundColor: '#f8f9fa',
-          useCORS: true,
-          scrollY: -window.scrollY,
-          width:  body.scrollWidth,
-          height: body.scrollHeight
-        });
-
+        const rapportHTML = body.innerHTML;
         body.style.overflowY = prevOv;
         body.style.maxHeight  = prevMH;
 
-        // ── 3. Assembler ────────────────────────────────────────────
-        const rapRatio  = RAPPORT_W / rapC.width;
-        const rapFinalH = Math.round(rapC.height * rapRatio);
-        const totalH    = MAP_H + PADDING + rapFinalH + PADDING;
+        // Récupérer les styles du modal
+        const styles = Array.from(document.styleSheets)
+          .map(s => { try { return Array.from(s.cssRules).map(r=>r.cssText).join('\n'); } catch(e){ return ''; } })
+          .join('\n');
 
-        const final = document.createElement('canvas');
-        final.width  = EMAIL_W;
-        final.height = totalH;
-        const ctx = final.getContext('2d');
+        const titre = document.getElementById('analyseModalTitle').textContent;
 
-        // Fond gris global
-        ctx.fillStyle = '#e0e0e0';
-        ctx.fillRect(0, 0, EMAIL_W, totalH);
+        // Ouvrir popup
+        const popup = window.open('', '_blank', 'width=960,height=900,scrollbars=yes,resizable=yes');
+        popup.document.write(`<!DOCTYPE html><html><head>
+          <meta charset="utf-8">
+          <title>${titre}</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { margin:0; font-family:Arial,sans-serif; background:#e0e0e0; padding:0; }
+            .email-wrap { width:900px; margin:0 auto; background:#e0e0e0; padding-bottom:32px; }
+            .map-block { width:100%; }
+            .map-block img { width:100%; display:block; }
+            .rapport-wrap { width:680px; margin:0 auto; background:#fff; border-radius:8px; padding:8px; margin-top:16px; }
+            ${styles}
+            /* reset modal-specific positioning */
+            #analyseModalBody { overflow:visible!important; max-height:none!important; padding:0; }
+            .analyse-section { margin-bottom:14px; }
+          </style>
+        </head><body>
+          <div class="email-wrap">
+            <div class="map-block"><img src="${mapDataUrl}"></div>
+            <div class="rapport-wrap">
+              <div id="analyseModalBody">${rapportHTML}</div>
+            </div>
+          </div>
+          <div style="position:fixed;bottom:0;left:0;right:0;background:#111;color:#fff;
+            text-align:center;padding:12px;font-size:13px;font-weight:bold;">
+            👆 Sélectionner tout (Ctrl+A) puis Copier (Ctrl+C) — coller dans Outlook avec Ctrl+V
+          </div>
+        </body></html>`);
+        popup.document.close();
 
-        // Carte
-        ctx.drawImage(mapC, 0, 0);
-
-        // Séparateur
-        ctx.strokeStyle = '#bbb';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(0, MAP_H);
-        ctx.lineTo(EMAIL_W, MAP_H);
-        ctx.stroke();
-
-        // Rapport centré, fond blanc arrondi
-        const rapX = Math.round((EMAIL_W - RAPPORT_W) / 2);
-        const rapY = MAP_H + PADDING;
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.roundRect(rapX - 12, rapY - 12, RAPPORT_W + 24, rapFinalH + 24, 10);
-        ctx.fill();
-        ctx.drawImage(rapC, rapX, rapY, RAPPORT_W, rapFinalH);
-
-        // ── 4. Copier ou télécharger ────────────────────────────────
-        final.toBlob(async blob => {
-          try {
-            await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
-            showToast('✅ Image copiée — vous pouvez coller dans Outlook (Ctrl+V)');
-          } catch(e) {
-            const a = document.createElement('a');
-            a.href = final.toDataURL('image/png');
-            a.download = (document.getElementById('analyseModalTitle').textContent||'rapport') + '.png';
-            a.click();
-            showToast('📥 Image téléchargée — insérez-la dans votre mail');
-          }
-          btn.textContent = '📋 Copier image';
-          btn.disabled = false;
-        });
+        showToast('✅ Fenêtre ouverte — Ctrl+A puis Ctrl+C dans la fenêtre, puis Ctrl+V dans Outlook');
 
       } catch(e) {
-        btn.textContent = '📋 Copier image';
-        btn.disabled = false;
         alert('Erreur : ' + e.message);
       }
+
+      btn.textContent = '📋 Copier image';
+      btn.disabled = false;
     }
 
     function showToast(msg){
