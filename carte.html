@@ -792,7 +792,7 @@ function computeForMonth(json, selectedMonth){
 
       document.getElementById('zoneModalKpis').innerHTML = `
         <div class="kpi-chip">Total incidents <span>${totalIncidents}</span></div>
-        <div class="kpi-chip">Cable <span style="color:#b30000">${cable}</span></div>
+        <div class="kpi-chip">Incident Câble <span style="color:#b30000">${cable}</span></div>
         <div class="kpi-chip">Autre <span style="color:#1a56db">${autre}</span></div>
         <div class="kpi-chip">ND distincts <span style="color:#555">${_zoneRows.length}</span></div>
       `;
@@ -895,8 +895,8 @@ function computeForMonth(json, selectedMonth){
       html += `<b>Abidjan :</b> ${totalAbj} (${pctAbj}%)<br>`;
       html += `<b>Intérieur :</b> ${totalInt} (${pctInt}%)<hr>`;
 
-      html += `<b><span style='cursor:pointer;color:#b30000' onmouseenter="showCableDetails(groupCounts, total)" onmouseleave="map.closePopup()">Cable :</span></b> ${cableTotal} (${pctCableGlobal}%)<br>`;
-      html += `<b>Non-Cable Global :</b> ${nonCableTotal} (${pctNonCableGlobal}%)<hr>`;
+      html += `<b><span style='cursor:pointer;color:#b30000' onmouseenter="showCableDetails(groupCounts, total)" onmouseleave="map.closePopup()">Incident Câble :</span></b> ${cableTotal} (${pctCableGlobal}%)<br>`;
+      html += `<b>Incident hors câble :</b> ${nonCableTotal} (${pctNonCableGlobal}%)<hr>`;
 
       
 sorted.forEach(([k,v])=>{
@@ -1101,12 +1101,24 @@ sorted.forEach(([k,v])=>{
 
       // Par zone (pour barres)
       const zones = {};
+      const zonesDetail = {};
+      const zonesDetailInt = {};
       rows.forEach(r => {
-        const loc = normaliserAbidjan((r["LOCALISATION CLIENT"]||"").toUpperCase().trim());
+        const locRaw = (r["LOCALISATION CLIENT"]||"").toUpperCase().trim();
         const c   = (r["CAUSE RÉELLE"]||"").toUpperCase().trim();
-        if(!zones[loc]) zones[loc] = {total:0, cable:0};
-        zones[loc].total++;
-        if(causesCable.includes(c)) zones[loc].cable++;
+        const isCab = causesCable.includes(c);
+        if(isAbidjan(locRaw)){
+          const loc = normaliserAbidjan(locRaw);
+          if(!zones[loc]) zones[loc] = {total:0, cable:0};
+          zones[loc].total++;
+          if(isCab) zones[loc].cable++;
+          if(!zonesDetail[loc]) zonesDetail[loc] = {cable:0};
+          if(isCab) zonesDetail[loc].cable++;
+        } else {
+          const v = normaliserVille(locRaw);
+          if(!zonesDetailInt[v]) zonesDetailInt[v] = {cable:0};
+          if(isCab) zonesDetailInt[v].cable++;
+        }
       });
       const sortedZones = Object.entries(zones).sort((a,b)=>b[1].total-a[1].total);
       const maxZ = sortedZones[0]?.[1].total || 1;
@@ -1152,10 +1164,10 @@ sorted.forEach(([k,v])=>{
         <h3>Vue globale</h3>
         <div class="analyse-kpi-row">
           <div class="akpi"><div class="val">${total}</div><div class="lbl">Total incidents</div></div>
-          <div class="akpi red"><div class="val">${cable}</div><div class="lbl">Cable (${pct(cable,total)}%)</div></div>
-          <div class="akpi blue"><div class="val">${total-cable}</div><div class="lbl">Non-cable (${pct(total-cable,total)}%)</div></div>
-          <div class="akpi"><div class="val">${zonesTouchees}</div><div class="lbl">Zones Abidjan</div></div>
-          <div class="akpi green"><div class="val">${recurrents.length}</div><div class="lbl">ND récurrents</div></div>
+          <div class="akpi red"><div class="val">${cable}</div><div class="lbl">Incident Câble (${pct(cable,total)}%)</div></div>
+          <div class="akpi blue"><div class="val">${total-cable}</div><div class="lbl">Incident hors câble (${pct(total-cable,total)}%)</div></div>
+          <div class="akpi"><div class="val">${zonesTouchees}</div><div class="lbl">Zone Abidjan</div></div>
+          <div class="akpi green"><div class="val">${recurrents.length}</div><div class="lbl">Incident répétitif</div></div>
         </div>
       </div>`;
 
@@ -1168,51 +1180,35 @@ sorted.forEach(([k,v])=>{
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
           <div>
-            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Communes Abidjan</div>
+            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Zone Abidjan</div>
             <table class="analyse-table">
-              <thead><tr><th>Zone</th><th class="num">Nb</th><th class="num">%</th></tr></thead>
+              <thead><tr><th>Zone</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Volume 📍</th></tr></thead>
               <tbody>
               ${sortedAbj.map(([z,v])=>`<tr>
                 <td>${communesCoords[z]?'<b>'+z+'</b>':z}</td>
-                <td class="num">${v}</td>
-                <td class="num" style="${parseFloat(pct(v,total))>=15?'color:#b30000;font-weight:bold':''}">${pct(v,total)}%</td>
+                <td class="num" style="color:#b30000">${zonesDetail&&zonesDetail[z]?zonesDetail[z].cable:0}</td>
+                <td class="num" style="color:#1a56db">${zonesDetail&&zonesDetail[z]?(v-(zonesDetail[z].cable||0)):v}</td>
+                <td class="num" style="${parseFloat(pct(v,total))>=15?'color:#b30000;font-weight:bold':''}">${v}</td>
               </tr>`).join('')}
               </tbody>
             </table>
           </div>
           <div>
-            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Villes Intérieur (Top 8)</div>
+            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Villes Intérieur</div>
             <table class="analyse-table">
-              <thead><tr><th>Ville</th><th class="num">Nb</th><th class="num">%</th></tr></thead>
+              <thead><tr><th>Ville</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Volume 📍</th></tr></thead>
               <tbody>
               ${sortedInt.map(([z,v])=>`<tr>
                 <td>${z}</td>
+                <td class="num" style="color:#b30000">${zonesDetailInt&&zonesDetailInt[z]?zonesDetailInt[z].cable:0}</td>
+                <td class="num" style="color:#1a56db">${zonesDetailInt&&zonesDetailInt[z]?(v-(zonesDetailInt[z].cable||0)):v}</td>
                 <td class="num">${v}</td>
-                <td class="num">${pct(v,total)}%</td>
               </tr>`).join('')}
               </tbody>
             </table>
           </div>
         </div>
       </div>`;
-
-      // ── Zones touchées Abidjan ──
-      html += `<div class="analyse-section">
-        <h3>📍 Zones Abidjan touchées (${zonesTouchees}/8)</h3>
-        <table class="analyse-table">
-          <thead><tr><th>Zone</th><th class="num">Total</th><th class="num">Cable</th><th class="num">Autre</th><th>Volume</th></tr></thead>
-          <tbody>`;
-      sortedZones.filter(([z])=>communesCoords[z]).forEach(([z,v]) => {
-        const w = Math.round(v.total/maxZ*100);
-        html += `<tr>
-          <td><b>${z}</b></td>
-          <td class="num">${v.total}</td>
-          <td class="num" style="color:#b30000">${v.cable} <small>(${pct(v.cable,v.total)}%)</small></td>
-          <td class="num" style="color:#1a56db">${v.total-v.cable} <small>(${pct(v.total-v.cable,v.total)}%)</small></td>
-          <td><div class="bar-bg"><div class="bar-fill" style="width:${w}%"></div></div></td>
-        </tr>`;
-      });
-      html += `</tbody></table></div>`;
 
       // ── Répartition par catégorie ──
       html += `<div class="analyse-section">
@@ -1227,24 +1223,6 @@ sorted.forEach(([k,v])=>{
         html += `<tr>
           <td style="${style}">${isCab?'🔴 ':''}<b>${cat}</b></td>
           <td class="num" style="${style}">${v}</td>
-          <td class="num">${pct(v,total)}%</td>
-          <td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td>
-        </tr>`;
-      });
-      html += `</tbody></table></div>`;
-
-      // ── Top 10 causes détaillées ──
-      html += `<div class="analyse-section">
-        <h3>🔍 Top 10 causes réelles</h3>
-        <table class="analyse-table">
-          <thead><tr><th>Cause</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead>
-          <tbody>`;
-      sortedCauses.forEach(([c,v]) => {
-        const isCab = causesCable.includes(c);
-        const w = Math.round(v/maxCause*100);
-        html += `<tr>
-          <td>${isCab?'<span class="tag-cable">Cable</span> ':''}<b>${c}</b></td>
-          <td class="num">${v}</td>
           <td class="num">${pct(v,total)}%</td>
           <td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td>
         </tr>`;
@@ -1277,10 +1255,38 @@ sorted.forEach(([k,v])=>{
       });
       html += `</tbody></table></div>`;
 
+      // ── Top 10 clients ──
+      const clientCounts = {};
+      rows.forEach(r => {
+        const c = (r["RAISON SOCIALE"]||"—").trim();
+        if(!clientCounts[c]) clientCounts[c] = {total:0, cable:0};
+        clientCounts[c].total++;
+        if(causesCable.includes((r["CAUSE RÉELLE"]||"").toUpperCase().trim())) clientCounts[c].cable++;
+      });
+      const top10Clients = Object.entries(clientCounts).sort((a,b)=>b[1].total-a[1].total).slice(0,10);
+      const maxClient = top10Clients[0]?.[1].total||1;
+      html += `<div class="analyse-section">
+        <h3>🏢 Top 10 clients impactés</h3>
+        <table class="analyse-table">
+          <thead><tr><th>Client</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Total</th><th>Barre</th></tr></thead>
+          <tbody>`;
+      top10Clients.forEach(([c,d],i) => {
+        const w = Math.round(d.total/maxClient*100);
+        const style = i===0?'color:#b30000;font-weight:bold':i<3?'color:#e34a33':'';
+        html += `<tr>
+          <td style="${style}"><b>${c}</b></td>
+          <td class="num" style="color:#b30000">${d.cable}</td>
+          <td class="num" style="color:#1a56db">${d.total-d.cable}</td>
+          <td class="num" style="${style}">${d.total}</td>
+          <td><div class="bar-bg"><div class="bar-fill blue" style="width:${w}%"></div></div></td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+
       // ── ND récurrents ──
       if(recurrents.length){
         html += `<div class="analyse-section">
-          <h3>⚠️ ND récurrents (≥ 2 incidents)</h3>
+          <h3>⚠️ Incident répétitif (≥ 2 incidents)</h3>
           <table class="analyse-table">
             <thead><tr><th>ND</th><th>Client</th><th>Zone</th><th class="num">Incidents</th></tr></thead>
             <tbody>`;
@@ -1329,7 +1335,7 @@ sorted.forEach(([k,v])=>{
       html += `<div class="analyse-section">
         <h3>Synthèse comparative — ${months.map(m=>moisNoms[m]).join(' · ')}</h3>
         <table class="analyse-table">
-          <thead><tr><th>Mois</th><th class="num">Total</th><th class="num">Cable</th><th class="num">% Cable</th><th class="num">Récurrents</th><th>Zone critique</th><th>Évolution</th></tr></thead>
+          <thead><tr><th>Mois</th><th class="num">Total</th><th class="num">Inc. Câble</th><th class="num">% Câble</th><th class="num">Incident répétitif</th><th>Zone critique</th><th>Évolution</th></tr></thead>
           <tbody>`;
       moisData.forEach((d,i) => {
         const prev = moisData[i-1];
@@ -1376,7 +1382,7 @@ sorted.forEach(([k,v])=>{
       html += `</div>
         <div style="margin-top:8px;font-size:11px;color:#888">
           <span style="display:inline-block;width:12px;height:8px;background:#b30000;border-radius:2px"></span> Total &nbsp;
-          <span style="display:inline-block;width:12px;height:8px;background:#1a56db;border-radius:2px"></span> Cable
+          <span style="display:inline-block;width:12px;height:8px;background:#1a56db;border-radius:2px"></span> Incident Câble
         </div>
       </div>`;
 
@@ -1410,10 +1416,22 @@ sorted.forEach(([k,v])=>{
       const totAll = allRows.length;
       let totAbj = 0, totInt = 0;
       const abjLoc2 = {}, intLoc2 = {};
+      const abjCableDetail2 = {}, intCableDetail2 = {};
       allRows.forEach(r => {
         const locRaw = (r["LOCALISATION CLIENT"]||"").toUpperCase().trim();
-        if(isAbidjan(locRaw)){ totAbj++; const loc=normaliserAbidjan(locRaw); abjLoc2[loc]=(abjLoc2[loc]||0)+1; }
-        else { totInt++; const v=normaliserVille(locRaw); intLoc2[v]=(intLoc2[v]||0)+1; }
+        const cause = (r["CAUSE RÉELLE"]||"").toUpperCase().trim();
+        const isCab = causesCable.includes(cause);
+        if(isAbidjan(locRaw)){
+          totAbj++;
+          const loc=normaliserAbidjan(locRaw);
+          abjLoc2[loc]=(abjLoc2[loc]||0)+1;
+          if(isCab) abjCableDetail2[loc]=(abjCableDetail2[loc]||0)+1;
+        } else {
+          totInt++;
+          const v=normaliserVille(locRaw);
+          intLoc2[v]=(intLoc2[v]||0)+1;
+          if(isCab) intCableDetail2[v]=(intCableDetail2[v]||0)+1;
+        }
       });
       const sortedAbj2 = Object.entries(abjLoc2).sort((a,b)=>b[1]-a[1]);
       const sortedInt2 = Object.entries(intLoc2).sort((a,b)=>b[1]-a[1]).slice(0,8);
@@ -1426,15 +1444,21 @@ sorted.forEach(([k,v])=>{
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
           <div>
-            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Communes Abidjan</div>
-            <table class="analyse-table"><thead><tr><th>Zone</th><th class="num">Nb</th><th class="num">%</th></tr></thead><tbody>
-            ${sortedAbj2.map(([z,v])=>`<tr><td>${communesCoords[z]?'<b>'+z+'</b>':z}</td><td class="num">${v}</td><td class="num" style="${parseFloat(pct(v,totAll))>=15?'color:#b30000;font-weight:bold':''}">${pct(v,totAll)}%</td></tr>`).join('')}
+            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Zone Abidjan</div>
+            <table class="analyse-table"><thead><tr><th>Zone</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Volume 📍</th></tr></thead><tbody>
+            ${sortedAbj2.map(([z,v])=>{
+              const cbl = abjCableDetail2&&abjCableDetail2[z]?abjCableDetail2[z]:0;
+              return `<tr><td>${communesCoords[z]?'<b>'+z+'</b>':z}</td><td class="num" style="color:#b30000">${cbl}</td><td class="num" style="color:#1a56db">${v-cbl}</td><td class="num" style="${parseFloat(pct(v,totAll))>=15?'color:#b30000;font-weight:bold':''}">${v}</td></tr>`;
+            }).join('')}
             </tbody></table>
           </div>
           <div>
-            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Villes Intérieur (Top 8)</div>
-            <table class="analyse-table"><thead><tr><th>Ville</th><th class="num">Nb</th><th class="num">%</th></tr></thead><tbody>
-            ${sortedInt2.map(([z,v])=>`<tr><td>${z}</td><td class="num">${v}</td><td class="num">${pct(v,totAll)}%</td></tr>`).join('')}
+            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Villes Intérieur</div>
+            <table class="analyse-table"><thead><tr><th>Ville</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Volume 📍</th></tr></thead><tbody>
+            ${sortedInt2.map(([z,v])=>{
+              const cbl = intCableDetail2&&intCableDetail2[z]?intCableDetail2[z]:0;
+              return `<tr><td>${z}</td><td class="num" style="color:#b30000">${cbl}</td><td class="num" style="color:#1a56db">${v-cbl}</td><td class="num">${v}</td></tr>`;
+            }).join('')}
             </tbody></table>
           </div>
         </div>
@@ -1459,21 +1483,6 @@ sorted.forEach(([k,v])=>{
         const w=Math.round(v/maxCat2*100);
         const style=isCab?'color:#b30000;font-weight:bold':parseFloat(pct(v,totAll))>=15?'color:#e34a33':'';
         html+=`<tr><td style="${style}">${isCab?'🔴 ':''}<b>${cat}</b></td><td class="num" style="${style}">${v}</td><td class="num">${pct(v,totAll)}%</td><td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td></tr>`;
-      });
-      html+=`</tbody></table></div>`;
-
-      // ── Top 10 causes réelles (cumulé) ──
-      const causes2={};
-      allRows.forEach(r=>{const c=(r["CAUSE RÉELLE"]||"—").toUpperCase().trim();causes2[c]=(causes2[c]||0)+1;});
-      const sortedCauses2=Object.entries(causes2).sort((a,b)=>b[1]-a[1]).slice(0,10);
-      const maxCause2=sortedCauses2[0]?.[1]||1;
-      html+=`<div class="analyse-section">
-        <h3>🔍 Top 10 causes réelles (cumulé)</h3>
-        <table class="analyse-table"><thead><tr><th>Cause</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead><tbody>`;
-      sortedCauses2.forEach(([c,v])=>{
-        const isCab=causesCable.includes(c);
-        const w=Math.round(v/maxCause2*100);
-        html+=`<tr><td>${isCab?'<span class="tag-cable">Cable</span> ':''}<b>${c}</b></td><td class="num">${v}</td><td class="num">${pct(v,totAll)}%</td><td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td></tr>`;
       });
       html+=`</tbody></table></div>`;
 
@@ -1503,6 +1512,26 @@ sorted.forEach(([k,v])=>{
       });
       html += `</tbody></table></div>`;
 
+      // ── Top 10 clients (cumulé) ──
+      const clientCounts2 = {};
+      allRows.forEach(r => {
+        const c = (r["RAISON SOCIALE"]||"—").trim();
+        if(!clientCounts2[c]) clientCounts2[c] = {total:0, cable:0};
+        clientCounts2[c].total++;
+        if(causesCable.includes((r["CAUSE RÉELLE"]||"").toUpperCase().trim())) clientCounts2[c].cable++;
+      });
+      const top10Clients2 = Object.entries(clientCounts2).sort((a,b)=>b[1].total-a[1].total).slice(0,10);
+      const maxClient2 = top10Clients2[0]?.[1].total||1;
+      html+=`<div class="analyse-section">
+        <h3>🏢 Top 10 clients impactés (cumulé)</h3>
+        <table class="analyse-table"><thead><tr><th>Client</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Total</th><th>Barre</th></tr></thead><tbody>`;
+      top10Clients2.forEach(([c,d],i)=>{
+        const w=Math.round(d.total/maxClient2*100);
+        const style=i===0?'color:#b30000;font-weight:bold':i<3?'color:#e34a33':'';
+        html+=`<tr><td style="${style}"><b>${c}</b></td><td class="num" style="color:#b30000">${d.cable}</td><td class="num" style="color:#1a56db">${d.total-d.cable}</td><td class="num" style="${style}">${d.total}</td><td><div class="bar-bg"><div class="bar-fill blue" style="width:${w}%"></div></div></td></tr>`;
+      });
+      html+=`</tbody></table></div>`;
+
       // ── ND récurrents (cumulé) ──
       const nds2={};
       allRows.forEach(r=>{
@@ -1515,7 +1544,7 @@ sorted.forEach(([k,v])=>{
       const recurrents2=Object.values(nds2).filter(n=>n.count>=2).sort((a,b)=>b.count-a.count).slice(0,15);
       if(recurrents2.length){
         html+=`<div class="analyse-section">
-          <h3>⚠️ ND récurrents ≥ 2 incidents (cumulé) <span style="font-weight:normal;color:#888;font-size:12px">— ${recurrents2.length} ND</span></h3>
+          <h3>⚠️ Incident répétitif ≥ 2 incidents (cumulé) <span style="font-weight:normal;color:#888;font-size:12px">— ${recurrents2.length} ND</span></h3>
           <table class="analyse-table"><thead><tr><th>ND</th><th>Client</th><th>Zone</th><th class="num">Incidents</th></tr></thead><tbody>`;
         recurrents2.forEach(n=>{
           const s=n.count>=3?'color:#b30000;font-weight:bold':n.count>=2?'color:#e34a33':'';
