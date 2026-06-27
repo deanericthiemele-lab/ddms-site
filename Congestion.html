@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Carte Congestion — NOC B2B</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- Firebase -->
@@ -239,6 +240,62 @@ header{
 }
 .btn-danger:hover{background:var(--red-glow)}
 
+/* Bouton PDF Rapport */
+.btn-pdf-rapport{
+  display:flex;align-items:center;gap:6px;padding:6px 14px;
+  background:linear-gradient(135deg,#E05A00,#c44d00);
+  border:1px solid rgba(224,90,0,0.6);border-radius:var(--r);
+  color:#fff;font:600 11px var(--font);cursor:pointer;
+  transition:opacity .15s,box-shadow .15s;white-space:nowrap;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(224,90,0,0.3);
+}
+.btn-pdf-rapport:hover{opacity:.88;box-shadow:0 4px 14px rgba(224,90,0,0.45)}
+.btn-pdf-rapport:disabled{opacity:.4;cursor:default}
+
+/* Modal Rapport PDF */
+.pdf-modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9500;
+  display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);
+}
+.pdf-modal-overlay.hidden{display:none}
+.pdf-modal{
+  background:var(--surface);border:1px solid var(--border2);border-radius:12px;
+  padding:28px 28px 22px;width:420px;max-width:95vw;
+  box-shadow:0 20px 60px rgba(0,0,0,.6);
+}
+.pdf-modal-title{
+  font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px;
+  display:flex;align-items:center;gap:8px;
+}
+.pdf-modal-title svg{color:#E05A00}
+.pdf-modal-sub{font-size:11px;color:var(--text2);margin-bottom:20px}
+.pdf-field{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+.pdf-field label{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)}
+.pdf-field input,.pdf-field select{
+  background:var(--surface2);border:1px solid var(--border2);border-radius:6px;
+  color:var(--text);font:13px var(--font);padding:8px 10px;outline:none;
+  transition:border-color .15s;
+}
+.pdf-field input:focus,.pdf-field select:focus{border-color:#E05A00}
+.pdf-field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pdf-modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.pdf-btn-cancel{
+  padding:7px 18px;border-radius:var(--r);border:1px solid var(--border2);
+  background:transparent;color:var(--text2);font:500 12px var(--font);cursor:pointer;
+}
+.pdf-btn-cancel:hover{background:var(--surface2)}
+.pdf-btn-gen{
+  padding:7px 20px;border-radius:var(--r);border:none;cursor:pointer;
+  font:600 12px var(--font);
+  background:linear-gradient(135deg,#E05A00,#c44d00);color:#fff;
+  display:flex;align-items:center;gap:7px;
+  box-shadow:0 2px 8px rgba(224,90,0,0.35);
+  transition:opacity .15s;
+}
+.pdf-btn-gen:hover{opacity:.88}
+.pdf-btn-gen:disabled{opacity:.4;cursor:default}
+.pdf-progress{font-size:11px;color:var(--amber);margin-top:10px;min-height:16px;text-align:center}
+
 /* Password modal */
 .pwd-overlay{
   position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;
@@ -421,6 +478,10 @@ header{
     <div class="badge badge-green" id="hdr-clots">— clôturés</div>
     <div class="badge badge-amber" id="hdr-total">— total</div>
   </div>
+  <button class="btn-pdf-rapport" onclick="openPdfModal()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+    Rapport PDF
+  </button>
   <button class="btn-danger" onclick="openPwdModal()">🗑 Tout supprimer</button>
 </header>
 
@@ -455,6 +516,47 @@ header{
       <button class="btn-copy-map" id="btn-copy-map" onclick="copyMapImage()" title="Copier la carte pour coller dans un mail">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         Copier la carte
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL RAPPORT PDF -->
+<div class="pdf-modal-overlay hidden" id="pdf-modal-overlay">
+  <div class="pdf-modal">
+    <div class="pdf-modal-title">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Rapport PDF — Congestion Réseau
+    </div>
+    <div class="pdf-modal-sub">Orange CI · Direction DDMS · NOC B2B</div>
+    <div class="pdf-field-row">
+      <div class="pdf-field">
+        <label>Date de début</label>
+        <input type="date" id="pdf-date-start">
+      </div>
+      <div class="pdf-field">
+        <label>Date de fin</label>
+        <input type="date" id="pdf-date-end">
+      </div>
+    </div>
+    <div class="pdf-field">
+      <label>Rédigé par</label>
+      <input type="text" id="pdf-author" placeholder="Ex : Équipe NOC B2B" value="Équipe NOC B2B">
+    </div>
+    <div class="pdf-field">
+      <label>Destinataire / À l'attention de</label>
+      <input type="text" id="pdf-dest" placeholder="Ex : Direction Générale OCI" value="Direction Générale OCI">
+    </div>
+    <div class="pdf-field">
+      <label>Commentaire / Contexte (optionnel)</label>
+      <input type="text" id="pdf-comment" placeholder="Ex : Situation suite à saturation liens régionaux…">
+    </div>
+    <div class="pdf-progress" id="pdf-progress"></div>
+    <div class="pdf-modal-btns">
+      <button class="pdf-btn-cancel" onclick="closePdfModal()">Annuler</button>
+      <button class="pdf-btn-gen" id="pdf-btn-gen" onclick="genererRapportPDF()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Générer le PDF
       </button>
     </div>
   </div>
@@ -1495,6 +1597,312 @@ const DEFAULT_DATA = [
   }
   render();
 })();
+
+// ══════════════════════════════════════════════════════════════════
+// RAPPORT PDF
+// ══════════════════════════════════════════════════════════════════
+function openPdfModal(){
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0,10);
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  document.getElementById('pdf-date-start').value = fmt(firstDay);
+  document.getElementById('pdf-date-end').value   = fmt(today);
+  document.getElementById('pdf-progress').textContent = '';
+  document.getElementById('pdf-btn-gen').disabled = false;
+  document.getElementById('pdf-modal-overlay').classList.remove('hidden');
+}
+function closePdfModal(){
+  document.getElementById('pdf-modal-overlay').classList.add('hidden');
+}
+document.getElementById('pdf-modal-overlay').addEventListener('click', function(e){
+  if(e.target === this) closePdfModal();
+});
+
+async function genererRapportPDF(){
+  const btn      = document.getElementById('pdf-btn-gen');
+  const progress = document.getElementById('pdf-progress');
+  const dateS    = document.getElementById('pdf-date-start').value;
+  const dateE    = document.getElementById('pdf-date-end').value;
+  const author   = document.getElementById('pdf-author').value || 'Équipe NOC B2B';
+  const dest     = document.getElementById('pdf-dest').value   || 'Direction Générale OCI';
+  const comment  = document.getElementById('pdf-comment').value;
+
+  btn.disabled = true;
+  progress.textContent = '⏳ Capture de la carte en cours…';
+
+  // 1. Capturer la carte
+  const _prevCenter = map.getCenter();
+  const _prevZoom   = map.getZoom();
+  const _ciBounds   = L.latLngBounds([[5.0,-8.6],[9.5,-2.5]]);
+  map.fitBounds(_ciBounds, {animate:false, padding:[0,0]});
+
+  await new Promise(r => setTimeout(r, 2500));
+
+  let mapDataUrl = null;
+  try {
+    const mapEl = document.getElementById('map');
+    const canvas = await html2canvas(mapEl, {
+      useCORS:true, allowTaint:false, scale:1.5,
+      backgroundColor:'#e8eaf0', logging:false, imageTimeout:20000,
+      ignoreElements: el => el.classList && el.classList.contains('stats-bar')
+    });
+    // Fond + padding
+    const out = document.createElement('canvas');
+    const PAD = 12;
+    out.width  = canvas.width  + PAD*2;
+    out.height = canvas.height + PAD*2;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#dde1ea';
+    ctx.fillRect(0,0,out.width,out.height);
+    ctx.drawImage(canvas, PAD, PAD);
+    mapDataUrl = out.toDataURL('image/jpeg', 0.88);
+  } catch(e){
+    console.warn('Capture carte échouée', e);
+  }
+
+  map.setView(_prevCenter, _prevZoom, {animate:false});
+  progress.textContent = '📄 Génération du PDF…';
+
+  // 2. Données
+  const { jsPDF } = window.jspdf;
+  const villesActives = Object.values(zonesMap)
+    .filter(d => !d.clot && d.clients.some(c => !c.clot))
+    .sort((a,b) => b.clients.filter(c=>!c.clot).length - a.clients.filter(c=>!c.clot).length);
+  const villesClot = Object.values(zonesMap).filter(d => d.clot);
+  const totalClientsActifs = villesActives.reduce((s,d) => s + d.clients.filter(c=>!c.clot).length, 0);
+  const totalLiens = villesActives.reduce((s,d) => s + d.clients.filter(c=>!c.clot).reduce((a,c) => a+(c.lien?1:0), 0), 0);
+
+  const fmtDate = v => {
+    if(!v) return '';
+    const [y,m,d] = v.split('-');
+    return `${d}/${m}/${y}`;
+  };
+  const dateStr = fmtDate(dateS) + (dateE && dateE!==dateS ? ' au ' + fmtDate(dateE) : '');
+  const genDate = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
+
+  // 3. PDF A4
+  const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
+  const PW = 210, PH = 297;
+  const ML = 16, MR = 16, MT = 0;
+  const CW = PW - ML - MR;
+
+  // ── Couleurs ──
+  const ORANGE  = [224, 90, 0];
+  const DARK    = [18, 24, 36];
+  const GRAY    = [110, 120, 140];
+  const LGRAY   = [230, 233, 240];
+  const WHITE   = [255, 255, 255];
+  const RED     = [226, 75, 74];
+  const GREEN   = [61, 184, 122];
+  const AMBER   = [239, 159, 39];
+  const BG      = [245, 247, 251];
+
+  // ════════════════════════════════
+  // PAGE 1 — EN-TÊTE
+  // ════════════════════════════════
+  // Bande orange supérieure
+  doc.setFillColor(...ORANGE);
+  doc.rect(0, 0, PW, 22, 'F');
+
+  // Logo texte ORANGE
+  doc.setFontSize(18); doc.setFont('helvetica','bold'); doc.setTextColor(...WHITE);
+  doc.text('ORANGE', ML, 14);
+  doc.setFontSize(8); doc.setFont('helvetica','normal');
+  doc.text('Côte d\'Ivoire · Direction DDMS · NOC B2B', ML, 19);
+
+  // Classification à droite
+  doc.setFontSize(7.5); doc.setFont('helvetica','bold');
+  doc.text('CONFIDENTIEL — Usage DDMS', PW - MR, 14, {align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(7);
+  doc.text('Ne pas diffuser en dehors de la Direction', PW - MR, 19, {align:'right'});
+
+  // ── Titre principal ──
+  let y = 32;
+  doc.setFontSize(18); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+  doc.text('RAPPORT DE CONGESTION RÉSEAU', ML, y);
+  y += 7;
+  doc.setFontSize(11); doc.setFont('helvetica','normal'); doc.setTextColor(...ORANGE);
+  doc.text('Analyse des sites clients affectés — NOC B2B OCI', ML, y);
+  y += 5;
+  doc.setDrawColor(...ORANGE); doc.setLineWidth(0.8);
+  doc.line(ML, y, ML + CW, y);
+  y += 6;
+
+  // ── Bloc méta ──
+  doc.setFillColor(...BG);
+  doc.roundedRect(ML, y, CW, 22, 3, 3, 'F');
+  doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
+  doc.roundedRect(ML, y, CW, 22, 3, 3, 'S');
+
+  const col3 = CW / 3;
+  const metaItems = [
+    ['PÉRIODE COUVERTE', dateStr || genDate],
+    ['DATE DE GÉNÉRATION', genDate],
+    ['RÉDIGÉ PAR', author],
+  ];
+  metaItems.forEach(([lbl, val], i) => {
+    const mx = ML + i * col3 + 7;
+    doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(...GRAY);
+    doc.text(lbl, mx, y + 7);
+    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+    doc.text(val, mx, y + 14);
+  });
+  y += 28;
+
+  // À l'attention de
+  doc.setFontSize(8); doc.setFont('helvetica','italic'); doc.setTextColor(...GRAY);
+  doc.text('À l\'attention de : ' + dest, ML, y);
+  if(comment){
+    y += 5;
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(...GRAY);
+    const lines = doc.splitTextToSize(comment, CW);
+    doc.text(lines, ML, y);
+    y += lines.length * 4;
+  }
+  y += 6;
+
+  // ── KPI Cards ──
+  const kpis = [
+    { label:'Villes affectées',   val: String(villesActives.length),      color:RED,   icon:'📍' },
+    { label:'Clients impactés',   val: String(totalClientsActifs),         color:RED,   icon:'👤' },
+    { label:'Liens identifiés',   val: String(totalLiens),                 color:AMBER, icon:'🔗' },
+    { label:'Sites clôturés',     val: String(villesClot.length),          color:GREEN, icon:'✓'  },
+  ];
+  const kw = (CW - 9) / 4;
+  kpis.forEach((k, i) => {
+    const kx = ML + i * (kw + 3);
+    doc.setFillColor(...WHITE);
+    doc.roundedRect(kx, y, kw, 22, 3, 3, 'F');
+    doc.setDrawColor(k.color[0], k.color[1], k.color[2], 0.4);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(kx, y, kw, 22, 3, 3, 'S');
+    // Barre couleur gauche
+    doc.setFillColor(...k.color);
+    doc.roundedRect(kx, y, 3, 22, 1.5, 1.5, 'F');
+    doc.setFontSize(16); doc.setFont('helvetica','bold'); doc.setTextColor(...k.color);
+    doc.text(k.val, kx + kw/2, y + 13, {align:'center'});
+    doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(...GRAY);
+    doc.text(k.label, kx + kw/2, y + 19, {align:'center'});
+  });
+  y += 28;
+
+  // ── Carte ──
+  if(mapDataUrl){
+    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+    doc.text('CARTE DE RÉPARTITION GÉOGRAPHIQUE', ML, y);
+    doc.setDrawColor(...ORANGE); doc.setLineWidth(0.5);
+    doc.line(ML, y+1.5, ML+80, y+1.5);
+    y += 6;
+    const mapH = 72;
+    // Ombre légère
+    doc.setFillColor(200,205,215);
+    doc.roundedRect(ML+1, y+1, CW, mapH, 3, 3, 'F');
+    doc.addImage(mapDataUrl, 'JPEG', ML, y, CW, mapH, undefined, 'MEDIUM');
+    doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
+    doc.roundedRect(ML, y, CW, mapH, 3, 3, 'S');
+    y += mapH + 7;
+  }
+
+  // ── Tableau villes ──
+  doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+  doc.text('DÉTAIL PAR VILLE', ML, y);
+  doc.setDrawColor(...ORANGE); doc.setLineWidth(0.5);
+  doc.line(ML, y+1.5, ML+50, y+1.5);
+  y += 6;
+
+  // En-tête tableau
+  const cols = { ville:68, clients:22, liens:30, detail: CW-68-22-30 };
+  doc.setFillColor(...ORANGE);
+  doc.rect(ML, y, CW, 7, 'F');
+  doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(...WHITE);
+  doc.text('VILLE / ZONE', ML+4, y+5);
+  doc.text('CLIENTS', ML+cols.ville+2, y+5);
+  doc.text('LIEN(S)', ML+cols.ville+cols.clients+2, y+5);
+  doc.text('NOMS CLIENTS', ML+cols.ville+cols.clients+cols.liens+2, y+5);
+  y += 7;
+
+  let rowEven = false;
+  villesActives.forEach((d, idx) => {
+    const activeClients = d.clients.filter(c => !c.clot);
+    const noms = activeClients.map(c => c.name).filter(Boolean);
+    const liens = activeClients.map(c => c.lien).filter(Boolean);
+    const nomStr  = doc.splitTextToSize(noms.slice(0,6).join(', ') + (noms.length>6?'…':''), cols.detail-4);
+    const rowH = Math.max(7, nomStr.length * 4.5 + 3);
+
+    // Nouvelle page si nécessaire
+    if(y + rowH > PH - 20){
+      _pdfFooter(doc, PW, PH, ML, GRAY, ORANGE, WHITE);
+      doc.addPage();
+      y = 20;
+      // Re-header
+      doc.setFillColor(...ORANGE); doc.rect(ML, y, CW, 7, 'F');
+      doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(...WHITE);
+      doc.text('VILLE / ZONE', ML+4, y+5);
+      doc.text('CLIENTS', ML+cols.ville+2, y+5);
+      doc.text('LIEN(S)', ML+cols.ville+cols.clients+2, y+5);
+      doc.text('NOMS CLIENTS', ML+cols.ville+cols.clients+cols.liens+2, y+5);
+      y += 7;
+    }
+
+    if(rowEven){ doc.setFillColor(...BG); doc.rect(ML, y, CW, rowH, 'F'); }
+    rowEven = !rowEven;
+
+    // Ligne verticale couleur
+    doc.setFillColor(...RED);
+    doc.rect(ML, y, 2.5, rowH, 'F');
+
+    doc.setFontSize(8.5); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+    doc.text(d.zone, ML+5, y+5);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...RED);
+    doc.text(String(activeClients.length), ML+cols.ville+4, y+5);
+    doc.setTextColor(...GRAY);
+    const lienStr = liens.length > 0 ? liens.slice(0,2).join(', ')+(liens.length>2?'…':'') : '—';
+    doc.text(doc.splitTextToSize(lienStr, cols.liens-4), ML+cols.ville+cols.clients+3, y+4.5);
+    doc.setTextColor(...DARK); doc.setFontSize(7.5);
+    doc.text(nomStr, ML+cols.ville+cols.clients+cols.liens+3, y+4.5);
+
+    // Séparateur
+    doc.setDrawColor(...LGRAY); doc.setLineWidth(0.2);
+    doc.line(ML, y+rowH, ML+CW, y+rowH);
+    y += rowH;
+  });
+
+  y += 8;
+
+  // ── Synthèse clôturés ──
+  if(villesClot.length > 0 && y < PH - 40){
+    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(...GREEN);
+    doc.text('SITES CLÔTURÉS / RÉTABLIS (' + villesClot.length + ')', ML, y);
+    doc.setDrawColor(...GREEN); doc.setLineWidth(0.5);
+    doc.line(ML, y+1.5, ML+70, y+1.5);
+    y += 6;
+    doc.setFillColor(240,252,246); doc.roundedRect(ML, y, CW, 10, 2, 2, 'F');
+    doc.setDrawColor(42,122,80,0.3); doc.setLineWidth(0.3); doc.roundedRect(ML, y, CW, 10, 2, 2, 'S');
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(30,90,60);
+    const clotStr = villesClot.map(d=>d.zone).join(' · ');
+    doc.text(doc.splitTextToSize(clotStr, CW-8), ML+4, y+6);
+    y += 14;
+  }
+
+  // Footer dernière page
+  _pdfFooter(doc, PW, PH, ML, GRAY, ORANGE, WHITE);
+
+  // 4. Téléchargement
+  const fname = 'Rapport_Congestion_NOC_B2B' + (dateS ? '_'+dateS : '') + '.pdf';
+  doc.save(fname);
+
+  progress.textContent = '✓ PDF généré avec succès !';
+  btn.disabled = false;
+  setTimeout(() => { progress.textContent = ''; closePdfModal(); }, 1800);
+}
+
+function _pdfFooter(doc, PW, PH, ML, GRAY, ORANGE, WHITE){
+  doc.setDrawColor(...ORANGE); doc.setLineWidth(0.4);
+  doc.line(ML, PH-12, PW-ML, PH-12);
+  doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(...GRAY);
+  doc.text('Orange CI · Direction DDMS · NOC B2B — Document confidentiel à usage interne', ML, PH-8);
+  doc.text('Page ' + doc.internal.getNumberOfPages(), PW-ML, PH-8, {align:'right'});
+}
 </script>
 </body>
 </html>
