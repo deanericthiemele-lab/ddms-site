@@ -60,8 +60,8 @@
       box-shadow:0 4px 20px rgba(0,0,0,0.2);
       padding:10px 0;
       z-index:2000;
-      min-width:160px;
-      max-height:320px;
+      min-width:200px;
+      max-height:420px;
       overflow-y:auto;
     }
     #monthDropdownPanel.open { display:block; }
@@ -438,25 +438,40 @@
     <div style="position:relative">
       <button id="monthDropdownBtn" onclick="toggleMonthPanel(event)">Jun ▾</button>
       <div id="monthDropdownPanel">
-        <div class="month-check-actions">
-          <span onclick="selectAllMonths()">Tout</span>
-          <span onclick="selectNoneMonths()">Aucun</span>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 14px 4px;">
+          <div class="month-check-actions" style="padding:0;gap:6px;">
+            <span onclick="selectAllMonths()">Tout</span>
+            <span onclick="selectNoneMonths()">Aucun</span>
+          </div>
+          <span onclick="closeMonthPanel()" style="cursor:pointer;font-size:15px;color:#555;line-height:1;padding:2px 4px;" title="Fermer">✕</span>
         </div>
         <div class="month-check-sep"></div>
-        <label class="month-check-item"><input type="checkbox" value="0" onchange="onMonthCheck()"> Année entière</label>
+        <label class="month-check-item"><input type="checkbox" value="0" id="chkAnneeEntiere" onchange="onAnneeEntiereCheck()"> Année entière</label>
         <div class="month-check-sep"></div>
-        <label class="month-check-item"><input type="checkbox" value="1" onchange="onMonthCheck()"> Jan</label>
-        <label class="month-check-item"><input type="checkbox" value="2" onchange="onMonthCheck()"> Fév</label>
-        <label class="month-check-item"><input type="checkbox" value="3" onchange="onMonthCheck()"> Mar</label>
-        <label class="month-check-item"><input type="checkbox" value="4" onchange="onMonthCheck()"> Avr</label>
-        <label class="month-check-item"><input type="checkbox" value="5" onchange="onMonthCheck()"> Mai</label>
-        <label class="month-check-item"><input type="checkbox" value="6" onchange="onMonthCheck()"> Jun</label>
-        <label class="month-check-item"><input type="checkbox" value="7" onchange="onMonthCheck()"> Jul</label>
-        <label class="month-check-item"><input type="checkbox" value="8" onchange="onMonthCheck()"> Aoû</label>
-        <label class="month-check-item"><input type="checkbox" value="9" onchange="onMonthCheck()"> Sep</label>
-        <label class="month-check-item"><input type="checkbox" value="10" onchange="onMonthCheck()"> Oct</label>
-        <label class="month-check-item"><input type="checkbox" value="11" onchange="onMonthCheck()"> Nov</label>
-        <label class="month-check-item"><input type="checkbox" value="12" onchange="onMonthCheck()"> Déc</label>
+        <label class="month-check-item"><input type="checkbox" value="1" class="chk-mois" onchange="onMoisCheck()"> Jan</label>
+        <label class="month-check-item"><input type="checkbox" value="2" class="chk-mois" onchange="onMoisCheck()"> Fév</label>
+        <label class="month-check-item"><input type="checkbox" value="3" class="chk-mois" onchange="onMoisCheck()"> Mar</label>
+        <label class="month-check-item"><input type="checkbox" value="4" class="chk-mois" onchange="onMoisCheck()"> Avr</label>
+        <label class="month-check-item"><input type="checkbox" value="5" class="chk-mois" onchange="onMoisCheck()"> Mai</label>
+        <label class="month-check-item"><input type="checkbox" value="6" class="chk-mois" onchange="onMoisCheck()"> Jun</label>
+        <label class="month-check-item"><input type="checkbox" value="7" class="chk-mois" onchange="onMoisCheck()"> Jul</label>
+        <label class="month-check-item"><input type="checkbox" value="8" class="chk-mois" onchange="onMoisCheck()"> Aoû</label>
+        <label class="month-check-item"><input type="checkbox" value="9" class="chk-mois" onchange="onMoisCheck()"> Sep</label>
+        <label class="month-check-item"><input type="checkbox" value="10" class="chk-mois" onchange="onMoisCheck()"> Oct</label>
+        <label class="month-check-item"><input type="checkbox" value="11" class="chk-mois" onchange="onMoisCheck()"> Nov</label>
+        <label class="month-check-item"><input type="checkbox" value="12" class="chk-mois" onchange="onMoisCheck()"> Déc</label>
+        <div class="month-check-sep"></div>
+        <div style="padding:6px 14px 8px;">
+          <div style="font-size:11px;color:#555;font-weight:600;margin-bottom:5px;">Période personnalisée</div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:12px;">
+            <span style="color:#555">Du</span>
+            <input type="date" id="periodeDebut" style="border:1px solid #ccc;border-radius:4px;padding:3px 5px;font-size:11px;flex:1;" onchange="onPeriodeCustom()">
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:12px;margin-top:4px;">
+            <span style="color:#555">Au</span>
+            <input type="date" id="periodeFin" style="border:1px solid #ccc;border-radius:4px;padding:3px 5px;font-size:11px;flex:1;" onchange="onPeriodeCustom()">
+          </div>
+        </div>
       </div>
     </div>
     <button id="btnAnalyse" onclick="openAnalyseModal()">📊 Analyse</button>
@@ -1006,21 +1021,42 @@ sorted.forEach(([k,v])=>{
     const moisNoms = ["Année","Jan","Fév","Mar","Avr","Mai","Jun","Jul","Aoû","Sep","Oct","Nov","Déc"];
 
     function getSelectedMonths(){
-      const boxes = document.querySelectorAll('#monthDropdownPanel input[type=checkbox]:checked');
-      if(!boxes.length) return [0]; // rien coché → tout
-      const vals = Array.from(boxes).map(b => parseInt(b.value));
-      if(vals.includes(0)) return [0]; // "Année entière"
-      return vals;
+      // Priorité 1 : période personnalisée Du/Au
+      const deb = document.getElementById('periodeDebut')?.value;
+      const fin = document.getElementById('periodeFin')?.value;
+      if(deb && fin) return ['custom'];
+      // Priorité 2 : cases cochées
+      const annee = document.getElementById('chkAnneeEntiere');
+      if(annee && annee.checked) return [0];
+      const boxes = document.querySelectorAll('.chk-mois:checked');
+      if(!boxes.length) return [0];
+      return Array.from(boxes).map(b => parseInt(b.value));
     }
 
     function monthMatchesRow(d, months){
+      if(months[0] === 'custom'){
+        const deb = document.getElementById('periodeDebut')?.value;
+        const fin = document.getElementById('periodeFin')?.value;
+        if(!deb || !fin) return true;
+        const debDate = new Date(deb + 'T00:00:00');
+        const finDate = new Date(fin + 'T23:59:59');
+        return d >= debDate && d <= finDate;
+      }
       if(months.includes(0)) return true;
       return months.includes(d.getMonth() + 1);
     }
 
     function updateDropdownLabel(){
-      const months = getSelectedMonths();
+      const deb = document.getElementById('periodeDebut')?.value;
+      const fin = document.getElementById('periodeFin')?.value;
       const btn = document.getElementById('monthDropdownBtn');
+      if(deb && fin){
+        const fmtDeb = deb.split('-').reverse().join('/');
+        const fmtFin = fin.split('-').reverse().join('/');
+        btn.textContent = fmtDeb + ' → ' + fmtFin + ' ▾';
+        return;
+      }
+      const months = getSelectedMonths();
       if(months.includes(0) || months.length === 0) { btn.textContent = 'Année ▾'; return; }
       if(months.length === 1) { btn.textContent = moisNoms[months[0]] + ' ▾'; return; }
       btn.textContent = months.length + ' mois ▾';
@@ -1030,22 +1066,70 @@ sorted.forEach(([k,v])=>{
       e.stopPropagation();
       document.getElementById('monthDropdownPanel').classList.toggle('open');
     }
-    document.addEventListener('click', () => {
+    function closeMonthPanel(){
       document.getElementById('monthDropdownPanel').classList.remove('open');
+    }
+    // Fermeture uniquement via la croix — plus de fermeture au clic extérieur
+    document.addEventListener('click', (e) => {
+      const panel = document.getElementById('monthDropdownPanel');
+      const btn = document.getElementById('monthDropdownBtn');
+      if(!panel.contains(e.target) && e.target !== btn){
+        panel.classList.remove('open');
+      }
     });
 
-    function onMonthCheck(){
+    function onAnneeEntiereCheck(){
+      const annee = document.getElementById('chkAnneeEntiere');
+      if(annee.checked){
+        // Décocher tous les mois individuels
+        document.querySelectorAll('.chk-mois').forEach(b => b.checked = false);
+        // Réinitialiser les dates personnalisées
+        document.getElementById('periodeDebut').value = '';
+        document.getElementById('periodeFin').value = '';
+      }
       updateDropdownLabel();
       reloadAll();
     }
 
+    function onMoisCheck(){
+      // Décocher Année entière
+      const annee = document.getElementById('chkAnneeEntiere');
+      if(annee) annee.checked = false;
+      // Réinitialiser les dates personnalisées
+      document.getElementById('periodeDebut').value = '';
+      document.getElementById('periodeFin').value = '';
+      updateDropdownLabel();
+      reloadAll();
+    }
+
+    function onPeriodeCustom(){
+      const deb = document.getElementById('periodeDebut').value;
+      const fin = document.getElementById('periodeFin').value;
+      if(deb && fin){
+        // Décocher tout le reste
+        document.getElementById('chkAnneeEntiere').checked = false;
+        document.querySelectorAll('.chk-mois').forEach(b => b.checked = false);
+        updateDropdownLabel();
+        reloadAll();
+      }
+    }
+
+    function onMonthCheck(){ onMoisCheck(); }
+
     function selectAllMonths(){
-      document.querySelectorAll('#monthDropdownPanel input[type=checkbox]').forEach(b => b.checked = true);
-      onMonthCheck();
+      document.getElementById('chkAnneeEntiere').checked = true;
+      document.querySelectorAll('.chk-mois').forEach(b => b.checked = false);
+      document.getElementById('periodeDebut').value = '';
+      document.getElementById('periodeFin').value = '';
+      onAnneeEntiereCheck();
     }
     function selectNoneMonths(){
-      document.querySelectorAll('#monthDropdownPanel input[type=checkbox]').forEach(b => b.checked = false);
-      onMonthCheck();
+      document.getElementById('chkAnneeEntiere').checked = false;
+      document.querySelectorAll('.chk-mois').forEach(b => b.checked = false);
+      document.getElementById('periodeDebut').value = '';
+      document.getElementById('periodeFin').value = '';
+      updateDropdownLabel();
+      reloadAll();
     }
 
     // computeForMonths : version multi-mois
@@ -1087,7 +1171,7 @@ sorted.forEach(([k,v])=>{
     // Init : cocher mois courant
     (function initMonthCheckboxes(){
       const cur = new Date().getMonth() + 1;
-      const boxes = document.querySelectorAll('#monthDropdownPanel input[type=checkbox]');
+      const boxes = document.querySelectorAll('.chk-mois');
       boxes.forEach(b => { if(parseInt(b.value) === cur) b.checked = true; });
       updateDropdownLabel();
     })();
@@ -1096,13 +1180,21 @@ sorted.forEach(([k,v])=>{
     function openAnalyseModal(){
       if(!DATA_JSON){ alert('Données non chargées.'); return; }
       const months = getSelectedMonths();
-      const isMulti = !months.includes(0) && months.length > 1;
-      const isFull  = months.includes(0);
+      const isCustom = months[0] === 'custom';
+      const isMulti = !isCustom && !months.includes(0) && months.length > 1;
+      const isFull  = !isCustom && months.includes(0);
 
       // Titre
-      let titre = isFull ? 'Analyse — Année entière'
-        : isMulti ? 'Analyse comparative — ' + months.map(m => moisNoms[m]).join(', ')
-        : 'Analyse — ' + moisNoms[months[0]];
+      let titre;
+      if(isCustom){
+        const deb = document.getElementById('periodeDebut').value;
+        const fin = document.getElementById('periodeFin').value;
+        titre = 'Analyse — Du ' + deb.split('-').reverse().join('/') + ' au ' + fin.split('-').reverse().join('/');
+      } else {
+        titre = isFull ? 'Analyse — Année entière'
+          : isMulti ? 'Analyse comparative — ' + months.map(m => moisNoms[m]).join(', ')
+          : 'Analyse — ' + moisNoms[months[0]];
+      }
       document.getElementById('analyseModalTitle').textContent = titre;
 
       const body = document.getElementById('analyseModalBody');
@@ -1112,7 +1204,7 @@ sorted.forEach(([k,v])=>{
         body.innerHTML = buildAnalyseComparative(months);
       } else {
         const mList = isFull ? [0] : months;
-        body.innerHTML = buildAnalyseMois(mList[0]);
+        body.innerHTML = buildAnalyseMois(isCustom ? 'custom' : mList[0]);
       }
 
       document.getElementById('analyseModal').classList.add('open');
@@ -1127,7 +1219,14 @@ sorted.forEach(([k,v])=>{
     function buildAnalyseMois(month){
       const rows = DATA_JSON.filter(r => {
         const d = toJSDate(r["DATE DE CRÉATION"]);
-        return d && (month === 0 || d.getMonth()+1 === month);
+        if(!d) return false;
+        if(month === 'custom'){
+          const deb = document.getElementById('periodeDebut').value;
+          const fin = document.getElementById('periodeFin').value;
+          if(!deb || !fin) return true;
+          return d >= new Date(deb+'T00:00:00') && d <= new Date(fin+'T23:59:59');
+        }
+        return month === 0 || d.getMonth()+1 === month;
       });
       const total = rows.length;
       if(!total) return '<div style="padding:30px;text-align:center;color:#999">Aucune donnée.</div>';
@@ -1301,7 +1400,8 @@ sorted.forEach(([k,v])=>{
       // ── Répartition par type d'abonnement ──
       const aboCounts = {};
       rows.forEach(r => {
-        const abo = (r["TYPE ABONNEMENT"]||"—").trim().toUpperCase();
+        const aboRaw = (r["TYPE ABONNEMENT"]||"—").trim().toUpperCase();
+        const abo = aboRaw === 'NUMERIQUE' ? 'T0/T2' : aboRaw;
         aboCounts[abo] = (aboCounts[abo]||0)+1;
       });
       const sortedAbo = Object.entries(aboCounts).sort((a,b)=>b[1]-a[1]);
@@ -1579,7 +1679,8 @@ sorted.forEach(([k,v])=>{
       // ── Répartition par type d'abonnement (cumulé) ──
       const aboCounts2 = {};
       allRows.forEach(r => {
-        const abo = (r["TYPE ABONNEMENT"]||"—").trim().toUpperCase();
+        const aboRaw = (r["TYPE ABONNEMENT"]||"—").trim().toUpperCase();
+        const abo = aboRaw === 'NUMERIQUE' ? 'T0/T2' : aboRaw;
         aboCounts2[abo] = (aboCounts2[abo]||0)+1;
       });
       const sortedAbo2 = Object.entries(aboCounts2).sort((a,b)=>b[1]-a[1]);
