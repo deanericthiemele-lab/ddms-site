@@ -2139,7 +2139,7 @@ async function openMailPopup(){
   const nbInstables = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).length;
   const nbCoupN1    = ND_DATA.reduce((s,d)=>s+d.nb,0);
   // Coupures confirmees = sites avec >= 2 evenements OU encore indisponibles (faux positifs exclus)
-  const nbCoupConfirmees = ND_DATA.filter(d=>d.nb>=2||d.isDown).length;
+  const nbCoupConfirmees = ND_DATA.filter(d=>d.isDown).length; // sites encore indisponibles = coupures non retablies
   const nbAnomalies = IF_DATA.reduce((s,d)=>s+d.nb,0);
   const nbReboots   = ND_DATA.filter(d=>d.cause==="Redémarrage").length;
   const tauxDispo   = nbLiens>0 ? Math.round(((nbLiens-nbDown)/nbLiens)*100) : 0;
@@ -2636,15 +2636,17 @@ async function exportPdf(){
   y += 2;
   sectionBar("KPI DISPONIBILITÉ RÉSEAU");
   kpiBlock([
+    {label:"Liens supervisés",         value:nbLiens,            color:ORANGE, accent:ORANGE, sub:"nodes distincts analyses"},
     {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"cible 99%"},
     {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:"flapping"},
-    {label:"Coupures N1 (Node Down)",  value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"coupures confirmees (sites)"},
-  ], 3);
+    {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"Node Down non retablis"},
+  ], 4);
   kpiBlock([
-    {label:"Anomalies & dégradations N2", value:nbAnomalies,    color:AMBER_T, accent:AMBER_T, sub:"Interface Down"},
-    {label:"Clients impactés",            value:nbClients,      color:RED_T,  accent:RED_T,  sub:"avec incident"},
-    {label:"Reboots détectés",            value:nbReboots,      color:GRAY,   accent:GRAY,   sub:"redémarrages"},
-  ], 3);
+    {label:"Anomalies N2",             value:nbAnomalies,        color:AMBER_T, accent:AMBER_T, sub:"Interface Down"},
+    {label:"Coupures N1 total",        value:nbCoupN1,           color:GRAY,   accent:GRAY,   sub:"evenements Node Down"},
+    {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"avec incident"},
+    {label:"Reboots détectés",         value:nbReboots,          color:GRAY,   accent:GRAY,   sub:"redemarrages"},
+  ], 4);
 
   //  KPI NOC — TICKETS N1 / N2 (lecture Firebase directe)
   y += 4;
@@ -2684,56 +2686,57 @@ async function exportPdf(){
   doc.line(ML, y + 7, PW - MR, y + 7);
   y += 12;
 
-  // Generer le resume DG (langage non technique)
+  // Resume DG — langage direction, chiffres alignes sur les 8 KPIs
   const bullets = [];
 
-  // 1. Disponibilite reseau — message principal
+  // 1. Disponibilite + liens supervises
   if(tauxDispo >= 99){
-    bullets.push({txt: `Le reseau B2B a fonctionne normalement sur la periode. Taux de disponibilite : ${tauxDispo}% (objectif 99% atteint).`, alert: false});
+    bullets.push({txt: `Sur ${nbLiens} liaisons supervisees, le reseau B2B a fonctionne normalement. Taux de disponibilite : ${tauxDispo}% — objectif 99% atteint.`, alert: false});
   } else {
-    bullets.push({txt: `Le reseau B2B a enregistre des perturbations sur la periode. Disponibilite : ${tauxDispo}% contre un objectif de 99%. ${nbDown} site(s) ont ete affectes par des coupures de service.`, alert: true});
+    bullets.push({txt: `Sur ${nbLiens} liaisons supervisees, le reseau B2B affiche une disponibilite de ${tauxDispo}% contre un objectif de 99%. ${nbCoupConfirmees} site(s) restent indisponibles a ce jour.`, alert: true});
   }
 
   // 2. Impact clients
   if(nbClients > 0){
-    const sevTxt = nbClients >= 10 ? "un nombre eleve de" : nbClients >= 5 ? "plusieurs" : "quelques";
-    bullets.push({txt: `${nbClients} client(s) ont ete touches par des interruptions de service durant cette periode, dont ${sevTxt} necessitant une intervention prioritaire.`, alert: nbClients > 5});
+    const sevTxt = nbClients >= 10 ? "un nombre critique de clients" : nbClients >= 5 ? "plusieurs clients" : "quelques clients";
+    bullets.push({txt: `${sevTxt} ont ete touches par des interruptions de service (${nbClients} au total), dont certains necessitent un suivi prioritaire.`, alert: nbClients > 5});
   }
 
-  // 3. Sites instables
+  // 3. Coupures — distinguer confirmees vs evenements bruts
+  if(nbCoupConfirmees > 0 || nbCoupN1 > 0){
+    const top1nd = topCoupures[0];
+    bullets.push({txt: `${nbCoupConfirmees} site(s) en coupure non retablie a ce jour. ${nbCoupN1} evenements de coupure detectes au total sur la periode (inclut les micro-coupures resolues automatiquement). Site le plus impacte : ${shortName(top1nd?.site||"—")} (${top1nd?.nb||0} evenements).`, alert: nbCoupConfirmees > 0});
+  }
+
+  // 4. Instabilite liaisons
   if(nbInstables > 0){
     const top1 = topInstables[0];
-    const sev = nbInstables > 50 ? "un niveau eleve d'instabilite" : nbInstables > 10 ? "des oscillations significatives" : "quelques oscillations";
-    bullets.push({txt: `${nbInstables} liaison(s) ont presente ${sev} sur la periode. La plus touchee : ${shortName(top1?.site||"—")} avec ${top1?.nb||0} evenements recenses.`, alert: nbInstables > 10});
+    const sev = nbInstables > 50 ? "un niveau critique d'instabilite" : nbInstables > 10 ? "des oscillations importantes" : "quelques oscillations";
+    bullets.push({txt: `${nbInstables} liaison(s) presentent ${sev} (connexions intermittentes). Liaison la plus touchee : ${shortName(top1?.site||"—")} avec ${top1?.nb||0} oscillations.`, alert: nbInstables > 10});
   }
 
-  // 4. Coupures confirmees (langage DG)
-  if(nbCoupConfirmees > 0){
-    const top1nd = topCoupures[0];
-    const sevTxt = nbCoupConfirmees >= 20 ? "un nombre critique de" : nbCoupConfirmees >= 5 ? "plusieurs" : "quelques";
-    bullets.push({txt: `${nbCoupConfirmees} site(s) ont subi des coupures de service confirmees (interruptions repetees ou non retablies). Site le plus touche : ${shortName(top1nd?.site||"—")} avec ${top1nd?.nb||0} evenements recenses. (${nbCoupN1} evenements bruts detectes au total, dont une partie sont des micro-coupures automatiquement retablies.)`, alert: true});
-  }
-
-  // 5. Tickets et suivi
+  // 5. Tickets et suivi NOC
   if(tkTotal !== "—" && parseInt(tkTotal) > 0){
     const tkN = parseInt(tkTotal);
-    bullets.push({txt: `${tkN} signalement(s) ont ete pris en charge par les equipes NOC : ${tkSav} transmis au service client B2B et ${tkQp} traites en interne pour analyse de performance.`, alert: false});
+    bullets.push({txt: `${tkN} incident(s) ont ete pris en charge par les equipes NOC : ${tkSav} transmis au service client B2B pour resolution et ${tkQp} traites en interne (qualite et performance).`, alert: false});
   }
 
-  // 6. Actions correctives
+  // 6. Actions correctives N2
   const encours = pdaHaute.filter(d => d.statut === "En cours").length;
   const retabli = pdaHaute.filter(d => d.statut === "Retabli").length;
   if(pdaHaute.length > 0){
     if(encours > 0){
-      bullets.push({txt: `${pdaHaute.length} action(s) corrective(s) engagees par les equipes techniques : ${retabli} resolues, ${encours} encore en cours de traitement et necessitant un suivi.`, alert: true});
+      bullets.push({txt: `${pdaHaute.length} intervention(s) technique(s) engagees : ${retabli} resolues avec succes, ${encours} encore en cours et necessitant un suivi.`, alert: true});
     } else {
-      bullets.push({txt: `${pdaHaute.length} action(s) corrective(s) ont ete menees a bien par les equipes techniques. Toutes les anomalies identifiees ont ete resolues.`, alert: false});
+      bullets.push({txt: `${pdaHaute.length} intervention(s) technique(s) engagees et toutes resolues avec succes sur la periode.`, alert: false});
     }
   }
 
-  // 7. Equipements
+  // 7. Reboots equipements
   if(nbReboots > 10){
-    bullets.push({txt: `${nbReboots} redemarrage(s) d'equipement detectes sur la periode, indiquant une instabilite materielle a surveiller.`, alert: true});
+    bullets.push({txt: `${nbReboots} redemarrage(s) d'equipement detectes — niveau eleve indiquant une instabilite materielle a surveiller par les equipes.`, alert: true});
+  } else if(nbReboots > 0){
+    bullets.push({txt: `${nbReboots} redemarrage(s) d'equipement detectes sur la periode.`, alert: false});
   }
 
   // Rendu bullets — Helvetica 8.5, pas d'emoji
