@@ -1210,6 +1210,20 @@ sorted.forEach(([k,v])=>{
       document.getElementById('analyseModal').classList.add('open');
     }
 
+    function showAnalyseTab(uid, tab){
+      ['synthese','detail','alertes'].forEach(t => {
+        const pane = document.getElementById(uid+'_'+t);
+        if(pane) pane.classList.toggle('active', t===tab);
+      });
+      const btns = document.querySelectorAll('.analyse-tab-btn');
+      btns.forEach(b => {
+        if(b.getAttribute('onclick') && b.getAttribute('onclick').includes("'"+tab+"'"))
+          b.classList.add('active');
+        else
+          b.classList.remove('active');
+      });
+    }
+
     function closeAnalyseModal(){
       document.getElementById('analyseModal').classList.remove('open');
     }
@@ -1265,13 +1279,12 @@ sorted.forEach(([k,v])=>{
         if(b[0]==='Autres') return -1;
         return b[1]-a[1];
       });
-      const autresInt = 0, autresIntCable = 0;
       const zonesAbj = sortedAbj.filter(([z])=>communesCoords[z]);
       const zonesTouchees = zonesAbj.length;
       const sortedZones = Object.entries(zones).sort((a,b)=>b[1].total-a[1].total);
       const maxZ = sortedZones[0]?.[1].total || 1;
 
-      // Répartition par catégorie de cause (causeGroups)
+      // Répartition par catégorie de cause
       const catCounts = {};
       Object.keys(causeGroups).forEach(k => catCounts[k] = 0);
       rows.forEach(r => {
@@ -1285,15 +1298,6 @@ sorted.forEach(([k,v])=>{
       const sortedCats = Object.entries(catCounts).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]);
       const maxCat = sortedCats[0]?.[1]||1;
 
-      // Top causes détaillées
-      const causes = {};
-      rows.forEach(r => {
-        const c = (r["CAUSE RÉELLE"]||"—").toUpperCase().trim();
-        causes[c] = (causes[c]||0)+1;
-      });
-      const sortedCauses = Object.entries(causes).sort((a,b)=>b[1]-a[1]).slice(0,10);
-      const maxCause = sortedCauses[0]?.[1]||1;
-
       // ND récurrents
       const nds = {};
       rows.forEach(r => {
@@ -1306,126 +1310,7 @@ sorted.forEach(([k,v])=>{
       const allRecurrents = Object.values(nds).filter(n=>n.count>=2).sort((a,b)=>b.count-a.count);
       const recurrents = allRecurrents.slice(0,10);
 
-      let html = '';
-
-      // ── KPIs globaux ──
-      html += `<div class="analyse-section">
-        <h3>Vue globale</h3>
-        <div class="analyse-kpi-row">
-          <div class="akpi"><div class="val">${total}</div><div class="lbl">Total incidents</div></div>
-          <div class="akpi"><div class="val">${totalAbj}</div><div class="lbl">Zone Abidjan (${pct(totalAbj,total)}%)</div></div>
-          <div class="akpi blue"><div class="val">${totalInt}</div><div class="lbl">Zone Intérieur (${pct(totalInt,total)}%)</div></div>
-          <div class="akpi red"><div class="val">${cable}</div><div class="lbl">Incident Câble (${pct(cable,total)}%)</div></div>
-          <div class="akpi blue"><div class="val">${total-cable}</div><div class="lbl">Incident hors câble (${pct(total-cable,total)}%)</div></div>
-          <div class="akpi green"><div class="val">${allRecurrents.length}</div><div class="lbl">Incident répétitif (ND)</div></div>
-        </div>
-      </div>`;
-
-      // ── Abidjan vs Intérieur ──
-      html += `<div class="analyse-section">
-        <h3>🗺️ Abidjan vs Intérieur</h3>
-        <div class="analyse-kpi-row" style="margin-bottom:14px">
-          <div class="akpi"><div class="val">${totalAbj}</div><div class="lbl">Abidjan (${pct(totalAbj,total)}%)</div></div>
-          <div class="akpi blue"><div class="val">${totalInt}</div><div class="lbl">Intérieur (${pct(totalInt,total)}%)</div></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-          <div>
-            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Zone Abidjan</div>
-            <table class="analyse-table">
-              <thead><tr><th>Zone</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Volume 📍</th></tr></thead>
-              <tbody>
-              ${sortedAbj.map(([z,v])=>`<tr>
-                <td>${communesCoords[z]?'<b>'+z+'</b>':z}</td>
-                <td class="num" style="color:#b30000">${zonesDetail&&zonesDetail[z]?zonesDetail[z].cable:0}</td>
-                <td class="num" style="color:#1a56db">${zonesDetail&&zonesDetail[z]?(v-(zonesDetail[z].cable||0)):v}</td>
-                <td class="num" style="${parseFloat(pct(v,total))>=15?'color:#b30000;font-weight:bold':''}">${v}</td>
-              </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-          <div>
-            <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Villes Intérieur</div>
-            <table class="analyse-table">
-              <thead><tr><th>Ville</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Volume 📍</th></tr></thead>
-              <tbody>
-              ${(()=>{
-                // Villes connues (sans Autres), triées par volume
-                const villesConnues = sortedInt.filter(([z])=>z!=='Autres');
-                const autresRow = sortedInt.find(([z])=>z==='Autres');
-                // Nb lignes Abidjan = nb lignes cible (hors ligne Autres)
-                const nAbj = sortedAbj.length;
-                const nVilles = villesConnues.length;
-                // Lignes villes connues
-                let rows = villesConnues.map(([z,v])=>{
-                  const cbl = zonesDetailInt&&zonesDetailInt[z]?zonesDetailInt[z].cable:0;
-                  return `<tr><td>${z}</td><td class="num" style="color:#b30000">${cbl}</td><td class="num" style="color:#1a56db">${v-cbl}</td><td class="num">${v}</td></tr>`;
-                });
-                // Lignes vides pour aligner avec Abidjan (avant la ligne Autres)
-                const padding = Math.max(0, nAbj - nVilles - 1); // -1 pour la ligne Autres
-                for(let i=0; i<padding; i++) rows.push('<tr><td>&nbsp;</td><td></td><td></td><td></td></tr>');
-                // Ligne Autres toujours en dernier
-                if(autresRow){
-                  const [,av] = autresRow;
-                  const acbl = zonesDetailInt&&zonesDetailInt['Autres']?zonesDetailInt['Autres'].cable:0;
-                  rows.push(`<tr style="border-top:1px solid #ddd;color:#888;font-style:italic"><td>Autres</td><td class="num" style="color:#b30000">${acbl}</td><td class="num" style="color:#1a56db">${av-acbl}</td><td class="num">${av}</td></tr>`);
-                } else {
-                  rows.push('<tr style="border-top:1px solid #ddd;color:#ccc;font-style:italic"><td>Autres</td><td class="num">—</td><td class="num">—</td><td class="num">0</td></tr>');
-                }
-                return rows.join('');
-              })()}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>`;
-
-      // ── Répartition par catégorie ──
-      html += `<div class="analyse-section">
-        <h3>📊 Répartition par cause</h3>
-        <table class="analyse-table">
-          <thead><tr><th>Catégorie</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead>
-          <tbody>`;
-      sortedCats.forEach(([cat,v]) => {
-        const isCab = cat === 'Cable';
-        const w = Math.round(v/maxCat*100);
-        const style = isCab ? 'color:#b30000;font-weight:bold' : parseFloat(pct(v,total))>=15 ? 'color:#e34a33' : '';
-        html += `<tr>
-          <td style="${style}">${isCab?'🔴 ':''}<b>${cat}</b></td>
-          <td class="num" style="${style}">${v}</td>
-          <td class="num">${pct(v,total)}%</td>
-          <td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td>
-        </tr>`;
-      });
-      html += `</tbody></table></div>`;
-
-      // ── Répartition par type d'abonnement ──
-      const aboCounts = {};
-      rows.forEach(r => {
-        const aboRaw = (r["TYPE ABONNEMENT"]||"—").trim().toUpperCase();
-        const abo = aboRaw === 'NUMERIQUE' ? 'T0/T2' : aboRaw;
-        aboCounts[abo] = (aboCounts[abo]||0)+1;
-      });
-      const sortedAbo = Object.entries(aboCounts).sort((a,b)=>b[1]-a[1]);
-      const maxAbo = sortedAbo[0]?.[1]||1;
-
-      html += `<div class="analyse-section">
-        <h3>📦 Incidents par type d'abonnement</h3>
-        <table class="analyse-table">
-          <thead><tr><th>Type</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead>
-          <tbody>`;
-      sortedAbo.forEach(([abo,v]) => {
-        const w = Math.round(v/maxAbo*100);
-        const style = parseFloat(pct(v,total))>=20 ? 'color:#b30000;font-weight:bold' : parseFloat(pct(v,total))>=10 ? 'color:#e34a33' : '';
-        html += `<tr>
-          <td style="${style}"><b>${abo}</b></td>
-          <td class="num" style="${style}">${v}</td>
-          <td class="num">${pct(v,total)}%</td>
-          <td><div class="bar-bg"><div class="bar-fill blue" style="width:${w}%"></div></div></td>
-        </tr>`;
-      });
-      html += `</tbody></table></div>`;
-
-      // ── Top 10 clients ──
+      // Top 10 clients
       const clientCounts = {};
       rows.forEach(r => {
         const c = (r["RAISON SOCIALE"]||"—").trim();
@@ -1435,42 +1320,291 @@ sorted.forEach(([k,v])=>{
       });
       const top10Clients = Object.entries(clientCounts).sort((a,b)=>b[1].total-a[1].total).slice(0,10);
       const maxClient = top10Clients[0]?.[1].total||1;
-      html += `<div class="analyse-section">
-        <h3>🏢 Top 10 clients impactés</h3>
-        <table class="analyse-table">
-          <thead><tr><th>Client</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Total</th><th>Barre</th></tr></thead>
-          <tbody>`;
-      top10Clients.forEach(([c,d],i) => {
-        const w = Math.round(d.total/maxClient*100);
-        const style = i===0?'color:#b30000;font-weight:bold':i<3?'color:#e34a33':'';
-        html += `<tr>
-          <td style="${style}"><b>${c}</b></td>
-          <td class="num" style="color:#b30000">${d.cable}</td>
-          <td class="num" style="color:#1a56db">${d.total-d.cable}</td>
-          <td class="num" style="${style}">${d.total}</td>
-          <td><div class="bar-bg"><div class="bar-fill blue" style="width:${w}%"></div></div></td>
-        </tr>`;
-      });
-      html += `</tbody></table></div>`;
 
-      // ── ND récurrents ──
-      if(recurrents.length){
-        html += `<div class="analyse-section">
-          <h3>⚠️ Incident répétitif (ND) (≥ 2 incidents) — Top 10</h3>
+      // Types abonnement
+      const aboCounts = {};
+      rows.forEach(r => {
+        const aboRaw = (r["TYPE ABONNEMENT"]||"—").trim().toUpperCase();
+        const abo = aboRaw === 'NUMERIQUE' ? 'T0/T2' : aboRaw;
+        aboCounts[abo] = (aboCounts[abo]||0)+1;
+      });
+      const sortedAbo = Object.entries(aboCounts).sort((a,b)=>b[1]-a[1]);
+      const maxAbo = sortedAbo[0]?.[1]||1;
+
+      // Nb clients distincts
+      const nbClients = new Set(rows.map(r=>(r["RAISON SOCIALE"]||"").trim().toUpperCase()).filter(Boolean)).size;
+
+      // Zone critique Abidjan
+      const zoneTop = sortedAbj[0];
+      // Cause principale
+      const causeTop = sortedCats[0];
+      // Client le plus impacté
+      const clientTop = top10Clients[0];
+      // Taux câble
+      const txCable = pct(cable, total);
+      // ND répétitifs
+      const nbRep = allRecurrents.length;
+
+      // ── Mois précédent (uniquement si période = 1 mois précis) ──
+      const isMoisPrecis = typeof month === 'number' && month >= 1 && month <= 12;
+      let prevTotal = null, prevCable = null, prevAbj = null, prevInt = null, prevRep = null, prevNbClients = null;
+      let moisPrecNom = '';
+      if(isMoisPrecis){
+        const prevMonth = month === 1 ? 12 : month - 1;
+        moisPrecNom = moisNoms[prevMonth] || ('Mois '+ prevMonth);
+        const rowsPrev = DATA_JSON.filter(r => {
+          const d = toJSDate(r["DATE DE CRÉATION"]);
+          return d && d.getMonth()+1 === prevMonth;
+        });
+        prevTotal = rowsPrev.length;
+        prevCable = rowsPrev.filter(r => causesCable.includes((r["CAUSE RÉELLE"]||"").toUpperCase().trim())).length;
+        let pAbj = 0, pInt = 0;
+        rowsPrev.forEach(r => {
+          const locRaw = (r["LOCALISATION CLIENT"]||"").toUpperCase().trim();
+          if(isAbidjan(locRaw)) pAbj++; else pInt++;
+        });
+        prevAbj = pAbj; prevInt = pInt;
+        const ndsPrev = {};
+        rowsPrev.forEach(r => {
+          const nd = (r["ND"]||"—").toString().trim();
+          if(!ndsPrev[nd]) ndsPrev[nd] = 0;
+          ndsPrev[nd]++;
+        });
+        prevRep = Object.values(ndsPrev).filter(c=>c>=2).length;
+        prevNbClients = new Set(rowsPrev.map(r=>(r["RAISON SOCIALE"]||"").trim().toUpperCase()).filter(Boolean)).size;
+      }
+
+      // Helper delta
+      const delta = (curr, prev) => {
+        if(prev === null || prev === 0) return '';
+        const d = curr - prev;
+        const pct2 = Math.round(Math.abs(d)/prev*100);
+        if(d > 0) return ` <span style="color:#b30000;font-size:11px">(▲ +${d}, +${pct2}% vs ${moisPrecNom})</span>`;
+        if(d < 0) return ` <span style="color:#2e7d32;font-size:11px">(▼ ${d}, -${pct2}% vs ${moisPrecNom})</span>`;
+        return ` <span style="color:#888;font-size:11px">(= stable vs ${moisPrecNom})</span>`;
+      };
+
+      // Résumé points clés DG
+      const pointsCles = [];
+      // Volume global avec delta
+      if(isMoisPrecis && prevTotal !== null){
+        const d = total - prevTotal;
+        const p = prevTotal > 0 ? Math.round(Math.abs(d)/prevTotal*100) : 0;
+        const arrow = d > 0 ? `<span style="color:#b30000">▲ +${d} (+${p}%)</span>` : d < 0 ? `<span style="color:#2e7d32">▼ ${d} (-${p}%)</span>` : `<span style="color:#888">= stable</span>`;
+        pointsCles.push(`📊 <b>${total}</b> incidents ce mois — ${arrow} vs ${moisPrecNom} (${prevTotal} incidents)`);
+      }
+      if(parseFloat(txCable) >= 60) pointsCles.push(`🔴 <b>${txCable}%</b> des incidents sont d'origine câble${delta(cable, prevCable)} — action terrain prioritaire`);
+      if(zoneTop && parseFloat(pct(zoneTop[1],total)) >= 15) pointsCles.push(`📍 Zone critique : <b>${zoneTop[0]}</b> concentre <b>${zoneTop[1]}</b> incidents (${pct(zoneTop[1],total)}% du total)`);
+      if(clientTop) pointsCles.push(`🏢 Client le plus impacté : <b>${clientTop[0]}</b> avec <b>${clientTop[1].total}</b> incidents dont ${clientTop[1].cable} câble`);
+      if(nbRep > 0) pointsCles.push(`⚠️ <b>${nbRep}</b> ND répétitif${nbRep>1?'s':''}${delta(nbRep, prevRep)} (≥ 2 incidents) — suivi terrain requis`);
+      if(totalInt > 0 && parseFloat(pct(totalInt,total)) >= 15) pointsCles.push(`🌍 Zone Intérieur : <b>${totalInt}</b> incidents (${pct(totalInt,total)}%)${delta(totalInt, prevInt)} — vigilance hors Abidjan`);
+      if(isMoisPrecis && prevNbClients !== null) pointsCles.push(`👥 <b>${nbClients}</b> clients impactés${delta(nbClients, prevNbClients)}`);
+      if(pointsCles.length === 0) pointsCles.push(`✅ Activité incident dans les normes — aucun point critique majeur détecté`);
+      if(!isMoisPrecis) pointsCles.push(`ℹ️ Comparaison M-1 non disponible pour cette période`);
+
+      // ── STRUCTURE ONGLETS ──
+      const uid = 'tab_' + Date.now();
+      let html = `
+      <style>
+        .analyse-tabs { display:flex; gap:0; border-bottom:2px solid #ddd; margin-bottom:16px; }
+        .analyse-tab-btn {
+          padding:9px 20px; font-size:12px; font-weight:700; cursor:pointer;
+          border:none; background:none; color:#888; border-bottom:3px solid transparent;
+          margin-bottom:-2px; transition:all .15s; letter-spacing:.3px;
+        }
+        .analyse-tab-btn.active { color:#111; border-bottom-color:#111; }
+        .analyse-tab-btn:hover:not(.active) { color:#444; background:#f5f5f5; }
+        .analyse-tab-pane { display:none; }
+        .analyse-tab-pane.active { display:block; }
+        .resume-box {
+          background:#fffbe6; border-left:4px solid #f59e0b; border-radius:6px;
+          padding:14px 18px; margin-bottom:14px;
+        }
+        .resume-box .resume-title { font-size:11px; font-weight:800; color:#92400e; text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px; }
+        .resume-box ul { margin:0; padding:0 0 0 4px; list-style:none; }
+        .resume-box ul li { font-size:12px; color:#333; padding:4px 0; border-bottom:1px solid #fde68a; line-height:1.5; }
+        .resume-box ul li:last-child { border-bottom:none; }
+      </style>
+
+      <div class="analyse-tabs">
+        <button class="analyse-tab-btn active" onclick="showAnalyseTab('${uid}','synthese')">📋 Synthèse</button>
+        <button class="analyse-tab-btn" onclick="showAnalyseTab('${uid}','detail')">🔍 Détail</button>
+        <button class="analyse-tab-btn" onclick="showAnalyseTab('${uid}','alertes')">🚨 Alertes</button>
+      </div>
+
+      <!-- ═══ ONGLET 1 : SYNTHÈSE ═══ -->
+      <div id="${uid}_synthese" class="analyse-tab-pane active">
+
+        <div class="analyse-section">
+          <h3>VUE GLOBALE</h3>
+          <!-- Ligne 1 : volumes -->
+          <div class="analyse-kpi-row" style="flex-wrap:nowrap;overflow-x:auto;margin-bottom:8px">
+            <div class="akpi" style="flex:1;min-width:0"><div class="val">${total}</div><div class="lbl">Total incidents</div></div>
+            <div class="akpi" style="flex:1;min-width:0"><div class="val">${totalAbj}</div><div class="lbl">Zone Abidjan (${pct(totalAbj,total)}%)</div></div>
+            <div class="akpi blue" style="flex:1;min-width:0"><div class="val">${totalInt}</div><div class="lbl">Zone Intérieur (${pct(totalInt,total)}%)</div></div>
+            <div class="akpi red" style="flex:1;min-width:0"><div class="val">${cable}</div><div class="lbl">Incident Câble (${pct(cable,total)}%)</div></div>
+            <div class="akpi blue" style="flex:1;min-width:0"><div class="val">${total-cable}</div><div class="lbl">Hors câble (${pct(total-cable,total)}%)</div></div>
+            <div class="akpi green" style="flex:1;min-width:0"><div class="val">${nbRep}</div><div class="lbl">Incident répétitif (ND)</div></div>
+            <div class="akpi" style="flex:1;min-width:0;background:#fff3e0"><div class="val" style="color:#e65100">${nbClients}</div><div class="lbl">Nbre clients</div></div>
+          </div>
+          <!-- Ligne 2 : types abonnement -->
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto">
+            <span style="font-size:11px;font-weight:700;color:#888;white-space:nowrap;margin-right:4px">📦 Par abonnement :</span>
+            ${sortedAbo.map(([abo,v])=>`
+              <div style="display:flex;flex-direction:column;align-items:center;padding:6px 14px;background:#f0f4ff;border-radius:8px;min-width:80px">
+                <span style="font-size:18px;font-weight:700;color:#1a3a6b">${v}</span>
+                <span style="font-size:11px;color:#555;font-weight:600;margin-top:2px">${abo}</span>
+                <span style="font-size:10px;color:#888">${pct(v,total)}%</span>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <div class="resume-box">
+          <div class="resume-title">📌 Points clés à retenir</div>
+          <ul>${pointsCles.map(p=>`<li>${p}</li>`).join('')}</ul>
+        </div>
+
+      </div>
+
+      <!-- ═══ ONGLET 2 : DÉTAIL ═══ -->
+      <div id="${uid}_detail" class="analyse-tab-pane">
+
+        <div class="analyse-section">
+          <h3>🗺️ Abidjan vs Intérieur</h3>
+          <div class="analyse-kpi-row" style="margin-bottom:14px">
+            <div class="akpi"><div class="val">${totalAbj}</div><div class="lbl">Abidjan (${pct(totalAbj,total)}%)</div></div>
+            <div class="akpi blue"><div class="val">${totalInt}</div><div class="lbl">Intérieur (${pct(totalInt,total)}%)</div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div>
+              <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Zone Abidjan</div>
+              <table class="analyse-table">
+                <thead><tr><th>Zone</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Volume 📍</th></tr></thead>
+                <tbody>
+                ${sortedAbj.map(([z,v])=>`<tr>
+                  <td>${communesCoords[z]?'<b>'+z+'</b>':z}</td>
+                  <td class="num" style="color:#b30000">${zonesDetail&&zonesDetail[z]?zonesDetail[z].cable:0}</td>
+                  <td class="num" style="color:#1a56db">${zonesDetail&&zonesDetail[z]?(v-(zonesDetail[z].cable||0)):v}</td>
+                  <td class="num" style="${parseFloat(pct(v,total))>=15?'color:#b30000;font-weight:bold':''}">${v}</td>
+                </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <div style="font-size:12px;font-weight:bold;color:#555;margin-bottom:6px">Villes Intérieur</div>
+              <table class="analyse-table">
+                <thead><tr><th>Ville</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Volume 📍</th></tr></thead>
+                <tbody>
+                ${(()=>{
+                  const villesConnues = sortedInt.filter(([z])=>z!=='Autres');
+                  const autresRow = sortedInt.find(([z])=>z==='Autres');
+                  const nAbj = sortedAbj.length;
+                  const nVilles = villesConnues.length;
+                  let rws = villesConnues.map(([z,v])=>{
+                    const cbl = zonesDetailInt&&zonesDetailInt[z]?zonesDetailInt[z].cable:0;
+                    return `<tr><td>${z}</td><td class="num" style="color:#b30000">${cbl}</td><td class="num" style="color:#1a56db">${v-cbl}</td><td class="num">${v}</td></tr>`;
+                  });
+                  const padding = Math.max(0, nAbj - nVilles - 1);
+                  for(let i=0;i<padding;i++) rws.push('<tr><td>&nbsp;</td><td></td><td></td><td></td></tr>');
+                  if(autresRow){
+                    const [,av]=autresRow;
+                    const acbl=zonesDetailInt&&zonesDetailInt['Autres']?zonesDetailInt['Autres'].cable:0;
+                    rws.push(`<tr style="border-top:1px solid #ddd;color:#888;font-style:italic"><td>Autres</td><td class="num" style="color:#b30000">${acbl}</td><td class="num" style="color:#1a56db">${av-acbl}</td><td class="num">${av}</td></tr>`);
+                  } else {
+                    rws.push('<tr style="border-top:1px solid #ddd;color:#ccc;font-style:italic"><td>Autres</td><td class="num">—</td><td class="num">—</td><td class="num">0</td></tr>');
+                  }
+                  return rws.join('');
+                })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="analyse-section">
+          <h3>📊 Répartition par cause</h3>
+          <table class="analyse-table">
+            <thead><tr><th>Catégorie</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead>
+            <tbody>
+            ${sortedCats.map(([cat,v])=>{
+              const isCab = cat==='Cable';
+              const w = Math.round(v/maxCat*100);
+              const style = isCab?'color:#b30000;font-weight:bold':parseFloat(pct(v,total))>=15?'color:#e34a33':'';
+              return `<tr>
+                <td style="${style}">${isCab?'🔴 ':''}<b>${cat}</b></td>
+                <td class="num" style="${style}">${v}</td>
+                <td class="num">${pct(v,total)}%</td>
+                <td><div class="bar-bg"><div class="bar-fill ${isCab?'':'blue'}" style="width:${w}%"></div></div></td>
+              </tr>`;
+            }).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="analyse-section">
+          <h3>📦 Incidents par type d'abonnement</h3>
+          <table class="analyse-table">
+            <thead><tr><th>Type</th><th class="num">Nb</th><th class="num">%</th><th>Barre</th></tr></thead>
+            <tbody>
+            ${sortedAbo.map(([abo,v])=>{
+              const w=Math.round(v/maxAbo*100);
+              const style=parseFloat(pct(v,total))>=20?'color:#b30000;font-weight:bold':parseFloat(pct(v,total))>=10?'color:#e34a33':'';
+              return `<tr>
+                <td style="${style}"><b>${abo}</b></td>
+                <td class="num" style="${style}">${v}</td>
+                <td class="num">${pct(v,total)}%</td>
+                <td><div class="bar-bg"><div class="bar-fill blue" style="width:${w}%"></div></div></td>
+              </tr>`;
+            }).join('')}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- ═══ ONGLET 3 : ALERTES ═══ -->
+      <div id="${uid}_alertes" class="analyse-tab-pane">
+
+        <div class="analyse-section">
+          <h3>🏢 Top 10 — clients impactés</h3>
+          <table class="analyse-table">
+            <thead><tr><th>Client</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Total</th><th>Barre</th></tr></thead>
+            <tbody>
+            ${top10Clients.map(([c,d],i)=>{
+              const w=Math.round(d.total/maxClient*100);
+              const style=i===0?'color:#b30000;font-weight:bold':i<3?'color:#e34a33':'';
+              return `<tr>
+                <td style="${style}"><b>${c}</b></td>
+                <td class="num" style="color:#b30000">${d.cable}</td>
+                <td class="num" style="color:#1a56db">${d.total-d.cable}</td>
+                <td class="num" style="${style}">${d.total}</td>
+                <td><div class="bar-bg"><div class="bar-fill blue" style="width:${w}%"></div></div></td>
+              </tr>`;
+            }).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        ${recurrents.length ? `
+        <div class="analyse-section">
+          <h3>⚠️ Top 10 — Incident répétitif (ND) (≥ 2 incidents)</h3>
           <table class="analyse-table">
             <thead><tr><th>ND</th><th>Client</th><th>Zone</th><th class="num">Incidents</th></tr></thead>
-            <tbody>`;
-        recurrents.forEach(n => {
-          const s = n.count>=3?'color:#b30000;font-weight:bold':n.count>=2?'color:#e34a33':'';
-          html += `<tr>
-            <td style="color:#555">${n.nd}</td>
-            <td><b>${n.client}</b></td>
-            <td>${n.loc}</td>
-            <td class="num" style="${s}">${n.count}</td>
-          </tr>`;
-        });
-        html += `</tbody></table></div>`;
-      }
+            <tbody>
+            ${recurrents.map(n=>{
+              const s=n.count>=3?'color:#b30000;font-weight:bold':n.count>=2?'color:#e34a33':'';
+              return `<tr>
+                <td style="color:#555">${n.nd}</td>
+                <td><b>${n.client}</b></td>
+                <td>${n.loc}</td>
+                <td class="num" style="${s}">${n.count}</td>
+              </tr>`;
+            }).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+
+      </div>`;
 
       return html;
     }
@@ -1715,7 +1849,7 @@ sorted.forEach(([k,v])=>{
       const top10Clients2 = Object.entries(clientCounts2).sort((a,b)=>b[1].total-a[1].total).slice(0,10);
       const maxClient2 = top10Clients2[0]?.[1].total||1;
       html+=`<div class="analyse-section">
-        <h3>🏢 Top 10 clients impactés (cumulé)</h3>
+        <h3>🏢 Top 10 — clients impactés (cumulé)</h3>
         <table class="analyse-table"><thead><tr><th>Client</th><th class="num">Câble</th><th class="num">Autre</th><th class="num">Total</th><th>Barre</th></tr></thead><tbody>`;
       top10Clients2.forEach(([c,d],i)=>{
         const w=Math.round(d.total/maxClient2*100);
