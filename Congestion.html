@@ -614,6 +614,29 @@ let markers = {};        // zone => leaflet marker
 let fbTimer = null;
 
 // ══════════════════════════════════════════════════════════════════
+// RÔLE — lecture seule si visiteur
+// ══════════════════════════════════════════════════════════════════
+const IS_VISITEUR = (sessionStorage.getItem('congestionRole') === 'visiteur');
+
+function applyVisiteurMode(){
+  if(!IS_VISITEUR) return;
+  // Masquer boutons d'action header
+  const btnDanger = document.querySelector('.btn-danger');
+  if(btnDanger) btnDanger.style.display='none';
+  const btnAdd = document.querySelector('.btn-add-site');
+  if(btnAdd) btnAdd.style.display='none';
+  // Badge lecture seule
+  const hdrBadges = document.querySelector('.hdr-badges');
+  if(hdrBadges){
+    const b = document.createElement('div');
+    b.className='badge';
+    b.style.cssText='background:rgba(239,159,39,0.15);border:1px solid rgba(239,159,39,0.4);color:#EF9F27';
+    b.textContent='👁 Lecture seule';
+    hdrBadges.appendChild(b);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // MAP
 // ══════════════════════════════════════════════════════════════════
 const map = L.map('map',{center:[7.5,-5.5],zoom:7,zoomControl:true,attributionControl:true});
@@ -883,22 +906,22 @@ function setActiveCity(zk){
       ${c.lien?`<div class="cli-lien">${c.lien}</div>`:''}
       ${c.circuit?`<div class="cli-circuit">↳ ${c.circuit}</div>`:''}
       ${c.clat&&c.clon?`<div class="cli-circuit" style="color:var(--cyan);font-size:10px">📍 ${c.clat.toFixed(4)}N, ${Math.abs(c.clon).toFixed(4)}W</div>`:''}
-      <div class="cli-status-row">
+      ${IS_VISITEUR ? '' : `<div class="cli-status-row">
         <button class="btn-edit-cli" onclick="openEditModal('${zk}','${c.id}')">✏ Éditer</button>
         <button class="cli-toggle ${toggleClass}" id="clitoggle-${c.id}" onclick="toggleClientClot('${zk}','${c.id}')">
           <span class="cli-status-dot"></span>${toggleLabel}
         </button>
-      </div>
+      </div>`}
     </div>`;
   }).join('');
   panel.innerHTML = `
     <div class="det-header">
       <div class="det-zone">${d.zone}${d.clot?' <span style="font-size:10px;color:var(--green-lt)">(Clôturé)</span>':''}</div>
       <div class="det-sub" id="det-sub-${zk}">${activeCount} client${activeCount>1?'s':''} actif${activeCount>1?'s':''} · ${d.clients.length} total</div>
-      <div class="det-actions">
+      ${IS_VISITEUR ? '' : `<div class="det-actions">
         ${actionBtn}
         <button class="det-btn det-btn-del" onclick="confirmDelete('${zk}')">🗑 Supprimer</button>
-      </div>
+      </div>`}
     </div>
     ${cards||'<div class="det-empty" style="font-size:11px;padding:10px 13px;color:var(--text3)">Aucun client</div>'}`;
 }
@@ -979,6 +1002,7 @@ async function doDelete(zk){
 // AJOUTER UN CLIENT
 // ══════════════════════════════════════════════════════════════════
 async function addClient(){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); return; }
   const client    = document.getElementById('f-client').value.trim();
   const zone      = document.getElementById('f-zone').value.trim().toUpperCase();
   const gps       = document.getElementById('f-gps').value.trim();
@@ -1073,6 +1097,7 @@ function render(){
   rebuildAllMarkers();
   buildSidebar();
   updateStats();
+  applyVisiteurMode();
   activeZone = null;
   document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
   if(Object.keys(markers).length){
@@ -1215,6 +1240,7 @@ function closeEditModal(){
 }
 
 async function saveEditClient(){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); return; }
   const oldZk = document.getElementById('e-zone').value;
   const clientId = document.getElementById('e-client-id').value;
   const newName = document.getElementById('e-client').value.trim();
@@ -1283,6 +1309,7 @@ document.getElementById('edit-overlay').addEventListener('click', function(e){
 const PWD = 'dean';
 
 function openPwdModal(){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); return; }
   document.getElementById('pwd-input').value='';
   document.getElementById('pwd-err').style.display='none';
   document.getElementById('pwd-overlay').classList.remove('hidden');
@@ -1339,6 +1366,7 @@ async function deleteAllFirebase(){
 let _toggling = false;
 
 async function toggleClientClot(zk, clientId){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); return; }
   if(_toggling) return;
   _toggling = true;
 
