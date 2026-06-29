@@ -6,6 +6,7 @@
 <title>Carte Congestion — NOC B2B</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <!-- Firebase -->
@@ -177,6 +178,7 @@ header{
 .pop-clot{font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(61,184,122,0.2);border:1px solid rgba(61,184,122,0.4);color:#7eedb8;margin-left:6px}
 .pop-card{padding:4px 0;border-bottom:1px solid rgba(100,180,220,0.1)}
 .pop-card:last-child{border-bottom:none;padding-bottom:0}
+.pop-card-clot{opacity:.45}
 .pop-name{font-size:11px;color:#d4eaf2;font-weight:500;margin-bottom:2px}
 .pop-lien{font-family:Consolas,monospace;font-size:10px;color:#EF9F27;background:rgba(239,159,39,0.15);border:1px solid rgba(239,159,39,0.28);border-radius:3px;padding:1px 5px;display:inline-block;margin-bottom:2px}
 .pop-circuit{font-size:10px;color:#7aaabb}
@@ -185,14 +187,7 @@ header{
 .stats-bar{position:absolute;top:10px;right:10px;z-index:400;display:flex;gap:6px;pointer-events:none}
 .stat-pill{padding:4px 10px;border-radius:20px;background:rgba(8,15,24,.92);border:1px solid var(--border2);font-size:11px;color:var(--text2)}
 .stat-pill strong{color:var(--cyan);font-weight:600}
-.btn-copy-map{
-  pointer-events:all;padding:6px 14px;border-radius:6px;
-  background:#e8eaf0;border:1px solid #c8cdd8;
-  font-size:12px;font-weight:500;color:#2d3550;cursor:pointer;font-family:var(--font);
-  display:flex;align-items:center;gap:6px;transition:background .15s,border-color .15s,color .15s;
-}
-.btn-copy-map:hover{background:#dde0ec;border-color:#a0a8c0;color:#1a1d23}
-.btn-copy-map.copied{background:rgba(30,120,60,.18);border-color:var(--green-bd);color:var(--green-lt)}
+
 
 /* Tooltip label */
 .lbl-tt{
@@ -239,6 +234,17 @@ header{
   transition:background .15s;white-space:nowrap;flex-shrink:0;
 }
 .btn-danger:hover{background:var(--red-glow)}
+
+/* Bouton Export Excel */
+.btn-excel{
+  display:flex;align-items:center;gap:6px;padding:6px 14px;
+  background:linear-gradient(135deg,#1d6f42,#155a35);
+  border:1px solid rgba(29,111,66,0.6);border-radius:var(--r);
+  color:#fff;font:600 11px var(--font);cursor:pointer;
+  transition:opacity .15s,box-shadow .15s;white-space:nowrap;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(29,111,66,0.3);
+}
+.btn-excel:hover{opacity:.88;box-shadow:0 4px 14px rgba(29,111,66,0.45)}
 
 /* Bouton PDF Rapport */
 .btn-pdf-rapport{
@@ -410,9 +416,14 @@ header{
         <input type="text" id="e-zone-name" placeholder="Ex: ABIDJAN" style="text-transform:uppercase">
       </div>
       <div class="form-row">
-        <label>GPS (ex: 5.3558N, 3.8885W)</label>
+        <label>GPS Zone (ex: 5.3558N, 3.8885W)</label>
         <input type="text" id="e-gps" placeholder="5.3558N, 3.8885W" oninput="previewGPSEdit()">
         <div class="gps-preview" id="e-gps-preview"></div>
+      </div>
+      <div class="form-row">
+        <label>GPS Client (propre à l'entreprise)</label>
+        <input type="text" id="e-gps-client" placeholder="5.3200N, 3.9100W" oninput="previewGPSClientEdit()">
+        <div class="gps-preview" id="e-gps-client-preview"></div>
       </div>
       <div class="form-row">
         <label>Lien / Référence circuit</label>
@@ -444,9 +455,14 @@ header{
         <input type="text" id="f-zone" placeholder="Ex: ABIDJAN" style="text-transform:uppercase">
       </div>
       <div class="form-row">
-        <label>GPS (ex: 5.3558N, 3.8885W)</label>
+        <label>GPS Zone (ex: 5.3558N, 3.8885W)</label>
         <input type="text" id="f-gps" placeholder="5.3558N, 3.8885W" oninput="previewGPS()">
         <div class="gps-preview" id="gps-preview"></div>
+      </div>
+      <div class="form-row">
+        <label>GPS Client (propre à l'entreprise)</label>
+        <input type="text" id="f-gps-client" placeholder="5.3200N, 3.9100W" oninput="previewGPSClient()">
+        <div class="gps-preview" id="gps-client-preview"></div>
       </div>
       <div class="form-row">
         <label>Lien / Référence circuit</label>
@@ -482,6 +498,10 @@ header{
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
     Rapport PDF
   </button>
+  <button class="btn-excel" onclick="exportExcel()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+    Export Excel
+  </button>
   <button class="btn-danger" onclick="openPwdModal()">🗑 Tout supprimer</button>
 </header>
 
@@ -512,12 +532,7 @@ header{
       <div class="stat-pill"><strong id="sc">0</strong> clôturés</div>
       <div class="stat-pill"><strong id="sl">0</strong> liens</div>
     </div>
-    <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);z-index:400;pointer-events:all">
-      <button class="btn-copy-map" id="btn-copy-map" onclick="copyMapImage()" title="Copier la carte pour coller dans un mail">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        Copier la carte
-      </button>
-    </div>
+
   </div>
 </div>
 
@@ -627,7 +642,8 @@ async function fbSaveZone(zone){
       clients: z.clients.map(c=>({
         id:c.id||uid(), n:c.n||'?', name:c.name||'',
         lien:c.lien||'', circuit:c.circuit||'',
-        clot:c.clot||false, source:c.source||'import'
+        clot:c.clot||false, source:c.source||'import',
+        clat:c.clat||null, clon:c.clon||null
       })),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     },{merge:false});
@@ -652,7 +668,8 @@ async function fbSaveAll(zones){
           clients:z.clients.map(c=>({
             id:c.id||uid(), n:c.n||'?', name:c.name||'',
             lien:c.lien||'', circuit:c.circuit||'',
-            clot:c.clot||false, source:c.source||'import'
+            clot:c.clot||false, source:c.source||'import',
+            clat:c.clat||null, clon:c.clon||null
           })),
           updatedAt:firebase.firestore.FieldValue.serverTimestamp()
         },{merge:false});
@@ -692,7 +709,7 @@ async function loadFromFirebase(){
 function uid(){ return Math.random().toString(36).slice(2,10); }
 
 // ══════════════════════════════════════════════════════════════════
-// ICON
+// ICON — marqueur VILLE (rouge, chiffre)
 // ══════════════════════════════════════════════════════════════════
 function makeIcon(n, clot){
   const fill = clot ? '#3db87a' : '#e24b4a';
@@ -713,46 +730,68 @@ function makeIcon(n, clot){
   return L.divIcon({html:svg,className:'',iconSize:[s,s],iconAnchor:[c,c],popupAnchor:[0,-(c+4)]});
 }
 
+// Marqueur client individuel (carré ambre) — conservé pour usage futur mais non affiché
+function makeClientIcon(clot){
+  return null;
+}
+
 // ══════════════════════════════════════════════════════════════════
-// POPUP
+// POPUP VILLE — liste toutes les entreprises
 // ══════════════════════════════════════════════════════════════════
-function popHtml(z){
-  const d = zonesMap[z];
+function popHtml(zk){
+  const d = zonesMap[zk];
   const activeClients = d.clients.filter(c=>!c.clot);
+  const clotClients   = d.clients.filter(c=>c.clot);
   const clotBadge = d.clot ? '<span class="pop-clot">✓ Clôturé</span>' : '';
-  const cards = activeClients.map(c=>`
-    <div class="pop-card">
-      <div class="pop-name">${c.name}</div>
+
+  const makeCard = (c, isClot) => `
+    <div class="pop-card${isClot?' pop-card-clot':''}">
+      <div class="pop-name">${isClot?'<span style="opacity:.5">✓ </span>':''}${c.name}</div>
       ${c.lien?`<div class="pop-lien">${c.lien}</div>`:''}
       ${c.circuit?`<div class="pop-circuit">↳ ${c.circuit}</div>`:''}
-    </div>`).join('');
-  return`<div class="pop-inner">
-    <div class="pop-zone">${d.zone}${clotBadge}<span class="pop-sub">${activeClients.length} client${activeClients.length>1?'s':''}</span></div>
-    ${cards}
+      ${c.clat&&c.clon?`<div class="pop-circuit" style="color:var(--cyan);font-size:9px">📍 ${c.clat.toFixed(4)}N, ${Math.abs(c.clon).toFixed(4)}W</div>`:''}
+    </div>`;
+
+  const activeCards = activeClients.map(c=>makeCard(c,false)).join('');
+  const clotCards   = clotClients.length
+    ? `<div style="font-size:9px;color:var(--text3);padding:4px 0 2px;margin-top:4px;border-top:1px solid rgba(100,180,220,0.1)">CLÔTURÉS (${clotClients.length})</div>`
+      + clotClients.map(c=>makeCard(c,true)).join('')
+    : '';
+
+  return `<div class="pop-inner">
+    <div class="pop-zone">${d.zone}${clotBadge}<span class="pop-sub">${activeClients.length} actif${activeClients.length>1?'s':''} · ${d.clients.length} total</span></div>
+    ${activeCards}${clotCards}
   </div>`;
 }
 
 // ══════════════════════════════════════════════════════════════════
 // MARKERS
 // ══════════════════════════════════════════════════════════════════
+let clientMarkers = {};
+
 function clearAllMarkers(){
   Object.values(markers).forEach(m=>map.removeLayer(m));
   markers = {};
+  Object.values(clientMarkers).forEach(m=>map.removeLayer(m));
+  clientMarkers = {};
 }
 
 function buildMarker(zk){
   const d = zonesMap[zk];
-  if(markers[zk]) map.removeLayer(markers[zk]);
-  // Ne pas afficher sur la carte si clôturé ou si tous les clients sont clôturés
+  if(markers[zk]){ map.removeLayer(markers[zk]); delete markers[zk]; }
+  d.clients.forEach(c=>{
+    if(clientMarkers[c.id]){ map.removeLayer(clientMarkers[c.id]); delete clientMarkers[c.id]; }
+  });
+
   const activeCount = d.clients.filter(c=>!c.clot).length;
   if(d.clot || activeCount === 0) return;
+
   const m = L.marker([d.lat,d.lon],{
     icon: makeIcon(activeCount, false),
     zIndexOffset: activeCount*10
   }).addTo(map)
-    .bindPopup(popHtml(zk),{maxWidth:290,minWidth:200,closeButton:true})
-    .bindTooltip(d.zone,{permanent:true,direction:'right',offset:[10,-8],
-      className:'lbl-tt',opacity:1});
+    .bindPopup(popHtml(zk),{maxWidth:310,minWidth:220,closeButton:true,maxHeight:380})
+    .bindTooltip(d.zone,{permanent:true,direction:'right',offset:[10,-8],className:'lbl-tt',opacity:1});
 
   m.on('click',()=>{
     activeZone = zk;
@@ -766,6 +805,7 @@ function rebuildAllMarkers(){
   clearAllMarkers();
   Object.keys(zonesMap).forEach(zk=>buildMarker(zk));
 }
+
 
 // ══════════════════════════════════════════════════════════════════
 // SIDEBAR LIST
@@ -842,6 +882,7 @@ function setActiveCity(zk){
       </div>
       ${c.lien?`<div class="cli-lien">${c.lien}</div>`:''}
       ${c.circuit?`<div class="cli-circuit">↳ ${c.circuit}</div>`:''}
+      ${c.clat&&c.clon?`<div class="cli-circuit" style="color:var(--cyan);font-size:10px">📍 ${c.clat.toFixed(4)}N, ${Math.abs(c.clon).toFixed(4)}W</div>`:''}
       <div class="cli-status-row">
         <button class="btn-edit-cli" onclick="openEditModal('${zk}','${c.id}')">✏ Éditer</button>
         <button class="cli-toggle ${toggleClass}" id="clitoggle-${c.id}" onclick="toggleClientClot('${zk}','${c.id}')">
@@ -923,6 +964,9 @@ async function doClot(zk, clot){
 
 async function doDelete(zk){
   if(markers[zk]){ map.removeLayer(markers[zk]); delete markers[zk]; }
+  // Supprimer marqueurs clients individuels de cette zone
+  const z = zonesMap[zk];
+  if(z) z.clients.forEach(c=>{ if(clientMarkers[c.id]){ map.removeLayer(clientMarkers[c.id]); delete clientMarkers[c.id]; } });
   delete zonesMap[zk];
   activeZone = null;
   document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
@@ -935,11 +979,12 @@ async function doDelete(zk){
 // AJOUTER UN CLIENT
 // ══════════════════════════════════════════════════════════════════
 async function addClient(){
-  const client = document.getElementById('f-client').value.trim();
-  const zone   = document.getElementById('f-zone').value.trim().toUpperCase();
-  const gps    = document.getElementById('f-gps').value.trim();
-  const lien   = document.getElementById('f-lien').value.trim();
-  const circuit= document.getElementById('f-circuit').value.trim();
+  const client    = document.getElementById('f-client').value.trim();
+  const zone      = document.getElementById('f-zone').value.trim().toUpperCase();
+  const gps       = document.getElementById('f-gps').value.trim();
+  const gpsClient = document.getElementById('f-gps-client').value.trim();
+  const lien      = document.getElementById('f-lien').value.trim();
+  const circuit   = document.getElementById('f-circuit').value.trim();
 
   if(!client||!zone){ alert('Nom client et Zone sont obligatoires.'); return; }
 
@@ -949,17 +994,24 @@ async function addClient(){
   let lat, lon;
   if(gps){
     const c = parseGPS(gps);
-    if(!c){ alert('Format GPS invalide. Exemple : 5.3558N, 3.8885W'); btn.disabled=false; btn.textContent='+ Ajouter le client'; return; }
+    if(!c){ alert('Format GPS Zone invalide. Exemple : 5.3558N, 3.8885W'); btn.disabled=false; btn.textContent='+ Ajouter'; return; }
     lat=c.lat; lon=c.lon;
   }
 
-  const newClient = {id:uid(), name:client, lien, circuit, clot:false, source:'manual'};
+  let clat=null, clon=null;
+  if(gpsClient){
+    const cc = parseGPS(gpsClient);
+    if(!cc){ alert('Format GPS Client invalide. Exemple : 5.3200N, 3.9100W'); btn.disabled=false; btn.textContent='+ Ajouter'; return; }
+    clat=cc.lat; clon=cc.lon;
+  }
+
+  const newClient = {id:uid(), name:client, lien, circuit, clot:false, source:'manual', clat, clon};
 
   if(zonesMap[zone]){
     if(lat){ zonesMap[zone].lat=lat; zonesMap[zone].lon=lon; }
     zonesMap[zone].clients.push(newClient);
   } else {
-    if(!lat){ alert('Coordonnées GPS requises pour une nouvelle ville.'); btn.disabled=false; btn.textContent='+ Ajouter le client'; return; }
+    if(!lat){ alert('Coordonnées GPS Zone requises pour une nouvelle ville.'); btn.disabled=false; btn.textContent='+ Ajouter'; return; }
     zonesMap[zone] = {zone, lat, lon, clot:false, clients:[newClient]};
   }
 
@@ -968,14 +1020,14 @@ async function addClient(){
   activeZone = zone;
   setActiveCity(zone);
   updateStats();
-  // Pan carte vers la zone ajoutée
   const zData = zonesMap[zone];
   map.setView([zData.lat, zData.lon], 10, {animate:true});
   if(markers[zone]) markers[zone].openPopup();
   await fbSaveZone(zone);
 
-  ['f-client','f-zone','f-gps','f-lien','f-circuit'].forEach(id=>document.getElementById(id).value='');
+  ['f-client','f-zone','f-gps','f-gps-client','f-lien','f-circuit'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('gps-preview').style.display='none';
+  document.getElementById('gps-client-preview').style.display='none';
   btn.disabled=false; btn.textContent='+ Ajouter';
   closeAddModal();
   toast('✓ Client ajouté');
@@ -1047,8 +1099,9 @@ function parseGPS(s){
 // GPS PREVIEW LIVE
 // ══════════════════════════════════════════════════════════════════
 function openAddModal(){
-  ['f-client','f-zone','f-gps','f-lien','f-circuit'].forEach(id=>document.getElementById(id).value='');
+  ['f-client','f-zone','f-gps','f-gps-client','f-lien','f-circuit'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('gps-preview').style.display='none';
+  document.getElementById('gps-client-preview').style.display='none';
   document.getElementById('add-overlay').classList.remove('hidden');
   setTimeout(()=>document.getElementById('f-client').focus(), 100);
 }
@@ -1098,6 +1151,38 @@ function previewGPSEdit(){
   }
 }
 
+function previewGPSClient(){
+  const gps = document.getElementById('f-gps-client').value.trim();
+  const el = document.getElementById('gps-client-preview');
+  if(!gps){ el.style.display='none'; return; }
+  const c = parseGPS(gps);
+  if(c){
+    el.textContent = `✓ client lat:${c.lat.toFixed(4)}, lon:${c.lon.toFixed(4)}`;
+    el.style.color='var(--amber)';
+    el.style.display='block';
+  } else {
+    el.textContent = '⚠ Format invalide';
+    el.style.color='var(--red-lt)';
+    el.style.display='block';
+  }
+}
+
+function previewGPSClientEdit(){
+  const gps = document.getElementById('e-gps-client').value.trim();
+  const el = document.getElementById('e-gps-client-preview');
+  if(!gps){ el.style.display='none'; return; }
+  const c = parseGPS(gps);
+  if(c){
+    el.textContent = `✓ client lat:${c.lat.toFixed(4)}, lon:${c.lon.toFixed(4)}`;
+    el.style.color='var(--amber)';
+    el.style.display='block';
+  } else {
+    el.textContent = '⚠ Format invalide';
+    el.style.color='var(--red-lt)';
+    el.style.display='block';
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════
 // EDIT CLIENT
 // ══════════════════════════════════════════════════════════════════
@@ -1110,13 +1195,18 @@ function openEditModal(zk, clientId){
   document.getElementById('e-client-id').value = clientId;
   document.getElementById('e-client').value = c.name||'';
   document.getElementById('e-zone-name').value = z.zone||'';
-  // GPS inverse : lat positif = N, lon négatif = W pour CI
+  // GPS zone
   const latN = z.lat ? z.lat.toFixed(4)+'N' : '';
   const lonW = z.lon ? Math.abs(z.lon).toFixed(4)+'W' : '';
   document.getElementById('e-gps').value = latN && lonW ? latN+', '+lonW : '';
+  // GPS client individuel
+  const clatN = c.clat ? c.clat.toFixed(4)+'N' : '';
+  const clonW = c.clon ? Math.abs(c.clon).toFixed(4)+'W' : '';
+  document.getElementById('e-gps-client').value = clatN && clonW ? clatN+', '+clonW : '';
   document.getElementById('e-lien').value = c.lien||'';
   document.getElementById('e-circuit').value = c.circuit||'';
   document.getElementById('e-gps-preview').style.display='none';
+  document.getElementById('e-gps-client-preview').style.display='none';
   document.getElementById('edit-overlay').classList.remove('hidden');
 }
 
@@ -1130,6 +1220,7 @@ async function saveEditClient(){
   const newName = document.getElementById('e-client').value.trim();
   const newZoneName = document.getElementById('e-zone-name').value.trim().toUpperCase();
   const gps = document.getElementById('e-gps').value.trim();
+  const gpsClient = document.getElementById('e-gps-client').value.trim();
   const newLien = document.getElementById('e-lien').value.trim();
   const newCircuit = document.getElementById('e-circuit').value.trim();
 
@@ -1140,11 +1231,19 @@ async function saveEditClient(){
   const c = z.clients.find(x=>x.id===clientId);
   if(!c) return;
 
-  // Mise à jour GPS si fourni
+  // GPS zone
   if(gps){
     const coord = parseGPS(gps);
-    if(!coord){ alert('Format GPS invalide. Exemple : 5.3558N, 3.8885W'); return; }
+    if(!coord){ alert('Format GPS Zone invalide. Exemple : 5.3558N, 3.8885W'); return; }
     z.lat = coord.lat; z.lon = coord.lon;
+  }
+  // GPS client individuel
+  if(gpsClient){
+    const coordC = parseGPS(gpsClient);
+    if(!coordC){ alert('Format GPS Client invalide. Exemple : 5.3200N, 3.9100W'); return; }
+    c.clat = coordC.lat; c.clon = coordC.lon;
+  } else {
+    c.clat = null; c.clon = null;
   }
 
   // Mise à jour du nom de zone (renommage de la clé)
@@ -1220,6 +1319,8 @@ async function deleteAllFirebase(){
     zonesMap={};
     Object.values(markers).forEach(m=>map.removeLayer(m));
     markers={};
+    Object.values(clientMarkers).forEach(m=>map.removeLayer(m));
+    clientMarkers={};
     activeZone=null;
     document.getElementById('city-list').innerHTML='';
     document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
@@ -1231,271 +1332,6 @@ async function deleteAllFirebase(){
   }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// COPIER LA CARTE (HTML centré Outlook-compatible, fond gris)
-// ══════════════════════════════════════════════════════════════════
-function copyMapImage(){
-  const btn = document.getElementById('btn-copy-map');
-  btn.innerHTML = '⏳ Capture…';
-  btn.disabled = true;
-
-  // Centrer automatiquement sur tous les markers puis capturer
-  const _prevCenter = map.getCenter();
-  const _prevZoom   = map.getZoom();
-
-  // Bounds fixes sur toute la largeur de la CI
-  const _ciBounds = L.latLngBounds([[5.0, -8.6],[9.5, -2.5]]);
-  map.fitBounds(_ciBounds, {animate: false, padding: [0, 0]});
-
-  setTimeout(function(){
-    _doCopyMapCapture(btn, _prevCenter, _prevZoom);
-  }, 2500);
-}
-
-function _doCopyMapCapture(btn, _prevCenter, _prevZoom){
-  const mapEl = document.getElementById('map');
-  const TARGET_W = 560;
-  const PAD = 16;
-  const mapW = mapEl.offsetWidth || 800;
-  const mapScale = 2;
-
-  html2canvas(mapEl, {
-    useCORS: true,
-    allowTaint: false,
-    scale: mapScale,
-    backgroundColor: '#f0f0f0',
-    logging: false,
-    imageTimeout: 20000,
-    ignoreElements: function(el){ return el.classList && el.classList.contains('stats-bar'); }
-  }).then(function(canvas){
-    // Canvas de sortie avec fond gris et padding
-    const out = document.createElement('canvas');
-    out.width  = canvas.width  + PAD * 2;
-    out.height = canvas.height + PAD * 2;
-    const ctx = out.getContext('2d');
-    ctx.fillStyle = '#e8e8e8';
-    ctx.fillRect(0, 0, out.width, out.height);
-    ctx.drawImage(canvas, PAD, PAD);
-
-    // ── Géométrie 3 colonnes — largeur fixe 1200px ──
-    const MAIL_W  = 1200;
-    const VPAD    = 0;
-    const HPAD    = 6;
-    const COL1_W  = 150;   // liste villes
-    const COL2_W  = 570;   // détail clients
-    const MAP_W_FIXED = MAIL_W - COL1_W - COL2_W - HPAD * 4; // carte prend le reste
-    const MAP_H   = out.height;
-    const MAP_SCALE_X = MAP_W_FIXED / out.width; // facteur pour redimensionner la carte
-
-    const final = document.createElement('canvas');
-    final.width  = MAIL_W;
-    const FIXED_H = 460;
-    final.height = FIXED_H;
-    const fctx = final.getContext('2d');
-
-    // Fond gris complet
-    fctx.fillStyle = '#e2e4e8';
-    fctx.fillRect(0, 0, final.width, final.height);
-
-    // ── Carte à gauche (redimensionnée pour tenir dans MAP_W_FIXED) ──
-    fctx.drawImage(out, HPAD, 0, MAP_W_FIXED, FIXED_H);
-
-    // ── Données ──
-    const villesActives = Object.values(zonesMap)
-      .filter(function(d){ return !d.clot && d.clients.length > 0; })
-      .sort(function(a,b){ return b.clients.length - a.clients.length; });
-
-    const dateStr = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
-
-    // ════════════════════════════════════════
-    // COLONNE 1 — Liste villes
-    // ════════════════════════════════════════
-    const c1x = MAP_W_FIXED + HPAD * 2;
-    const c1y = 0;
-    const c1w = COL1_W;
-    const c1h = FIXED_H;
-
-    fctx.fillStyle = '#ffffff';
-    _roundRect(fctx, c1x, c1y, c1w, c1h, 8);
-    fctx.fill();
-
-    // Header col1
-    const totalClients = villesActives.reduce(function(s,d){ return s+d.clients.length; },0);
-    fctx.fillStyle = '#1a1d23';
-    fctx.font = 'bold 13px Segoe UI, Arial, sans-serif';
-    fctx.fillText('NOC B2B  ', c1x+14, c1y+24);
-    const _t1w = fctx.measureText('NOC B2B  ').width;
-    fctx.fillStyle = '#E05A00';
-    fctx.font = 'bold 14px Segoe UI, Arial, sans-serif';
-    fctx.fillText('(' + totalClients + ' clients)', c1x+14+_t1w, c1y+24);
-    fctx.fillStyle = '#1a1d23';
-    fctx.font = 'bold 11px Segoe UI, Arial, sans-serif';
-    fctx.fillText('Congestion réseau', c1x+14, c1y+40);
-    fctx.fillStyle = '#7a808c';
-    fctx.font = '10px Segoe UI, Arial, sans-serif';
-    fctx.fillText(dateStr, c1x+14, c1y+55);
-    fctx.fillStyle = '#e4e7ed';
-    fctx.fillRect(c1x+10, c1y+63, c1w-20, 1);
-
-    const rowH1 = 20;
-    const maxR1 = Math.floor((c1h - 75) / rowH1);
-    let cy1 = c1y + 76;
-    villesActives.slice(0, maxR1).forEach(function(d, i){
-      if(i % 2 === 0){ fctx.fillStyle = '#f7f8fa'; fctx.fillRect(c1x+8, cy1-13, c1w-16, rowH1); }
-      fctx.fillStyle = '#1a1d23';
-      fctx.font = '11px Segoe UI, Arial, sans-serif';
-      fctx.fillText(d.zone, c1x+14, cy1);
-      const nbStr = String(d.clients.length);
-      fctx.fillStyle = '#e24b4a';
-      fctx.font = 'bold 11px Segoe UI, Arial, sans-serif';
-      const nbW = fctx.measureText(nbStr).width;
-      fctx.fillText(nbStr, c1x + c1w - 14 - nbW, cy1);
-      cy1 += rowH1;
-    });
-
-    fctx.fillStyle = '#9aa0ae';
-    fctx.font = '9px Segoe UI, Arial, sans-serif';
-    fctx.fillText("Orange CI · DDMS", c1x+14, c1y+c1h-10);
-
-    // ════════════════════════════════════════
-    // COLONNE 2 — Détail clients par ville
-    // ════════════════════════════════════════
-    const c2x = c1x + c1w + HPAD;
-    const c2y = 0;
-    const c2w = COL2_W;
-    const c2h = FIXED_H;
-
-    fctx.fillStyle = '#ffffff';
-    _roundRect(fctx, c2x, c2y, c2w, c2h, 8);
-    fctx.fill();
-
-    // Header col2
-    fctx.fillStyle = '#1a1d23';
-    fctx.font = 'bold 12px Segoe UI, Arial, sans-serif';
-    fctx.fillText('Détail clients par ville  ', c2x+14, c2y+22);
-    const _t2w = fctx.measureText('Détail clients par ville  ').width;
-    fctx.fillStyle = '#E05A00';
-    fctx.font = 'bold 14px Segoe UI, Arial, sans-serif';
-    fctx.fillText('(' + villesActives.length + ' villes)', c2x+14+_t2w, c2y+22);
-    fctx.fillStyle = '#1a1d23';
-    fctx.font = 'bold 12px Segoe UI, Arial, sans-serif';
-    fctx.fillStyle = '#e4e7ed';
-    fctx.fillRect(c2x+10, c2y+30, c2w-20, 1);
-
-    // Calcul multi-colonnes dans col2
-    const CITY_TITLE_H = 18;
-    const CLI_ROW_H    = 16;
-    const COL2_PAD     = 10;
-    const SUB_COL_W    = 140;
-    const nSubCols     = Math.floor((c2w - COL2_PAD * 2) / SUB_COL_W);
-    const subColW      = Math.floor((c2w - COL2_PAD * 2) / nSubCols);
-
-    let scol = 0, srow_y = c2y + 40;
-    let cur_x = c2x + COL2_PAD;
-    let cur_y = srow_y;
-    const maxY = c2y + c2h - 16;
-
-    villesActives.forEach(function(d){
-      const blockH = CITY_TITLE_H + d.clients.length * CLI_ROW_H + 6;
-      // Si débordement en y → colonne suivante
-      if(cur_y + blockH > maxY){
-        scol++;
-        if(scol >= nSubCols) return; // plus de place
-        cur_x = c2x + COL2_PAD + scol * subColW;
-        cur_y = srow_y;
-      }
-      // Titre ville (fond orange pâle)
-      fctx.fillStyle = '#fff3ec';
-      fctx.fillRect(cur_x, cur_y, subColW - 6, CITY_TITLE_H);
-      fctx.fillStyle = '#E05A00';
-      fctx.font = 'bold 10px Segoe UI, Arial, sans-serif';
-      fctx.fillText(d.zone + ' (' + d.clients.length + ')', cur_x + 6, cur_y + 12);
-      cur_y += CITY_TITLE_H;
-
-      d.clients.forEach(function(c){
-        if(cur_y + CLI_ROW_H > maxY) return;
-        // Nom client uniquement
-        fctx.fillStyle = '#1a1d23';
-        fctx.font = '10px Segoe UI, Arial, sans-serif';
-        const cname = (c.name||'').length > 32 ? (c.name||'').slice(0,31)+'…' : (c.name||'');
-        fctx.fillText(cname, cur_x + 6, cur_y + 10);
-        cur_y += CLI_ROW_H;
-      });
-      cur_y += 6; // espace entre villes
-    });
-
-    // Convertir en base64 et copier comme HTML centré (seul moyen fiable dans Outlook)
-    const dataUrl = final.toDataURL('image/png');
-    const imgW = final.width;
-    const htmlStr = [
-      '<html><body>',
-      '<table width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%">',
-      '<tr><td align="center" style="text-align:center;padding:0">',
-      '<img src="' + dataUrl + '" width="1200" style="display:block;margin:0 auto;border:0;outline:0;width:1200px;max-width:1200px" alt="Carte Congestion NOC B2B"/>',
-      '</td></tr>',
-      '</table>',
-      '</body></html>'
-    ].join('');
-
-    map.setView(_prevCenter, _prevZoom, {animate: false});
-
-    try {
-      const blob = new Blob([htmlStr], {type: 'text/html'});
-      navigator.clipboard.write([new ClipboardItem({'text/html': blob})])
-        .then(function(){ _copyMapFeedback(btn, true); })
-        .catch(function(){ _copyMapFallback(final, btn); });
-    } catch(e2){
-      _copyMapFallback(final, btn);
-    }
-
-  }).catch(function(e){
-    map.setView(_prevCenter, _prevZoom, {animate: false});
-    console.error('copyMapImage', e);
-    _copyMapFeedback(btn, false);
-    toast('⚠ Erreur capture : ' + e.message, 'err');
-  });
-}
-
-function _roundRect(ctx, x, y, w, h, r){
-  ctx.beginPath();
-  ctx.moveTo(x+r, y);
-  ctx.lineTo(x+w-r, y);
-  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
-  ctx.lineTo(x+w, y+h-r);
-  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
-  ctx.lineTo(x+r, y+h);
-  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
-  ctx.lineTo(x, y+r);
-  ctx.quadraticCurveTo(x, y, x+r, y);
-  ctx.closePath();
-}
-
-function _copyMapFeedback(btn, ok){
-  const SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-  if(ok){
-    btn.innerHTML = '✓ Copié !';
-    btn.classList.add('copied');
-    toast('✓ Image copiée — coller dans Outlook (Ctrl+V)', 'ok');
-    setTimeout(function(){
-      btn.innerHTML = SVG + ' Copier la carte';
-      btn.classList.remove('copied');
-      btn.disabled = false;
-    }, 2200);
-  } else {
-    btn.innerHTML = SVG + ' Copier la carte';
-    btn.disabled = false;
-  }
-}
-
-function _copyMapFallback(canvas, btn){
-  // Fallback : ouvrir l'image dans un onglet
-  canvas.toBlob(function(blob){
-    const url = URL.createObjectURL(blob);
-    window.open(url, '_blank');
-    _copyMapFeedback(btn, false);
-    toast('Clipboard non disponible — image ouverte dans un onglet', 'err');
-  }, 'image/png');
-}
 
 // ══════════════════════════════════════════════════════════════════
 // TOGGLE STATUT INDIVIDUEL CLIENT
@@ -1948,6 +1784,44 @@ async function genererRapportPDF(){
   progress.textContent = '✓ PDF généré avec succès !';
   btn.disabled = false;
   setTimeout(() => { progress.textContent = ''; closePdfModal(); }, 1800);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EXPORT EXCEL
+// ══════════════════════════════════════════════════════════════════
+function exportExcel(){
+  const rows = [];
+  Object.values(zonesMap).forEach(z=>{
+    z.clients.forEach(c=>{
+      rows.push({
+        'Ville / Zone': z.zone,
+        'Client': c.name||'',
+        'Lien / Référence': c.lien||'',
+        'Circuit': c.circuit||'',
+        'Statut': c.clot ? 'Clôturé' : 'Actif',
+        'Latitude': z.lat||'',
+        'Longitude': z.lon||''
+      });
+    });
+  });
+  if(!rows.length){ toast('⚠ Aucune donnée à exporter','err'); return; }
+
+  // Tri : actifs d'abord, puis par ville
+  rows.sort((a,b)=>{
+    if(a.Statut !== b.Statut) return a.Statut==='Actif' ? -1 : 1;
+    return a['Ville / Zone'].localeCompare(b['Ville / Zone']);
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Largeurs colonnes
+  ws['!cols'] = [{wch:20},{wch:30},{wch:22},{wch:28},{wch:10},{wch:12},{wch:12}];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Congestion NOC B2B');
+
+  const date = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\//g,'-');
+  XLSX.writeFile(wb, `Congestion_NOC_B2B_${date}.xlsx`);
+  toast('✓ Export Excel téléchargé');
 }
 
 function _pdfFooter(doc, PW, PH, ML, GRAY, ORANGE, WHITE){
