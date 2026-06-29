@@ -2617,34 +2617,17 @@ document.addEventListener('DOMContentLoaded',function(){
           var d=new Date(Math.round((n-25569)*86400*1000));
           return d.toISOString().slice(0,10);
         }
-        var deals2import=[];
-        rows.forEach(function(row,idx){
+        // MODE UPDATE-ONLY : on ne crée aucun document, on met à jour uniquement les deals existants
+        var updates2do=[];
+        rows.forEach(function(row){
           var rClient=(row.Client||row.client||row['Nom du client']||'').toString().trim();
           if(!rClient||rClient.toLowerCase().startsWith('colonne')) return;
           var rDesc=(row.Description||row.description||row['Description du deal']||'').toString().trim();
-          var rCommercial=(row.Commercial||row.commercial||row['Ingénieur Commercial']||row['Ingenieur Commercial']||'').toString().trim();
-          var rMontant=Number(row.Montant||row.montant||row['Montant HT']||0)||0;
-          var rClosing=xlDate(row.Closing||row.closing||'');
           var rDlivPrev=xlDate(row.dlivPrev||row.DateLivraison||row['Date de livraison prévue']||row['Date de livraison prévue *']||row['Date de livraison prevue']||'');
           var rDeliveryResp=(row['Ingénieur Delivery']||row['Ingenieur Delivery']||row.deliveryResp||'').toString().trim();
-          var rStatut=(row.Statut||row.statut||'À livrer').toString().trim();
-          var rSecteur=(row.Secteur||row.secteur||'').toString().trim();
-          var rUnivers=(row.Univers||row.univers||'').toString().trim();
-          var rNotes=(row.Notes||row.notes||'').toString().trim();
-          var rDateLivReelle=xlDate(row.DateLivraisonReelle||row.dateLivraison||'');
-          var rCreatedAt=row.CreatedAt||new Date().toISOString();
-          var idBase='imp_'+idx+'_'+(rClient+rDesc).toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,30);
-          deals2import.push({
-            id:idBase, client:rClient, desc:rDesc, commercial:rCommercial,
-            deliveryResp:rDeliveryResp, montant:rMontant, closing:rClosing,
-            dlivPrev:rDlivPrev, dateLivraison:rDateLivReelle,
-            statut:rStatut, notes:rNotes, secteur:rSecteur, univers:rUnivers,
-            createdAt:rCreatedAt
-          });
+          var rStatut=(row.Statut||row.statut||'').toString().trim();
+          updates2do.push({client:rClient, desc:rDesc, deliveryResp:rDeliveryResp, dlivPrev:rDlivPrev, statut:rStatut});
         });
-        // Import par batch de 50 avec délai pour éviter rate-limit Firestore
-        var BATCH=50, batchIdx=0, imported=0;
-        var totalToImport=deals2import.length;
         var progBox=document.getElementById('import-progress');
         var progBar=document.getElementById('import-progress-bar');
         var progTxt=document.getElementById('import-progress-text');
@@ -2652,7 +2635,7 @@ document.addEventListener('DOMContentLoaded',function(){
           var pct=total?Math.round(n/total*100):0;
           if(progBox) progBox.style.display='block';
           if(progBar) progBar.style.width=pct+'%';
-          if(progTxt) progTxt.textContent='⏳ Import : '+n+' / '+total+' deals ('+pct+'%)';
+          if(progTxt) progTxt.textContent='⏳ MAJ : '+n+' / '+total+' deals ('+pct+'%)';
         }
         function endProgress(msg){
           if(progTxt) progTxt.textContent=msg;
@@ -2660,34 +2643,49 @@ document.addEventListener('DOMContentLoaded',function(){
           setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
           toast(msg);
         }
-        setProgress(0, totalToImport);
-        function importNextBatch(){
-          var slice=deals2import.slice(batchIdx,batchIdx+BATCH);
-          if(!slice.length){
-            endProgress('✅ '+imported+'/'+totalToImport+' deals importés avec succès !');
-            if(typeof loadDealsFromFirestore==='function'){
-              loadDealsFromFirestore();
-            } else {
-              if(typeof renderAll==='function') renderAll();
-              if(typeof renderDeliveryPage==='function') renderDeliveryPage();
-              if(typeof renderPlanning==='function') renderPlanning();
-              if(typeof renderMaj==='function') renderMaj();
-              if(typeof buildFilters==='function') buildFilters();
+        if(!db){ endProgress('❌ Firebase non disponible'); return; }
+        // Charger tous les deals existants pour faire le matching client+desc
+        setProgress(0, updates2do.length);
+        db.collection(ICT_COL).get().then(function(snap){
+          // Indexer les docs existants par clé normalisée client+desc
+          var normalize=function(s){ return (s||'').toString().trim().toLowerCase().replace(/\s+/g,' '); };
+          var docMap={};
+          snap.docs.forEach(function(doc){
+            var d=doc.data();
+            var key=normalize(d.client)+'||'+normalize(d.desc);
+            docMap[key]=doc.id;
+          });
+          var updated=0, notFound=0, BATCH=50, batchIdx=0;
+          function nextBatch(){
+            var slice=updates2do.slice(batchIdx,batchIdx+BATCH);
+            if(!slice.length){
+              var msg='✅ '+updated+' deals mis à jour'+(notFound?' · '+notFound+' non trouvés':'')+'';
+              endProgress(msg);
+              if(typeof loadDealsFromFirestore==='function') loadDealsFromFirestore();
+              else { if(typeof renderAll==='function') renderAll(); if(typeof renderMaj==='function') renderMaj(); }
+              return;
             }
-            return;
+            var promises=slice.map(function(u){
+              var key=normalize(u.client)+'||'+normalize(u.desc);
+              var docId=docMap[key];
+              if(!docId){ notFound++; return Promise.resolve(); }
+              var patch={};
+              if(u.deliveryResp) patch.deliveryResp=u.deliveryResp;
+              if(u.dlivPrev)     patch.dlivPrev=u.dlivPrev;
+              if(u.statut)       patch.statut=u.statut;
+              if(!Object.keys(patch).length){ return Promise.resolve(); }
+              return db.collection(ICT_COL).doc(docId).update(patch)
+                .then(function(){ updated++; })
+                .catch(function(e){ console.warn('Update err',docId,e.message); notFound++; });
+            });
+            Promise.all(promises).then(function(){
+              batchIdx+=BATCH;
+              setProgress(updated+notFound, updates2do.length);
+              setTimeout(nextBatch,200);
+            });
           }
-          var promises=slice.map(function(deal){
-            return db.collection(ICT_COL).doc(deal.id).set(deal)
-              .then(function(){imported++;})
-              .catch(function(e){console.warn('Import err',deal.id,e.message);});
-          });
-          Promise.all(promises).then(function(){
-            batchIdx+=BATCH;
-            setProgress(imported, totalToImport);
-            setTimeout(importNextBatch,200);
-          });
-        }
-        if(db){ importNextBatch(); } else { endProgress('❌ Firebase non disponible'); }
+          nextBatch();
+        }).catch(function(e){ endProgress('❌ Erreur lecture Firebase : '+e.message); });
       }catch(err){ toast('❌ Erreur import : '+err.message); }
     };
     r.readAsArrayBuffer(f);
