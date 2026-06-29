@@ -152,13 +152,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   <div class="logo">IT</div>
   <div style="display:flex;align-items:center;gap:10px"><div><h1>ICT Tracker 2025 <span id="hdr-nb-deals" style="font-size:11px;font-weight:700;background:#f97316;color:#fff;border-radius:10px;padding:2px 8px;vertical-align:middle">—</span></h1><p>Datalink CI — Suivi ventes &amp; delivery</p></div></div>
   <div class="hdr-r" id="hdr-date">—</div>
-  <div style="display:flex;align-items:center;gap:6px;margin-left:8px;flex-shrink:0">
-    <label style="font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap">📅 Année</label>
-    <select id="global-year-select" onchange="changeGlobalYear(this.value)" style="font-size:12px;font-weight:700;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--text);cursor:pointer">
-      <option value="">Toutes</option>
-    </select>
-  </div>
-  <div style="display:flex;gap:6px;margin-left:8px;flex-shrink:0">
+  <div style="display:flex;gap:6px;margin-left:12px;flex-shrink:0">
     <button class="btn btn-g btn-s" onclick="openExportModal()">📤 Exporter</button>
     <button class="btn btn-g btn-s" onclick="openImportModal()">📥 Importer</button>
     <button class="btn btn-g btn-s" style="color:var(--red);border-color:var(--red)" onclick="openClearModal()">🗑️ Vider</button>
@@ -742,10 +736,9 @@ function updateFirestore(dealId, data, onSuccess){
   });
 }
 function renderAll(){
-  buildYearSelect(); renderGlobal(); renderAlertes(); renderDeals(); renderPerf(); checkBanner();
+  renderGlobal(); renderAlertes(); renderDeals(); renderPerf(); checkBanner();
   var nb=document.getElementById('hdr-nb-deals');
-  var _fd=getDealsFiltered();
-  if(nb) nb.textContent=_fd.length+' dossier'+(_fd.length>1?'s':'');
+  if(nb) nb.textContent=deals.length+' dossier'+(deals.length>1?'s':'');
 }
 
 function slaStatus(d){
@@ -935,34 +928,6 @@ function switchTabEx(pageN){
 }
 
 var charts={};
-var selectedYear=''; // Filtre année global — '' = toutes les années
-
-function changeGlobalYear(y){
-  selectedYear=y;
-  renderAll();
-}
-
-function getDealsFiltered(){
-  if(!selectedYear) return deals;
-  return deals.filter(function(d){
-    var ref=d.dlivPrev||d.closing||'';
-    return ref.startsWith(selectedYear);
-  });
-}
-
-function buildYearSelect(){
-  var sel=document.getElementById('global-year-select');
-  if(!sel) return;
-  var years=[...new Set(deals.map(function(d){
-    var ref=d.dlivPrev||d.closing||'';
-    return ref?ref.slice(0,4):'';
-  }).filter(Boolean))].sort();
-  var cur=sel.value;
-  sel.innerHTML='<option value="">Toutes</option>'+years.map(function(y){
-    return '<option value="'+y+'"'+(y===cur?' selected':'')+'>'+y+'</option>';
-  }).join('');
-}
-
 function drawChart(id,type,labels,datasets,isCa,noLeg,stacked,horizontal){
   var ctx=document.getElementById(id); if(!ctx) return;
   if(charts[id]) charts[id].destroy();
@@ -1001,7 +966,6 @@ function drawChart(id,type,labels,datasets,isCa,noLeg,stacked,horizontal){
 }
 
 function renderGlobal(){
-  var deals=getDealsFiltered();
   var ca=deals.reduce(function(a,d){return a+d.montant;},0);
   // Livré = statut PV signé ou Livré
   var livres=deals.filter(function(d){return d.statut==='PV signé'||d.statut==='Livré';});
@@ -1191,7 +1155,7 @@ function renderGlobal(){
     }
   });
   var pdOk2 = Object.entries(dOk2).filter(function(x){return x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
-  drawChart('ch-del-ok-g','bar',pdOk2.length?pdOk2.map(function(x){return x[0];}):['—'],
+  drawChart('ch-del-ok-g','bar',pdOk2.length?pdOk2.map(function(x){return x[0].split(' ').slice(-1)[0];}):['—'],
     [{data:pdOk2.length?pdOk2.map(function(x){return x[1].n;}):[0],backgroundColor:'#16a34a22',borderColor:'#16a34a',borderWidth:2,borderRadius:4}],false,true,false);
   var _ce_ch_del_ok_g=document.getElementById('ch-del-ok-g');if(_ce_ch_del_ok_g)_ce_ch_del_ok_g.onclick = function(evt) {
     var pts = charts['ch-del-ok-g'].getElementsAtEventForMode(evt,'nearest',{intersect:true},false);
@@ -1210,7 +1174,7 @@ function renderGlobal(){
     if(d.statut==='PV signé'||d.statut==='Livré'){ dDone2[ing].n++; dDone2[ing].list.push(d); }
   });
   var pdDone2 = Object.entries(dDone2).filter(function(x){return x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
-  drawChart('ch-del-done-g','bar',pdDone2.length?pdDone2.map(function(x){return x[0];}):['—'],
+  drawChart('ch-del-done-g','bar',pdDone2.length?pdDone2.map(function(x){return x[0].split(' ').slice(-1)[0];}):['—'],
     [{data:pdDone2.length?pdDone2.map(function(x){return x[1].n;}):[0],backgroundColor:'#2563eb22',borderColor:'#2563eb',borderWidth:2,borderRadius:4}],false,true,false);
   var _ce_ch_del_done_g=document.getElementById('ch-del-done-g');if(_ce_ch_del_done_g)_ce_ch_del_done_g.onclick = function(evt) {
     var pts = charts['ch-del-done-g'].getElementsAtEventForMode(evt,'nearest',{intersect:true},false);
@@ -1249,12 +1213,12 @@ function renderGlobal(){
   deals.forEach(function(d){
     var ing=d.deliveryResp||'—'; if(!dOkG[ing]) dOkG[ing]={n:0,list:[]};
     var estLivre=d.statut==='PV signé'||d.statut==='Livré';
-    if(estLivre&&d.dlivPrev){
+    if(estLivre&&d.dateLivraison&&d.dlivPrev&&new Date(d.dateLivraison)<=new Date(d.dlivPrev)){
       dOkG[ing].n++;dOkG[ing].list.push(d);
     }
   });
   var pdOkG=Object.entries(dOkG).filter(function(x){return x[0]!=='—'&&x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
-  drawChart('ch-del-ok-g','bar',pdOkG.length?pdOkG.map(function(x){return x[0];}):['—'],
+  drawChart('ch-del-ok-g','bar',pdOkG.length?pdOkG.map(function(x){return x[0].split(' ').slice(-1)[0];}):['—'],
     [{data:pdOkG.length?pdOkG.map(function(x){return x[1].n;}):[0],backgroundColor:'#16a34a22',borderColor:'#16a34a',borderWidth:2,borderRadius:4}],false,true,false,true);
   (function(){
     var el=document.getElementById('ch-del-ok-g'); if(!el) return;
@@ -1275,7 +1239,7 @@ function renderGlobal(){
     if(d.statut==='PV signé'||d.statut==='Livré'){dDoneG[ing].n++;dDoneG[ing].list.push(d);}
   });
   var pdDoneG=Object.entries(dDoneG).filter(function(x){return x[0]!=='—'&&x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
-  drawChart('ch-del-done-g','bar',pdDoneG.length?pdDoneG.map(function(x){return x[0];}):['—'],
+  drawChart('ch-del-done-g','bar',pdDoneG.length?pdDoneG.map(function(x){return x[0].split(' ').slice(-1)[0];}):['—'],
     [{data:pdDoneG.length?pdDoneG.map(function(x){return x[1].n;}):[0],backgroundColor:'#2563eb22',borderColor:'#2563eb',borderWidth:2,borderRadius:4}],false,true,false,true);
   (function(){
     var el=document.getElementById('ch-del-done-g'); if(!el) return;
@@ -1291,7 +1255,6 @@ function renderGlobal(){
 }
 
 function renderAlertes(){
-  var deals=getDealsFiltered();
   var risk=deals.filter(function(d){return dvAlertLevel(d)==='red';});
   var warn=deals.filter(function(d){return dvAlertLevel(d)==='orange';});
   var caR=risk.reduce(function(a,d){return a+d.montant;},0);
@@ -1393,7 +1356,6 @@ function renderDeals(){
 }
 
 function renderPerf(){
-  var deals=getDealsFiltered();
   var ca=deals.reduce(function(a,d){return a+d.montant;},0);
   var livresP=deals.filter(function(d){return d.statut==='PV signé'||d.statut==='Livré';});
   var caL=livresP.reduce(function(a,d){return a+d.montant;},0);
@@ -1447,7 +1409,7 @@ function renderPerf(){
     }
   });
   var pdOkP = Object.entries(dOkP).filter(function(x){return x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
-  drawChart('ch-del-ok','bar',pdOkP.length?pdOkP.map(function(x){return x[0];}):['--'],
+  drawChart('ch-del-ok','bar',pdOkP.length?pdOkP.map(function(x){return x[0].split(' ').slice(-1)[0];}):['--'],
     [{data:pdOkP.length?pdOkP.map(function(x){return x[1].n;}):[0],backgroundColor:'#16a34a22',borderColor:'#16a34a',borderWidth:2,borderRadius:4}],false,true,false);
   var _ce_ch_del_ok=document.getElementById('ch-del-ok');if(_ce_ch_del_ok)_ce_ch_del_ok.onclick = function(evt) {
     var pts = charts['ch-del-ok'].getElementsAtEventForMode(evt,'nearest',{intersect:true},false);
@@ -1465,7 +1427,7 @@ function renderPerf(){
     if(d.statut==='PV signé'||d.statut==='Livré'){dDoneP[ing].n++;dDoneP[ing].list.push(d);}
   });
   var pdDoneP = Object.entries(dDoneP).filter(function(x){return x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
-  drawChart('ch-del-done','bar',pdDoneP.length?pdDoneP.map(function(x){return x[0];}):['--'],
+  drawChart('ch-del-done','bar',pdDoneP.length?pdDoneP.map(function(x){return x[0].split(' ').slice(-1)[0];}):['--'],
     [{data:pdDoneP.length?pdDoneP.map(function(x){return x[1].n;}):[0],backgroundColor:'#2563eb22',borderColor:'#2563eb',borderWidth:2,borderRadius:4}],false,true,false);
   var _ce_ch_del_done=document.getElementById('ch-del-done');if(_ce_ch_del_done)_ce_ch_del_done.onclick = function(evt) {
     var pts = charts['ch-del-done'].getElementsAtEventForMode(evt,'nearest',{intersect:true},false);
@@ -2655,17 +2617,34 @@ document.addEventListener('DOMContentLoaded',function(){
           var d=new Date(Math.round((n-25569)*86400*1000));
           return d.toISOString().slice(0,10);
         }
-        // MODE UPDATE-ONLY : on ne crée aucun document, on met à jour uniquement les deals existants
-        var updates2do=[];
-        rows.forEach(function(row){
+        var deals2import=[];
+        rows.forEach(function(row,idx){
           var rClient=(row.Client||row.client||row['Nom du client']||'').toString().trim();
           if(!rClient||rClient.toLowerCase().startsWith('colonne')) return;
           var rDesc=(row.Description||row.description||row['Description du deal']||'').toString().trim();
+          var rCommercial=(row.Commercial||row.commercial||row['Ingénieur Commercial']||row['Ingenieur Commercial']||'').toString().trim();
+          var rMontant=Number(row.Montant||row.montant||row['Montant HT']||0)||0;
+          var rClosing=xlDate(row.Closing||row.closing||'');
           var rDlivPrev=xlDate(row.dlivPrev||row.DateLivraison||row['Date de livraison prévue']||row['Date de livraison prévue *']||row['Date de livraison prevue']||'');
           var rDeliveryResp=(row['Ingénieur Delivery']||row['Ingenieur Delivery']||row.deliveryResp||'').toString().trim();
-          var rStatut=(row.Statut||row.statut||'').toString().trim();
-          updates2do.push({client:rClient, desc:rDesc, deliveryResp:rDeliveryResp, dlivPrev:rDlivPrev, statut:rStatut});
+          var rStatut=(row.Statut||row.statut||'À livrer').toString().trim();
+          var rSecteur=(row.Secteur||row.secteur||'').toString().trim();
+          var rUnivers=(row.Univers||row.univers||'').toString().trim();
+          var rNotes=(row.Notes||row.notes||'').toString().trim();
+          var rDateLivReelle=xlDate(row.DateLivraisonReelle||row.dateLivraison||'');
+          var rCreatedAt=row.CreatedAt||new Date().toISOString();
+          var idBase='imp_'+idx+'_'+(rClient+rDesc).toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,30);
+          deals2import.push({
+            id:idBase, client:rClient, desc:rDesc, commercial:rCommercial,
+            deliveryResp:rDeliveryResp, montant:rMontant, closing:rClosing,
+            dlivPrev:rDlivPrev, dateLivraison:rDateLivReelle,
+            statut:rStatut, notes:rNotes, secteur:rSecteur, univers:rUnivers,
+            createdAt:rCreatedAt
+          });
         });
+        // Import par batch de 50 avec délai pour éviter rate-limit Firestore
+        var BATCH=50, batchIdx=0, imported=0;
+        var totalToImport=deals2import.length;
         var progBox=document.getElementById('import-progress');
         var progBar=document.getElementById('import-progress-bar');
         var progTxt=document.getElementById('import-progress-text');
@@ -2673,7 +2652,7 @@ document.addEventListener('DOMContentLoaded',function(){
           var pct=total?Math.round(n/total*100):0;
           if(progBox) progBox.style.display='block';
           if(progBar) progBar.style.width=pct+'%';
-          if(progTxt) progTxt.textContent='⏳ MAJ : '+n+' / '+total+' deals ('+pct+'%)';
+          if(progTxt) progTxt.textContent='⏳ Import : '+n+' / '+total+' deals ('+pct+'%)';
         }
         function endProgress(msg){
           if(progTxt) progTxt.textContent=msg;
@@ -2681,49 +2660,34 @@ document.addEventListener('DOMContentLoaded',function(){
           setTimeout(function(){ if(progBox) progBox.style.display='none'; },3000);
           toast(msg);
         }
-        if(!db){ endProgress('❌ Firebase non disponible'); return; }
-        // Charger tous les deals existants pour faire le matching client+desc
-        setProgress(0, updates2do.length);
-        db.collection(ICT_COL).get().then(function(snap){
-          // Indexer les docs existants par clé normalisée client+desc
-          var normalize=function(s){ return (s||'').toString().trim().toLowerCase().replace(/\s+/g,' '); };
-          var docMap={};
-          snap.docs.forEach(function(doc){
-            var d=doc.data();
-            var key=normalize(d.client)+'||'+normalize(d.desc);
-            docMap[key]=doc.id;
-          });
-          var updated=0, notFound=0, BATCH=50, batchIdx=0;
-          function nextBatch(){
-            var slice=updates2do.slice(batchIdx,batchIdx+BATCH);
-            if(!slice.length){
-              var msg='✅ '+updated+' deals mis à jour'+(notFound?' · '+notFound+' non trouvés':'')+'';
-              endProgress(msg);
-              if(typeof loadDealsFromFirestore==='function') loadDealsFromFirestore();
-              else { if(typeof renderAll==='function') renderAll(); if(typeof renderMaj==='function') renderMaj(); }
-              return;
+        setProgress(0, totalToImport);
+        function importNextBatch(){
+          var slice=deals2import.slice(batchIdx,batchIdx+BATCH);
+          if(!slice.length){
+            endProgress('✅ '+imported+'/'+totalToImport+' deals importés avec succès !');
+            if(typeof loadDealsFromFirestore==='function'){
+              loadDealsFromFirestore();
+            } else {
+              if(typeof renderAll==='function') renderAll();
+              if(typeof renderDeliveryPage==='function') renderDeliveryPage();
+              if(typeof renderPlanning==='function') renderPlanning();
+              if(typeof renderMaj==='function') renderMaj();
+              if(typeof buildFilters==='function') buildFilters();
             }
-            var promises=slice.map(function(u){
-              var key=normalize(u.client)+'||'+normalize(u.desc);
-              var docId=docMap[key];
-              if(!docId){ notFound++; return Promise.resolve(); }
-              var patch={};
-              if(u.deliveryResp) patch.deliveryResp=u.deliveryResp;
-              if(u.dlivPrev)     patch.dlivPrev=u.dlivPrev;
-              if(u.statut)       patch.statut=u.statut;
-              if(!Object.keys(patch).length){ return Promise.resolve(); }
-              return db.collection(ICT_COL).doc(docId).update(patch)
-                .then(function(){ updated++; })
-                .catch(function(e){ console.warn('Update err',docId,e.message); notFound++; });
-            });
-            Promise.all(promises).then(function(){
-              batchIdx+=BATCH;
-              setProgress(updated+notFound, updates2do.length);
-              setTimeout(nextBatch,200);
-            });
+            return;
           }
-          nextBatch();
-        }).catch(function(e){ endProgress('❌ Erreur lecture Firebase : '+e.message); });
+          var promises=slice.map(function(deal){
+            return db.collection(ICT_COL).doc(deal.id).set(deal)
+              .then(function(){imported++;})
+              .catch(function(e){console.warn('Import err',deal.id,e.message);});
+          });
+          Promise.all(promises).then(function(){
+            batchIdx+=BATCH;
+            setProgress(imported, totalToImport);
+            setTimeout(importNextBatch,200);
+          });
+        }
+        if(db){ importNextBatch(); } else { endProgress('❌ Firebase non disponible'); }
       }catch(err){ toast('❌ Erreur import : '+err.message); }
     };
     r.readAsArrayBuffer(f);
