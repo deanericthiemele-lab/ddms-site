@@ -31,6 +31,7 @@ style="margin-bottom:20px;padding:8px 14px;border:none;background:#d3d3d3;border
 <th>Nombre de lignes</th>
 <th>Objectif volume</th>
 <th>CA Mensuel</th>
+<th>DMR moyen (jours)</th>
 </tr>
 </thead>
 <tbody></tbody>
@@ -47,6 +48,15 @@ fetch('Input.xlsx')
     let moisData = {};
     let totalGlobal = 0;
     let totalLignes = 0;
+
+    function excelToDate(v){
+        if(!v) return null;
+        if(typeof v === "number"){
+            return new Date((v - 25569) * 86400 * 1000);
+        }
+        const d = new Date(v);
+        return isNaN(d) ? null : d;
+    }
 
     json.forEach(row => {
 
@@ -66,7 +76,7 @@ fetch('Input.xlsx')
             let mois = jsDate.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
             if(!moisData[mois]){
-                moisData[mois] = { lignes: 0, total: 0 };
+                moisData[mois] = { lignes: 0, total: 0, dmrSomme: 0, dmrCount: 0 };
             }
 
             // Exclure CAT = "Transfert" du nombre de lignes uniquement
@@ -78,6 +88,15 @@ fetch('Input.xlsx')
             // Toujours ajouter au total mensuel
             moisData[mois].total += total;
             totalGlobal += total;
+
+            // Calcul DMR = Date de MAD - Date de création (en jours)
+            let dCreation = excelToDate(row["Date de création"]);
+            let dMAD = excelToDate(row["Date de MAD"]);
+            if(dCreation && dMAD){
+                let diffJours = Math.round((dMAD - dCreation) / (1000*60*60*24));
+                moisData[mois].dmrSomme += diffJours;
+                moisData[mois].dmrCount += 1;
+            }
         }
     });
 
@@ -118,11 +137,15 @@ fetch('Input.xlsx')
                 lignesStyle = 'style="color:orange;font-weight:bold;"';
             }
         }
+        let dmrMoyen = moisData[mois].dmrCount > 0
+            ? (moisData[mois].dmrSomme / moisData[mois].dmrCount).toFixed(1)
+            : "-";
         tr.innerHTML = `
             <td>${mois}</td>
             <td ${lignesStyle}>${moisData[mois].lignes}</td>
             <td>${objectif}</td>
             <td>${moisData[mois].total.toLocaleString('fr-FR')}</td>
+            <td>${dmrMoyen}</td>
         `;
         tbody.appendChild(tr);
     });
@@ -132,6 +155,10 @@ fetch('Input.xlsx')
     }, 0);
     let totalStyle = totalLignes >= totalObjectif ? 'style="color:green;font-weight:bold;"' : 'style="color:orange;font-weight:bold;"';
 
+    let dmrSommeGlobal = moisTries.reduce((s, mois) => s + moisData[mois].dmrSomme, 0);
+    let dmrCountGlobal = moisTries.reduce((s, mois) => s + moisData[mois].dmrCount, 0);
+    let dmrMoyenGlobal = dmrCountGlobal > 0 ? (dmrSommeGlobal / dmrCountGlobal).toFixed(1) : "-";
+
     let trTotal = document.createElement("tr");
     trTotal.classList.add("total-row");
     trTotal.innerHTML = `
@@ -139,6 +166,7 @@ fetch('Input.xlsx')
         <td ${totalStyle}>${totalLignes}</td>
         <td>${totalObjectif}</td>
         <td>${totalGlobal.toLocaleString('fr-FR')}</td>
+        <td>${dmrMoyenGlobal}</td>
     `;
     tbody.appendChild(trTotal);
 });
