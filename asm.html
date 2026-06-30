@@ -1656,8 +1656,11 @@ function kpiDefaultPeriod() {
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
 }
+function kpiIsValidPeriod(period) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(period||'');
+}
 function kpiFmtPeriodLabel(period) {
-  if (!period) return '';
+  if (!kpiIsValidPeriod(period)) return '';
   const [y,m] = period.split('-');
   return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
 }
@@ -1684,7 +1687,9 @@ window.closeKpiPerformances = function() {
 };
 
 window.loadKpiPeriod = async function() {
-  const period = document.getElementById('kpi-period').value || kpiDefaultPeriod();
+  let period = document.getElementById('kpi-period').value;
+  if (!kpiIsValidPeriod(period)) period = kpiDefaultPeriod();
+  document.getElementById('kpi-period').value = period;
   kpiCurrentPeriod = period;
   kpiPendingPhotos = {};
   document.getElementById('kpi-period-label').textContent = kpiFmtPeriodLabel(period);
@@ -1740,14 +1745,14 @@ function renderKpiMembers() {
         </div>
         <div style="flex:1;min-width:0;">
           ${medal ? `<div style="font-family:'Syne',sans-serif;font-weight:800;font-size:12px;color:#8a6310;margin-bottom:2px;">${medal}</div>` : ''}
-          <input ${readonly?'disabled':''} value="${(m.nom||'').replace(/"/g,'&quot;')}" placeholder="Nom du collaborateur" oninput="kpiUpdateField(${i},'nom',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:3px 2px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#1a2236;background:transparent;">
+          <input ${readonly?'disabled':''} value="${(m.nom||'').replace(/"/g,'&quot;')}" placeholder="Nom du collaborateur" oninput="kpiUpdateField(${i},'nom',this.value,true)" onchange="renderKpiMembers()" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:3px 2px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#1a2236;background:transparent;">
         </div>
       </div>
       <div style="padding:10px 14px 14px;">
         <input ${readonly?'disabled':''} value="${(m.poste||'').replace(/"/g,'&quot;')}" placeholder="Poste / Client référent" oninput="kpiUpdateField(${i},'poste',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:3px 2px;font-family:'DM Mono',monospace;font-size:11px;color:#546882;margin-bottom:8px;background:transparent;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <span style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;">Note /20</span>
-          <input ${readonly?'disabled':''} type="number" min="0" max="20" step="0.5" value="${m.note||''}" oninput="kpiUpdateField(${i},'note',this.value,true)" onchange="renderKpiMembers()" style="width:60px;border:1px solid #e2e6ef;border-radius:6px;padding:3px 6px;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:#8a6310;">
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;">Note /10</span>
+          <input ${readonly?'disabled':''} type="number" min="0" max="10" step="0.5" value="${m.note||''}" oninput="kpiUpdateField(${i},'note',this.value,true)" onchange="renderKpiMembers()" style="width:60px;border:1px solid #e2e6ef;border-radius:6px;padding:3px 6px;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:#8a6310;">
         </div>
         <textarea ${readonly?'disabled':''} oninput="kpiUpdateField(${i},'clientsResume',this.value)" placeholder="Résumé clients gérés / faits marquants…" style="width:100%;box-sizing:border-box;border:1px solid #e2e6ef;border-radius:6px;padding:6px 8px;font-size:11px;color:#4b5368;resize:vertical;min-height:46px;font-family:'Helvetica Neue',sans-serif;">${m.clientsResume||''}</textarea>
       </div>
@@ -1767,10 +1772,15 @@ window.kpiTriggerPhotoUpload = function(i) {
   document.getElementById('kpi-photo-input').click();
 };
 
+let kpiPhotoBackup = {}; // idx -> ancienne photoUrl/Path (pour rollback si upload échoue)
+
 window.kpiOnPhotoChosen = function(ev) {
   const file = ev.target.files[0];
   if (!file || kpiEditingIdx === null) return;
   kpiPendingPhotos[kpiEditingIdx] = file;
+  if (!(kpiEditingIdx in kpiPhotoBackup)) {
+    kpiPhotoBackup[kpiEditingIdx] = { photoUrl: kpiData.members[kpiEditingIdx].photoUrl, photoPath: kpiData.members[kpiEditingIdx].photoPath };
+  }
   const reader = new FileReader();
   reader.onload = e => {
     kpiData.members[kpiEditingIdx].photoUrl = e.target.result; // aperçu local
@@ -1784,17 +1794,32 @@ window.saveKpiPerformances = async function() {
   if (!canWrite()) { toast('🔒 Accès lecture seule — connexion admin requise','error'); return; }
   try {
     toast('Enregistrement…');
+    let photoErrors = 0;
     for (const idxStr of Object.keys(kpiPendingPhotos)) {
       const idx = parseInt(idxStr,10);
       const file = kpiPendingPhotos[idx];
-      const res = await uploadFile(file, 'kpi_' + kpiCurrentPeriod + '_' + idx);
-      kpiData.members[idx].photoUrl = res.url;
-      kpiData.members[idx].photoPath = res.path;
+      try {
+        const res = await uploadFile(file, 'kpi_' + kpiCurrentPeriod + '_' + idx);
+        kpiData.members[idx].photoUrl = res.url;
+        kpiData.members[idx].photoPath = res.path;
+      } catch(uploadErr) {
+        // Échec upload (ex: quota Storage dépassé) : on revient à l'ancienne photo pour ne pas
+        // enregistrer un aperçu base64 géant dans Firestore, mais on continue pour le reste.
+        const backup = kpiPhotoBackup[idx] || { photoUrl:null, photoPath:null };
+        kpiData.members[idx].photoUrl = backup.photoUrl;
+        kpiData.members[idx].photoPath = backup.photoPath;
+        photoErrors++;
+      }
     }
     kpiPendingPhotos = {};
+    kpiPhotoBackup = {};
     await setDoc(doc(db, COL_KPI, kpiCurrentPeriod), { period: kpiCurrentPeriod, members: kpiData.members, updatedAt: Date.now() });
     kpiAllDocsCache = null;
-    toast('Performances KPI enregistrées ✓','success');
+    if (photoErrors > 0) {
+      toast(`⚠️ Données enregistrées, mais ${photoErrors} photo(s) non uploadée(s) — espace de stockage Firebase plein`, 'error');
+    } else {
+      toast('Performances KPI enregistrées ✓','success');
+    }
     renderKpiMembers();
     renderKpiEvolution();
   } catch(e) { toast('Erreur : '+e.message,'error'); }
@@ -1878,7 +1903,8 @@ async function kpiFetchAllDocs() {
   return kpiAllDocsCache;
 }
 function kpiLastNPeriods(endPeriod, n) {
-  const [y,m] = (endPeriod || kpiDefaultPeriod()).split('-').map(Number);
+  const base = kpiIsValidPeriod(endPeriod) ? endPeriod : kpiDefaultPeriod();
+  const [y,m] = base.split('-').map(Number);
   const out = [];
   for (let i = n-1; i >= 0; i--) {
     const d = new Date(y, m-1-i, 1);
@@ -1951,7 +1977,7 @@ window.renderKpiEvolution = async function() {
     const avg = members.length ? members.reduce((s,m)=>s+(parseFloat(m.note)||0),0)/members.length : null;
     return { label: kpiFmtPeriodShort(p), value: avg!==null ? Math.round(avg*10)/10 : null };
   });
-  document.getElementById('kpi-chart-note').innerHTML = kpiSvgLineChart(noteValues, {color:'#8a6310', max:20, fmt:v=>v});
+  document.getElementById('kpi-chart-note').innerHTML = kpiSvgLineChart(noteValues, {color:'#8a6310', max:10, fmt:v=>v});
 
   // ── Série montant gagné ──
   const montantValues = periods.map(p => {
