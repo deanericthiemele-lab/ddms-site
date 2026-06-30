@@ -107,7 +107,6 @@ td.actions{white-space:nowrap;text-align:center}
   </select>
   <button class="primary" id="btnAdd">+ Ajouter une liaison</button>
   <button id="btnExport">Exporter Excel</button>
-  <button id="btnTemplate">Modèle Excel</button>
   <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none"/>
   <button id="btnImport">Importer Excel</button>
 </div>
@@ -210,6 +209,57 @@ td.actions{white-space:nowrap;text-align:center}
 const FIELDS = ["cout","bc","montantBc","fournisseur","annee","client","site","localisation","debit","gps","architecture","equipement","modele","ip","dateInstall","statut"];
 let editingId = null;
 let sortKey = null, sortDir = 1;
+let currentRows = []; // dernières lignes affichées (après recherche/filtre/tri) -> utilisées pour l'export dynamique
+
+// Formate un montant en ajoutant des séparateurs de milliers, en conservant un éventuel suffixe (ex: "FCFA")
+function formatMontant(val){
+  if(val === undefined || val === null || val === "") return "";
+  const str = String(val).trim();
+  const match = str.match(/^([\d\s.,]+)(.*)$/);
+  if(!match) return escapeHtml(str);
+  let numPart = match[1].replace(/[\s,]/g, "");
+  let suffix = match[2].trim();
+  if(!numPart) return escapeHtml(str);
+  const num = parseFloat(numPart);
+  if(isNaN(num)) return escapeHtml(str);
+  const formatted = num.toLocaleString("fr-FR");
+  return escapeHtml(formatted + (suffix ? " " + suffix : ""));
+}
+
+// Tente de parser une date dans différents formats (ISO yyyy-mm-dd, jj/mm/aaaa, numéro de série Excel)
+function parseDate(val){
+  if(!val) return null;
+  const str = String(val).trim();
+  let m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m){
+    const d = new Date(+m[1], +m[2]-1, +m[3]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m){
+    const d = new Date(+m[3], +m[2]-1, +m[1]);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if(/^\d+$/.test(str)){
+    const num = parseInt(str, 10);
+    if(num > 20000 && num < 60000){
+      const epoch = new Date(1899, 11, 30);
+      return new Date(epoch.getTime() + num * 86400000);
+    }
+  }
+  return null;
+}
+
+// Affiche la date au format jj/mm/aaaa ; si non reconnue, ne pas planter, afficher la valeur brute
+function formatDateFr(val){
+  if(!val) return "";
+  const d = parseDate(val);
+  if(!d) return escapeHtml(String(val));
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth()+1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
 
 function refreshStatutSelect(){
   const sel = document.getElementById("f_statut");
@@ -300,13 +350,37 @@ function renderTable(){
   }
   if(sortKey){
     rows.sort((a,b) => {
+      if(sortKey === "dateInstall"){
+        const da = parseDate(a.dateInstall);
+        const db = parseDate(b.dateInstall);
+        if(da && db) return (da - db) * sortDir;
+        if(da && !db) return -1;
+        if(!da && db) return 1;
+        return 0;
+      }
       const va = (a[sortKey] || "").toString().toLowerCase();
       const vb = (b[sortKey] || "").toString().toLowerCase();
       if(va < vb) return -1*sortDir;
       if(va > vb) return 1*sortDir;
       return 0;
     });
+  } else {
+    // Tri par défaut : statut "En cours" en premier, puis date d'installation la plus récente
+    // Les valeurs de date non reconnues ne bloquent pas le tri (placées en fin de liste)
+    rows.sort((a,b) => {
+      const aEnCours = (a.statut || "").toLowerCase().includes("en cours") ? 0 : 1;
+      const bEnCours = (b.statut || "").toLowerCase().includes("en cours") ? 0 : 1;
+      if(aEnCours !== bEnCours) return aEnCours - bEnCours;
+      const da = parseDate(a.dateInstall);
+      const db = parseDate(b.dateInstall);
+      if(da && db) return db - da;
+      if(da && !db) return -1;
+      if(!da && db) return 1;
+      return 0;
+    });
   }
+
+  currentRows = rows;
 
   document.getElementById("resume").textContent = "Constructions BLR : " + rows.length;
 
@@ -318,9 +392,9 @@ function renderTable(){
 
   tbody.innerHTML = rows.map(r => `
     <tr>
-      <td>${escapeHtml(r.cout)}</td>
+      <td>${formatMontant(r.cout)}</td>
       <td>${escapeHtml(r.bc)}</td>
-      <td>${escapeHtml(r.montantBc)}</td>
+      <td>${formatMontant(r.montantBc)}</td>
       <td>${escapeHtml(r.fournisseur)}</td>
       <td>${escapeHtml(r.annee)}</td>
       <td>${escapeHtml(r.client)}</td>
@@ -332,7 +406,7 @@ function renderTable(){
       <td>${escapeHtml(r.equipement)}</td>
       <td>${escapeHtml(r.modele)}</td>
       <td>${escapeHtml(r.ip)}</td>
-      <td>${escapeHtml(r.dateInstall)}</td>
+      <td>${formatDateFr(r.dateInstall)}</td>
       <td>${escapeHtml(r.statut)}</td>
       <td class="actions">
         <button onclick="editRow('${r.id}')">✏️</button>
@@ -354,10 +428,10 @@ document.querySelectorAll("#tableBlr th[data-key]").forEach(th => {
   });
 });
 
-// Export Excel
+// Export Excel — tient compte de la recherche / du filtre année / du tri en cours
 document.getElementById("btnExport").onclick = () => {
-  const data = window._blrData || {};
-  const rows = Object.values(data).map(r => ({
+  const rows = (currentRows && currentRows.length) ? currentRows : Object.values(window._blrData || {});
+  const exportRows = rows.map(r => ({
     "Coût": r.cout || "",
     "Bon de commande": r.bc || "",
     "Montant BC": r.montantBc || "",
@@ -372,23 +446,14 @@ document.getElementById("btnExport").onclick = () => {
     "Équipement": r.equipement || "",
     "Modèle": r.modele || "",
     "Adresse IP": r.ip || "",
-    "Date installation": r.dateInstall || "",
+    "Date installation": formatDateFr(r.dateInstall) || (r.dateInstall || ""),
     "Statut": r.statut || ""
   }));
   const headers = ["Coût","Bon de commande","Montant BC","Fournisseur","Année","Client","Site","Localisation","Débit","GPS","Architecture","Équipement","Modèle","Adresse IP","Date installation","Statut"];
-  const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
+  const ws = XLSX.utils.json_to_sheet(exportRows, { header: headers });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "BLR");
   XLSX.writeFile(wb, "constructions_BLR.xlsx");
-};
-
-// Modèle Excel (entêtes uniquement)
-document.getElementById("btnTemplate").onclick = () => {
-  const headers = ["Coût","Bon de commande","Montant BC","Fournisseur","Année","Client","Site","Localisation","Débit","GPS","Architecture","Équipement","Modèle","Adresse IP","Date installation","Statut"];
-  const ws = XLSX.utils.aoa_to_sheet([headers]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Modèle BLR");
-  XLSX.writeFile(wb, "modele_BLR.xlsx");
 };
 
 // Import Excel
