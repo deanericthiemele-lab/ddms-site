@@ -31,7 +31,8 @@ style="margin-bottom:20px;padding:8px 14px;border:none;background:#d3d3d3;border
 <th>Nombre de lignes</th>
 <th>Objectif volume</th>
 <th>CA Mensuel</th>
-<th>DMR moyen (jours)</th>
+<th>DMR Technique moyen (j. ouvrés)</th>
+<th>DMR MES moyen (j. ouvrés)</th>
 </tr>
 </thead>
 <tbody></tbody>
@@ -48,15 +49,6 @@ fetch('Input.xlsx')
     let moisData = {};
     let totalGlobal = 0;
     let totalLignes = 0;
-
-    function excelToDate(v){
-        if(!v) return null;
-        if(typeof v === "number"){
-            return new Date((v - 25569) * 86400 * 1000);
-        }
-        const d = new Date(v);
-        return isNaN(d) ? null : d;
-    }
 
     json.forEach(row => {
 
@@ -76,7 +68,7 @@ fetch('Input.xlsx')
             let mois = jsDate.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
             if(!moisData[mois]){
-                moisData[mois] = { lignes: 0, total: 0, dmrSomme: 0, dmrCount: 0 };
+                moisData[mois] = { lignes: 0, total: 0, dmrSomme: 0, dmrCount: 0, dmrMesSomme: 0, dmrMesCount: 0 };
             }
 
             // Exclure CAT = "Transfert" du nombre de lignes uniquement
@@ -89,13 +81,19 @@ fetch('Input.xlsx')
             moisData[mois].total += total;
             totalGlobal += total;
 
-            // Calcul DMR = Date de MAD - Date de création (en jours)
-            let dCreation = excelToDate(row["Date de création"]);
-            let dMAD = excelToDate(row["Date de MAD"]);
-            if(dCreation && dMAD){
-                let diffJours = Math.round((dMAD - dCreation) / (1000*60*60*24));
-                moisData[mois].dmrSomme += diffJours;
+            // DMR TECHNIQUE : colonne déjà calculée dans le fichier Excel (jours ouvrés)
+            let dmrTechnique = Number(row["DMR TECHNIQUE"]);
+            if(!isNaN(dmrTechnique) && row["DMR TECHNIQUE"] !== "" && row["DMR TECHNIQUE"] !== null){
+                moisData[mois].dmrSomme += dmrTechnique;
                 moisData[mois].dmrCount += 1;
+            }
+
+            // DMR MES : colonne déjà calculée dans le fichier Excel (jours ouvrés)
+            let dmrMesKey = Object.keys(row).find(k => k.replace(/\s+/g," ").trim().toUpperCase() === "DMR MES");
+            let dmrMes = dmrMesKey ? Number(row[dmrMesKey]) : NaN;
+            if(!isNaN(dmrMes) && dmrMesKey && row[dmrMesKey] !== "" && row[dmrMesKey] !== null){
+                moisData[mois].dmrMesSomme += dmrMes;
+                moisData[mois].dmrMesCount += 1;
             }
         }
     });
@@ -140,12 +138,16 @@ fetch('Input.xlsx')
         let dmrMoyen = moisData[mois].dmrCount > 0
             ? (moisData[mois].dmrSomme / moisData[mois].dmrCount).toFixed(1)
             : "-";
+        let dmrMesMoyen = moisData[mois].dmrMesCount > 0
+            ? (moisData[mois].dmrMesSomme / moisData[mois].dmrMesCount).toFixed(1)
+            : "-";
         tr.innerHTML = `
             <td>${mois}</td>
             <td ${lignesStyle}>${moisData[mois].lignes}</td>
             <td>${objectif}</td>
             <td>${moisData[mois].total.toLocaleString('fr-FR')}</td>
             <td>${dmrMoyen}</td>
+            <td>${dmrMesMoyen}</td>
         `;
         tbody.appendChild(tr);
     });
@@ -159,6 +161,10 @@ fetch('Input.xlsx')
     let dmrCountGlobal = moisTries.reduce((s, mois) => s + moisData[mois].dmrCount, 0);
     let dmrMoyenGlobal = dmrCountGlobal > 0 ? (dmrSommeGlobal / dmrCountGlobal).toFixed(1) : "-";
 
+    let dmrMesSommeGlobal = moisTries.reduce((s, mois) => s + moisData[mois].dmrMesSomme, 0);
+    let dmrMesCountGlobal = moisTries.reduce((s, mois) => s + moisData[mois].dmrMesCount, 0);
+    let dmrMesMoyenGlobal = dmrMesCountGlobal > 0 ? (dmrMesSommeGlobal / dmrMesCountGlobal).toFixed(1) : "-";
+
     let trTotal = document.createElement("tr");
     trTotal.classList.add("total-row");
     trTotal.innerHTML = `
@@ -167,6 +173,7 @@ fetch('Input.xlsx')
         <td>${totalObjectif}</td>
         <td>${totalGlobal.toLocaleString('fr-FR')}</td>
         <td>${dmrMoyenGlobal}</td>
+        <td>${dmrMesMoyenGlobal}</td>
     `;
     tbody.appendChild(trTotal);
 });
