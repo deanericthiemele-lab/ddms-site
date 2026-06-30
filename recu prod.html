@@ -22,6 +22,10 @@ style="margin-bottom:20px;padding:8px 14px;border:none;background:#d3d3d3;border
 ⬅ Retour
 </button>
 
+<div style="text-align:center;margin-bottom:20px;">
+<input type="file" id="fileInput" accept=".xlsx,.xls">
+</div>
+
 <h1>Bilan des productions B2B (LN)</h1>
 
 <table id="resultTable">
@@ -37,12 +41,16 @@ style="margin-bottom:20px;padding:8px 14px;border:none;background:#d3d3d3;border
 </table>
 
 <script>
-fetch('Input.xlsx')
-.then(response => response.arrayBuffer())
-.then(data => {
-    const workbook = XLSX.read(data, {type: 'array'});
-    const sheet = workbook.Sheets["MES"];
-    const json = XLSX.utils.sheet_to_json(sheet, {raw:true});
+document.getElementById('fileInput').addEventListener('change', function(e){
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(evt){
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, {type: 'array'});
+        const sheet = workbook.Sheets["MES"];
+        const json = XLSX.utils.sheet_to_json(sheet, {raw:true});
 
     let moisData = {};
     let totalGlobal = 0;
@@ -105,6 +113,7 @@ fetch('Input.xlsx')
     });
 
     const tbody = document.querySelector("#resultTable tbody");
+    tbody.innerHTML = "";
 
     moisTries.forEach(mois => {
         let tr = document.createElement("tr");
@@ -126,17 +135,22 @@ fetch('Input.xlsx')
         tbody.appendChild(tr);
     });
 
-    let totalObjectif = Object.values(objectifs2026).reduce((a,b)=>a+b,0);
+    let totalObjectif = moisTries.reduce((sum, mois) => {
+        return sum + (objectifs2026[mois] !== undefined ? objectifs2026[mois] : 0);
+    }, 0);
+    let totalStyle = totalLignes >= totalObjectif ? 'style="color:green;font-weight:bold;"' : 'style="color:orange;font-weight:bold;"';
 
     let trTotal = document.createElement("tr");
     trTotal.classList.add("total-row");
     trTotal.innerHTML = `
         <td>TOTAL</td>
-        <td>${totalLignes}</td>
+        <td ${totalStyle}>${totalLignes}</td>
         <td>${totalObjectif}</td>
         <td>${totalGlobal.toLocaleString('fr-FR')}</td>
     `;
     tbody.appendChild(trTotal);
+    };
+    reader.readAsArrayBuffer(file);
 });
 </script>
 
