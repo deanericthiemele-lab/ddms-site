@@ -1721,15 +1721,18 @@ function renderKpiMembers() {
   const grid = document.getElementById('kpi-members-grid');
   const readonly = !canWrite();
   const ranked = kpiRankedIndexes();
+  const unranked = kpiData.members.map((m,i)=>i).filter(i => ranked.indexOf(i) === -1);
+  const displayOrder = [...ranked, ...unranked]; // mieux notés d'abord, cadres vides à la fin
   const medals = ['🥇','🥈','🥉'];
-  grid.innerHTML = kpiData.members.map((m,i) => {
+  grid.innerHTML = displayOrder.map(i => {
+    const m = kpiData.members[i];
     const rankPos = ranked.indexOf(i);
     const medal = rankPos >= 0 && rankPos < 3 ? medals[rankPos] : (rankPos >= 0 ? `#${rankPos+1}` : '');
     const photo = m.photoUrl
       ? `<img src="${m.photoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
       : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#cbb074;font-size:20px;border-radius:50%;">👤</div>`;
     return `
-    <div style="background:#fff;border:1px solid ${rankPos===0?'#e8c873':'#e2e6ef'};border-radius:14px;overflow:hidden;box-shadow:${rankPos===0?'0 2px 10px rgba(232,200,115,.35)':'0 1px 4px rgba(37,99,235,.05)'};position:relative;">
+    <div style="background:#fff;border:1px solid ${rankPos===0?'#e8c873':'#e2e6ef'};border-radius:14px;overflow:hidden;box-shadow:${rankPos===0?'0 2px 10px rgba(232,200,115,.35)':'0 1px 4px rgba(37,99,235,.05)'};position:relative;transition:order .25s;">
       <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 0;">
         <div style="position:relative;width:54px;height:54px;flex-shrink:0;border-radius:50%;background:#fdf3da;border:2px solid ${rankPos===0?'#e8c873':'#f0e3c0'};cursor:${readonly?'default':'pointer'};overflow:hidden;" ${readonly?'':`onclick="kpiTriggerPhotoUpload(${i})"`} title="${readonly?'':'Changer la photo'}">
           ${photo}
@@ -1744,7 +1747,7 @@ function renderKpiMembers() {
         <input ${readonly?'disabled':''} value="${(m.poste||'').replace(/"/g,'&quot;')}" placeholder="Poste / Client référent" oninput="kpiUpdateField(${i},'poste',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:3px 2px;font-family:'DM Mono',monospace;font-size:11px;color:#546882;margin-bottom:8px;background:transparent;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;">Note /20</span>
-          <input ${readonly?'disabled':''} type="number" min="0" max="20" step="0.5" value="${m.note||''}" oninput="kpiUpdateField(${i},'note',this.value)" style="width:60px;border:1px solid #e2e6ef;border-radius:6px;padding:3px 6px;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:#8a6310;">
+          <input ${readonly?'disabled':''} type="number" min="0" max="20" step="0.5" value="${m.note||''}" oninput="kpiUpdateField(${i},'note',this.value,true)" onchange="renderKpiMembers()" style="width:60px;border:1px solid #e2e6ef;border-radius:6px;padding:3px 6px;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:#8a6310;">
         </div>
         <textarea ${readonly?'disabled':''} oninput="kpiUpdateField(${i},'clientsResume',this.value)" placeholder="Résumé clients gérés / faits marquants…" style="width:100%;box-sizing:border-box;border:1px solid #e2e6ef;border-radius:6px;padding:6px 8px;font-size:11px;color:#4b5368;resize:vertical;min-height:46px;font-family:'Helvetica Neue',sans-serif;">${m.clientsResume||''}</textarea>
       </div>
@@ -1752,10 +1755,10 @@ function renderKpiMembers() {
   }).join('');
 }
 
-window.kpiUpdateField = function(i, field, value) {
+window.kpiUpdateField = function(i, field, value, skipRerender) {
   if (!canWrite()) return;
   kpiData.members[i][field] = value;
-  if (field === 'nom' || field === 'note') renderKpiMembers();
+  if (!skipRerender && (field === 'nom' || field === 'note')) renderKpiMembers();
 };
 
 window.kpiTriggerPhotoUpload = function(i) {
