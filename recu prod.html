@@ -5,8 +5,6 @@
 <meta charset="utf-8">
 <title>Somme mensuelle - Total</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
 <style>
 body{font-family:Arial,Helvetica,sans-serif;margin:40px;}
@@ -15,9 +13,6 @@ th,td{border:1px solid #ccc;padding:12px 16px;text-align:center;}
 th{background:#f2f2f2;}
 tr.total-row td{font-weight:bold;background:#eaeaea;}
 h1{text-align:center;margin-bottom:30px;}
-input.dmr-input{width:70px;padding:4px;text-align:center;border:1px solid #ccc;border-radius:4px;}
-input.dmr-input:focus{outline:2px solid #4caf50;}
-.dmr-status{font-size:11px;color:#888;display:block;margin-top:2px;}
 </style>
 </head>
 <body>
@@ -36,36 +31,12 @@ style="margin-bottom:20px;padding:8px 14px;border:none;background:#d3d3d3;border
 <th>Nombre de lignes</th>
 <th>Objectif volume</th>
 <th>CA Mensuel</th>
-<th>DMR</th>
 </tr>
 </thead>
 <tbody></tbody>
 </table>
 
 <script>
-// Configuration Firebase (projet ddms-architectures - reprendre la même config que vos autres pages)
-const firebaseConfig = {
-    apiKey: "VOTRE_API_KEY",
-    authDomain: "ddms-architectures.firebaseapp.com",
-    projectId: "ddms-architectures",
-    storageBucket: "ddms-architectures.appspot.com",
-    messagingSenderId: "VOTRE_SENDER_ID",
-    appId: "VOTRE_APP_ID"
-};
-
-if(!firebase.apps.length){
-    firebase.initializeApp(firebaseConfig);
-}
-const db = firebase.firestore();
-const dmrCollection = db.collection("dmr_b2b");
-
-function saveDMR(mois, valeur, statusEl){
-    statusEl.textContent = "Enregistrement...";
-    dmrCollection.doc(mois).set({ valeur: valeur, updatedAt: new Date().toISOString() })
-        .then(() => { statusEl.textContent = "Enregistré ✓"; setTimeout(()=>statusEl.textContent="",1500); })
-        .catch(err => { statusEl.textContent = "Erreur"; console.error(err); });
-}
-
 fetch('Input.xlsx')
 .then(response => response.arrayBuffer())
 .then(data => {
@@ -136,60 +107,40 @@ fetch('Input.xlsx')
     const tbody = document.querySelector("#resultTable tbody");
     tbody.innerHTML = "";
 
-    dmrCollection.get().then(snapshot => {
-        let dmrValues = {};
-        snapshot.forEach(doc => { dmrValues[doc.id] = doc.data().valeur; });
-
-        moisTries.forEach(mois => {
-            let tr = document.createElement("tr");
-            let objectif = objectifs2026[mois] !== undefined ? objectifs2026[mois] : "-";
-            let lignesStyle = "";
-            if(objectif !== "-"){
-                if(moisData[mois].lignes >= objectif){
-                    lignesStyle = 'style="color:green;font-weight:bold;"';
-                } else {
-                    lignesStyle = 'style="color:orange;font-weight:bold;"';
-                }
+    moisTries.forEach(mois => {
+        let tr = document.createElement("tr");
+        let objectif = objectifs2026[mois] !== undefined ? objectifs2026[mois] : "-";
+        let lignesStyle = "";
+        if(objectif !== "-"){
+            if(moisData[mois].lignes >= objectif){
+                lignesStyle = 'style="color:green;font-weight:bold;"';
+            } else {
+                lignesStyle = 'style="color:orange;font-weight:bold;"';
             }
-            let dmrVal = dmrValues[mois] !== undefined ? dmrValues[mois] : "";
-            tr.innerHTML = `
-                <td>${mois}</td>
-                <td ${lignesStyle}>${moisData[mois].lignes}</td>
-                <td>${objectif}</td>
-                <td>${moisData[mois].total.toLocaleString('fr-FR')}</td>
-                <td>
-                    <input type="number" step="0.01" class="dmr-input" value="${dmrVal}" data-mois="${mois}">
-                    <span class="dmr-status"></span>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-
-        let totalObjectif = moisTries.reduce((sum, mois) => {
-            return sum + (objectifs2026[mois] !== undefined ? objectifs2026[mois] : 0);
-        }, 0);
-        let totalStyle = totalLignes >= totalObjectif ? 'style="color:green;font-weight:bold;"' : 'style="color:orange;font-weight:bold;"';
-
-        let trTotal = document.createElement("tr");
-        trTotal.classList.add("total-row");
-        trTotal.innerHTML = `
-            <td>TOTAL</td>
-            <td ${totalStyle}>${totalLignes}</td>
-            <td>${totalObjectif}</td>
-            <td>${totalGlobal.toLocaleString('fr-FR')}</td>
-            <td>-</td>
+        }
+        tr.innerHTML = `
+            <td>${mois}</td>
+            <td ${lignesStyle}>${moisData[mois].lignes}</td>
+            <td>${objectif}</td>
+            <td>${moisData[mois].total.toLocaleString('fr-FR')}</td>
         `;
-        tbody.appendChild(trTotal);
-
-        document.querySelectorAll(".dmr-input").forEach(input => {
-            input.addEventListener("change", function(){
-                const mois = this.dataset.mois;
-                const statusEl = this.nextElementSibling;
-                const valeur = this.value === "" ? null : Number(this.value);
-                saveDMR(mois, valeur, statusEl);
-            });
-        });
+        tbody.appendChild(tr);
     });
+
+    let totalObjectif = moisTries.reduce((sum, mois) => {
+        return sum + (objectifs2026[mois] !== undefined ? objectifs2026[mois] : 0);
+    }, 0);
+    let totalStyle = totalLignes >= totalObjectif ? 'style="color:green;font-weight:bold;"' : 'style="color:orange;font-weight:bold;"';
+
+    let trTotal = document.createElement("tr");
+    trTotal.classList.add("total-row");
+    trTotal.innerHTML = `
+        <td>TOTAL</td>
+        <td ${totalStyle}>${totalLignes}</td>
+        <td>${totalObjectif}</td>
+        <td>${totalGlobal.toLocaleString('fr-FR')}</td>
+    `;
+    tbody.appendChild(trTotal);
 });
 </script>
 
