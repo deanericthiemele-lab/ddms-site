@@ -9,7 +9,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, doc, setDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
 const firebaseConfig = {
@@ -1639,6 +1639,223 @@ window.closeAllOpportunites = function() {
   document.getElementById('modal-all-opportunites').style.display = 'none';
 };
 
+// ══════════════════════════════════════════════════════
+// 🏆 PERFORMANCES KPI — classement équipe + opportunités gagnées
+// ══════════════════════════════════════════════════════
+const COL_KPI = 'asm_performance_kpi';
+const KPI_NB_CADRES = 6;
+let kpiCurrentPeriod = null;
+let kpiData = null; // { period, members:[{nom,poste,note,commentaire,clientsResume,photoUrl,photoPath}] }
+let kpiPendingPhotos = {}; // idx -> File
+let kpiEditingIdx = null;
+
+function kpiEmptyMember() {
+  return { nom:'', poste:'', note:'', commentaire:'', clientsResume:'', photoUrl:null, photoPath:null };
+}
+function kpiDefaultPeriod() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function kpiFmtPeriodLabel(period) {
+  if (!period) return '';
+  const [y,m] = period.split('-');
+  return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+}
+function kpiParseMontant(str) {
+  if (!str) return 0;
+  const digits = String(str).replace(/[^\d]/g,'');
+  return digits ? parseInt(digits,10) : 0;
+}
+function kpiFmtMontant(n) {
+  return n.toLocaleString('fr-FR') + ' F';
+}
+
+window.openKpiPerformances = async function() {
+  document.getElementById('kpi-role-badge').textContent = APP_ROLE === 'visitor' ? '👁 LECTURE SEULE' : (APP_ROLE === 'admin' ? '🔑 ADMIN' : '👑 SUPER ADMIN');
+  document.getElementById('kpi-save-btn').style.display = canWrite() ? 'inline-block' : 'none';
+  if (!kpiCurrentPeriod) kpiCurrentPeriod = kpiDefaultPeriod();
+  document.getElementById('kpi-period').value = kpiCurrentPeriod;
+  document.getElementById('modal-kpi').style.display = 'block';
+  await loadKpiPeriod();
+};
+
+window.closeKpiPerformances = function() {
+  document.getElementById('modal-kpi').style.display = 'none';
+};
+
+window.loadKpiPeriod = async function() {
+  const period = document.getElementById('kpi-period').value || kpiDefaultPeriod();
+  kpiCurrentPeriod = period;
+  kpiPendingPhotos = {};
+  document.getElementById('kpi-period-label').textContent = kpiFmtPeriodLabel(period);
+  document.getElementById('kpi-opp-period-label').textContent = kpiFmtPeriodLabel(period);
+  try {
+    const snap = await getDoc(doc(db, COL_KPI, period));
+    if (snap.exists()) {
+      const d = snap.data();
+      const members = (d.members||[]).slice(0, KPI_NB_CADRES);
+      while (members.length < KPI_NB_CADRES) members.push(kpiEmptyMember());
+      kpiData = { period, members };
+    } else {
+      kpiData = { period, members: Array.from({length:KPI_NB_CADRES}, kpiEmptyMember) };
+    }
+  } catch(e) {
+    toast('Erreur chargement KPI : '+e.message,'error');
+    kpiData = { period, members: Array.from({length:KPI_NB_CADRES}, kpiEmptyMember) };
+  }
+  renderKpiMembers();
+  renderKpiOpportunites();
+};
+
+function kpiRankedIndexes() {
+  // Indexes des membres remplis (nom non vide), triés par note décroissante
+  return kpiData.members
+    .map((m,i)=>({i, note: parseFloat(m.note)||0, nom:m.nom}))
+    .filter(x => x.nom && x.nom.trim())
+    .sort((a,b)=> b.note - a.note)
+    .map(x=>x.i);
+}
+
+function renderKpiMembers() {
+  const grid = document.getElementById('kpi-members-grid');
+  const readonly = !canWrite();
+  const ranked = kpiRankedIndexes();
+  const medals = ['🥇','🥈','🥉'];
+  grid.innerHTML = kpiData.members.map((m,i) => {
+    const rankPos = ranked.indexOf(i);
+    const medal = rankPos >= 0 && rankPos < 3 ? medals[rankPos] : (rankPos >= 0 ? `#${rankPos+1}` : '');
+    const photo = m.photoUrl
+      ? `<img src="${m.photoUrl}" style="width:100%;height:100%;object-fit:cover;">`
+      : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#cbb074;font-size:30px;">👤</div>`;
+    return `
+    <div style="background:#fff;border:1px solid ${rankPos===0?'#e8c873':'#e2e6ef'};border-radius:14px;overflow:hidden;box-shadow:${rankPos===0?'0 2px 10px rgba(232,200,115,.35)':'0 1px 4px rgba(37,99,235,.05)'};position:relative;">
+      ${medal ? `<div style="position:absolute;top:8px;left:8px;z-index:2;background:rgba(255,255,255,.92);border-radius:20px;padding:2px 9px;font-family:'Syne',sans-serif;font-weight:800;font-size:12px;color:#8a6310;">${medal}</div>` : ''}
+      <div style="position:relative;width:100%;aspect-ratio:1/1;background:#fdf3da;cursor:${readonly?'default':'pointer'};" ${readonly?'':`onclick="kpiTriggerPhotoUpload(${i})"`}>
+        ${photo}
+        ${readonly?'':'<div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.45);color:#fff;font-family:\'DM Mono\',monospace;font-size:10px;text-align:center;padding:4px 0;">📷 Changer la photo</div>'}
+      </div>
+      <div style="padding:12px 14px;">
+        <input ${readonly?'disabled':''} value="${(m.nom||'').replace(/"/g,'&quot;')}" placeholder="Nom du collaborateur" oninput="kpiUpdateField(${i},'nom',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:4px 2px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#1a2236;margin-bottom:6px;background:transparent;">
+        <input ${readonly?'disabled':''} value="${(m.poste||'').replace(/"/g,'&quot;')}" placeholder="Poste / Client référent" oninput="kpiUpdateField(${i},'poste',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:3px 2px;font-family:'DM Mono',monospace;font-size:11px;color:#546882;margin-bottom:8px;background:transparent;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;">Note /20</span>
+          <input ${readonly?'disabled':''} type="number" min="0" max="20" step="0.5" value="${m.note||''}" oninput="kpiUpdateField(${i},'note',this.value)" style="width:60px;border:1px solid #e2e6ef;border-radius:6px;padding:3px 6px;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:#8a6310;">
+        </div>
+        <textarea ${readonly?'disabled':''} oninput="kpiUpdateField(${i},'clientsResume',this.value)" placeholder="Résumé clients gérés / faits marquants…" style="width:100%;box-sizing:border-box;border:1px solid #e2e6ef;border-radius:6px;padding:6px 8px;font-size:11px;color:#4b5368;resize:vertical;min-height:46px;font-family:'Helvetica Neue',sans-serif;">${m.clientsResume||''}</textarea>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.kpiUpdateField = function(i, field, value) {
+  if (!canWrite()) return;
+  kpiData.members[i][field] = value;
+  if (field === 'nom' || field === 'note') renderKpiMembers();
+};
+
+window.kpiTriggerPhotoUpload = function(i) {
+  if (!canWrite()) return;
+  kpiEditingIdx = i;
+  document.getElementById('kpi-photo-input').click();
+};
+
+window.kpiOnPhotoChosen = function(ev) {
+  const file = ev.target.files[0];
+  if (!file || kpiEditingIdx === null) return;
+  kpiPendingPhotos[kpiEditingIdx] = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    kpiData.members[kpiEditingIdx].photoUrl = e.target.result; // aperçu local
+    renderKpiMembers();
+  };
+  reader.readAsDataURL(file);
+  ev.target.value = '';
+};
+
+window.saveKpiPerformances = async function() {
+  if (!canWrite()) { toast('🔒 Accès lecture seule — connexion admin requise','error'); return; }
+  try {
+    toast('Enregistrement…');
+    for (const idxStr of Object.keys(kpiPendingPhotos)) {
+      const idx = parseInt(idxStr,10);
+      const file = kpiPendingPhotos[idx];
+      const res = await uploadFile(file, 'kpi_' + kpiCurrentPeriod + '_' + idx);
+      kpiData.members[idx].photoUrl = res.url;
+      kpiData.members[idx].photoPath = res.path;
+    }
+    kpiPendingPhotos = {};
+    await setDoc(doc(db, COL_KPI, kpiCurrentPeriod), { period: kpiCurrentPeriod, members: kpiData.members, updatedAt: Date.now() });
+    toast('Performances KPI enregistrées ✓','success');
+    renderKpiMembers();
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+function kpiOpportunitesGagneesPeriode() {
+  const period = kpiCurrentPeriod;
+  const rows = [];
+  clients.forEach(c => {
+    (c.opportunites||[]).forEach(o => {
+      if (o.statut === 'Gagné' && (o.date||'').startsWith(period)) {
+        const asm = getAsmOfClient(c.id);
+        rows.push({
+          client: c.nom, titre: o.titre, date: o.date,
+          montant: kpiParseMontant(o.montant), montantTxt: o.montant || '—',
+          asm: asm ? asm.nom : '—'
+        });
+      }
+    });
+  });
+  rows.sort((a,b)=> b.montant - a.montant);
+  return rows;
+}
+
+function renderKpiOpportunites() {
+  const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+  const rows = kpiOpportunitesGagneesPeriode();
+  const total = rows.reduce((s,r)=>s+r.montant,0);
+
+  document.getElementById('kpi-opp-kpis').innerHTML = `
+    <div style="background:#fff;border:1px solid #b6e4cb;border-radius:10px;padding:12px 16px;text-align:center;">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:#15803d;">${rows.length}</div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px;">Opportunités gagnées</div>
+    </div>
+    <div style="background:#fff;border:1px solid #b6e4cb;border-radius:10px;padding:12px 16px;text-align:center;">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:#15803d;">${kpiFmtMontant(total)}</div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px;">Montant total gagné</div>
+    </div>
+    <div style="background:#fff;border:1px solid #b6e4cb;border-radius:10px;padding:12px 16px;text-align:center;">
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;color:#15803d;">${rows.length ? kpiFmtMontant(Math.round(total/rows.length)) : '0 F'}</div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;margin-top:2px;">Montant moyen / deal</div>
+    </div>`;
+
+  document.getElementById('kpi-opp-table-body').innerHTML = rows.length ? rows.map(r => `
+    <tr>
+      <td class="tbl-td" style="font-size:12px;font-weight:600;">${r.client}</td>
+      <td class="tbl-td" style="font-size:12px;">${r.titre}</td>
+      <td class="tbl-td" style="font-size:11px;color:#546882;">${r.asm}</td>
+      <td class="tbl-td" style="font-size:11px;color:#8796b0;">${fmtD(r.date)}</td>
+      <td class="tbl-td mono" style="text-align:right;font-weight:700;color:#15803d;">${r.montantTxt}</td>
+    </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:12px;">Aucune opportunité gagnée sur cette période</td></tr>`;
+
+  // Classement ASM par montant
+  const byAsm = {};
+  rows.forEach(r => { byAsm[r.asm] = byAsm[r.asm] || {montant:0,count:0}; byAsm[r.asm].montant += r.montant; byAsm[r.asm].count += 1; });
+  const asmRanked = Object.entries(byAsm).sort((a,b)=> b[1].montant - a[1].montant);
+  const maxMontant = asmRanked.length ? asmRanked[0][1].montant : 0;
+  const medals = ['🥇','🥈','🥉'];
+  document.getElementById('kpi-asm-ranking').innerHTML = asmRanked.length ? asmRanked.map(([nom,d],idx) => `
+    <div style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">
+        <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">${medals[idx]||('#'+(idx+1))} ${nom}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:#15803d;">${kpiFmtMontant(d.montant)}</span>
+      </div>
+      <div style="background:#edf1f9;border-radius:20px;height:7px;overflow:hidden;">
+        <div style="background:linear-gradient(90deg,#15803d,#22c55e);height:100%;width:${maxMontant?Math.round(d.montant/maxMontant*100):0}%;"></div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;margin-top:2px;">${d.count} deal${d.count>1?'s':''} gagné${d.count>1?'s':''}</div>
+    </div>`).join('') : `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);text-align:center;padding:1rem 0;">Aucune donnée</div>`;
+}
+
 window.renderAllOpportunites = function() {
   const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '—';
   const filterStatut = document.getElementById('all-opp-filter-statut').value;
@@ -2397,6 +2614,9 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
     <button onclick="openAllOpportunites()" id="btn-all-opportunites" style="width:100%;margin-top:6px;background:#f0faf4;border:1px solid #b6e4cb;border-radius:8px;color:#15803d;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;padding:8px 10px;cursor:pointer;letter-spacing:.05em;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px;" onmouseover="this.style.background='#dcf5e8'" onmouseout="this.style.background='#f0faf4'">
       💡 Suivi opportunités
     </button>
+    <button onclick="openKpiPerformances()" id="btn-kpi-performances" style="width:100%;margin-top:6px;background:linear-gradient(135deg,#fff8e6,#fdf0d0);border:1px solid #e8c873;border-radius:8px;color:#8a6310;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;padding:8px 10px;cursor:pointer;letter-spacing:.05em;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px;" onmouseover="this.style.background='linear-gradient(135deg,#fdeebc,#f9e3a8)'" onmouseout="this.style.background='linear-gradient(135deg,#fff8e6,#fdf0d0)'">
+      🏆 Performances KPI
+    </button>
   </div>
   <div class="client-list" id="client-list"></div>
   <div class="sidebar-footer" id="sidebar-count">Chargement…</div>
@@ -2913,6 +3133,67 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
     <div id="all-opp-body" style="padding:20px 22px;flex:1;overflow:auto;background:#f0faf4;"></div>
   </div>
 </div>
+
+<!-- ══ MODAL PERFORMANCES KPI ══ -->
+<div id="modal-kpi" style="display:none;position:fixed;inset:0;background:rgba(10,15,30,.55);z-index:9990;overflow:auto;">
+  <div style="background:#fffaf0;min-height:100vh;display:flex;flex-direction:column;">
+    <!-- Header -->
+    <div style="display:flex;align-items:center;gap:12px;padding:16px 22px;background:linear-gradient(135deg,#fdf3da,#f9e6b8);border-bottom:1px solid #e8c873;position:sticky;top:0;z-index:10;flex-shrink:0;flex-wrap:wrap;">
+      <a href="asm.html" style="display:flex;align-items:center;gap:5px;background:#fff3da;border:1px solid #e8c873;border-radius:8px;color:#8a6310;font-family:'DM Mono',monospace;font-size:11px;font-weight:700;padding:6px 12px;text-decoration:none;white-space:nowrap;transition:background .15s;" onmouseover="this.style.background='#f7e6b0'" onmouseout="this.style.background='#fff3da'"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg> Retour ASM</a>
+      <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:#8a6310;">🏆 Performances KPI</span>
+      <span id="kpi-role-badge" style="background:rgba(138,99,16,.1);color:#8a6310;font-family:'DM Mono',monospace;font-size:10px;border-radius:20px;padding:3px 12px;font-weight:700;"></span>
+      <div style="flex:1"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:11px;color:#8a6310;font-weight:700;">
+        📅 Période
+        <input type="month" id="kpi-period" onchange="loadKpiPeriod()" style="font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid #e8c873;font-family:'DM Mono',monospace;cursor:pointer;background:#fff;color:#1a2236;">
+      </label>
+      <button id="kpi-save-btn" onclick="saveKpiPerformances()" style="background:#8a6310;border:1px solid #8a6310;border-radius:8px;color:#fff;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;padding:8px 14px;cursor:pointer;letter-spacing:.04em;">💾 Enregistrer</button>
+      <button onclick="closeKpiPerformances()" style="background:#fff3da;border:1px solid #e8c873;border-radius:8px;color:#8a6310;font-size:18px;width:34px;height:34px;cursor:pointer;line-height:1;transition:background .15s;" onmouseover="this.style.background='#f7e6b0'" onmouseout="this.style.background='#fff3da'">✕</button>
+    </div>
+
+    <!-- Body -->
+    <div id="kpi-body" style="padding:22px;flex:1;overflow:auto;background:#fffaf0;max-width:1280px;margin:0 auto;width:100%;box-sizing:border-box;">
+
+      <!-- Classement performance -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">👥 Classement de l'équipe — performances</span>
+        <span id="kpi-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#8a6310;background:#fdf0d0;border:1px solid #e8c873;border-radius:20px;padding:3px 10px;"></span>
+      </div>
+      <div id="kpi-members-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:30px;"></div>
+
+      <!-- Opportunités gagnées -->
+      <div style="display:flex;align-items:center;gap:8px;margin:8px 0 14px;">
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">💰 Résumé des opportunités gagnées</span>
+        <span id="kpi-opp-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#15803d;background:#e6f7ee;border:1px solid #b6e4cb;border-radius:20px;padding:3px 10px;"></span>
+      </div>
+      <div id="kpi-opp-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px;"></div>
+
+      <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:18px;align-items:start;">
+        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+          <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">📋 Détail des opportunités gagnées</div>
+          <div style="overflow:auto;max-height:420px;">
+            <table style="width:100%;border-collapse:collapse;">
+              <thead><tr style="background:#fafbfd;">
+                <th class="tbl-th" style="text-align:left;padding:8px 12px;font-size:10px;">Client</th>
+                <th class="tbl-th" style="text-align:left;padding:8px 12px;font-size:10px;">Opportunité</th>
+                <th class="tbl-th" style="text-align:left;padding:8px 12px;font-size:10px;">ASM</th>
+                <th class="tbl-th" style="text-align:left;padding:8px 12px;font-size:10px;">Date</th>
+                <th class="tbl-th" style="text-align:right;padding:8px 12px;font-size:10px;">Montant</th>
+              </tr></thead>
+              <tbody id="kpi-opp-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+          <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">🏅 Classement ASM par montant gagné</div>
+          <div id="kpi-asm-ranking" style="padding:14px 16px;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<input type="file" id="kpi-photo-input" accept="image/*" style="display:none" onchange="kpiOnPhotoChosen(event)">
 
 </body>
 </html>
