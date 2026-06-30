@@ -1640,29 +1640,49 @@ window.closeAllOpportunites = function() {
 };
 
 // ══════════════════════════════════════════════════════
-// 🏆 PERFORMANCES KPI — classement équipe + opportunités gagnées
+// 🏆 PERFORMANCES KPI — classement équipe + opportunités gagnées (périodes à dates libres)
 // ══════════════════════════════════════════════════════
 const COL_KPI = 'asm_performance_kpi';
 const KPI_NB_CADRES = 6;
-let kpiCurrentPeriod = null;
-let kpiData = null; // { period, members:[{nom,poste,note,commentaire,clientsResume,photoUrl,photoPath}] }
+let kpiCurrentStart = null;
+let kpiCurrentEnd = null;
+let kpiCurrentId = null; // id du document Firestore courant (null = période non enregistrée)
+let kpiData = null; // { members:[{nom,poste,note,commentaire,clientsResume,photoUrl,photoPath}] }
 let kpiPendingPhotos = {}; // idx -> File
 let kpiEditingIdx = null;
+let kpiPeriodsList = []; // [{id,start,end}] trié par date de début croissante, chargé depuis Firestore
 
 function kpiEmptyMember() {
   return { nom:'', poste:'', note:'', commentaire:'', clientsResume:'', photoUrl:null, photoPath:null };
 }
-function kpiDefaultPeriod() {
-  const d = new Date();
-  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+function kpiIsoDate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
-function kpiIsValidPeriod(period) {
-  return /^\d{4}-(0[1-9]|1[0-2])$/.test(period||'');
+function kpiDefaultRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  return { start: kpiIsoDate(start), end: kpiIsoDate(end) };
 }
-function kpiFmtPeriodLabel(period) {
-  if (!kpiIsValidPeriod(period)) return '';
-  const [y,m] = period.split('-');
-  return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+function kpiIsValidDate(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s||'');
+}
+function kpiPeriodId(start, end) {
+  return start + '__' + end;
+}
+function kpiFmtDateShort(s) {
+  if (!kpiIsValidDate(s)) return '—';
+  return new Date(s+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'});
+}
+function kpiFmtPeriodLabel(start, end) {
+  if (!kpiIsValidDate(start) || !kpiIsValidDate(end)) return '';
+  return kpiFmtDateShort(start) + '  →  ' + kpiFmtDateShort(end);
+}
+function kpiFmtPeriodShort(p) {
+  if (!p || !kpiIsValidDate(p.start)) return '—';
+  const s = new Date(p.start+'T00:00:00');
+  const e = kpiIsValidDate(p.end) ? new Date(p.end+'T00:00:00') : s;
+  return String(s.getDate()).padStart(2,'0') + '/' + String(s.getMonth()+1).padStart(2,'0') + '–' + String(e.getDate()).padStart(2,'0') + '/' + String(e.getMonth()+1).padStart(2,'0');
 }
 function kpiParseMontant(str) {
   if (!str) return 0;
@@ -1673,45 +1693,119 @@ function kpiFmtMontant(n) {
   return n.toLocaleString('fr-FR') + ' F';
 }
 
+async function kpiLoadPeriodsList() {
+  try {
+    const snap = await getDocs(collection(db, COL_KPI));
+    kpiPeriodsList = snap.docs.map(d => {
+      const data = d.data();
+      return { id: d.id, start: data.dateDebut || '', end: data.dateFin || '' };
+    }).filter(p => kpiIsValidDate(p.start)).sort((a,b)=> a.start.localeCompare(b.start));
+  } catch(e) {
+    kpiPeriodsList = [];
+  }
+}
+
+function kpiRenderPeriodsStrip() {
+  const strip = document.getElementById('kpi-periods-strip');
+  if (!kpiPeriodsList.length) {
+    strip.innerHTML = `<span style="font-family:'DM Mono',monospace;font-size:11px;color:#bda86a;">Aucune période enregistrée pour le moment — choisissez des dates et cliquez sur Enregistrer.</span>`;
+    return;
+  }
+  strip.innerHTML = kpiPeriodsList.map(p => {
+    const active = p.id === kpiCurrentId;
+    return `<button onclick="kpiLoadPeriodById('${p.id}')" style="flex-shrink:0;background:${active?'#8a6310':'#fff'};color:${active?'#fff':'#8a6310'};border:1px solid #e8c873;border-radius:20px;font-family:'DM Mono',monospace;font-size:10px;font-weight:700;padding:4px 11px;cursor:pointer;white-space:nowrap;">${kpiFmtPeriodShort(p)}</button>`;
+  }).join('');
+}
+
 window.openKpiPerformances = async function() {
   document.getElementById('kpi-role-badge').textContent = APP_ROLE === 'visitor' ? '👁 LECTURE SEULE' : (APP_ROLE === 'admin' ? '🔑 ADMIN' : '👑 SUPER ADMIN');
   document.getElementById('kpi-save-btn').style.display = canWrite() ? 'inline-block' : 'none';
-  if (!kpiCurrentPeriod) kpiCurrentPeriod = kpiDefaultPeriod();
-  document.getElementById('kpi-period').value = kpiCurrentPeriod;
   document.getElementById('modal-kpi').style.display = 'block';
-  await loadKpiPeriod();
+  await kpiLoadPeriodsList();
+  if (kpiPeriodsList.length) {
+    const last = kpiPeriodsList[kpiPeriodsList.length-1];
+    await kpiLoadPeriodById(last.id);
+  } else {
+    const def = kpiDefaultRange();
+    await kpiLoadPeriodByDates(def.start, def.end);
+  }
 };
 
 window.closeKpiPerformances = function() {
   document.getElementById('modal-kpi').style.display = 'none';
 };
 
-window.loadKpiPeriod = async function() {
-  let period = document.getElementById('kpi-period').value;
-  if (!kpiIsValidPeriod(period)) period = kpiDefaultPeriod();
-  document.getElementById('kpi-period').value = period;
-  kpiCurrentPeriod = period;
+window.kpiNewPeriod = async function() {
+  let start, end;
+  if (kpiPeriodsList.length) {
+    const lastEnd = new Date(kpiPeriodsList[kpiPeriodsList.length-1].end + 'T00:00:00');
+    const s = new Date(lastEnd); s.setDate(s.getDate()+1);
+    const e = new Date(s.getFullYear(), s.getMonth()+1, 0);
+    start = kpiIsoDate(s); end = kpiIsoDate(e);
+  } else {
+    const def = kpiDefaultRange(); start = def.start; end = def.end;
+  }
+  await kpiLoadPeriodByDates(start, end);
+  toast('Nouvelle période — choisissez les dates puis Enregistrer', 'info');
+};
+
+window.kpiGoToDates = async function() {
+  const start = document.getElementById('kpi-date-start').value;
+  const end = document.getElementById('kpi-date-end').value;
+  if (!kpiIsValidDate(start) || !kpiIsValidDate(end)) { toast('⚠️ Merci de renseigner les deux dates','error'); return; }
+  if (start > end) { toast('⚠️ La date de début doit précéder la date de fin','error'); return; }
+  await kpiLoadPeriodByDates(start, end);
+};
+
+window.kpiNavPeriod = async function(dir) {
+  if (!kpiPeriodsList.length) return;
+  let idx = kpiPeriodsList.findIndex(p => p.id === kpiCurrentId);
+  if (idx === -1) {
+    // période en cours non enregistrée : se cale sur la plus proche
+    idx = dir > 0 ? -1 : kpiPeriodsList.length;
+  }
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= kpiPeriodsList.length) { toast(dir>0?'Aucune période suivante enregistrée':'Aucune période précédente enregistrée','info'); return; }
+  await kpiLoadPeriodById(kpiPeriodsList[newIdx].id);
+};
+
+window.kpiLoadPeriodById = async function(id) {
+  const meta = kpiPeriodsList.find(p => p.id === id);
+  if (!meta) return;
+  await kpiLoadPeriodByDates(meta.start, meta.end, id);
+};
+
+async function kpiLoadPeriodByDates(start, end, knownId) {
+  kpiCurrentStart = start;
+  kpiCurrentEnd = end;
+  kpiCurrentId = knownId || kpiPeriodId(start, end);
   kpiPendingPhotos = {};
-  document.getElementById('kpi-period-label').textContent = kpiFmtPeriodLabel(period);
-  document.getElementById('kpi-opp-period-label').textContent = kpiFmtPeriodLabel(period);
+  document.getElementById('kpi-date-start').value = start;
+  document.getElementById('kpi-date-end').value = end;
+  document.getElementById('kpi-period-label').textContent = kpiFmtPeriodLabel(start, end);
+  document.getElementById('kpi-opp-period-label').textContent = kpiFmtPeriodLabel(start, end);
   try {
-    const snap = await getDoc(doc(db, COL_KPI, period));
+    const snap = await getDoc(doc(db, COL_KPI, kpiCurrentId));
     if (snap.exists()) {
       const d = snap.data();
       const members = (d.members||[]).slice(0, KPI_NB_CADRES);
       while (members.length < KPI_NB_CADRES) members.push(kpiEmptyMember());
-      kpiData = { period, members };
+      kpiData = { members };
     } else {
-      kpiData = { period, members: Array.from({length:KPI_NB_CADRES}, kpiEmptyMember) };
+      kpiData = { members: Array.from({length:KPI_NB_CADRES}, kpiEmptyMember) };
     }
   } catch(e) {
     toast('Erreur chargement KPI : '+e.message,'error');
-    kpiData = { period, members: Array.from({length:KPI_NB_CADRES}, kpiEmptyMember) };
+    kpiData = { members: Array.from({length:KPI_NB_CADRES}, kpiEmptyMember) };
   }
+  kpiRenderPeriodsStrip();
+  const isSaved = kpiPeriodsList.some(p => p.id === kpiCurrentId);
+  document.getElementById('kpi-nav-prev').style.opacity = kpiPeriodsList.length ? 1 : .35;
+  document.getElementById('kpi-nav-next').style.opacity = kpiPeriodsList.length ? 1 : .35;
   renderKpiMembers();
   renderKpiOpportunites();
   renderKpiEvolution();
-};
+}
 
 function kpiRankedIndexes() {
   // Indexes des membres remplis (nom non vide), triés par note décroissante
@@ -1792,6 +1886,7 @@ window.kpiOnPhotoChosen = function(ev) {
 
 window.saveKpiPerformances = async function() {
   if (!canWrite()) { toast('🔒 Accès lecture seule — connexion admin requise','error'); return; }
+  if (!kpiIsValidDate(kpiCurrentStart) || !kpiIsValidDate(kpiCurrentEnd)) { toast('⚠️ Merci de renseigner une période valide (du / au)','error'); return; }
   try {
     toast('Enregistrement…');
     let photoErrors = 0;
@@ -1799,7 +1894,7 @@ window.saveKpiPerformances = async function() {
       const idx = parseInt(idxStr,10);
       const file = kpiPendingPhotos[idx];
       try {
-        const res = await uploadFile(file, 'kpi_' + kpiCurrentPeriod + '_' + idx);
+        const res = await uploadFile(file, 'kpi_' + kpiCurrentId + '_' + idx);
         kpiData.members[idx].photoUrl = res.url;
         kpiData.members[idx].photoPath = res.path;
       } catch(uploadErr) {
@@ -1813,8 +1908,10 @@ window.saveKpiPerformances = async function() {
     }
     kpiPendingPhotos = {};
     kpiPhotoBackup = {};
-    await setDoc(doc(db, COL_KPI, kpiCurrentPeriod), { period: kpiCurrentPeriod, members: kpiData.members, updatedAt: Date.now() });
+    await setDoc(doc(db, COL_KPI, kpiCurrentId), { dateDebut: kpiCurrentStart, dateFin: kpiCurrentEnd, members: kpiData.members, updatedAt: Date.now() });
     kpiAllDocsCache = null;
+    await kpiLoadPeriodsList();
+    kpiRenderPeriodsStrip();
     if (photoErrors > 0) {
       toast(`⚠️ Données enregistrées, mais ${photoErrors} photo(s) non uploadée(s) — espace de stockage Firebase plein`, 'error');
     } else {
@@ -1825,12 +1922,13 @@ window.saveKpiPerformances = async function() {
   } catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
-function kpiOpportunitesGagneesPeriode(period) {
-  period = period || kpiCurrentPeriod;
+function kpiOpportunitesGagneesPeriode(start, end) {
+  start = start || kpiCurrentStart; end = end || kpiCurrentEnd;
   const rows = [];
   clients.forEach(c => {
     (c.opportunites||[]).forEach(o => {
-      if (o.statut === 'Gagné' && (o.date||'').startsWith(period)) {
+      const od = o.date || '';
+      if (o.statut === 'Gagné' && od >= start && od <= end) {
         const asm = getAsmOfClient(c.id);
         rows.push({
           client: c.nom, titre: o.titre, date: o.date,
@@ -1891,7 +1989,7 @@ function renderKpiOpportunites() {
     </div>`).join('') : `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);text-align:center;padding:1rem 0;">Aucune donnée</div>`;
 }
 
-// ── ÉVOLUTION & COMPARAISONS (multi-périodes) ──
+// ── ÉVOLUTION & COMPARAISONS (multi-périodes enregistrées) ──
 let kpiAllDocsCache = null;
 async function kpiFetchAllDocs() {
   if (kpiAllDocsCache) return kpiAllDocsCache;
@@ -1901,20 +1999,6 @@ async function kpiFetchAllDocs() {
     snap.docs.forEach(d => { kpiAllDocsCache[d.id] = d.data(); });
   } catch(e) { kpiAllDocsCache = {}; }
   return kpiAllDocsCache;
-}
-function kpiLastNPeriods(endPeriod, n) {
-  const base = kpiIsValidPeriod(endPeriod) ? endPeriod : kpiDefaultPeriod();
-  const [y,m] = base.split('-').map(Number);
-  const out = [];
-  for (let i = n-1; i >= 0; i--) {
-    const d = new Date(y, m-1-i, 1);
-    out.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
-  }
-  return out;
-}
-function kpiFmtPeriodShort(period) {
-  const [y,m] = period.split('-');
-  return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString('fr-FR',{month:'short'}).replace('.','') + ' ' + y.slice(2);
 }
 
 function kpiSvgLineChart(values, {color='#8a6310', max=null, fmt=(v)=>v} = {}) {
@@ -1967,12 +2051,26 @@ function kpiSvgBarChart(values, {color='#15803d', fmt=(v)=>v} = {}) {
 
 window.renderKpiEvolution = async function() {
   const range = parseInt(document.getElementById('kpi-evo-range').value, 10) || 6;
-  const periods = kpiLastNPeriods(kpiCurrentPeriod, range);
+  await kpiLoadPeriodsList();
+  // Liste des N dernières périodes enregistrées, en incluant la période courante même si pas encore sauvegardée
+  let periods = kpiPeriodsList.slice(-range);
+  const curMeta = { id: kpiCurrentId, start: kpiCurrentStart, end: kpiCurrentEnd };
+  if (kpiIsValidDate(kpiCurrentStart) && !periods.some(p => p.id === kpiCurrentId)) {
+    periods = [...periods, curMeta].sort((a,b)=>a.start.localeCompare(b.start)).slice(-range);
+  }
   const allDocs = await kpiFetchAllDocs();
+
+  if (!periods.length) {
+    document.getElementById('kpi-chart-note').innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);text-align:center;padding:1rem 0;">Aucune période enregistrée</div>`;
+    document.getElementById('kpi-chart-montant').innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);text-align:center;padding:1rem 0;">Aucune période enregistrée</div>`;
+    document.getElementById('kpi-table-members-evo').innerHTML = '';
+    document.getElementById('kpi-table-asm-evo').innerHTML = '';
+    return;
+  }
 
   // ── Série note moyenne équipe ──
   const noteValues = periods.map(p => {
-    const d = allDocs[p];
+    const d = (p.id === kpiCurrentId) ? { members: kpiData.members } : allDocs[p.id];
     const members = d ? (d.members||[]).filter(m=>m.nom && m.nom.trim() && m.note!=='' && m.note!=null) : [];
     const avg = members.length ? members.reduce((s,m)=>s+(parseFloat(m.note)||0),0)/members.length : null;
     return { label: kpiFmtPeriodShort(p), value: avg!==null ? Math.round(avg*10)/10 : null };
@@ -1981,18 +2079,18 @@ window.renderKpiEvolution = async function() {
 
   // ── Série montant gagné ──
   const montantValues = periods.map(p => {
-    const rows = kpiOpportunitesGagneesPeriode(p);
+    const rows = kpiOpportunitesGagneesPeriode(p.start, p.end);
     return { label: kpiFmtPeriodShort(p), value: rows.reduce((s,r)=>s+r.montant,0) };
   });
   document.getElementById('kpi-chart-montant').innerHTML = kpiSvgBarChart(montantValues, {color:'#15803d', fmt:v=>(v/1000>=1?Math.round(v/1000)+'k':v)});
 
   // ── Tableau comparatif collaborateurs ──
   const namesSet = new Set();
-  periods.forEach(p => { const d=allDocs[p]; if(d) (d.members||[]).forEach(m=>{ if(m.nom && m.nom.trim()) namesSet.add(m.nom.trim()); }); });
+  periods.forEach(p => { const d=(p.id === kpiCurrentId) ? { members: kpiData.members } : allDocs[p.id]; if(d) (d.members||[]).forEach(m=>{ if(m.nom && m.nom.trim()) namesSet.add(m.nom.trim()); }); });
   const names = Array.from(namesSet);
   const headRow = `<thead><tr style="background:#fafbfd;"><th class="tbl-th" style="text-align:left;padding:8px 10px;font-size:10px;">Collaborateur</th>${periods.map(p=>`<th class="tbl-th" style="text-align:center;padding:8px 8px;font-size:10px;">${kpiFmtPeriodShort(p)}</th>`).join('')}<th class="tbl-th" style="text-align:center;padding:8px 8px;font-size:10px;">Tendance</th></tr></thead>`;
   const bodyRows = names.length ? names.map(nom => {
-    const vals = periods.map(p => { const d=allDocs[p]; if(!d) return null; const m=(d.members||[]).find(x=>(x.nom||'').trim()===nom); return (m && m.note!=='' && m.note!=null) ? parseFloat(m.note) : null; });
+    const vals = periods.map(p => { const d=(p.id === kpiCurrentId) ? { members: kpiData.members } : allDocs[p.id]; if(!d) return null; const m=(d.members||[]).find(x=>(x.nom||'').trim()===nom); return (m && m.note!=='' && m.note!=null) ? parseFloat(m.note) : null; });
     const filled = vals.filter(v=>v!==null);
     const first = filled[0], last = filled[filled.length-1];
     let trend = '—';
@@ -2011,7 +2109,7 @@ window.renderKpiEvolution = async function() {
 
   // ── Tableau comparatif ASM ──
   const asmByPeriod = periods.map(p => {
-    const rows = kpiOpportunitesGagneesPeriode(p);
+    const rows = kpiOpportunitesGagneesPeriode(p.start, p.end);
     const byAsm = {};
     rows.forEach(r => { byAsm[r.asm] = (byAsm[r.asm]||0) + r.montant; });
     return byAsm;
@@ -3314,13 +3412,24 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
       <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:#8a6310;">🏆 Performances KPI</span>
       <span id="kpi-role-badge" style="background:rgba(138,99,16,.1);color:#8a6310;font-family:'DM Mono',monospace;font-size:10px;border-radius:20px;padding:3px 12px;font-weight:700;"></span>
       <div style="flex:1"></div>
-      <label style="display:flex;align-items:center;gap:6px;font-family:'DM Mono',monospace;font-size:11px;color:#8a6310;font-weight:700;">
-        📅 Période
-        <input type="month" id="kpi-period" onchange="loadKpiPeriod()" style="font-size:12px;padding:5px 8px;border-radius:6px;border:1px solid #e8c873;font-family:'DM Mono',monospace;cursor:pointer;background:#fff;color:#1a2236;">
-      </label>
+      <div style="display:flex;align-items:center;gap:6px;background:#fff3da;border:1px solid #e8c873;border-radius:10px;padding:5px 8px;">
+        <button onclick="kpiNavPeriod(-1)" id="kpi-nav-prev" title="Période précédente enregistrée" style="background:#fff;border:1px solid #e8c873;border-radius:6px;color:#8a6310;font-size:13px;width:26px;height:26px;cursor:pointer;line-height:1;">◀</button>
+        <label style="display:flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:10px;color:#8a6310;font-weight:700;">
+          Du
+          <input type="date" id="kpi-date-start" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid #e8c873;font-family:'DM Mono',monospace;background:#fff;color:#1a2236;">
+        </label>
+        <label style="display:flex;align-items:center;gap:5px;font-family:'DM Mono',monospace;font-size:10px;color:#8a6310;font-weight:700;">
+          au
+          <input type="date" id="kpi-date-end" style="font-size:11px;padding:4px 6px;border-radius:6px;border:1px solid #e8c873;font-family:'DM Mono',monospace;background:#fff;color:#1a2236;">
+        </label>
+        <button onclick="kpiGoToDates()" title="Charger cette période" style="background:#8a6310;border:1px solid #8a6310;border-radius:6px;color:#fff;font-size:11px;font-weight:700;padding:5px 9px;cursor:pointer;">Charger</button>
+        <button onclick="kpiNavPeriod(1)" id="kpi-nav-next" title="Période suivante enregistrée" style="background:#fff;border:1px solid #e8c873;border-radius:6px;color:#8a6310;font-size:13px;width:26px;height:26px;cursor:pointer;line-height:1;">▶</button>
+      </div>
+      <button onclick="kpiNewPeriod()" title="Créer une nouvelle période" style="background:#fff;border:1px solid #e8c873;border-radius:8px;color:#8a6310;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;padding:8px 12px;cursor:pointer;white-space:nowrap;">+ Nouvelle période</button>
       <button id="kpi-save-btn" onclick="saveKpiPerformances()" style="background:#8a6310;border:1px solid #8a6310;border-radius:8px;color:#fff;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;padding:8px 14px;cursor:pointer;letter-spacing:.04em;">💾 Enregistrer</button>
       <button onclick="closeKpiPerformances()" style="background:#fff3da;border:1px solid #e8c873;border-radius:8px;color:#8a6310;font-size:18px;width:34px;height:34px;cursor:pointer;line-height:1;transition:background .15s;" onmouseover="this.style.background='#f7e6b0'" onmouseout="this.style.background='#fff3da'">✕</button>
     </div>
+    <div id="kpi-periods-strip" style="display:flex;align-items:center;gap:6px;padding:8px 22px;background:#fffdf5;border-bottom:1px solid #f0e3c0;overflow-x:auto;flex-shrink:0;"></div>
 
     <!-- Body -->
     <div id="kpi-body" style="padding:22px;flex:1;overflow:auto;background:#fffaf0;max-width:1280px;margin:0 auto;width:100%;box-sizing:border-box;">
@@ -3365,9 +3474,10 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
       <div style="display:flex;align-items:center;gap:10px;margin:34px 0 14px;">
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">📈 Évolution & comparaisons</span>
         <select id="kpi-evo-range" onchange="renderKpiEvolution()" style="font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid #e2e6ef;font-family:'DM Mono',monospace;cursor:pointer;background:#fff;color:#546882;">
-          <option value="3">3 derniers mois</option>
-          <option value="6" selected>6 derniers mois</option>
-          <option value="12">12 derniers mois</option>
+          <option value="3">3 dernières périodes</option>
+          <option value="6" selected>6 dernières périodes</option>
+          <option value="12">12 dernières périodes</option>
+          <option value="999">Toutes les périodes</option>
         </select>
       </div>
 
