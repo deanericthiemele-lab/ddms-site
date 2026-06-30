@@ -1705,6 +1705,7 @@ window.loadKpiPeriod = async function() {
   }
   renderKpiMembers();
   renderKpiOpportunites();
+  renderKpiEvolution();
 };
 
 function kpiRankedIndexes() {
@@ -1725,17 +1726,21 @@ function renderKpiMembers() {
     const rankPos = ranked.indexOf(i);
     const medal = rankPos >= 0 && rankPos < 3 ? medals[rankPos] : (rankPos >= 0 ? `#${rankPos+1}` : '');
     const photo = m.photoUrl
-      ? `<img src="${m.photoUrl}" style="width:100%;height:100%;object-fit:cover;">`
-      : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#cbb074;font-size:30px;">👤</div>`;
+      ? `<img src="${m.photoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
+      : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#cbb074;font-size:20px;border-radius:50%;">👤</div>`;
     return `
     <div style="background:#fff;border:1px solid ${rankPos===0?'#e8c873':'#e2e6ef'};border-radius:14px;overflow:hidden;box-shadow:${rankPos===0?'0 2px 10px rgba(232,200,115,.35)':'0 1px 4px rgba(37,99,235,.05)'};position:relative;">
-      ${medal ? `<div style="position:absolute;top:8px;left:8px;z-index:2;background:rgba(255,255,255,.92);border-radius:20px;padding:2px 9px;font-family:'Syne',sans-serif;font-weight:800;font-size:12px;color:#8a6310;">${medal}</div>` : ''}
-      <div style="position:relative;width:100%;aspect-ratio:1/1;background:#fdf3da;cursor:${readonly?'default':'pointer'};" ${readonly?'':`onclick="kpiTriggerPhotoUpload(${i})"`}>
-        ${photo}
-        ${readonly?'':'<div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.45);color:#fff;font-family:\'DM Mono\',monospace;font-size:10px;text-align:center;padding:4px 0;">📷 Changer la photo</div>'}
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 0;">
+        <div style="position:relative;width:54px;height:54px;flex-shrink:0;border-radius:50%;background:#fdf3da;border:2px solid ${rankPos===0?'#e8c873':'#f0e3c0'};cursor:${readonly?'default':'pointer'};overflow:hidden;" ${readonly?'':`onclick="kpiTriggerPhotoUpload(${i})"`} title="${readonly?'':'Changer la photo'}">
+          ${photo}
+          ${readonly?'':'<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0);font-size:11px;opacity:0;transition:opacity .15s;" onmouseover="this.style.opacity=1;this.style.background=\'rgba(0,0,0,.4)\';this.style.color=\'#fff\';" onmouseout="this.style.opacity=0;this.style.background=\'rgba(0,0,0,0)\';">📷</div>'}
+        </div>
+        <div style="flex:1;min-width:0;">
+          ${medal ? `<div style="font-family:'Syne',sans-serif;font-weight:800;font-size:12px;color:#8a6310;margin-bottom:2px;">${medal}</div>` : ''}
+          <input ${readonly?'disabled':''} value="${(m.nom||'').replace(/"/g,'&quot;')}" placeholder="Nom du collaborateur" oninput="kpiUpdateField(${i},'nom',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:3px 2px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#1a2236;background:transparent;">
+        </div>
       </div>
-      <div style="padding:12px 14px;">
-        <input ${readonly?'disabled':''} value="${(m.nom||'').replace(/"/g,'&quot;')}" placeholder="Nom du collaborateur" oninput="kpiUpdateField(${i},'nom',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:4px 2px;font-family:'Syne',sans-serif;font-weight:700;font-size:13px;color:#1a2236;margin-bottom:6px;background:transparent;">
+      <div style="padding:10px 14px 14px;">
         <input ${readonly?'disabled':''} value="${(m.poste||'').replace(/"/g,'&quot;')}" placeholder="Poste / Client référent" oninput="kpiUpdateField(${i},'poste',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:3px 2px;font-family:'DM Mono',monospace;font-size:11px;color:#546882;margin-bottom:8px;background:transparent;">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
           <span style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;">Note /20</span>
@@ -1785,13 +1790,15 @@ window.saveKpiPerformances = async function() {
     }
     kpiPendingPhotos = {};
     await setDoc(doc(db, COL_KPI, kpiCurrentPeriod), { period: kpiCurrentPeriod, members: kpiData.members, updatedAt: Date.now() });
+    kpiAllDocsCache = null;
     toast('Performances KPI enregistrées ✓','success');
     renderKpiMembers();
+    renderKpiEvolution();
   } catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
-function kpiOpportunitesGagneesPeriode() {
-  const period = kpiCurrentPeriod;
+function kpiOpportunitesGagneesPeriode(period) {
+  period = period || kpiCurrentPeriod;
   const rows = [];
   clients.forEach(c => {
     (c.opportunites||[]).forEach(o => {
@@ -1855,6 +1862,141 @@ function renderKpiOpportunites() {
       <div style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;margin-top:2px;">${d.count} deal${d.count>1?'s':''} gagné${d.count>1?'s':''}</div>
     </div>`).join('') : `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);text-align:center;padding:1rem 0;">Aucune donnée</div>`;
 }
+
+// ── ÉVOLUTION & COMPARAISONS (multi-périodes) ──
+let kpiAllDocsCache = null;
+async function kpiFetchAllDocs() {
+  if (kpiAllDocsCache) return kpiAllDocsCache;
+  try {
+    const snap = await getDocs(collection(db, COL_KPI));
+    kpiAllDocsCache = {};
+    snap.docs.forEach(d => { kpiAllDocsCache[d.id] = d.data(); });
+  } catch(e) { kpiAllDocsCache = {}; }
+  return kpiAllDocsCache;
+}
+function kpiLastNPeriods(endPeriod, n) {
+  const [y,m] = (endPeriod || kpiDefaultPeriod()).split('-').map(Number);
+  const out = [];
+  for (let i = n-1; i >= 0; i--) {
+    const d = new Date(y, m-1-i, 1);
+    out.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+  }
+  return out;
+}
+function kpiFmtPeriodShort(period) {
+  const [y,m] = period.split('-');
+  return new Date(parseInt(y), parseInt(m)-1, 1).toLocaleDateString('fr-FR',{month:'short'}).replace('.','') + ' ' + y.slice(2);
+}
+
+function kpiSvgLineChart(values, {color='#8a6310', max=null, fmt=(v)=>v} = {}) {
+  const w = 480, h = 150, padL = 30, padR = 14, padT = 14, padB = 26;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
+  const nums = values.map(v=>v.value);
+  const validNums = nums.filter(v=>v!==null && v!==undefined);
+  const maxV = max || (validNums.length ? Math.max(...validNums) * 1.15 : 1) || 1;
+  const n = values.length;
+  const x = i => padL + (n<=1 ? innerW/2 : (innerW * i/(n-1)));
+  const y = v => padT + innerH - (v===null||v===undefined ? 0 : (v/maxV)*innerH);
+  let pathD = ''; let started = false;
+  values.forEach((pt,i) => {
+    if (pt.value===null || pt.value===undefined) { started=false; return; }
+    const cmd = started ? 'L' : 'M';
+    pathD += `${cmd}${x(i).toFixed(1)},${y(pt.value).toFixed(1)} `;
+    started = true;
+  });
+  const dots = values.map((pt,i) => pt.value===null||pt.value===undefined ? '' : `
+    <circle cx="${x(i).toFixed(1)}" cy="${y(pt.value).toFixed(1)}" r="3.5" fill="${color}"/>
+    <text x="${x(i).toFixed(1)}" y="${(y(pt.value)-9).toFixed(1)}" font-size="9" font-family="'DM Mono',monospace" fill="${color}" text-anchor="middle" font-weight="700">${fmt(pt.value)}</text>`).join('');
+  const labels = values.map((pt,i) => `<text x="${x(i).toFixed(1)}" y="${h-8}" font-size="9" font-family="'DM Mono',monospace" fill="#8796b0" text-anchor="middle">${pt.label}</text>`).join('');
+  const gridY = [0,0.5,1].map(f => `<line x1="${padL}" y1="${padT+innerH*f}" x2="${w-padR}" y2="${padT+innerH*f}" stroke="#edf1f9" stroke-width="1"/>`).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block;">
+    ${gridY}
+    <path d="${pathD.trim()}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    ${dots}
+    ${labels}
+  </svg>`;
+}
+
+function kpiSvgBarChart(values, {color='#15803d', fmt=(v)=>v} = {}) {
+  const w = 480, h = 150, padL = 10, padR = 10, padT = 14, padB = 26;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
+  const n = values.length;
+  const maxV = Math.max(...values.map(v=>v.value||0), 1) * 1.15;
+  const barW = Math.min(46, innerW/n * 0.55);
+  const gap = innerW / n;
+  const bars = values.map((pt,i) => {
+    const bh = maxV ? (pt.value/maxV)*innerH : 0;
+    const bx = padL + gap*i + (gap-barW)/2;
+    const by = padT + innerH - bh;
+    return `
+    <rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="4" fill="${color}"/>
+    <text x="${(bx+barW/2).toFixed(1)}" y="${(by-6).toFixed(1)}" font-size="9" font-family="'DM Mono',monospace" fill="${color}" text-anchor="middle" font-weight="700">${pt.value?fmt(pt.value):''}</text>
+    <text x="${(bx+barW/2).toFixed(1)}" y="${h-8}" font-size="9" font-family="'DM Mono',monospace" fill="#8796b0" text-anchor="middle">${pt.label}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block;">${bars}</svg>`;
+}
+
+window.renderKpiEvolution = async function() {
+  const range = parseInt(document.getElementById('kpi-evo-range').value, 10) || 6;
+  const periods = kpiLastNPeriods(kpiCurrentPeriod, range);
+  const allDocs = await kpiFetchAllDocs();
+
+  // ── Série note moyenne équipe ──
+  const noteValues = periods.map(p => {
+    const d = allDocs[p];
+    const members = d ? (d.members||[]).filter(m=>m.nom && m.nom.trim() && m.note!=='' && m.note!=null) : [];
+    const avg = members.length ? members.reduce((s,m)=>s+(parseFloat(m.note)||0),0)/members.length : null;
+    return { label: kpiFmtPeriodShort(p), value: avg!==null ? Math.round(avg*10)/10 : null };
+  });
+  document.getElementById('kpi-chart-note').innerHTML = kpiSvgLineChart(noteValues, {color:'#8a6310', max:20, fmt:v=>v});
+
+  // ── Série montant gagné ──
+  const montantValues = periods.map(p => {
+    const rows = kpiOpportunitesGagneesPeriode(p);
+    return { label: kpiFmtPeriodShort(p), value: rows.reduce((s,r)=>s+r.montant,0) };
+  });
+  document.getElementById('kpi-chart-montant').innerHTML = kpiSvgBarChart(montantValues, {color:'#15803d', fmt:v=>(v/1000>=1?Math.round(v/1000)+'k':v)});
+
+  // ── Tableau comparatif collaborateurs ──
+  const namesSet = new Set();
+  periods.forEach(p => { const d=allDocs[p]; if(d) (d.members||[]).forEach(m=>{ if(m.nom && m.nom.trim()) namesSet.add(m.nom.trim()); }); });
+  const names = Array.from(namesSet);
+  const headRow = `<thead><tr style="background:#fafbfd;"><th class="tbl-th" style="text-align:left;padding:8px 10px;font-size:10px;">Collaborateur</th>${periods.map(p=>`<th class="tbl-th" style="text-align:center;padding:8px 8px;font-size:10px;">${kpiFmtPeriodShort(p)}</th>`).join('')}<th class="tbl-th" style="text-align:center;padding:8px 8px;font-size:10px;">Tendance</th></tr></thead>`;
+  const bodyRows = names.length ? names.map(nom => {
+    const vals = periods.map(p => { const d=allDocs[p]; if(!d) return null; const m=(d.members||[]).find(x=>(x.nom||'').trim()===nom); return (m && m.note!=='' && m.note!=null) ? parseFloat(m.note) : null; });
+    const filled = vals.filter(v=>v!==null);
+    const first = filled[0], last = filled[filled.length-1];
+    let trend = '—';
+    if (filled.length>=2) {
+      if (last>first) trend = `<span style="color:#15803d;font-weight:700;">▲ +${(last-first).toFixed(1)}</span>`;
+      else if (last<first) trend = `<span style="color:#dc2626;font-weight:700;">▼ ${(last-first).toFixed(1)}</span>`;
+      else trend = `<span style="color:#8796b0;">▬ stable</span>`;
+    }
+    return `<tr>
+      <td class="tbl-td" style="font-size:12px;font-weight:600;padding:7px 10px;">${nom}</td>
+      ${vals.map(v=>`<td class="tbl-td mono" style="text-align:center;font-size:11px;color:${v===null?'#cbd2e0':'#1a2236'};">${v===null?'—':v}</td>`).join('')}
+      <td class="tbl-td" style="text-align:center;font-size:11px;">${trend}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="${periods.length+2}" style="text-align:center;padding:1.2rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:12px;">Aucune donnée historique</td></tr>`;
+  document.getElementById('kpi-table-members-evo').innerHTML = headRow + `<tbody>${bodyRows}</tbody>`;
+
+  // ── Tableau comparatif ASM ──
+  const asmByPeriod = periods.map(p => {
+    const rows = kpiOpportunitesGagneesPeriode(p);
+    const byAsm = {};
+    rows.forEach(r => { byAsm[r.asm] = (byAsm[r.asm]||0) + r.montant; });
+    return byAsm;
+  });
+  const asmNames = Array.from(new Set(asmByPeriod.flatMap(o=>Object.keys(o)))).filter(n=>n && n!=='—');
+  const asmTotals = asmNames.map(nom => ({ nom, total: asmByPeriod.reduce((s,o)=>s+(o[nom]||0),0) })).sort((a,b)=>b.total-a.total);
+  const headRow2 = `<thead><tr style="background:#fafbfd;"><th class="tbl-th" style="text-align:left;padding:8px 10px;font-size:10px;">ASM</th>${periods.map(p=>`<th class="tbl-th" style="text-align:right;padding:8px 8px;font-size:10px;">${kpiFmtPeriodShort(p)}</th>`).join('')}<th class="tbl-th" style="text-align:right;padding:8px 8px;font-size:10px;">Total</th></tr></thead>`;
+  const bodyRows2 = asmTotals.length ? asmTotals.map(({nom,total}) => `<tr>
+      <td class="tbl-td" style="font-size:12px;font-weight:600;padding:7px 10px;">${nom}</td>
+      ${asmByPeriod.map(o=>`<td class="tbl-td mono" style="text-align:right;font-size:11px;color:${o[nom]?'#15803d':'#cbd2e0'};">${o[nom]?kpiFmtMontant(o[nom]):'—'}</td>`).join('')}
+      <td class="tbl-td mono" style="text-align:right;font-size:11px;font-weight:700;color:#15803d;">${kpiFmtMontant(total)}</td>
+    </tr>`).join('') : `<tr><td colspan="${periods.length+2}" style="text-align:center;padding:1.2rem;color:var(--text3);font-family:'DM Mono',monospace;font-size:12px;">Aucune donnée historique</td></tr>`;
+  document.getElementById('kpi-table-asm-evo').innerHTML = headRow2 + `<tbody>${bodyRows2}</tbody>`;
+};
 
 window.renderAllOpportunites = function() {
   const fmtD = d => d ? new Date(d+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '—';
@@ -3159,7 +3301,7 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">👥 Classement de l'équipe — performances</span>
         <span id="kpi-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#8a6310;background:#fdf0d0;border:1px solid #e8c873;border-radius:20px;padding:3px 10px;"></span>
       </div>
-      <div id="kpi-members-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:30px;"></div>
+      <div id="kpi-members-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:30px;"></div>
 
       <!-- Opportunités gagnées -->
       <div style="display:flex;align-items:center;gap:8px;margin:8px 0 14px;">
@@ -3187,6 +3329,42 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
         <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
           <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">🏅 Classement ASM par montant gagné</div>
           <div id="kpi-asm-ranking" style="padding:14px 16px;"></div>
+        </div>
+      </div>
+
+      <!-- Évolution & comparaisons -->
+      <div style="display:flex;align-items:center;gap:10px;margin:34px 0 14px;">
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">📈 Évolution & comparaisons</span>
+        <select id="kpi-evo-range" onchange="renderKpiEvolution()" style="font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid #e2e6ef;font-family:'DM Mono',monospace;cursor:pointer;background:#fff;color:#546882;">
+          <option value="3">3 derniers mois</option>
+          <option value="6" selected>6 derniers mois</option>
+          <option value="12">12 derniers mois</option>
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;">
+        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+          <div style="padding:11px 16px;background:#fdf3da;border-bottom:1px solid #e8c873;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#8a6310;">⭐ Évolution de la note moyenne équipe</div>
+          <div id="kpi-chart-note" style="padding:14px 16px;"></div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+          <div style="padding:11px 16px;background:#e6f7ee;border-bottom:1px solid #b6e4cb;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#15803d;">💰 Évolution du montant gagné</div>
+          <div id="kpi-chart-montant" style="padding:14px 16px;"></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:10px;">
+        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+          <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">👥 Comparaison des notes par collaborateur</div>
+          <div style="overflow:auto;max-height:340px;">
+            <table style="width:100%;border-collapse:collapse;" id="kpi-table-members-evo"></table>
+          </div>
+        </div>
+        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+          <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">🏆 Comparaison ASM par montant gagné</div>
+          <div style="overflow:auto;max-height:340px;">
+            <table style="width:100%;border-collapse:collapse;" id="kpi-table-asm-evo"></table>
+          </div>
         </div>
       </div>
 
