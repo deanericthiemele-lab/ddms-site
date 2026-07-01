@@ -99,9 +99,21 @@ td.actions{white-space:nowrap;text-align:center}
 <button onclick="location.href='lte.html'">LTE</button>
 
 <h1 id="resume">Constructions BLR : 0</h1>
-<div id="totauxFournisseurs" style="display:flex;gap:24px;flex-wrap:wrap;margin:-4px 0 14px 0;font-size:14px;color:#444;">
-  <span>💰 Total coût Maryg : <strong id="totalMaryg">0</strong></span>
-  <span>💰 Total coût Duons : <strong id="totalDuons">0</strong></span>
+<div id="totauxFournisseurs" style="display:flex;gap:24px;flex-wrap:wrap;margin:-4px 0 14px 0;">
+  <div style="border:1px solid #ddd;border-radius:8px;padding:8px 12px;font-size:14px;color:#444;min-width:260px;">
+    💰 Total coût Maryg : <strong id="totalMaryg">0</strong>
+    <details style="margin-top:4px;">
+      <summary style="cursor:pointer;color:#555;">Reste par bon de commande</summary>
+      <ul id="detailMaryg" style="margin:6px 0 0 0;padding-left:18px;font-size:13px;"></ul>
+    </details>
+  </div>
+  <div style="border:1px solid #ddd;border-radius:8px;padding:8px 12px;font-size:14px;color:#444;min-width:260px;">
+    💰 Total coût Duons : <strong id="totalDuons">0</strong>
+    <details style="margin-top:4px;">
+      <summary style="cursor:pointer;color:#555;">Reste par bon de commande</summary>
+      <ul id="detailDuons" style="margin:6px 0 0 0;padding-left:18px;font-size:13px;"></ul>
+    </details>
+  </div>
 </div>
 
 <div class="search-zone">
@@ -239,6 +251,39 @@ function parseMontantNumber(val){
   const numPart = match[1].replace(/[\s,]/g, "");
   const num = parseFloat(numPart);
   return isNaN(num) ? 0 : num;
+}
+
+// Regroupe les lignes d'un fournisseur par Bon de commande et calcule le reste (Montant BC - somme des coûts déjà engagés)
+function breakdownParFournisseur(rows, nom){
+  const filtered = rows.filter(r => (r.fournisseur || "").toLowerCase().includes(nom));
+  const groups = {};
+  filtered.forEach(r => {
+    const bc = (r.bc || "").trim() || "(sans BC)";
+    if(!groups[bc]) groups[bc] = { montantBc: 0, sumCout: 0, montantBcRaw: "" };
+    const montant = parseMontantNumber(r.montantBc);
+    if(montant > 0 && !groups[bc].montantBcRaw){
+      groups[bc].montantBc = montant;
+      groups[bc].montantBcRaw = r.montantBc;
+    }
+    groups[bc].sumCout += parseMontantNumber(r.cout);
+  });
+  return Object.entries(groups)
+    .map(([bc, g]) => ({ bc, montantBc: g.montantBc, sumCout: g.sumCout, reste: g.montantBc - g.sumCout }))
+    .sort((a, b) => a.bc.localeCompare(b.bc));
+}
+
+// Affiche la liste "reste par BC" dans l'élément <ul> ciblé
+function renderDetailBc(elementId, items){
+  const el = document.getElementById(elementId);
+  if(!items.length){
+    el.innerHTML = '<li style="color:#999">Aucun bon de commande</li>';
+    return;
+  }
+  el.innerHTML = items.map(it => {
+    const resteFmt = it.reste.toLocaleString("fr-FR") + " FCFA";
+    const color = it.reste < 0 ? "#c0392b" : "#2e7d32";
+    return `<li>${escapeHtml(it.bc)} : <span style="color:${color};font-weight:600">${resteFmt}</span> restant <span style="color:#888">(Montant BC ${it.montantBc.toLocaleString("fr-FR")} FCFA)</span></li>`;
+  }).join("");
 }
 
 // Tente de parser une date dans différents formats (ISO yyyy-mm-dd, jj/mm/aaaa, numéro de série Excel)
@@ -416,6 +461,9 @@ function renderTable(){
 
   document.getElementById("totalMaryg").textContent = totalParFournisseur("maryg").toLocaleString("fr-FR") + " FCFA";
   document.getElementById("totalDuons").textContent = totalParFournisseur("duons").toLocaleString("fr-FR") + " FCFA";
+
+  renderDetailBc("detailMaryg", breakdownParFournisseur(rows, "maryg"));
+  renderDetailBc("detailDuons", breakdownParFournisseur(rows, "duons"));
 
   const tbody = document.querySelector("#tableBlr tbody");
   if(rows.length === 0){
