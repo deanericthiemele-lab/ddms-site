@@ -216,9 +216,10 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
     <label for="global-year-filter" style="font-size:11px;color:var(--muted);font-weight:600">📅 Année :</label>
     <select class="si" id="global-year-filter" onchange="changeGlobalYear(this.value)" style="min-width:150px"></select>
   </div>
-  <div class="g2" style="margin-bottom:10px">
+  <div class="g2" style="margin-bottom:10px;grid-template-columns:1.6fr 1fr 1fr">
     <div class="card"><div class="ct" style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span>CA facturé — CA en attente</span><span style="display:flex;align-items:center;gap:8px"><span style="font-size:10px;color:#f97316;font-weight:600">En attente: <span id="kpi-prev-total">—</span></span><span style="font-size:10px;color:#16a34a;font-weight:600">Facturé: <span id="kpi-livr-total">—</span></span><button class="btn btn-s" style="font-size:10px;padding:2px 8px" onclick="showPrevisionPopup()">📋 Prévisions</button></span></div><canvas id="ch-mois" height="120"></canvas></div>
-    <div class="card"><div class="ct">Statut des livraisons</div><canvas id="ch-sla-bar" height="120"></canvas></div>
+    <div class="card"><div class="ct">Statut des livraisons</div><div style="height:260px"><canvas id="ch-sla-bar"></canvas></div></div>
+    <div class="card"><div class="ct">Dans les délais / Hors délais</div><div style="height:260px"><canvas id="ch-sla-bar2"></canvas></div></div>
   </div>
   <div class="g3" style="margin-bottom:10px">
     <div class="card"><div class="ct">Top 10 Commerciaux</div><canvas id="ch-comm-ca-g" height="140"></canvas></div>
@@ -702,6 +703,10 @@ function loadDealsFromFirestore(){
       // Migration statuts legacy : 'À livrer' -> 'En cours', 'Livré'/'PV signé' -> 'Terminé'
       if(d.statut==='À livrer'){ d.statut='En cours'; toFix.push(d.id); }
       else if(d.statut==='Livré'||d.statut==='PV signé'){ d.statut='Terminé'; toFix.push(d.id); }
+      // Normalisation de casse : 'suspendu'/'annulé'/'terminé'/'en cours' mal capitalisés (ex: import Excel)
+      var STATUT_CANON={'en cours':'En cours','terminé':'Terminé','annulé':'Annulé','suspendu':'Suspendu'};
+      var canon=STATUT_CANON[(d.statut||'').toLowerCase()];
+      if(canon && d.statut!==canon){ d.statut=canon; if(toFix.indexOf(d.id)===-1) toFix.push(d.id); }
       fbDeals.push(d);
     });
     // Supprimer du tableau local les deals déjà en Firebase (évite les doublons)
@@ -1137,11 +1142,26 @@ function renderGlobal(){
   // SLA bar
   // Répartition selon le champ Statut réel du deal
   var slaBarData = {
-    'encours': deals_g.filter(function(d){ return d.statut==='En cours'; }),
-    'termine': deals_g.filter(function(d){ return d.statut==='Terminé'; }),
-    'annule': deals_g.filter(function(d){ return d.statut==='Annulé'; }),
-    'suspendu': deals_g.filter(function(d){ return d.statut==='Suspendu'; })
+    'encours': deals_g.filter(function(d){ return (d.statut||'').toLowerCase()==='en cours'; }),
+    'termine': deals_g.filter(function(d){ return (d.statut||'').toLowerCase()==='terminé'; }),
+    'annule': deals_g.filter(function(d){ return (d.statut||'').toLowerCase()==='annulé'; }),
+    'suspendu': deals_g.filter(function(d){ return (d.statut||'').toLowerCase()==='suspendu'; })
   };
+  // Partition complémentaire (100% des dossiers, dans une des 2 catégories) :
+  // Hors délais = Terminé livré après la date prévue, OU En cours dont la date prévue est déjà dépassée, OU sans date prévue
+  // Dans les délais = tout le reste (Terminé livré à temps, En cours pas encore en retard)
+  slaBarData.horsdelais = deals_g.filter(function(d){
+    var statutL=(d.statut||'').toLowerCase();
+    if(statutL==='terminé'){
+      return !!(d.dateLivraison && d.dlivPrev && new Date(d.dateLivraison) > new Date(d.dlivPrev));
+    }
+    if(!d.dlivPrev) return true;
+    return new Date(d.dlivPrev).getTime() < Date.now();
+  });
+  (function(){
+    var horsIds={}; slaBarData.horsdelais.forEach(function(d){ horsIds[d.id]=true; });
+    slaBarData.densdelais = deals_g.filter(function(d){ return !horsIds[d.id]; });
+  })();
   (function(){
     var ctx=document.getElementById('ch-sla-bar'); if(!ctx) return;
     if(charts['ch-sla-bar']) charts['ch-sla-bar'].destroy();
@@ -1157,7 +1177,7 @@ function renderGlobal(){
         }]
       },
       options:{
-        responsive:true, maintainAspectRatio:true,
+        responsive:true, maintainAspectRatio:false,
         layout:{padding:{top:20}},
         plugins:{
           legend:{display:false},
@@ -1176,6 +1196,46 @@ function renderGlobal(){
       var keys=['encours','termine','annule','suspendu'];
       var labels=['En cours','Terminé','Annulé','Suspendu'];
       var colors=['#2563eb','#16a34a','#dc2626','#94a3b8'];
+      var k=keys[pts[0].index]; var list=slaBarData[k]||[];
+      showPopup(evt,'Delivery - '+labels[pts[0].index],colors[pts[0].index],list.length,list.map(function(d){
+        return [d.client||'',d.desc||'',d.commercial||'',d.deliveryResp||'—',fF(d.montant),d.dlivPrev||'—',d.statut||''];
+      }),['Client','Description','Commercial','Ing. Delivery','Montant','Date prévue','Statut']);
+    };
+  })();
+  (function(){
+    var ctx=document.getElementById('ch-sla-bar2'); if(!ctx) return;
+    if(charts['ch-sla-bar2']) charts['ch-sla-bar2'].destroy();
+    charts['ch-sla-bar2']=new Chart(ctx,{
+      type:'bar',
+      data:{
+        labels:['🟢 Dans les\ndélais','🔴 Hors\ndélais'],
+        datasets:[{
+          data:[slaBarData.densdelais.length, slaBarData.horsdelais.length],
+          backgroundColor:['#16a34a20','#dc262620'],
+          borderColor:['#16a34a','#dc2626'],
+          borderWidth:2, borderRadius:6
+        }]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        layout:{padding:{top:20}},
+        plugins:{
+          legend:{display:false},
+          datalabels:{anchor:'end',align:'end',color:'#1e2533',font:{size:11,weight:'700'},formatter:function(v){return v>0?v:'';}},
+          tooltip:{callbacks:{label:function(c){return ' '+c.raw+' deal(s)';}}}
+        },
+        scales:{
+          x:{ticks:{color:'#6b7a90',font:{size:10}},grid:{display:false}},
+          y:{beginAtZero:true,ticks:{color:'#6b7a90',stepSize:1},grid:{color:'#e8edf4'}}
+        }
+      },plugins:[ChartDataLabels]
+    });
+    ctx.onclick=function(evt){
+      var pts=charts['ch-sla-bar2'].getElementsAtEventForMode(evt,'nearest',{intersect:true},false);
+      if(!pts.length) return;
+      var keys=['densdelais','horsdelais'];
+      var labels=['Dans les délais','Hors délais'];
+      var colors=['#16a34a','#dc2626'];
       var k=keys[pts[0].index]; var list=slaBarData[k]||[];
       showPopup(evt,'Delivery - '+labels[pts[0].index],colors[pts[0].index],list.length,list.map(function(d){
         return [d.client||'',d.desc||'',d.commercial||'',d.deliveryResp||'—',fF(d.montant),d.dlivPrev||'—',d.statut||''];
