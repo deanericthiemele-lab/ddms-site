@@ -151,7 +151,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 <div class="hdr">
   <a href="index.html" style="display:flex;align-items:center;gap:5px;background:#f1f5f9;border:1px solid #d1dae8;border-radius:7px;color:#475569;font-size:11px;font-weight:700;font-family:monospace;padding:5px 10px;text-decoration:none;white-space:nowrap;flex-shrink:0;transition:background .15s" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg> Accueil</a>
   <div class="logo">IT</div>
-  <div style="display:flex;align-items:center;gap:10px"><div><h1>ICT Tracker 2025 <span id="hdr-nb-deals" style="font-size:11px;font-weight:700;background:#f97316;color:#fff;border-radius:10px;padding:2px 8px;vertical-align:middle">—</span></h1><p>Datalink CI — Suivi ventes &amp; delivery</p></div></div>
+  <div style="display:flex;align-items:center;gap:10px"><div><h1>ICT Tracker 2025 <span id="hdr-nb-deals" style="font-size:11px;font-weight:700;background:#f97316;color:#fff;border-radius:10px;padding:2px 8px;vertical-align:middle">—</span> <span id="hdr-ca-attendu" style="font-size:15px;font-weight:800;background:#2563eb;color:#fff;border-radius:10px;padding:4px 14px;vertical-align:middle;margin-left:4px">—</span></h1><p>Datalink CI — Suivi ventes &amp; delivery</p></div></div>
   <div class="hdr-r" id="hdr-date">—</div>
   <div style="display:flex;gap:6px;margin-left:12px;flex-shrink:0">
     <button class="btn btn-g btn-s" onclick="openExportModal()">📤 Exporter</button>
@@ -218,8 +218,8 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   </div>
   <div class="g2" style="margin-bottom:10px;grid-template-columns:1.6fr 1fr 1fr">
     <div class="card"><div class="ct" style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span>CA facturé — CA en attente</span><span style="display:flex;align-items:center;gap:8px"><span style="font-size:10px;color:#f97316;font-weight:600">En attente: <span id="kpi-prev-total">—</span></span><span style="font-size:10px;color:#16a34a;font-weight:600">Facturé: <span id="kpi-livr-total">—</span></span><button class="btn btn-s" style="font-size:10px;padding:2px 8px" onclick="showPrevisionPopup()">📋 Prévisions</button></span></div><canvas id="ch-mois" height="120"></canvas></div>
-    <div class="card"><div class="ct">Statut des livraisons</div><div style="height:260px"><canvas id="ch-sla-bar"></canvas></div></div>
-    <div class="card"><div class="ct">Dans les délais / Hors délais</div><div style="height:260px"><canvas id="ch-sla-bar2"></canvas></div></div>
+    <div class="card"><div class="ct">Statut des dossiers</div><div style="height:260px"><canvas id="ch-sla-bar"></canvas></div></div>
+    <div class="card"><div class="ct">Dossiers en cours (Dans les délais / Hors délais)</div><div style="height:260px"><canvas id="ch-sla-bar2"></canvas></div></div>
   </div>
   <div class="g3" style="margin-bottom:10px">
     <div class="card"><div class="ct">Top 10 Commerciaux</div><canvas id="ch-comm-ca-g" height="140"></canvas></div>
@@ -763,6 +763,11 @@ function renderAll(){
   renderGlobal(); renderAlertes(); renderDeals(); renderPerf(); checkBanner();
   var nb=document.getElementById('hdr-nb-deals');
   if(nb) nb.textContent=deals.length+' dossier'+(deals.length>1?'s':'');
+  var nbCA=document.getElementById('hdr-ca-attendu');
+  if(nbCA){
+    var caEnCours=deals.filter(function(d){return (d.statut||'').toLowerCase()==='en cours';}).reduce(function(a,d){return a+(d.montant||0);},0);
+    nbCA.textContent='CA attendu (En cours) : '+fC(caEnCours);
+  }
 }
 
 function slaStatus(d){
@@ -1148,20 +1153,16 @@ function renderGlobal(){
     'annule': deals_g.filter(function(d){ return (d.statut||'').toLowerCase()==='annulé'; }),
     'suspendu': deals_g.filter(function(d){ return (d.statut||'').toLowerCase()==='suspendu'; })
   };
-  // Partition complémentaire (100% des dossiers, dans une des 2 catégories) :
-  // Hors délais = Terminé livré après la date prévue, OU En cours dont la date prévue est déjà dépassée, OU sans date prévue
-  // Dans les délais = tout le reste (Terminé livré à temps, En cours pas encore en retard)
-  slaBarData.horsdelais = deals_g.filter(function(d){
-    var statutL=(d.statut||'').toLowerCase();
-    if(statutL==='terminé'){
-      return !!(d.dateLivraison && d.dlivPrev && new Date(d.dateLivraison) > new Date(d.dlivPrev));
-    }
+  // Partition "Dans les délais / Hors délais" — uniquement les dossiers En cours
+  // Hors délais = En cours dont la date prévue est déjà dépassée, OU sans date prévue
+  // Dans les délais = En cours pas encore en retard
+  slaBarData.horsdelais = slaBarData.encours.filter(function(d){
     if(!d.dlivPrev) return true;
     return new Date(d.dlivPrev).getTime() < Date.now();
   });
   (function(){
     var horsIds={}; slaBarData.horsdelais.forEach(function(d){ horsIds[d.id]=true; });
-    slaBarData.densdelais = deals_g.filter(function(d){ return !horsIds[d.id]; });
+    slaBarData.densdelais = slaBarData.encours.filter(function(d){ return !horsIds[d.id]; });
   })();
   (function(){
     var ctx=document.getElementById('ch-sla-bar'); if(!ctx) return;
