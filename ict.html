@@ -211,6 +211,12 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 <div class="main">
 
 <div id="page-0" class="page active">
+  <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:10px">
+    <label for="global-year-filter" style="font-size:11px;color:var(--muted);font-weight:600">📅 Année :</label>
+    <select class="si" id="global-year-filter" onchange="changeGlobalYear(this.value)" style="min-width:150px">
+      <option value="all">Toutes les années</option>
+    </select>
+  </div>
   <div class="g2" style="margin-bottom:10px">
     <div class="card"><div class="ct" style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span>CA facturé — CA en attente</span><span style="display:flex;align-items:center;gap:8px"><span style="font-size:10px;color:#f97316;font-weight:600">En attente: <span id="kpi-prev-total">—</span></span><span style="font-size:10px;color:#16a34a;font-weight:600">Facturé: <span id="kpi-livr-total">—</span></span><button class="btn btn-s" style="font-size:10px;padding:2px 8px" onclick="showPrevisionPopup()">📋 Prévisions</button></span></div><canvas id="ch-mois" height="120"></canvas></div>
     <div class="card"><div class="ct">Statut des livraisons</div><canvas id="ch-sla-bar" height="120"></canvas></div>
@@ -391,7 +397,9 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
             <th onclick="dvSort('client')" style="cursor:pointer">Client ↕</th>
             <th>Description</th>
             <th onclick="dvSort('commercial')" style="cursor:pointer">Commercial ↕</th>
+            <th onclick="dvSort('closing')" style="cursor:pointer">Date Closing ↕</th>
             <th onclick="dvSort('dlivPrev')" style="cursor:pointer">Date prévue ↕</th>
+            <th onclick="dvSort('dateLivraison')" style="cursor:pointer">Date Livraison ↕</th>
             <th onclick="dvSort('deliveryResp')" style="cursor:pointer">Ingénieur ↕</th>
             <th>Statut</th><th>Montant</th><th></th>
           </tr></thead>
@@ -847,7 +855,8 @@ function switchTab(n){
 function renderMaj(){
   var q=(document.getElementById('maj-search')||{value:''}).value.trim().toLowerCase();
   var list=deals.filter(function(d){
-    return !d.deliveryResp||!d.deliveryResp.trim();
+    var ing=(d.deliveryResp||'').trim();
+    return !ing || ing.toLowerCase()==='d. moussa';
   }).filter(function(d){
     if(!q) return true;
     return (d.client||'').toLowerCase().indexOf(q)!==-1||(d.desc||'').toLowerCase().indexOf(q)!==-1;
@@ -866,11 +875,11 @@ function renderMaj(){
       +'<td style="padding:6px 10px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escH(d.desc||'')+'">'+escH(d.desc||'\u2014')+'</td>'
       +'<td style="padding:6px 10px;white-space:nowrap">'+fF(d.montant||0)+'</td>'
       +'<td style="padding:6px 10px;white-space:nowrap;color:var(--muted)">'+escH(d.closing||'—')+'</td>'
-      +'<td style="padding:6px 10px"><input type="text" value="" placeholder="Nom ing\u00e9nieur\u2026" data-id="'+idSafe+'" data-realid="'+escH(d.id)+'" data-field="deliveryResp" oninput="majFieldChange(this)" style="width:150px;font-size:11px;padding:4px 7px;border:1px solid #f97316;border-radius:4px;outline:none"/></td>'
-      +'<td style="padding:6px 10px"><input type="date" value="" data-id="'+idSafe+'" data-realid="'+escH(d.id)+'" data-field="dlivPrev" oninput="majFieldChange(this)" style="font-size:11px;padding:4px 7px;border:1px solid #f97316;border-radius:4px;outline:none"/></td>'
+      +'<td style="padding:6px 10px"><input type="text" value="'+escH(d.deliveryResp||'')+'" placeholder="Nom ing\u00e9nieur\u2026" data-id="'+idSafe+'" data-realid="'+escH(d.id)+'" data-field="deliveryResp" oninput="majFieldChange(this)" style="width:150px;font-size:11px;padding:4px 7px;border:1px solid '+(d.deliveryResp?'#dde3ed':'#f97316')+';border-radius:4px;outline:none"/></td>'
+      +'<td style="padding:6px 10px"><input type="date" value="'+escH(d.dlivPrev||'')+'" data-id="'+idSafe+'" data-realid="'+escH(d.id)+'" data-field="dlivPrev" oninput="majFieldChange(this)" style="font-size:11px;padding:4px 7px;border:1px solid '+(d.dlivPrev?'#dde3ed':'#f97316')+';border-radius:4px;outline:none"/></td>'
       +'<td style="padding:6px 10px"><select data-id="'+idSafe+'" data-realid="'+escH(d.id)+'" data-field="statut" onchange="majFieldChange(this)" style="font-size:11px;padding:4px 7px;border:1px solid #f97316;border-radius:4px;outline:none">'
-      +'<option value="" selected disabled>-- Statut --</option>'
-      +['Annulé','En cours','Suspendu','Terminé'].map(function(s){return '<option>'+s+'</option>';}).join('')
+      +'<option value="" '+(d.statut?'':'selected disabled')+'>-- Statut --</option>'
+      +['Annulé','En cours','Suspendu','Terminé'].map(function(s){return '<option'+(d.statut===s?' selected':'')+'>'+s+'</option>';}).join('')
       +'</select></td>'
       +'<td style="padding:6px 10px"><button data-rowid="'+idSafe+'" onclick="majSaveRow(this)" style="background:var(--green);color:#fff;border:none;border-radius:5px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">\u2714</button></td>'
       +'</tr>';
@@ -940,6 +949,25 @@ function switchTabEx(pageN){
 }
 
 var charts={};
+var globalYear='all';
+function changeGlobalYear(v){ globalYear=v; renderGlobal(); }
+function populateGlobalYearFilter(){
+  var sel=document.getElementById('global-year-filter'); if(!sel) return;
+  var years=new Set();
+  deals.forEach(function(d){
+    var ref=d.closing||d.dlivPrev;
+    if(ref){ var yr=new Date(ref).getFullYear(); if(!isNaN(yr)) years.add(String(yr)); }
+  });
+  var sorted=Array.from(years).sort(function(a,b){return b-a;});
+  var current=sel.value||globalYear;
+  var existing=Array.from(sel.options).map(function(o){return o.value;});
+  sorted.forEach(function(y){
+    if(existing.indexOf(y)===-1){
+      var o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);
+    }
+  });
+  sel.value=current;
+}
 function drawChart(id,type,labels,datasets,isCa,noLeg,stacked,horizontal){
   var ctx=document.getElementById(id); if(!ctx) return;
   if(charts[id]) charts[id].destroy();
@@ -978,7 +1006,15 @@ function drawChart(id,type,labels,datasets,isCa,noLeg,stacked,horizontal){
 }
 
 function renderGlobal(){
-  var kpiDeals = deals.filter(function(d){return d.statut!=='Annulé'&&d.statut!=='Suspendu';});
+  populateGlobalYearFilter();
+  var deals_g = deals.filter(function(d){
+    if(globalYear==='all') return true;
+    var ref = d.closing || d.dlivPrev;
+    if(!ref) return false;
+    var yr = new Date(ref).getFullYear();
+    return String(yr)===globalYear;
+  });
+  var kpiDeals = deals_g.filter(function(d){return d.statut!=='Annulé'&&d.statut!=='Suspendu';});
   var ca=kpiDeals.reduce(function(a,d){return a+d.montant;},0);
   // Terminé = statut Terminé
   var livres=kpiDeals.filter(function(d){return d.statut==='Terminé';});
@@ -1230,7 +1266,7 @@ function renderGlobal(){
     }
   });
   var pdOkG=Object.entries(dOkG).filter(function(x){return x[0]!=='—'&&x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
-  drawChart('ch-del-ok-g','bar',pdOkG.length?pdOkG.map(function(x){return x[0].split(' ').slice(-1)[0];}):['—'],
+  drawChart('ch-del-ok-g','bar',pdOkG.length?pdOkG.map(function(x){return x[0];}):['—'],
     [{data:pdOkG.length?pdOkG.map(function(x){return x[1].n;}):[0],backgroundColor:'#16a34a22',borderColor:'#16a34a',borderWidth:2,borderRadius:4}],false,true,false,true);
   (function(){
     var el=document.getElementById('ch-del-ok-g'); if(!el) return;
@@ -1251,7 +1287,7 @@ function renderGlobal(){
     if(d.statut==='Terminé'){dDoneG[ing].n++;dDoneG[ing].list.push(d);}
   });
   var pdDoneG=Object.entries(dDoneG).filter(function(x){return x[0]!=='—'&&x[1].n>0;}).sort(function(a,b){return b[1].n-a[1].n;}).slice(0,10);
-  drawChart('ch-del-done-g','bar',pdDoneG.length?pdDoneG.map(function(x){return x[0].split(' ').slice(-1)[0];}):['—'],
+  drawChart('ch-del-done-g','bar',pdDoneG.length?pdDoneG.map(function(x){return x[0];}):['—'],
     [{data:pdDoneG.length?pdDoneG.map(function(x){return x[1].n;}):[0],backgroundColor:'#2563eb22',borderColor:'#2563eb',borderWidth:2,borderRadius:4}],false,true,false,true);
   (function(){
     var el=document.getElementById('ch-del-done-g'); if(!el) return;
@@ -1689,7 +1725,7 @@ function dvRenderTable(list){
   var tc=document.getElementById('dv-title-count');
   if(tc) tc.textContent='('+list.length+')';
   if(!list.length){
-    tbody.innerHTML='<tr class="er"><td colspan="9">Aucun résultat</td></tr>';
+    tbody.innerHTML='<tr class="er"><td colspan="11">Aucun résultat</td></tr>';
     if(resList) resList.style.display='block';
     return;
   }
@@ -1710,7 +1746,9 @@ function dvRenderTable(list){
       +'<td style="font-weight:700">'+d.client+'</td>'
       +'<td style="color:var(--muted);font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+d.desc.substring(0,35)+'</td>'
       +'<td style="font-size:11px">'+((d.commercial||'').split(' ').slice(-1)[0])+'</td>'
+      +'<td style="font-size:11px">'+(d.closing?fDate(d.closing):'<span style="color:#94a3b8">—</span>')+'</td>'
       +'<td style="font-size:11px;font-weight:600;color:'+border+'">'+(d.dlivPrev?fDate(d.dlivPrev):'<span style="color:#94a3b8">—</span>')+'</td>'
+      +'<td style="font-size:11px">'+(d.dateLivraison?fDate(d.dateLivraison):'<span style="color:#94a3b8">—</span>')+'</td>'
       +'<td style="font-size:11px">'+(d.deliveryResp||'<span style="color:#94a3b8;font-style:italic">Non assigné</span>')+'</td>'
       +'<td><span class="badge '+(statMap[d.statut]||'bm')+'">'+d.statut+'</span></td>'
       +'<td style="font-size:11px;font-weight:600;color:var(--blue)">'+fC(d.montant)+'</td>'
