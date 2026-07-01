@@ -720,6 +720,7 @@ function loadDealsFromFirestore(){
       });
     }
     renderAll(); renderPlanning();
+    refreshAutocompleteFromDeals();
     // Maintenir Pipe actif si on est sur Suivi Delivery
     var onDV = document.getElementById('page-6') && document.getElementById('page-6').classList.contains('active');
     if(onDV) dvSetPipeFilter();
@@ -1965,15 +1966,6 @@ function dvInlinePanelHTML(d){
     +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Date de livraison</label>'
     +'<input id="dv-date-livraison" type="date" class="si" value="'+(d.dateLivraison||'')+'" style="font-size:12px"/>'
     +'<small style="color:var(--muted);font-size:10px">Date effective de livraison au client</small></div>'
-    // Date PV
-    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Date signature PV</label>'
-    +'<input id="dv-date-pv" type="date" class="si" value="'+(d.datePv||'')+'" style="font-size:12px" onchange="dvOnPvChange()"/>'
-    +'<small style="color:var(--muted);font-size:10px">Date PV + PV joint → statut Terminé</small></div>'
-    // PV de recette (fichier + lien existant)
-    +'<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">📎 PV de recette</label>'
-    +'<input id="dv-pv-file" type="file" class="si" style="font-size:11px;padding:4px 8px" onchange="dvOnPvChange()"/>'
-    +(d.pvPath?'<a href="'+d.pvPath+'" target="_blank" style="font-size:10px;color:var(--blue)">📄 Voir PV joint</a>':'')
-    +'<small style="color:var(--muted);font-size:10px">Date PV + PV joint → statut Terminé</small></div>'
     // Raison retard
     +'<div style="display:flex;flex-direction:column;gap:6px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Raison du retard</label>'
     +'<div style="display:flex;gap:6px;align-items:center">'
@@ -2011,6 +2003,7 @@ function dvOpenEdit(idOrEl){
   var d=deals.find(function(x){return x.id===id;}); if(!d) return;
   dvEditId=id;
   fillDatalist('dl-dv-resp','deliv');
+  fillDatalistFromDeals('dl-dv-resp','deliveryResp');
   // Trouver la TR cliquée dans le tbody
   var tbody=document.getElementById('dv-tbody'); if(!tbody) return;
   var clickedTr=tbody.querySelector('tr[data-id="'+id+'"]'); if(!clickedTr) return;
@@ -2488,6 +2481,31 @@ function initFormDatalist(){
   fillDatalist('dl-desc','desc');
   fillDatalist('dl-comm','comm');
   fillDatalist('dl-deliv','deliv');
+  refreshAutocompleteFromDeals();
+}
+// Alimente les datalists (Client, Commercial, Ingénieur Delivery) et le dropdown Description
+// avec toutes les valeurs déjà présentes dans les deals chargés (base existante)
+function fillDatalistFromDeals(datalistId, dealField){
+  var dl=document.getElementById(datalistId); if(!dl) return;
+  var existing={}; Array.prototype.forEach.call(dl.options, function(o){ existing[o.value]=true; });
+  var seen={};
+  (deals||[]).forEach(function(d){
+    var v=(d[dealField]||'').toString().trim();
+    if(v && !seen[v] && !existing[v]){
+      seen[v]=true;
+      var o=document.createElement('option'); o.value=v; dl.appendChild(o);
+    }
+  });
+}
+function refreshAutocompleteFromDeals(){
+  fillDatalistFromDeals('dl-client','client');
+  fillDatalistFromDeals('dl-comm','commercial');
+  fillDatalistFromDeals('dl-dv-resp','deliveryResp');
+  // Fusionner les descriptions déjà en base avec le catalogue seedé + Firebase
+  var descSet={};
+  (_descAllItems||[]).forEach(function(v){ descSet[v]=true; });
+  (deals||[]).forEach(function(d){ var v=(d.desc||'').toString().trim(); if(v) descSet[v]=true; });
+  descDropdownBuild(Object.keys(descSet));
 }
 // Format montant input with thousand separators
 function fmtMontantInput(el){
