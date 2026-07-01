@@ -502,6 +502,11 @@ header{
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
     Export Excel
   </button>
+  <button class="btn-excel btn-import" onclick="document.getElementById('import-file').click()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Importer Excel
+  </button>
+  <input type="file" id="import-file" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)"/>
   <button class="btn-danger" onclick="openPwdModal()">🗑 Tout supprimer</button>
 </header>
 
@@ -625,6 +630,8 @@ function applyVisiteurMode(){
   if(btnDanger) btnDanger.style.display='none';
   const btnAdd = document.querySelector('.btn-add-site');
   if(btnAdd) btnAdd.style.display='none';
+  const btnImport = document.querySelector('.btn-import');
+  if(btnImport) btnImport.style.display='none';
   // Badge lecture seule
   const hdrBadges = document.querySelector('.hdr-badges');
   if(hdrBadges){
@@ -1812,6 +1819,91 @@ async function genererRapportPDF(){
   progress.textContent = '✓ PDF généré avec succès !';
   btn.disabled = false;
   setTimeout(() => { progress.textContent = ''; closePdfModal(); }, 1800);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// IMPORT EXCEL — ignore les lignes complètement identiques à l'existant
+// ══════════════════════════════════════════════════════════════════
+async function importExcel(e){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); e.target.value=''; return; }
+  const file = e.target.files[0];
+  if(!file) return;
+
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(ws, {defval:''});
+
+    if(!json.length){ toast('⚠ Fichier vide','err'); e.target.value=''; return; }
+
+    // Signature complète d'une ligne (toutes les colonnes) pour détecter les doublons exacts
+    const rowSignature = (zone, client, lien, circuit, statut, zlat, zlon, clat, clon) =>
+      [zone, client, lien, circuit, statut, zlat, zlon, clat, clon]
+        .map(v => (v===null || v===undefined || Number.isNaN(v)) ? '' : String(v).trim().toLowerCase())
+        .join('|');
+
+    // Signatures déjà présentes dans les données actuelles (Firebase / zonesMap)
+    const existingSignatures = new Set();
+    Object.values(zonesMap).forEach(z=>{
+      z.clients.forEach(c=>{
+        const statut = c.clot ? 'Clôturé' : 'Actif';
+        existingSignatures.add(rowSignature(z.zone, c.name, c.lien, c.circuit, statut, z.lat, z.lon, c.clat, c.clon));
+      });
+    });
+
+    let imported = 0, skipped = 0, invalid = 0;
+    const touchedZones = new Set();
+
+    json.forEach(row=>{
+      const zoneName = String(row['Ville / Zone']||'').trim().toUpperCase();
+      const client    = String(row['Client']||'').trim();
+      const lien      = String(row['Lien / Référence']||'').trim();
+      const circuit   = String(row['Circuit']||'').trim();
+      const statutRaw = String(row['Statut']||'').trim();
+      const clot      = /clôtur/i.test(statutRaw);
+      const zlat = row['GPS Zone (Lat)']!==undefined && row['GPS Zone (Lat)']!=='' ? parseFloat(row['GPS Zone (Lat)']) : null;
+      const zlon = row['GPS Zone (Lon)']!==undefined && row['GPS Zone (Lon)']!=='' ? parseFloat(row['GPS Zone (Lon)']) : null;
+      const clat = row['GPS Client (Lat)']!==undefined && row['GPS Client (Lat)']!=='' ? parseFloat(row['GPS Client (Lat)']) : null;
+      const clon = row['GPS Client (Lon)']!==undefined && row['GPS Client (Lon)']!=='' ? parseFloat(row['GPS Client (Lon)']) : null;
+
+      if(!zoneName || !client){ invalid++; return; }
+
+      const statutLabel = clot ? 'Clôturé' : 'Actif';
+      const sig = rowSignature(zoneName, client, lien, circuit, statutLabel, zlat, zlon, clat, clon);
+      if(existingSignatures.has(sig)){ skipped++; return; }
+
+      const newClient = {id:uid(), name:client, lien, circuit, clot, source:'import', clat: (clat!==null && !isNaN(clat))?clat:null, clon: (clon!==null && !isNaN(clon))?clon:null};
+
+      if(zonesMap[zoneName]){
+        if(zlat!==null && !isNaN(zlat) && zlon!==null && !isNaN(zlon)){
+          zonesMap[zoneName].lat = zlat; zonesMap[zoneName].lon = zlon;
+        }
+        zonesMap[zoneName].clients.push(newClient);
+      } else {
+        if(zlat===null || isNaN(zlat) || zlon===null || isNaN(zlon)){ invalid++; return; }
+        zonesMap[zoneName] = {zone:zoneName, lat:zlat, lon:zlon, clot:false, clients:[newClient]};
+      }
+
+      existingSignatures.add(sig); // évite aussi les doublons internes au fichier importé
+      touchedZones.add(zoneName);
+      imported++;
+    });
+
+    touchedZones.forEach(zk=>buildMarker(zk));
+    buildSidebar();
+    updateStats();
+    if(touchedZones.size) await fbSaveAll(Array.from(touchedZones));
+
+    let msg = '✓ '+imported+' ligne(s) importée(s)';
+    if(skipped) msg += ' — '+skipped+' doublon(s) ignoré(s)';
+    if(invalid) msg += ' — '+invalid+' ligne(s) invalide(s)';
+    toast(msg, imported ? 'ok' : 'err');
+  } catch(err){
+    console.error('importExcel', err);
+    toast('⚠ Erreur import : '+err.message, 'err');
+  }
+  e.target.value = '';
 }
 
 // ══════════════════════════════════════════════════════════════════
