@@ -494,20 +494,37 @@ document.getElementById("fileInput").addEventListener("change", (e) => {
       "Date installation":"dateInstall",
       "Statut":"statut"
     };
+    // Signature de ligne (toutes les colonnes) pour détecter les doublons exacts
+    const fieldOrder = ["cout","bc","montantBc","fournisseur","annee","client","site","localisation","debit","gps","architecture","equipement","modele","ip","dateInstall","statut"];
+    const rowSignature = (obj) => fieldOrder.map(f => (obj[f] || "").toString().trim().toLowerCase()).join("|");
+
+    const existingSignatures = new Set(
+      Object.values(window._blrData || {}).map(r => rowSignature(r))
+    );
+
     let count = 0;
+    let skipped = 0;
     for(const row of json){
       const data = {};
       Object.keys(row).forEach(k => {
         const key = map[k.trim()];
         if(key) data[key] = String(row[k]).trim();
       });
+
+      const sig = rowSignature(data);
+      if(existingSignatures.has(sig)){
+        skipped++;
+        continue;
+      }
+
       if(data.statut) await window._addStatutOption(data.statut);
       if(Object.keys(data).length){
         await window._saveRow(null, data);
+        existingSignatures.add(sig); // évite aussi les doublons internes au fichier importé
         count++;
       }
     }
-    alert(count + " ligne(s) importée(s).");
+    alert(count + " ligne(s) importée(s)." + (skipped ? " " + skipped + " ligne(s) ignorée(s) (déjà existante(s))." : ""));
     e.target.value = "";
   };
   reader.readAsBinaryString(file);
