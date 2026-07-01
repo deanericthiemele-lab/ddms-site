@@ -673,6 +673,7 @@ function loadData(){
   try{ overrides=JSON.parse(localStorage.getItem('ict_ov')||'{}'); }catch(e){ overrides={}; }
   deals.forEach(function(d){
     var ov=overrides[d.id]; if(ov) Object.assign(d,ov);
+    if(!ov||!ov.sla) d.sla=SLA_CFG[d.categorie]||30;
   });
   // Load deals from Firestore
   loadDealsFromFirestore();
@@ -2383,7 +2384,7 @@ function saveNewDeal(){
   var montantEl=document.getElementById('np-montant');
   var montant=getMontantRaw(montantEl);
   var closing=document.getElementById('np-closing').value;
-  var secteur=''; var univers='';
+  var secteur=''; var categorie=''; var univers='';
   var dlivPrevVal=document.getElementById('np-dliv-prev').value;
   if(!client||!desc||!comm||!montant||!closing){
     toast('⚠️ Champs obligatoires manquants (Client, Description, Commercial, Montant, Closing)');
@@ -2402,10 +2403,13 @@ function saveNewDeal(){
     client:client, desc:desc, commercial:comm, montant:montant,
     closing:closing, mois:mois,
     secteur:secteur,
+    categorie:categorie,
     statut:'À livrer',
+    dateDelivery:'',
     dlivPrev:dlivPrev,
     deliveryResp:'',
     univers:univers,
+    sla:30,
     raison:'',
     notes:document.getElementById('np-notes').value.trim()
   };
@@ -2537,23 +2541,27 @@ async function confirmExport(){
         'ID'                   : x.id||'',
         'Client'               : x.client||'',
         'Description'          : x.desc||'',
+        'Référence'            : x.ref||'',
         'Secteur'              : x.secteur||'',
         'Univers'              : x.univers||'',
+        'Catégorie'            : x.categorie||'',
         'Commercial'           : x.commercial||'',
         'Ingénieur Delivery'   : x.deliveryResp||'',
         'Montant (FCFA)'       : x.montant||0,
         'Mois Closing'         : x.mois||'',
         'Date Closing'         : x.closing||'',
         'Date Livraison Prévue': x.dlivPrev||'',
+        'Date Delivery'        : x.dateDelivery||'',
         'Date Livraison Réelle': x.dateLivraison||'',
         'Statut'               : x.statut||'',
+        'SLA (jours)'          : x.sla||'',
         'Raison Retard'        : x.raison||'',
         'PV / Fichier'         : x.pvPath||'',
         'Notes'                : x.notes||'',
         'Créé le'              : x.createdAt||''
       });
     });
-    var cols=['ID','Client','Description','Secteur','Univers','Commercial','Ingénieur Delivery','Montant (FCFA)','Mois Closing','Date Closing','Date Livraison Prévue','Date Livraison Réelle','Statut','Raison Retard','PV / Fichier','Notes','Créé le'];
+    var cols=['ID','Client','Description','Référence','Secteur','Univers','Catégorie','Commercial','Ingénieur Delivery','Montant (FCFA)','Mois Closing','Date Closing','Date Livraison Prévue','Date Delivery','Date Livraison Réelle','Statut','SLA (jours)','Raison Retard','PV / Fichier','Notes','Créé le'];
     var ws=XLSX.utils.json_to_sheet(rows.length?rows:[{}],{header:cols});
     if(!rows.length){ws['!ref']='A1:'+XLSX.utils.encode_col(cols.length-1)+'1';}
     var wb=XLSX.utils.book_new();
