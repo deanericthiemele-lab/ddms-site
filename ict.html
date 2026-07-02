@@ -369,7 +369,8 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   <!-- Sélecteur de deal -->
   <div class="fp">
     <h3 style="display:flex;align-items:center;flex-wrap:wrap;gap:10px">Pipe <span id="dv-title-count" style="font-size:13px;font-weight:500;color:var(--muted)"></span>
-      <button class="btn btn-s" style="background:var(--accent);color:#fff;margin-left:auto" onclick="openBulkMaintModal()">🛠️ Activer Maintenance sur tous les Terminés</button>
+      <button class="btn btn-s" style="background:var(--accent);color:#fff;margin-left:auto" onclick="openBulkMaintModal()" title="Coche Maintenance sur tous les dossiers dont la description contient « Maintenance » ou « Renew » (majuscule/minuscule ignorée)">🛠️ Activer Maintenance (Desc. Maintenance/Renew)</button>
+      <span id="bulk-maint-count" style="font-size:11px;font-weight:700;color:var(--muted);background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:3px 10px;white-space:nowrap">—</span>
     </h3>
     
     <!-- Filtres rapides -->
@@ -410,6 +411,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
             <th onclick="dvSort('dlivPrev')" style="cursor:pointer">Date prévue ↕</th>
             <th onclick="dvSort('dateLivraison')" style="cursor:pointer">Date Livraison ↕</th>
             <th onclick="dvSort('deliveryResp')" style="cursor:pointer">Ingénieur ↕</th>
+            <th style="text-align:center">🛠️ Maintenance</th>
             <th>Statut</th><th>Montant</th><th></th>
           </tr></thead>
           <tbody id="dv-tbody"></tbody>
@@ -508,7 +510,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   </div>
 
   <div class="fp">
-    <h3 style="margin:0 0 10px">📋 Recensement des projets sous maintenance <span id="maint-list-count" style="font-size:12px;font-weight:500;color:var(--muted)"></span></h3>
+    <h3 style="margin:0 0 10px">📋 Recensement des projets Maintenance & Terminés <span id="maint-list-count" style="font-size:12px;font-weight:500;color:var(--muted)"></span></h3>
     <div class="tbl-wrap">
       <table>
         <thead><tr>
@@ -1942,6 +1944,7 @@ function renderDeliveryPage(){
     ings.forEach(function(i){var o=document.createElement('option');o.value=i;o.textContent=i;ingF.appendChild(o);});
   }
   dvSearchDeals();
+  updateBulkMaintCount();
 }
 
 function dvRenderTable(list){
@@ -1951,7 +1954,7 @@ function dvRenderTable(list){
   var tc=document.getElementById('dv-title-count');
   if(tc) tc.textContent='('+list.length+')';
   if(!list.length){
-    tbody.innerHTML='<tr class="er"><td colspan="11">Aucun résultat</td></tr>';
+    tbody.innerHTML='<tr class="er"><td colspan="12">Aucun résultat</td></tr>';
     if(resList) resList.style.display='block';
     return;
   }
@@ -1976,6 +1979,7 @@ function dvRenderTable(list){
       +'<td style="font-size:11px;font-weight:600;color:'+border+'">'+(d.dlivPrev?fDate(d.dlivPrev):'<span style="color:#94a3b8">—</span>')+'</td>'
       +'<td style="font-size:11px">'+(d.dateLivraison?fDate(d.dateLivraison):'<span style="color:#94a3b8">—</span>')+'</td>'
       +'<td style="font-size:11px">'+(d.deliveryResp||'<span style="color:#94a3b8;font-style:italic">Non assigné</span>')+'</td>'
+      +'<td style="text-align:center" onclick="event.stopPropagation()"><input type="checkbox" '+(d.maintenance?'checked':'')+' onclick="event.stopPropagation();dvToggleMaintenance(\''+d.id+'\',this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent)" title="'+(d.maintenance?'Maintenance activée — cliquer pour désactiver':'Cliquer pour activer la maintenance')+'"/></td>'
       +'<td><span class="badge '+(statMap[d.statut]||'bm')+'">'+d.statut+'</span></td>'
       +'<td style="font-size:11px;font-weight:600;color:var(--blue)">'+fC(d.montant)+'</td>'
       +'<td style="white-space:nowrap"><div style="display:flex;gap:4px;align-items:center">'
@@ -2086,7 +2090,7 @@ function dvInlinePanelHTML(d){
     else{bg='#f0fdf4';col='#16a34a';msg='🟢 Dans les délais — J-'+diff;}
     alertHtml='<div style="padding:8px 12px;border-radius:6px;font-size:12px;font-weight:700;margin-bottom:12px;background:'+bg+';color:'+col+';border:1px solid '+col+'44">'+msg+'</div>';
   }
-  var cols=9; // nb colonnes du tableau
+  var cols=10; // nb colonnes du tableau
   return '<td colspan="'+cols+'">'
     +'<div class="dv-inline-panel">'
     // En-tête
@@ -2234,6 +2238,17 @@ function dvOnPvChange(){
   } else if(pv){
     stat.value='Terminé';
   }
+}
+
+function dvToggleMaintenance(id, checked){
+  var d=deals.find(function(x){return x.id===id;}); if(!d) return;
+  d.maintenance=checked;
+  if(checked && !d.maintenanceLog) d.maintenanceLog={};
+  updateFirestore(id, {maintenance:checked}, function(){
+    toast((checked?'🛠️ Maintenance activée : ':'⭕ Maintenance désactivée : ')+d.client);
+    renderMaintenance();
+    updateBulkMaintCount();
+  });
 }
 
 function dvSaveEdit(){
@@ -2532,6 +2547,7 @@ function maintGoToday(){ var t=new Date(); maintYear=t.getFullYear(); maintMonth
 function maintDealsForYear(year){
   return deals.filter(function(d){
     if(!d.maintenance||!d.dateLivraison) return false;
+    if(d.statut!=='Terminé') return false;
     var liv=new Date(d.dateLivraison); if(isNaN(liv.getTime())) return false;
     return year>=(liv.getFullYear()+1);
   });
@@ -2674,7 +2690,7 @@ function renderMaintenance(){
   window._maintByDate=byDate;
 
   // ---- Table de recensement (tous les projets cochés Maintenance) ----
-  var allMaint=deals.filter(function(d){ return !!d.maintenance; });
+  var allMaint=deals.filter(function(d){ return !!d.maintenance && d.statut==='Terminé'; });
   if(search){
     allMaint=allMaint.filter(function(d){
       return (d.client||'').toLowerCase().indexOf(search)>-1
@@ -2694,6 +2710,11 @@ function renderMaintenance(){
         return '<tr><td><span style="color:#94a3b8;font-size:10px;font-weight:700">⚪ En attente livraison</span></td>'
           +'<td style="font-weight:700">'+d.client+'</td><td>'+(d.desc||'—')+'</td><td>'+(d.deliveryResp||'—')+'</td>'
           +'<td>—</td><td>—</td><td></td></tr>';
+      }
+      if(d.statut!=='Terminé'){
+        return '<tr><td><span style="color:#94a3b8;font-size:10px;font-weight:700">⚪ Statut ≠ Terminé</span></td>'
+          +'<td style="font-weight:700">'+d.client+'</td><td>'+(d.desc||'—')+'</td><td>'+(d.deliveryResp||'—')+'</td>'
+          +'<td>'+fDate(d.dateLivraison)+'</td><td>—</td><td></td></tr>';
       }
       var due=nextMaintDateStr(d);
       var occYear=new Date(due).getFullYear();
@@ -2798,18 +2819,33 @@ function maintUndo(dealId,year){
 }
 
 // ---- Activation en masse de la Maintenance sur les dossiers Terminés ----
+function dvDescMatchesMaintenance(d){
+  var desc=(d.desc||'').toLowerCase();
+  return desc.indexOf('maintenance')!==-1 || desc.indexOf('renew')!==-1;
+}
+function updateBulkMaintCount(){
+  var el=document.getElementById('bulk-maint-count'); if(!el) return;
+  var matches=deals.filter(dvDescMatchesMaintenance);
+  var todo=matches.filter(function(d){return !d.maintenance;}).length;
+  var already=matches.length-todo;
+  el.textContent=matches.length+' dossier(s) trouvé(s)'+(already?' · '+already+' déjà activé(s)':'');
+}
 function openBulkMaintModal(){
-  var termines=deals.filter(function(d){return d.statut==='Terminé';});
-  var candidates=termines.filter(function(d){return !d.maintenance;});
-  var alreadyOn=termines.length-candidates.length;
+  var matches=deals.filter(dvDescMatchesMaintenance);
+  var candidates=matches.filter(function(d){return !d.maintenance;});
+  var alreadyOn=matches.length-candidates.length;
   var sub=document.getElementById('bulk-maint-sub');
-  if(!candidates.length){
-    toast(alreadyOn ? 'ℹ️ Les '+alreadyOn+' projet(s) Terminé(s) ont déjà la Maintenance activée.' : 'ℹ️ Aucun projet Terminé trouvé.');
+  if(!matches.length){
+    toast('ℹ️ Aucun dossier avec "Maintenance" ou "Renew" dans la description n\'a été trouvé.');
     return;
   }
-  if(sub) sub.textContent='Vous allez cocher « Maintenance requise » sur '+candidates.length+' projet(s) Terminé(s) qui ne l\'ont pas encore'
+  if(!candidates.length){
+    toast('ℹ️ Les '+alreadyOn+' dossier(s) concerné(s) ont déjà la Maintenance activée.');
+    return;
+  }
+  if(sub) sub.textContent='Vous allez cocher « Maintenance requise » sur '+candidates.length+' dossier(s) dont la description contient « Maintenance » ou « Renew » (quelle que soit la casse) et qui ne l\'ont pas encore'
     +(alreadyOn?' ('+alreadyOn+' l\'ont déjà et ne seront pas modifiés)':'')+'. '
-    +'La 1ère échéance de chaque projet sera calculée automatiquement 1 an après sa Date de livraison réelle. Continuer ?';
+    +'La 1ère échéance de chaque dossier sera calculée automatiquement 1 an après sa Date de livraison réelle (dès qu\'elle sera renseignée). Continuer ?';
   var bg=document.getElementById('bulk-maint-modal-bg'); if(bg) bg.style.display='flex';
 }
 function closeBulkMaintModal(){
@@ -2817,16 +2853,16 @@ function closeBulkMaintModal(){
 }
 function confirmBulkMaintenance(){
   closeBulkMaintModal();
-  var candidates=deals.filter(function(d){return d.statut==='Terminé' && !d.maintenance;});
+  var candidates=deals.filter(function(d){return dvDescMatchesMaintenance(d) && !d.maintenance;});
   if(!candidates.length){ toast('ℹ️ Rien à activer.'); return; }
   if(!db){ toast('⚠️ Firebase non disponible'); return; }
-  toast('⏳ Activation en cours sur '+candidates.length+' projet(s)…');
+  toast('⏳ Activation en cours sur '+candidates.length+' dossier(s)…');
   var CHUNK=400, idx=0, done=0;
   function nextChunk(){
     var slice=candidates.slice(idx, idx+CHUNK);
     if(!slice.length){
       saveData(); renderAll(); renderDeliveryPage(); renderPlanning(); renderMaintenance(); buildFilters();
-      toast('✅ Maintenance activée sur '+done+' projet(s) Terminé(s).');
+      toast('✅ Maintenance activée sur '+done+' dossier(s) (description Maintenance/Renew).');
       return;
     }
     var batch=db.batch();
