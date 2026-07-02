@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>Parc Client</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
@@ -139,6 +140,66 @@
       transform: translateY(-50%);
       font-size: 18px;
       color: var(--border-hover);
+    }
+
+    /* ── CHART CARD (Entrées / Sorties) ── */
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 18px 20px 20px;
+      margin-bottom: 24px;
+    }
+    .chart-card-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .chart-card-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .chart-card-sub {
+      font-size: 12px;
+      color: var(--text-3);
+      margin-top: 2px;
+    }
+    .chart-legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .chart-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-2);
+    }
+    .chart-legend-item .dot {
+      width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
+    }
+    .flux-warning {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      background: var(--amber-light);
+      color: var(--amber);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+    .flux-warning code {
+      font-family: monospace;
+      background: rgba(0,0,0,0.06);
+      padding: 1px 5px;
+      border-radius: 4px;
     }
 
     /* ── ACTION ROW ── */
@@ -674,6 +735,28 @@
     </div>
 
 
+    <!-- GRAPHE ENTRÉES VS SORTIES -->
+    <div class="chart-card" id="chart-card-flux">
+      <div class="chart-card-head">
+        <div>
+          <div class="chart-card-title">Entrées vs Sorties</div>
+          <div class="chart-card-sub" id="flux-sub">Nouvelles lignes activées et lignes résiliées, par mois (12 derniers mois)</div>
+        </div>
+        <div class="chart-legend">
+          <span class="chart-legend-item"><span class="dot" style="background:#2a78d6;"></span>Entrées</span>
+          <span class="chart-legend-item"><span class="dot" style="background:#e34948;"></span>Sorties</span>
+        </div>
+      </div>
+      <div id="flux-warning" class="flux-warning" style="display:none;">
+        <span>⚠️</span>
+        <span>Le fichier PARC.xlsx ne contient pas de date de résiliation — les sorties ne peuvent pas être réparties mois par mois. Le total résilié est affiché en référence sur le dernier mois. Ajoutez une colonne <code>DATE_RESILIATION</code> pour un suivi mensuel précis.</span>
+      </div>
+      <div style="position:relative;width:100%;height:260px;">
+        <canvas id="chartFlux" role="img" aria-label="Comparaison mensuelle des entrées, nouvelles lignes activées, et des sorties, lignes résiliées">Graphique des entrées et sorties mensuelles du parc.</canvas>
+      </div>
+    </div>
+
+
     <!-- BOUTON TYPE DE LIEN -->
     <div class="action-row" style="justify-content:center; margin-bottom:12px; margin-top:20px;">
       <button class="btn-type-lien" onclick="ouvrirPickerLien()">
@@ -921,6 +1004,97 @@ function statsRec(arr) {
   };
 }
 
+// ── Parsing dates flexible (numéro série Excel ou texte) ──
+function parseDateFlexible(val) {
+  if (val === null || val === undefined || val === '') return null;
+  if (typeof val === 'number') {
+    try {
+      const dc = XLSX.SSF.parse_date_code(val);
+      if (dc) return new Date(dc.y, dc.m - 1, dc.d);
+    } catch(e) { return null; }
+    return null;
+  }
+  const s = String(val).trim();
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+  m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) return new Date(+m[1], +m[2]-1, +m[3]);
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+let chartFluxInstance = null;
+
+// ── Graphe Entrées vs Sorties ──
+function calculerFluxEntreesSorties() {
+  const canvas = document.getElementById('chartFlux');
+  if (!canvas || !baseData.length) return;
+
+  const now = new Date();
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleDateString('fr-FR', {month:'short', year:'2-digit'}) });
+  }
+
+  const entrees = months.map(() => 0);
+  const sorties = months.map(() => 0);
+  let sortiesDatables = false;
+
+  baseData.forEach(r => {
+    const dms = parseDateFlexible(r['DATE_MS']);
+    if (dms) {
+      const idx = months.findIndex(mo => mo.y === dms.getFullYear() && mo.m === dms.getMonth());
+      if (idx !== -1) entrees[idx]++;
+    }
+    if (r['ETAT_LIGNE'] === 'RESILIE') {
+      const dr = parseDateFlexible(r['DATE_RESILIATION']);
+      if (dr) {
+        sortiesDatables = true;
+        const idx = months.findIndex(mo => mo.y === dr.getFullYear() && mo.m === dr.getMonth());
+        if (idx !== -1) sorties[idx]++;
+      }
+    }
+  });
+
+  const totalResilies = baseData.filter(r => r['ETAT_LIGNE'] === 'RESILIE').length;
+  const warningEl = document.getElementById('flux-warning');
+  const subEl = document.getElementById('flux-sub');
+
+  const datasets = [
+    { label: 'Entrées', data: entrees, backgroundColor: '#2a78d6', borderRadius: 4 }
+  ];
+
+  if (sortiesDatables) {
+    warningEl.style.display = 'none';
+    subEl.textContent = 'Nouvelles lignes activées et lignes résiliées, par mois (12 derniers mois)';
+    datasets.push({ label: 'Sorties', data: sorties, backgroundColor: '#e34948', borderRadius: 4 });
+  } else if (totalResilies > 0) {
+    warningEl.style.display = 'flex';
+    subEl.textContent = 'Entrées datées (DATE_MS) — sorties non datées, total affiché en référence';
+    const sortiesRef = months.map((_, i) => i === months.length - 1 ? totalResilies : 0);
+    datasets.push({ label: 'Sorties (total, non daté)', data: sortiesRef, backgroundColor: '#e34948', borderRadius: 4 });
+  } else {
+    warningEl.style.display = 'none';
+    subEl.textContent = 'Nouvelles lignes activées, par mois (12 derniers mois) — aucune résiliation enregistrée';
+  }
+
+  if (chartFluxInstance) chartFluxInstance.destroy();
+  chartFluxInstance = new Chart(canvas, {
+    type: 'bar',
+    data: { labels: months.map(m => m.label), datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: '#e1e0d9' } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}
+
 // ── Chargement auto ──
 async function chargerExcelParc() {
   try {
@@ -962,6 +1136,8 @@ function traiterDonnees(arrayBuffer) {
 
   document.getElementById("export-top20").onclick  = () => exporterExcel("table-top20",  "Top20_Filtré.xlsx");
   document.getElementById("export-client").onclick = () => exporterExcel("table-client", "Clients_Filtré.xlsx");
+
+  calculerFluxEntreesSorties();
 }
 
 // ── Recherche client ──
