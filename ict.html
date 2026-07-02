@@ -207,6 +207,7 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
   <div class="tab" data-page="5" onclick="switchTabEx(5)">➕ Nouveau projet</div>
   <div class="tab" data-page="6" onclick="switchTabEx(6)">🚚 Pipe</div>
   <div class="tab" data-page="7" onclick="switchTabEx(7)">📅 Planning Livraison</div>
+  <div class="tab" data-page="9" onclick="switchTabEx(9)">🛠️ Planning Maintenance</div>
   <div class="tab" data-page="8" onclick="switchTabEx(8)" style="display:none">✏️ MAJ Delivery</div>
 </div>
 <div class="main">
@@ -341,6 +342,12 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
       </div>
       <div class="ff"><label>Date de closing *</label><input type="date" id="np-closing"/></div>
       <div class="ff"><label>Date de livraison prévue *</label><input type="date" id="np-dliv-prev" required title="Date prévisionnelle de livraison au client"/></div>
+      <div class="ff" style="justify-content:flex-end">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:9px 12px;font-size:12px;font-weight:700;color:var(--text)">
+          <input type="checkbox" id="np-maintenance" style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent)"/>
+          🛠️ Maintenance requise <span style="font-weight:400;color:var(--muted);font-size:10px">(1x/an à partir de la livraison)</span>
+        </label>
+      </div>
 
       <div class="ff full"><label>Notes commerciales</label><textarea id="np-notes" placeholder="Notes internes, remarques commerciales…"></textarea></div>
     </div>
@@ -445,6 +452,81 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
         <button class="btn btn-g btn-s" onclick="document.getElementById('plan-day-detail').style.display='none'">✕</button>
       </div>
       <div id="plan-day-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="page-9" class="page">
+  <div class="fp" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <h3 style="margin:0">🛠️ Planning Maintenance</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label for="maint-year-filter" style="font-size:11px;color:var(--muted);font-weight:600">📅 Année :</label>
+        <select class="si" id="maint-year-filter" onchange="changeMaintYear(this.value)" style="min-width:110px"></select>
+      </div>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-top:6px">Un projet coché « Maintenance » déclenche une visite de maintenance chaque année, à la date anniversaire de sa livraison réelle (saisie par l'ingénieur delivery).</p>
+  </div>
+
+  <div class="kpi-row">
+    <div class="kpi bl"><div class="kpi-lbl">Total maintenances (année)</div><div class="kpi-val" id="maint-k-total">0</div><div class="kpi-sub">Projets sous contrat, échéance dans l'année</div></div>
+    <div class="kpi gr"><div class="kpi-lbl">Réalisées</div><div class="kpi-val" id="maint-k-done">0</div><div class="kpi-sub" id="maint-k-done-sub">—</div></div>
+    <div class="kpi rd"><div class="kpi-lbl">Non réalisées</div><div class="kpi-val" id="maint-k-todo">0</div><div class="kpi-sub" id="maint-k-todo-sub">—</div></div>
+    <div class="kpi oa"><div class="kpi-lbl">Dont en retard</div><div class="kpi-val" id="maint-k-late">0</div><div class="kpi-sub">Échéance dépassée, non réalisée</div></div>
+  </div>
+
+  <div class="fp" style="margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+      <h3 style="margin:0;display:flex;align-items:center;gap:10px">📅 Calendrier des maintenances</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-g btn-s" onclick="maintNav(-1)">◀</button>
+        <span id="maint-month-label" style="font-size:13px;font-weight:700;color:var(--text);min-width:140px;text-align:center">—</span>
+        <button class="btn btn-g btn-s" onclick="maintNav(1)">▶</button>
+        <button class="btn btn-g btn-s" onclick="maintGoToday()" style="margin-left:4px">Aujourd'hui</button>
+        <input class="si" id="maint-search" type="text" placeholder="🔍 Client, ingénieur, objet…" oninput="renderMaintenance()" style="margin-left:8px;min-width:200px"/>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:10px;display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;border-radius:3px;background:#dc2626;display:inline-block"></span>En retard</span>
+        <span style="font-size:10px;display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;border-radius:3px;background:#f97316;display:inline-block"></span>À venir</span>
+        <span style="font-size:10px;display:flex;align-items:center;gap:4px"><span style="width:12px;height:12px;border-radius:3px;background:#16a34a;display:inline-block"></span>Réalisée</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="maint-calendar" style="background:#fff;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:10px"></div>
+
+  <div id="maint-day-detail" style="display:none;margin-bottom:14px">
+    <div class="fp" style="border-top:3px solid var(--accent)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span id="maint-day-title" style="font-weight:700;font-size:13px"></span>
+        <button class="btn btn-g btn-s" onclick="document.getElementById('maint-day-detail').style.display='none'">✕</button>
+      </div>
+      <div id="maint-day-list"></div>
+    </div>
+  </div>
+
+  <div class="fp">
+    <h3 style="margin:0 0 10px">📋 Recensement des projets sous maintenance <span id="maint-list-count" style="font-size:12px;font-weight:500;color:var(--muted)"></span></h3>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>Statut</th><th>Client</th><th>Objet</th><th>Ingénieur</th><th>Date livraison</th><th>Prochaine échéance</th><th></th>
+        </tr></thead>
+        <tbody id="maint-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="maint-modal-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center">
+  <div class="modal" style="padding:22px">
+    <h3 style="margin-bottom:4px">🛠️ Maintenance réalisée</h3>
+    <p id="maint-modal-sub" style="font-size:12px;color:var(--muted);margin-bottom:14px"></p>
+    <div class="ff" style="margin-bottom:12px"><label>Date de réalisation</label><input type="date" id="maint-modal-date" class="si"/></div>
+    <div class="ff" style="margin-bottom:16px"><label>Notes (optionnel)</label><textarea id="maint-modal-notes" class="si" style="min-height:60px"></textarea></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-g" onclick="closeMaintModal()">Annuler</button>
+      <button class="btn btn-p" style="background:var(--green)" onclick="confirmMaintDone()">✔ Enregistrer</button>
     </div>
   </div>
 </div>
@@ -725,6 +807,7 @@ function loadDealsFromFirestore(){
     var onDV = document.getElementById('page-6') && document.getElementById('page-6').classList.contains('active');
     if(onDV) dvSetPipeFilter();
     renderDeliveryPage();
+    renderMaintenance();
     buildFilters();
     // Si accès restreint MAJ Delivery : renderMaj + nettoyer le flag
     if (sessionStorage.getItem('ictOnlyMaj') === '1') {
@@ -965,6 +1048,7 @@ function switchTabEx(pageN){
     renderDeliveryPage();
   }
   if(pageN===7) renderPlanning();
+  if(pageN===9) renderMaintenance();
   if(pageN===8) renderMaj();
   if(pageN===5){ document.getElementById('np-closing').value=new Date().toISOString().split('T')[0]; initFormDatalist(); initFirebaseLists(); }
 }
@@ -1988,6 +2072,16 @@ function dvInlinePanelHTML(d){
     +'</div>'
     +'</div>'
     +'</div>'
+    // Maintenance
+    +'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:12px">'
+    +'<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;font-weight:700;color:var(--text)">'
+    +'<input type="checkbox" id="dv-maintenance" '+(d.maintenance?'checked':'')+' style="width:15px;height:15px;cursor:pointer;accent-color:var(--accent)"/> 🛠️ Maintenance requise (1x/an)</label>'
+    +(d.maintenance
+       ? (d.dateLivraison
+           ? '<span style="font-size:11px;color:var(--muted)">Prochaine échéance : <strong style="color:var(--accent)">'+fDate(nextMaintDateStr(d))+'</strong></span>'
+           : '<span style="font-size:11px;color:var(--muted)">⚠️ Sera calculée dès que la date de livraison sera renseignée</span>')
+       : '<span style="font-size:11px;color:var(--muted)">Cochez si ce client doit bénéficier d\'une maintenance annuelle</span>')
+    +'</div>'
     // Notes
     +'<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:14px"><label style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase">Notes delivery</label>'
     +'<textarea id="dv-notes" class="si" style="min-height:60px;resize:vertical;font-size:12px" placeholder="Observations, blocages, actions…">'+(d.notes||'')+'</textarea></div>'
@@ -2091,6 +2185,8 @@ function dvSaveEdit(){
   var datePv       = gv('dv-date-pv');
   var raison       = gv('dv-raison');
   var notes        = gv('dv-notes');
+  var maintEl      = document.getElementById('dv-maintenance');
+  var maintenance  = maintEl ? maintEl.checked : !!d.maintenance;
   var pvFileEl     = document.getElementById('dv-pv-file');
   var pvPath       = (pvFileEl&&pvFileEl.files&&pvFileEl.files[0])
                       ? pvFileEl.files[0].name
@@ -2134,6 +2230,7 @@ function dvSaveEdit(){
     pvPath       : pvPath,
     raison       : raison,
     notes        : notes,
+    maintenance  : maintenance,
     updatedAt    : new Date().toISOString()
   });
 
@@ -2145,7 +2242,7 @@ function dvSaveEdit(){
   updateFirestore(dvEditId, Object.assign({}, d), function(){
     toast('✅ Delivery mis à jour : '+d.client);
     dvCloseEdit();
-    renderAll(); renderDeliveryPage(); renderPlanning();
+    renderAll(); renderDeliveryPage(); renderPlanning(); renderMaintenance();
   });
 }
 
@@ -2341,6 +2438,276 @@ function planDayClick(el){
   detail.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
+// ============================================================
+// MAINTENANCE — page-9
+// ============================================================
+var maintYear=new Date().getFullYear(), maintMonth=new Date().getMonth();
+var maintModalDealId=null, maintModalYear=null;
+
+function changeMaintYear(v){ maintYear=parseInt(v,10); renderMaintenance(); }
+function maintNav(dir){
+  maintMonth+=dir;
+  if(maintMonth>11){maintMonth=0;maintYear++;}
+  if(maintMonth<0){maintMonth=11;maintYear--;}
+  renderMaintenance();
+}
+function maintGoToday(){ var t=new Date(); maintYear=t.getFullYear(); maintMonth=t.getMonth(); renderMaintenance(); }
+
+// Liste des deals éligibles à la maintenance pour une année donnée (livrés depuis au moins un an à cette date)
+function maintDealsForYear(year){
+  return deals.filter(function(d){
+    if(!d.maintenance||!d.dateLivraison) return false;
+    var liv=new Date(d.dateLivraison); if(isNaN(liv.getTime())) return false;
+    return year>=(liv.getFullYear()+1);
+  });
+}
+// Occurrence (échéance) de maintenance d'un deal pour une année donnée
+function maintOccurrence(d,year){
+  var liv=new Date(d.dateLivraison);
+  var dateStr=year+'-'+String(liv.getMonth()+1).padStart(2,'0')+'-'+String(liv.getDate()).padStart(2,'0');
+  var rec=(d.maintenanceLog||{})[year]||null;
+  return {year:year,dateStr:dateStr,done:!!(rec&&rec.done),doneDate:rec?rec.date:'',notes:rec?rec.notes:''};
+}
+// Prochaine échéance pertinente (la plus proche non réalisée, sinon la dernière)
+function nextMaintDateStr(d){
+  if(!d.maintenance||!d.dateLivraison) return '';
+  var liv=new Date(d.dateLivraison); if(isNaN(liv.getTime())) return '';
+  var firstYear=liv.getFullYear()+1, thisYear=new Date().getFullYear();
+  var y=firstYear, best=null;
+  while(y<=thisYear+1){
+    var occ=maintOccurrence(d,y);
+    if(!occ.done){ best=occ; break; }
+    y++;
+  }
+  if(!best) best=maintOccurrence(d,thisYear+1);
+  return best.dateStr;
+}
+
+function populateMaintYearFilter(){
+  var sel=document.getElementById('maint-year-filter'); if(!sel) return;
+  var minYear=null;
+  deals.forEach(function(d){
+    if(d.maintenance&&d.dateLivraison){
+      var liv=new Date(d.dateLivraison);
+      if(!isNaN(liv.getTime())){ var fy=liv.getFullYear()+1; if(minYear===null||fy<minYear) minYear=fy; }
+    }
+  });
+  var nowY=new Date().getFullYear();
+  var start=Math.min(minYear||nowY, nowY), end=nowY+2;
+  if(sel.options.length && parseInt(sel.dataset.start||'0',10)===start && parseInt(sel.dataset.end||'0',10)===end) return;
+  sel.dataset.start=start; sel.dataset.end=end;
+  var cur=sel.value||String(maintYear);
+  sel.innerHTML='';
+  for(var y=end;y>=start;y--){ var o=document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o); }
+  if([...sel.options].some(function(o){return o.value===cur;})) sel.value=cur; else sel.value=String(maintYear);
+}
+
+function renderMaintenance(){
+  var page=document.getElementById('page-9'); if(!page) return;
+  populateMaintYearFilter();
+  var selY=document.getElementById('maint-year-filter');
+  if(selY&&selY.value) maintYear=parseInt(selY.value,10);
+  if(selY) selY.value=String(maintYear);
+
+  var search=(document.getElementById('maint-search')||{}).value||'';
+  search=search.trim().toLowerCase();
+
+  var todayStr=new Date().toISOString().split('T')[0];
+
+  // Liste année sélectionnée (pour KPI + calendrier)
+  var yearList=maintDealsForYear(maintYear).map(function(d){ return {d:d, occ:maintOccurrence(d,maintYear)}; });
+  if(search){
+    yearList=yearList.filter(function(x){
+      return (x.d.client||'').toLowerCase().indexOf(search)>-1
+        || (x.d.desc||'').toLowerCase().indexOf(search)>-1
+        || (x.d.deliveryResp||'').toLowerCase().indexOf(search)>-1;
+    });
+  }
+
+  // KPIs
+  var total=yearList.length;
+  var done=yearList.filter(function(x){return x.occ.done;}).length;
+  var todo=total-done;
+  var late=yearList.filter(function(x){return !x.occ.done && x.occ.dateStr<todayStr;}).length;
+  var se=function(id,v){var e=document.getElementById(id); if(e) e.textContent=v;};
+  se('maint-k-total',total);
+  se('maint-k-done',done);
+  se('maint-k-done-sub', total? Math.round(done/total*100)+'% du total' : '—');
+  se('maint-k-todo',todo);
+  se('maint-k-todo-sub', total? Math.round(todo/total*100)+'% du total' : '—');
+  se('maint-k-late',late);
+
+  // ---- Calendrier du mois ----
+  var byDate={};
+  yearList.forEach(function(x){
+    var dt=new Date(x.occ.dateStr);
+    if(dt.getFullYear()===maintYear && dt.getMonth()===maintMonth){
+      if(!byDate[x.occ.dateStr]) byDate[x.occ.dateStr]=[];
+      byDate[x.occ.dateStr].push(x);
+    }
+  });
+  var label=MONTHS_FR[maintMonth]+' '+maintYear;
+  var lbl=document.getElementById('maint-month-label'); if(lbl) lbl.textContent=label;
+
+  var first=new Date(maintYear,maintMonth,1);
+  var lastDay=new Date(maintYear,maintMonth+1,0).getDate();
+  var startDow=(first.getDay()+6)%7;
+  var todayDate=new Date(); var todayDateStr=todayDate.toISOString().split('T')[0];
+
+  var html='<div style="display:grid;grid-template-columns:repeat(7,1fr);background:var(--border);gap:1px">';
+  DAYS_FR.forEach(function(d,i){
+    var wkend=i>=5;
+    html+='<div style="background:var(--s2);padding:6px 4px;text-align:center;font-size:10px;font-weight:700;color:'+(wkend?'#94a3b8':'var(--muted)')+'">'+d+'</div>';
+  });
+  for(var i=0;i<startDow;i++){ html+='<div style="background:#fafbfc;min-height:100px"></div>'; }
+  for(var day=1;day<=lastDay;day++){
+    var dateStr=maintYear+'-'+String(maintMonth+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    var isToday=dateStr===todayDateStr;
+    var dow=(startDow+day-1)%7, isWkend=dow>=5;
+    var dayItems=byDate[dateStr]||[];
+    var bg=isWkend?'#fafbfd':'#fff';
+    var todayBorder=isToday?'box-shadow:inset 0 0 0 2px #2563eb;':'';
+    html+='<div style="background:'+bg+';min-height:100px;padding:5px;cursor:'+(dayItems.length?'pointer':'default')+';'+todayBorder+'" onclick="maintDayClick(this)" data-date="'+dateStr+'">';
+    html+='<div style="font-size:12px;font-weight:'+(isToday?'900':'700')+';color:'+(isToday?'#2563eb':isWkend?'#94a3b8':'var(--text)')+';margin-bottom:4px">'+day+(isToday?' ●':'')+'</div>';
+    var shown=dayItems.slice(0,3);
+    shown.forEach(function(x){
+      var d=x.d, occ=x.occ;
+      var chipBg,chipBorder,chipTxt;
+      if(occ.done){ chipBg='#f0fdf4'; chipBorder='#16a34a'; chipTxt='#16a34a'; }
+      else if(occ.dateStr<todayDateStr){ chipBg='#fef2f2'; chipBorder='#dc2626'; chipTxt='#dc2626'; }
+      else { chipBg='#fff7ed'; chipBorder='#f97316'; chipTxt='#f97316'; }
+      var tooltipTxt=[
+        'Client : '+(d.client||'—'),
+        'Objet : '+(d.desc||'—'),
+        'Ingénieur : '+(d.deliveryResp||'Non assigné'),
+        'Échéance : '+fDate(occ.dateStr),
+        'Statut : '+(occ.done?'Réalisée le '+fDate(occ.doneDate):'Non réalisée')
+      ].join('\n');
+      html+='<div title="'+tooltipTxt+'" style="background:'+chipBg+';border-left:3px solid '+chipBorder+';border-radius:4px;padding:4px 6px;margin-bottom:3px;font-size:11px;line-height:1.5;color:'+chipTxt+';max-width:100%;overflow:hidden">'
+        +'<div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+(occ.done?'✅ ':'')+d.client+'</div>'
+        +'<div style="font-size:10px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(d.desc||'')+'</div>'
+        +'<div style="font-size:10px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px">🔧 '+(d.deliveryResp||'Non assigné')+'</div>'
+        +'</div>';
+    });
+    if(dayItems.length>3) html+='<div style="font-size:10px;color:var(--muted);padding:2px 4px;font-weight:600">+'+(dayItems.length-3)+' autres</div>';
+    html+='</div>';
+  }
+  var total2=startDow+lastDay, rem=(7-total2%7)%7;
+  for(var j=0;j<rem;j++){ html+='<div style="background:#fafbfc;min-height:100px"></div>'; }
+  html+='</div>';
+  var cal=document.getElementById('maint-calendar'); if(cal) cal.innerHTML=html;
+  window._maintByDate=byDate;
+
+  // ---- Table de recensement (tous les projets cochés Maintenance) ----
+  var allMaint=deals.filter(function(d){ return !!d.maintenance; });
+  if(search){
+    allMaint=allMaint.filter(function(d){
+      return (d.client||'').toLowerCase().indexOf(search)>-1
+        || (d.desc||'').toLowerCase().indexOf(search)>-1
+        || (d.deliveryResp||'').toLowerCase().indexOf(search)>-1;
+    });
+  }
+  allMaint=allMaint.slice().sort(function(a,b){
+    var da=a.dateLivraison?nextMaintDateStr(a):'9999', db=b.dateLivraison?nextMaintDateStr(b):'9999';
+    return da<db?-1:da>db?1:0;
+  });
+  var cnt=document.getElementById('maint-list-count'); if(cnt) cnt.textContent='('+allMaint.length+')';
+  var tb=document.getElementById('maint-tbody');
+  if(tb){
+    tb.innerHTML=allMaint.map(function(d){
+      if(!d.dateLivraison){
+        return '<tr><td><span style="color:#94a3b8;font-size:10px;font-weight:700">⚪ En attente livraison</span></td>'
+          +'<td style="font-weight:700">'+d.client+'</td><td>'+(d.desc||'—')+'</td><td>'+(d.deliveryResp||'—')+'</td>'
+          +'<td>—</td><td>—</td><td></td></tr>';
+      }
+      var due=nextMaintDateStr(d);
+      var occYear=new Date(due).getFullYear();
+      var occ=maintOccurrence(d,occYear);
+      var badge;
+      if(occ.done) badge='<span style="color:#16a34a;font-weight:700;font-size:11px">✅ Réalisée '+fDate(occ.doneDate)+'</span>';
+      else if(occ.dateStr<todayStr) badge='<span style="color:#dc2626;font-weight:700;font-size:11px">🔴 En retard</span>';
+      else badge='<span style="color:#f97316;font-weight:700;font-size:11px">🟠 À venir</span>';
+      var actionBtn=occ.done
+        ? '<button class="btn btn-g btn-s" onclick="maintUndo(\''+d.id+'\','+occYear+')">↩ Annuler</button>'
+        : '<button class="btn btn-p btn-s" onclick="maintOpenDoneModal(\''+d.id+'\','+occYear+')">✔ Marquer réalisée</button>';
+      return '<tr><td>'+badge+'</td>'
+        +'<td style="font-weight:700">'+d.client+'</td><td>'+(d.desc||'—')+'</td><td>'+(d.deliveryResp||'—')+'</td>'
+        +'<td>'+fDate(d.dateLivraison)+'</td><td>'+fDate(occ.dateStr)+'</td>'
+        +'<td>'+actionBtn+'</td></tr>';
+    }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px">Aucun projet marqué « Maintenance » pour le moment.</td></tr>';
+  }
+}
+
+function maintDayClick(el){
+  var dateStr=el.getAttribute?el.getAttribute('data-date'):el;
+  var list=(window._maintByDate||{})[dateStr]||[];
+  if(!list.length) return;
+  var detail=document.getElementById('maint-day-detail');
+  var title=document.getElementById('maint-day-title');
+  var listEl=document.getElementById('maint-day-list');
+  if(!detail||!title||!listEl) return;
+  var todayStr=new Date().toISOString().split('T')[0];
+  title.textContent='🛠️ Maintenances du '+fDate(dateStr)+' ('+list.length+')';
+  listEl.innerHTML=list.map(function(x){
+    var d=x.d, occ=x.occ;
+    var col=occ.done?'#16a34a':(occ.dateStr<todayStr?'#dc2626':'#f97316');
+    var bg=occ.done?'#f0fdf4':(occ.dateStr<todayStr?'#fef2f2':'#fff7ed');
+    return '<div style="background:'+bg+';border-left:4px solid '+col+';border-radius:var(--r);padding:10px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px">'
+      +'<div style="flex:1">'
+      +'<div style="font-weight:700;font-size:13px;color:var(--text)">'+d.client+'</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:2px">'+(d.desc||'—')+'</div>'
+      +'<div style="margin-top:6px;display:flex;gap:10px;flex-wrap:wrap;font-size:11px">'
+      +'<span>🔧 <strong>Ingénieur:</strong> '+(d.deliveryResp||'Non assigné')+'</span>'
+      +'<span>📦 <strong>Livré le:</strong> '+fDate(d.dateLivraison)+'</span>'
+      +(occ.notes?'<span>📝 '+occ.notes+'</span>':'')
+      +'</div></div>'
+      +'<div style="text-align:right;flex-shrink:0">'
+      +(occ.done
+        ? '<span style="color:#16a34a;font-weight:700;font-size:11px">✅ Réalisée '+fDate(occ.doneDate)+'</span><br><button class="btn btn-g btn-s" style="margin-top:6px" onclick="maintUndo(\''+d.id+'\','+occ.year+')">↩ Annuler</button>'
+        : '<button class="btn btn-p btn-s" onclick="maintOpenDoneModal(\''+d.id+'\','+occ.year+')">✔ Marquer réalisée</button>')
+      +'</div></div>';
+  }).join('');
+  detail.style.display='block';
+  detail.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function maintOpenDoneModal(dealId,year){
+  maintModalDealId=dealId; maintModalYear=year;
+  var d=deals.find(function(x){return x.id===dealId;}); if(!d) return;
+  var sub=document.getElementById('maint-modal-sub');
+  if(sub) sub.textContent=d.client+' — '+(d.desc||'')+' · Échéance '+year;
+  var dateEl=document.getElementById('maint-modal-date'); if(dateEl) dateEl.value=new Date().toISOString().split('T')[0];
+  var notesEl=document.getElementById('maint-modal-notes'); if(notesEl) notesEl.value='';
+  var bg=document.getElementById('maint-modal-bg'); if(bg) bg.style.display='flex';
+}
+function closeMaintModal(){
+  maintModalDealId=null; maintModalYear=null;
+  var bg=document.getElementById('maint-modal-bg'); if(bg) bg.style.display='none';
+}
+function confirmMaintDone(){
+  if(!maintModalDealId) return;
+  var d=deals.find(function(x){return x.id===maintModalDealId;}); if(!d){ closeMaintModal(); return; }
+  var dateVal=(document.getElementById('maint-modal-date')||{}).value||new Date().toISOString().split('T')[0];
+  var notesVal=(document.getElementById('maint-modal-notes')||{}).value||'';
+  if(!d.maintenanceLog) d.maintenanceLog={};
+  d.maintenanceLog[maintModalYear]={done:true, date:dateVal, notes:notesVal};
+  updateFirestore(d.id, {maintenanceLog:d.maintenanceLog}, function(){
+    toast('✅ Maintenance enregistrée pour '+d.client);
+    closeMaintModal();
+    var det=document.getElementById('maint-day-detail'); if(det) det.style.display='none';
+    renderMaintenance();
+  });
+}
+function maintUndo(dealId,year){
+  var d=deals.find(function(x){return x.id===dealId;}); if(!d) return;
+  if(!d.maintenanceLog) d.maintenanceLog={};
+  d.maintenanceLog[year]={done:false, date:'', notes:(d.maintenanceLog[year]||{}).notes||''};
+  updateFirestore(d.id, {maintenanceLog:d.maintenanceLog}, function(){
+    toast('↩ Maintenance remise en attente : '+d.client);
+    var det=document.getElementById('maint-day-detail'); if(det) det.style.display='none';
+    renderMaintenance();
+  });
+}
 
 // ---- Raisons retard custom ----
 var RAISON_KEY='ict_raisons_custom';
@@ -2572,7 +2939,9 @@ function saveNewDeal(){
     univers:univers,
     sla:30,
     raison:'',
-    notes:document.getElementById('np-notes').value.trim()
+    notes:document.getElementById('np-notes').value.trim(),
+    maintenance: !!(document.getElementById('np-maintenance')&&document.getElementById('np-maintenance').checked),
+    maintenanceLog:{}
   };
   // save autocomplete values
   saveFV('client',client); saveFV('desc',desc); saveFV('comm',comm);
@@ -2584,7 +2953,7 @@ function saveNewDeal(){
     // Vérifier que le deal n'est pas déjà dans le tableau (évite le doublon si loadDealsFromFirestore recharge)
     var alreadyIn = deals.find(function(x){ return x.id === newDeal.id; });
     if(!alreadyIn) deals.push(newDeal);
-    saveData(); renderAll(); renderDeliveryPage(); renderPlanning(); buildFilters();
+    saveData(); renderAll(); renderDeliveryPage(); renderPlanning(); renderMaintenance(); buildFilters();
     if(btn){btn.textContent='💾 Enregistrer le deal';btn.disabled=false;}
     toast('✅ Deal enregistré dans Firebase : '+client);
     resetNewDeal();
@@ -2595,6 +2964,7 @@ function resetNewDeal(){
     var el=document.getElementById(id); if(el) el.value='';
   });
   var me=document.getElementById('np-montant'); if(me){me.value='';me.dataset.raw='';}
+  var mc=document.getElementById('np-maintenance'); if(mc) mc.checked=false;
   // Set closing to today
   document.getElementById('np-closing').value=new Date().toISOString().split('T')[0];
 
@@ -2716,12 +3086,14 @@ async function confirmExport(){
         'Statut'               : x.statut||'',
         'SLA (jours)'          : x.sla||'',
         'Raison Retard'        : x.raison||'',
+        'Maintenance'          : x.maintenance?'Oui':'Non',
+        'Prochaine échéance maintenance': x.maintenance?nextMaintDateStr(x):'',
         'PV / Fichier'         : x.pvPath||'',
         'Notes'                : x.notes||'',
         'Créé le'              : x.createdAt||''
       });
     });
-    var cols=['ID','Client','Description','Référence','Secteur','Univers','Catégorie','Commercial','Ingénieur Delivery','Montant (FCFA)','Mois Closing','Date Closing','Date Livraison Prévue','Date Livraison Réelle','Statut','SLA (jours)','Raison Retard','PV / Fichier','Notes','Créé le'];
+    var cols=['ID','Client','Description','Référence','Secteur','Univers','Catégorie','Commercial','Ingénieur Delivery','Montant (FCFA)','Mois Closing','Date Closing','Date Livraison Prévue','Date Livraison Réelle','Statut','SLA (jours)','Raison Retard','Maintenance','Prochaine échéance maintenance','PV / Fichier','Notes','Créé le'];
     var ws=XLSX.utils.json_to_sheet(rows.length?rows:[{}],{header:cols});
     if(!rows.length){ws['!ref']='A1:'+XLSX.utils.encode_col(cols.length-1)+'1';}
     var wb=XLSX.utils.book_new();
@@ -2757,6 +3129,7 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('clear-modal-bg').addEventListener('click',function(e){if(e.target===this)closeClearModal();});
   document.getElementById('export-modal-bg').addEventListener('click',function(e){if(e.target===this)closeExportModal();});
   document.getElementById('import-modal-bg').addEventListener('click',function(e){if(e.target===this)closeImportModal();});
+  var maintBg=document.getElementById('maint-modal-bg'); if(maintBg) maintBg.addEventListener('click',function(e){if(e.target===this)closeMaintModal();});
   var fi=document.getElementById('excel-import-secure');
   if(!fi) return;
   fi.addEventListener('change',function(e){
