@@ -274,6 +274,8 @@
       letter-spacing: 0.04em;
     }
     .ca-table thead th:first-child { z-index: 4; }
+    .ca-table thead th:not(:first-child) { text-align: center; }
+    .ca-table thead th .st-up, .ca-table thead th .st-down { font-size: 11px; line-height: 1.4; }
     .ca-table tbody tr:hover td { background: var(--surface-2); }
     .ca-table td.total-col, .ca-table th.total-col {
       font-weight: 600;
@@ -887,6 +889,10 @@
             <div class="chart-card-sub">Tous les clients (regroupés intelligemment), CA engagé par année — triés du plus gros au plus petit</div>
           </div>
         </div>
+        <div class="search-wrap" style="max-width:340px;margin-bottom:12px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="ca-table-search" placeholder="Rechercher un client…" oninput="filtrerCaClientsTable()">
+        </div>
         <div class="ca-table-wrap">
           <table class="ca-table" id="tableCaClientsAnnee">
             <thead><tr id="ca-table-head"></tr></thead>
@@ -1344,8 +1350,8 @@ function calculerAnalyseCA() {
     });
   }
 
-  // ── 2. Top clients — CA par année (TABLEAU) ──
-  renderCaClientsTable(years);
+  // ── 2. Top clients — CA par année (TABLEAU, depuis 2020) ──
+  renderCaClientsTable(getYearsSince(2020));
 
   const years2020 = getYearsSince(2020);
   renderCaClientProduitAnnee(years2020);
@@ -1358,17 +1364,29 @@ function renderCaClientsTable(years) {
   if (!theadRow || !tbody) return;
 
   const clientsSorted = Object.entries(caClientYearData).sort((a,b) => b[1].total - a[1].total);
+  caTableState = { clientsSorted, years };
 
-  theadRow.innerHTML = '<th>Client</th>' + years.map(y => `<th>${y}</th>`).join('') + '<th class="total-col">Total</th>';
+  // Total global par année (toutes années confondues), pour les flèches de tendance
+  const totalsByYear = {};
+  Object.values(caClientYearData).forEach(c => {
+    Object.entries(c.byYear).forEach(([y, v]) => {
+      y = +y;
+      totalsByYear[y] = (totalsByYear[y] || 0) + v.total;
+    });
+  });
 
-  tbody.innerHTML = clientsSorted.map(([, c]) => {
-    const cells = years.map(y => `<td>${fmtCompact(c.byYear[y] ? c.byYear[y].total : 0)}</td>`).join('');
-    return `<tr><td>${c.display}</td>${cells}<td class="total-col">${fmtCompact(c.total)}</td></tr>`;
-  }).join('');
+  theadRow.innerHTML = '<th>Client</th>' + years.map(y => {
+    const cur = totalsByYear[y] || 0;
+    const prev = totalsByYear[y - 1];
+    let arrow = '<div style="color:var(--text-3);">—</div>';
+    if (prev !== undefined) {
+      if (cur > prev)      arrow = '<div class="st-up">▲</div>';
+      else if (cur < prev) arrow = '<div class="st-down">▼</div>';
+    }
+    return `<th>${arrow}${y}</th>`;
+  }).join('') + '<th class="total-col">Total</th>';
 
-  if (!clientsSorted.length) {
-    tbody.innerHTML = `<tr><td colspan="${years.length + 2}" style="text-align:center;color:var(--text-3);padding:20px;">Aucune donnée</td></tr>`;
-  }
+  renderCaClientsTableBody();
 
   // Datalist pour la recherche client (bloc 3)
   const datalist = document.getElementById('ca-client-list');
@@ -1380,6 +1398,30 @@ function renderCaClientsTable(years) {
     const searchInput = document.getElementById('ca-client-search');
     if (searchInput) searchInput.value = clientsSorted[0][1].display;
   }
+}
+
+let caTableState = { clientsSorted: [], years: [] };
+
+function renderCaClientsTableBody() {
+  const tbody = document.getElementById('ca-table-body');
+  if (!tbody) return;
+  const { clientsSorted, years } = caTableState;
+
+  const search = normalize(document.getElementById('ca-table-search') ? document.getElementById('ca-table-search').value : '');
+  const filtered = search ? clientsSorted.filter(([, c]) => normalize(c.display).includes(search)) : clientsSorted;
+
+  tbody.innerHTML = filtered.map(([, c]) => {
+    const cells = years.map(y => `<td>${fmtCompact(c.byYear[y] ? c.byYear[y].total : 0)}</td>`).join('');
+    return `<tr><td>${c.display}</td>${cells}<td class="total-col">${fmtCompact(c.total)}</td></tr>`;
+  }).join('');
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="${years.length + 2}" style="text-align:center;color:var(--text-3);padding:20px;">Aucun résultat</td></tr>`;
+  }
+}
+
+function filtrerCaClientsTable() {
+  renderCaClientsTableBody();
 }
 
 // ── 3. CA par produit, par année — client sélectionné (depuis 2020) ──
