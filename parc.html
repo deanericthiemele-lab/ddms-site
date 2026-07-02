@@ -819,31 +819,57 @@
         </div>
       </div>
 
+      <!-- 1. ÉVOLUTION DU CA GLOBAL -->
       <div class="chart-card-block">
         <div class="chart-card-head">
           <div>
-            <div class="chart-card-title">CA par produit — actif vs résilié</div>
-            <div class="chart-card-sub">Répartition du récurrent mensuel par segment</div>
+            <div class="chart-card-title">Évolution du CA global</div>
+            <div class="chart-card-sub">Cumul du CA engagé par année (date de mise en service) — repère : CA actif actuel</div>
           </div>
           <div class="chart-legend">
-            <span class="chart-legend-item"><span class="dot" style="background:#2a78d6;"></span>CA actif</span>
-            <span class="chart-legend-item"><span class="dot" style="background:#e34948;"></span>CA résilié</span>
+            <span class="chart-legend-item"><span class="dot" style="background:#1baf7a;"></span>CA cumulé engagé</span>
+            <span class="chart-legend-item"><span class="dot" style="background:#898781;"></span>CA actif actuel</span>
           </div>
         </div>
         <div style="position:relative;width:100%;height:240px;">
-          <canvas id="chartCaProduit" role="img" aria-label="Comparaison du chiffre d'affaires actif et résilié par produit, téléphonie, LSI, liaisons spécialisées">Graphique du CA par produit, actif et résilié.</canvas>
+          <canvas id="chartCaGlobalAnnee" role="img" aria-label="Courbe du chiffre d'affaires cumulé engagé, année par année, comparé au CA actif actuel">Courbe d'évolution du CA global par année.</canvas>
         </div>
       </div>
 
+      <!-- 2. TOP CLIENTS — CA PAR ANNÉE -->
       <div class="chart-card-block">
         <div class="chart-card-head">
           <div>
-            <div class="chart-card-title">Évolution du CA activé</div>
-            <div class="chart-card-sub" id="ca-evo-sub">Cumul mensuel du récurrent, basé sur la date de mise en service (12 derniers mois)</div>
+            <div class="chart-card-title">Évolution du CA par client, année par année</div>
+            <div class="chart-card-sub">Top clients (regroupés intelligemment), CA engagé par année</div>
           </div>
         </div>
-        <div style="position:relative;width:100%;height:240px;">
-          <canvas id="chartCaEvolution" role="img" aria-label="Courbe du chiffre d'affaires cumulé activé mois par mois sur les 12 derniers mois">Courbe d'évolution du CA cumulé activé.</canvas>
+        <div id="legendCaClients" style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px;font-size:12px;color:var(--text-2);"></div>
+        <div style="position:relative;width:100%;height:280px;">
+          <canvas id="chartCaClientsAnnee" role="img" aria-label="Comparaison du chiffre d'affaires engagé par année pour les principaux clients">Graphique du CA par client et par année.</canvas>
+        </div>
+      </div>
+
+      <!-- 3. CA PAR CLIENT PAR PRODUIT, PAR ANNÉE -->
+      <div class="chart-card-block">
+        <div class="chart-card-head">
+          <div>
+            <div class="chart-card-title">CA par produit, année par année — vue client</div>
+            <div class="chart-card-sub">Sélectionnez un client pour voir la répartition Téléphonie / LSI / LS par année</div>
+          </div>
+          <div class="chart-legend">
+            <span class="chart-legend-item"><span class="dot" style="background:#2a78d6;"></span>Téléphonie</span>
+            <span class="chart-legend-item"><span class="dot" style="background:#eda100;"></span>LSI</span>
+            <span class="chart-legend-item"><span class="dot" style="background:#eb6834;"></span>LS</span>
+          </div>
+        </div>
+        <div class="search-wrap" style="max-width:420px;margin-bottom:14px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="ca-client-search" list="ca-client-list" placeholder="Rechercher un client…" oninput="onCaClientSearch()">
+          <datalist id="ca-client-list"></datalist>
+        </div>
+        <div style="position:relative;width:100%;height:260px;">
+          <canvas id="chartCaClientProduitAnnee" role="img" aria-label="Répartition du chiffre d'affaires par produit et par année pour le client sélectionné">Graphique du CA par produit et par année pour le client sélectionné.</canvas>
         </div>
       </div>
 
@@ -1116,9 +1142,31 @@ function parseDateFlexible(val) {
   return isNaN(d) ? null : d;
 }
 
+// ── Regroupement intelligent des clients ──
+// Réutilise le dictionnaire clientMappings existant pour les grands comptes
+// connus, et regroupe les autres par nom normalisé (accents/casse/espaces
+// ignorés) pour fusionner les variantes d'écriture d'un même client.
+const caClientGroupCache = {};
+function canonicalClientKey(raw) {
+  const n = normalize(raw);
+  if (!n) return 'INCONNU';
+  if (caClientGroupCache[n] !== undefined) return caClientGroupCache[n];
+  let key = n;
+  for (const mapKey in clientMappings) {
+    if (clientMappings[mapKey].some(v => n.includes(normalize(v)))) { key = mapKey; break; }
+  }
+  caClientGroupCache[n] = key;
+  return key;
+}
+
+const PALETTE_CLIENTS = ['#2a78d6', '#1baf7a', '#eda100', '#008300', '#4a3aa7', '#e34948', '#e87ba4', '#eb6834'];
+
 let chartFluxInstance = null;
-let chartCaProduitInstance = null;
-let chartCaEvolutionInstance = null;
+let chartCaGlobalAnneeInstance = null;
+let chartCaClientsAnneeInstance = null;
+let chartCaClientProduitAnneeInstance = null;
+let caClientYearData = {};
+let caSelectedClientKey = null;
 
 function sumRec(arr) {
   return arr.reduce((s, r) => s + (parseFloat(r['RECURRENT_MENSUEL']) || 0), 0);
@@ -1132,21 +1180,50 @@ function fmtCompact(n) {
   return Math.round(n).toLocaleString('fr-FR');
 }
 
+function getYearRange(minYears) {
+  const now = new Date();
+  let minYear = now.getFullYear(), maxYear = now.getFullYear();
+  baseData.forEach(r => {
+    const d = parseDateFlexible(r['DATE_MS']);
+    if (!d) return;
+    if (d.getFullYear() < minYear) minYear = d.getFullYear();
+    if (d.getFullYear() > maxYear) maxYear = d.getFullYear();
+  });
+  if (maxYear - minYear + 1 < minYears) minYear = maxYear - minYears + 1;
+  const years = [];
+  for (let y = minYear; y <= maxYear; y++) years.push(y);
+  return years;
+}
+
+// ── Construction des données CA par client / année / produit ──
+function buildClientYearData() {
+  const map = {};
+  baseData.forEach(r => {
+    const d = parseDateFlexible(r['DATE_MS']);
+    if (!d) return;
+    const year = d.getFullYear();
+    const key = canonicalClientKey(r['NOM_PRENOMS']);
+    if (key === 'INCONNU') return;
+    const rec = parseFloat(r['RECURRENT_MENSUEL']) || 0;
+    if (!map[key]) map[key] = { display: String(r['NOM_PRENOMS']||key).trim(), total: 0, byYear: {} };
+    if (!map[key].byYear[year]) map[key].byYear[year] = { total: 0, tel: 0, lsi: 0, ls: 0 };
+    map[key].total += rec;
+    map[key].byYear[year].total += rec;
+    const isTel = r['PRODUIT'] === 'TELEPHONE';
+    const isLsi = String(r['ND']||'').startsWith('SYT');
+    if (isTel) map[key].byYear[year].tel += rec;
+    else if (isLsi) map[key].byYear[year].lsi += rec;
+    else map[key].byYear[year].ls += rec;
+  });
+  return map;
+}
+
 // ── Analyse CA & Performance Produit ──
 function calculerAnalyseCA() {
   if (!baseData.length) return;
 
   const actifs   = baseData.filter(r => r['ETAT_LIGNE'] !== 'RESILIE');
   const resilies = baseData.filter(r => r['ETAT_LIGNE'] === 'RESILIE');
-
-  const segment = arr => ({
-    tel: arr.filter(r => r['PRODUIT'] === 'TELEPHONE'),
-    lsi: arr.filter(r => String(r['ND']||'').startsWith('SYT')),
-    ls:  arr.filter(r => r['PRODUIT'] !== 'TELEPHONE' && !String(r['ND']||'').startsWith('SYT'))
-  });
-
-  const segActifs   = segment(actifs);
-  const segResilies = segment(resilies);
 
   const caActifTotal   = sumRec(actifs);
   const caResilieTotal = sumRec(resilies);
@@ -1160,79 +1237,45 @@ function calculerAnalyseCA() {
   document.getElementById('ca-metric-nb-resilie-sub').textContent = `sur ${nbTotal.toLocaleString('fr-FR')} lignes`;
   document.getElementById('ca-metric-churn').textContent      = tauxChurn.toFixed(1).replace('.',',') + '%';
 
-  // ── Chart CA par produit ──
-  const canvasProduit = document.getElementById('chartCaProduit');
-  if (canvasProduit) {
-    if (chartCaProduitInstance) chartCaProduitInstance.destroy();
-    chartCaProduitInstance = new Chart(canvasProduit, {
-      type: 'bar',
+  const years = getYearRange(4);
+  caClientYearData = buildClientYearData();
+
+  // ── 1. Évolution du CA global (cumulé, année par année) ──
+  const canvasGlobal = document.getElementById('chartCaGlobalAnnee');
+  if (canvasGlobal) {
+    const parAnnee = years.map(() => 0);
+    let avantPeriode = 0;
+    baseData.forEach(r => {
+      const d = parseDateFlexible(r['DATE_MS']);
+      if (!d) return;
+      const rec = parseFloat(r['RECURRENT_MENSUEL']) || 0;
+      const idx = years.indexOf(d.getFullYear());
+      if (idx !== -1) parAnnee[idx] += rec;
+      else if (d.getFullYear() < years[0]) avantPeriode += rec;
+    });
+    const cumul = [];
+    let acc = avantPeriode;
+    parAnnee.forEach(v => { acc += v; cumul.push(acc); });
+
+    if (chartCaGlobalAnneeInstance) chartCaGlobalAnneeInstance.destroy();
+    chartCaGlobalAnneeInstance = new Chart(canvasGlobal, {
+      type: 'line',
       data: {
-        labels: ['Téléphonie', 'LSI', 'LS'],
+        labels: years.map(String),
         datasets: [
-          { label: 'CA actif',   data: [sumRec(segActifs.tel),   sumRec(segActifs.lsi),   sumRec(segActifs.ls)],   backgroundColor: '#2a78d6', borderRadius: 4 },
-          { label: 'CA résilié', data: [sumRec(segResilies.tel), sumRec(segResilies.lsi), sumRec(segResilies.ls)], backgroundColor: '#e34948', borderRadius: 4 }
+          {
+            label: 'CA cumulé engagé', data: cumul,
+            borderColor: '#1baf7a', backgroundColor: 'rgba(27,175,122,0.1)',
+            fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: '#1baf7a'
+          },
+          {
+            label: 'CA actif actuel', data: years.map(() => caActifTotal),
+            borderColor: '#898781', borderDash: [6,4], pointRadius: 0, fill: false
+          }
         ]
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          y: { beginAtZero: true, ticks: { callback: v => fmtCompact(v) }, grid: { color: '#e1e0d9' } },
-          x: { grid: { display: false } }
-        }
-      }
-    });
-  }
-
-  // ── Chart évolution CA (cumulé, DATE_MS, 12 derniers mois) ──
-  const canvasEvo = document.getElementById('chartCaEvolution');
-  if (canvasEvo) {
-    const now = new Date();
-    const months = [];
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleDateString('fr-FR', {month:'short', year:'2-digit'}) });
-    }
-    const parMois = months.map(() => 0);
-    let horsFenetre = 0;
-    actifs.forEach(r => {
-      const dms = parseDateFlexible(r['DATE_MS']);
-      const rec = parseFloat(r['RECURRENT_MENSUEL']) || 0;
-      if (!dms) return;
-      const idx = months.findIndex(mo => mo.y === dms.getFullYear() && mo.m === dms.getMonth());
-      if (idx !== -1) parMois[idx] += rec;
-      else horsFenetre += rec;
-    });
-    const cumul = [];
-    let acc = horsFenetre;
-    parMois.forEach(v => { acc += v; cumul.push(acc); });
-
-    const subEvo = document.getElementById('ca-evo-sub');
-    if (subEvo) {
-      subEvo.textContent = horsFenetre > 0
-        ? `Cumul du CA actif, basé sur la date de mise en service — inclut ${fmtCompact(horsFenetre)} de CA activé avant les 12 derniers mois`
-        : 'Cumul mensuel du récurrent, basé sur la date de mise en service (12 derniers mois)';
-    }
-
-    if (chartCaEvolutionInstance) chartCaEvolutionInstance.destroy();
-    chartCaEvolutionInstance = new Chart(canvasEvo, {
-      type: 'line',
-      data: {
-        labels: months.map(m => m.label),
-        datasets: [{
-          data: cumul,
-          borderColor: '#1baf7a',
-          backgroundColor: 'rgba(27,175,122,0.1)',
-          fill: true,
-          tension: 0.3,
-          pointRadius: 3,
-          pointBackgroundColor: '#1baf7a'
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
           y: { ticks: { callback: v => fmtCompact(v) }, grid: { color: '#e1e0d9' } },
@@ -1240,6 +1283,102 @@ function calculerAnalyseCA() {
         }
       }
     });
+  }
+
+  // ── 2. Top clients — CA par année ──
+  const canvasClients = document.getElementById('chartCaClientsAnnee');
+  if (canvasClients) {
+    const clientsSorted = Object.entries(caClientYearData).sort((a,b) => b[1].total - a[1].total);
+    const top = clientsSorted.slice(0, 7);
+    const autres = clientsSorted.slice(7);
+
+    const datasets = top.map(([key, c], i) => ({
+      label: c.display,
+      data: years.map(y => (c.byYear[y] ? c.byYear[y].total : 0)),
+      backgroundColor: PALETTE_CLIENTS[i % PALETTE_CLIENTS.length],
+      borderRadius: 4
+    }));
+    if (autres.length) {
+      datasets.push({
+        label: 'Autres clients',
+        data: years.map(y => autres.reduce((s,[,c]) => s + (c.byYear[y] ? c.byYear[y].total : 0), 0)),
+        backgroundColor: '#c3c2b7',
+        borderRadius: 4
+      });
+    }
+
+    const legendEl = document.getElementById('legendCaClients');
+    if (legendEl) {
+      legendEl.innerHTML = datasets.map(ds =>
+        `<span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:${ds.backgroundColor};display:inline-block;"></span>${ds.label}</span>`
+      ).join('');
+    }
+
+    if (chartCaClientsAnneeInstance) chartCaClientsAnneeInstance.destroy();
+    chartCaClientsAnneeInstance = new Chart(canvasClients, {
+      type: 'bar',
+      data: { labels: years.map(String), datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => fmtCompact(v) }, grid: { color: '#e1e0d9' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+
+    // Datalist pour la recherche client
+    const datalist = document.getElementById('ca-client-list');
+    if (datalist) {
+      datalist.innerHTML = clientsSorted.map(([,c]) => `<option value="${c.display.replace(/"/g,'&quot;')}"></option>`).join('');
+    }
+    if (!caSelectedClientKey && clientsSorted.length) {
+      caSelectedClientKey = clientsSorted[0][0];
+      const searchInput = document.getElementById('ca-client-search');
+      if (searchInput) searchInput.value = clientsSorted[0][1].display;
+    }
+  }
+
+  renderCaClientProduitAnnee(years);
+}
+
+// ── 3. CA par produit, par année — client sélectionné ──
+function renderCaClientProduitAnnee(years) {
+  const canvas = document.getElementById('chartCaClientProduitAnnee');
+  if (!canvas) return;
+  years = years || getYearRange(4);
+  const c = caClientYearData[caSelectedClientKey];
+
+  if (chartCaClientProduitAnneeInstance) chartCaClientProduitAnneeInstance.destroy();
+  chartCaClientProduitAnneeInstance = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: years.map(String),
+      datasets: [
+        { label: 'Téléphonie', data: years.map(y => c && c.byYear[y] ? c.byYear[y].tel : 0), backgroundColor: '#2a78d6', borderRadius: 4 },
+        { label: 'LSI',        data: years.map(y => c && c.byYear[y] ? c.byYear[y].lsi : 0), backgroundColor: '#eda100', borderRadius: 4 },
+        { label: 'LS',         data: years.map(y => c && c.byYear[y] ? c.byYear[y].ls  : 0), backgroundColor: '#eb6834', borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, stacked: true, ticks: { callback: v => fmtCompact(v) }, grid: { color: '#e1e0d9' } },
+        x: { stacked: true, grid: { display: false } }
+      }
+    }
+  });
+}
+
+function onCaClientSearch() {
+  const val = normalize(document.getElementById('ca-client-search').value);
+  if (!val) return;
+  const match = Object.entries(caClientYearData).find(([,c]) => normalize(c.display) === val);
+  if (match) {
+    caSelectedClientKey = match[0];
+    renderCaClientProduitAnnee(getYearRange(4));
   }
 }
 
