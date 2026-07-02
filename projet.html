@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Projets — DDMS</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -71,6 +72,18 @@ function toast(msg, type='info') {
   el.style.opacity='1'; el.style.transform='translateY(0)';
   clearTimeout(el._t);
   el._t = setTimeout(()=>{ el.style.opacity='0'; el.style.transform='translateY(10px)'; },2800);
+}
+
+// ── Protection par mot de passe (import / export / suppression) ──
+const APP_PASSWORD = 'franck';
+function checkPassword(action){
+  const pwd = prompt(`Mot de passe requis pour ${action} :`);
+  if(pwd===null) return false; // annulé
+  if((pwd||'').trim().toLowerCase() !== APP_PASSWORD){
+    toast('Mot de passe incorrect','error');
+    return false;
+  }
+  return true;
 }
 
 async function fsAll()  { const s=await getDocs(collection(db,COL)); return s.docs.map(d=>({id:d.id,...d.data()})); }
@@ -197,6 +210,8 @@ function renderProjet() {
   renderTaches();
   document.getElementById('btn-add-t-label').textContent = isMigrationProjet(p) ? '+ Ajouter une ligne' : '+ Ajouter une tâche';
   document.getElementById('th-lbl-text').textContent = isMigrationProjet(p) ? 'Lignes de migration' : 'Tâches';
+  document.getElementById('btn-export-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
+  document.getElementById('btn-import-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
 }
 
 // ── KPI (projet MIGRATION) ──
@@ -462,7 +477,8 @@ window.saveTache=async function(){
 };
 
 window.deleteTache=async function(i){
-  if(!confirm('Supprimer cette tâche ?')) return;
+  if(!confirm('Supprimer cette ligne ?')) return;
+  if(!checkPassword('supprimer cette ligne')) return;
   const p=proj(); if(!p) return;
   p.taches.splice(i,1);
   try{ await fsSave(p); renderProjet(); renderSidebar(); toast('Supprimée','success'); }
@@ -518,6 +534,7 @@ window.saveProjet=async function(){
 window.deleteProjet=async function(){
   const p=proj(); if(!p) return;
   if(!confirm(`Supprimer "${p.nom}" ?`)) return;
+  if(!checkPassword('supprimer ce projet')) return;
   try{
     await fsDel(p.id); projets=projets.filter(x=>x.id!==p.id); currentProjetId=null;
     document.getElementById('projet-view').style.display='none';
@@ -547,6 +564,77 @@ function pjIcon(nom){
   if(['zip','rar','7z'].includes(ext)) return '🗜️';
   return '📎';
 }
+
+// ── IMPORT / EXPORT EXCEL (projet MIGRATION) ──
+function toISODate(v){
+  if(!v) return '';
+  if(v instanceof Date && !isNaN(v)) {
+    const y=v.getFullYear(), m=String(v.getMonth()+1).padStart(2,'0'), d=String(v.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  const s=String(v).trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  return '';
+}
+
+window.exportMigrationExcel=function(){
+  const p=proj(); if(!p || !isMigrationProjet(p)) return;
+  if(!checkPassword('exporter')) return;
+  const rows=(p.taches||[]).map(t=>({
+    'ND': t.nd||'',
+    'Raison sociale': t.raisonSociale||'',
+    'Statut': t.statut||'',
+    'Date de migration prévue': t.dateMigPrevue||'',
+    'Date de migration effective': t.dateMigEffective||'',
+    'Porteur': t.porteur||'',
+  }));
+  const ws=XLSX.utils.json_to_sheet(rows);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Migration');
+  const fname=`${(p.nom||'migration').replace(/[^a-z0-9]+/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb,fname);
+  toast('Export généré ✓','success');
+};
+
+window.triggerImportMigration=function(){
+  const p=proj(); if(!p || !isMigrationProjet(p)) return;
+  if(!checkPassword('importer')) return;
+  document.getElementById('import-mig-file').click();
+};
+
+window.importMigrationExcel=async function(e){
+  const file=e.target.files[0]; if(!file) return;
+  const p=proj(); if(!p){ e.target.value=''; return; }
+  try{
+    const data=await file.arrayBuffer();
+    const wb=XLSX.read(data,{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+    if(!rows.length){ toast('Fichier vide','error'); e.target.value=''; return; }
+    if(!p.taches) p.taches=[];
+    let added=0, updated=0;
+    rows.forEach(r=>{
+      const nd=String(r['ND']||r['Nd']||r['nd']||'').trim(); if(!nd) return;
+      const statutRaw=String(r['Statut']||r['statut']||'').trim();
+      const statut=MIG_STATUTS.includes(statutRaw)?statutRaw:'Non migré';
+      const obj={
+        nd,
+        raisonSociale: r['Raison sociale']||r['raison sociale']||'',
+        statut,
+        dateMigPrevue: toISODate(r['Date de migration prévue']||r['Date prévue']||''),
+        dateMigEffective: toISODate(r['Date de migration effective']||r['Date effective']||''),
+        porteur: r['Porteur']||r['porteur']||'',
+      };
+      const idx=p.taches.findIndex(t=>t.nd===nd);
+      if(idx>=0){ p.taches[idx]=obj; updated++; } else { p.taches.push(obj); added++; }
+    });
+    await fsSave(p);
+    renderProjet(); renderSidebar();
+    toast(`Import terminé : ${added} ajoutée(s), ${updated} mise(s) à jour ✓`,'success');
+  }catch(err){ toast('Erreur import : '+err.message,'error'); }
+  e.target.value='';
+};
 
 window.uploadFichiers=async function(e,i){
   const p=proj(); if(!p) return;
@@ -834,7 +922,12 @@ document.addEventListener('input', function(e){
       <div id="v-prog"></div>
       <div class="th-row">
         <span class="th-lbl">📌 <span id="th-lbl-text">Tâches</span></span>
-        <button class="btn-add-t" onclick="openAddTache()"><span id="btn-add-t-label">+ Ajouter une tâche</span></button>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn-add-t" id="btn-export-mig" style="display:none;background:none;border:1px solid var(--border);color:var(--text2);" onclick="exportMigrationExcel()">⬇ Exporter</button>
+          <button class="btn-add-t" id="btn-import-mig" style="display:none;background:none;border:1px solid var(--border);color:var(--text2);" onclick="triggerImportMigration()">⬆ Importer</button>
+          <input type="file" id="import-mig-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importMigrationExcel(event)">
+          <button class="btn-add-t" onclick="openAddTache()"><span id="btn-add-t-label">+ Ajouter une tâche</span></button>
+        </div>
       </div>
       <div id="taches-list"></div>
     </div>
