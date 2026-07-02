@@ -368,7 +368,9 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
 <div style="max-width:100%;margin:0 auto">
   <!-- Sélecteur de deal -->
   <div class="fp">
-    <h3>Pipe <span id="dv-title-count" style="font-size:13px;font-weight:500;color:var(--muted)"></span></h3>
+    <h3 style="display:flex;align-items:center;flex-wrap:wrap;gap:10px">Pipe <span id="dv-title-count" style="font-size:13px;font-weight:500;color:var(--muted)"></span>
+      <button class="btn btn-s" style="background:var(--accent);color:#fff;margin-left:auto" onclick="openBulkMaintModal()">🛠️ Activer Maintenance sur tous les Terminés</button>
+    </h3>
     
     <!-- Filtres rapides -->
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
@@ -527,6 +529,17 @@ tr.sla-warn td:first-child{border-left:2px solid var(--yellow)}
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-g" onclick="closeMaintModal()">Annuler</button>
       <button class="btn btn-p" style="background:var(--green)" onclick="confirmMaintDone()">✔ Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<div id="bulk-maint-modal-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9000;align-items:center;justify-content:center">
+  <div class="modal" style="padding:22px;max-width:480px">
+    <h3 style="margin-bottom:4px">🛠️ Activer la Maintenance en masse</h3>
+    <p id="bulk-maint-sub" style="font-size:12px;color:var(--muted);margin-bottom:16px"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-g" onclick="closeBulkMaintModal()">Annuler</button>
+      <button class="btn btn-p" style="background:var(--accent)" onclick="confirmBulkMaintenance()">✔ Activer</button>
     </div>
   </div>
 </div>
@@ -894,6 +907,48 @@ function fC(v){
 }
 function fF(v){ return v.toLocaleString('fr-FR')+' FCFA'; }
 
+// ============================================================
+// VALIDATION — cohérence des dates & doublons (partagé par tous les onglets)
+// Ordre logique imposé : Date Closing ≤ Date Livraison Prévue ≤ Date Livraison Réelle
+// ============================================================
+function toDateObj(s){
+  if(!s) return null;
+  var d=new Date(s+'T00:00:00');
+  return isNaN(d.getTime())?null:d;
+}
+function todayISO(){ return new Date().toISOString().split('T')[0]; }
+// Renvoie null si OK, sinon un message d'erreur explicite
+function validateDateChain(closing, dlivPrev, dateLivraison){
+  var c=toDateObj(closing), p=toDateObj(dlivPrev), l=toDateObj(dateLivraison);
+  if(c&&p&&c>p) return '⚠️ La Date de closing ('+fDate(closing)+') ne peut pas être postérieure à la Date de livraison prévue ('+fDate(dlivPrev)+').';
+  if(c&&l&&c>l) return '⚠️ La Date de closing ('+fDate(closing)+') ne peut pas être postérieure à la Date de livraison réelle ('+fDate(dateLivraison)+').';
+  if(p&&l&&p>l) return '⚠️ La Date de livraison prévue ('+fDate(dlivPrev)+') ne peut pas être postérieure à la Date de livraison réelle ('+fDate(dateLivraison)+').';
+  return null;
+}
+// Recherche un doublon strict : même client + même description + même date de closing
+function findDuplicateDeal(client, desc, closing, excludeId){
+  var c=(client||'').trim().toLowerCase();
+  var d=(desc||'').trim().toLowerCase();
+  if(!c||!d) return null;
+  return deals.find(function(x){
+    if(excludeId && x.id===excludeId) return false;
+    return (x.client||'').trim().toLowerCase()===c
+      && (x.desc||'').trim().toLowerCase()===d
+      && (x.closing||'')===(closing||'');
+  }) || null;
+}
+// Marque un champ en erreur (bordure rouge + focus) puis affiche le toast
+function flagFieldError(id, msg){
+  var el=document.getElementById(id);
+  if(el){ el.style.border='2px solid #dc2626'; el.focus(); }
+  toast(msg);
+}
+function clearFieldFlag(id){
+  var el=document.getElementById(id);
+  if(el) el.style.border='';
+}
+
+
 function showPopup(evt, title, color, count, rows, headers) {
   var pId = 'universal-popup';
   var el = document.getElementById(pId);
@@ -1022,6 +1077,14 @@ function majSaveRow(btn){
   if(!statut){toast('\u26a0\ufe0f Statut obligatoire');return;}
   var d=deals.find(function(x){return x.id===id;});
   if(!d) return;
+  // Cohérence chronologique : Closing ≤ Livraison prévue ≤ Livraison réelle (si déjà saisie)
+  var chainErr=validateDateChain(d.closing, dlivPrev, d.dateLivraison||null);
+  if(chainErr){
+    toast(chainErr);
+    var el3=row.querySelector('[data-field="dlivPrev"]');
+    if(el3){el3.style.borderColor='#dc2626';el3.focus();}
+    return;
+  }
   d.deliveryResp=resp; d.dlivPrev=dlivPrev; d.statut=statut;
   row.remove();
   var tbody=document.getElementById('maj-tbody');
@@ -2217,6 +2280,18 @@ function dvSaveEdit(){
     if(elDL2){elDL2.style.border='2px solid #dc2626';}
     return;
   }
+  // Cohérence chronologique : Closing ≤ Livraison prévue (commerciale) ≤ Livraison réelle
+  if(dateLivraison){
+    var chainErr=validateDateChain(d.closing, d.dlivPrev, dateLivraison);
+    if(chainErr){
+      flagFieldError('dv-date-livraison', chainErr);
+      return;
+    }
+    if(dateLivraison>todayISO()){
+      flagFieldError('dv-date-livraison','⚠️ La Date de livraison réelle ne peut pas être dans le futur.');
+      return;
+    }
+  }
 
   // Sauvegarder autocomplétion
   saveFV('deliv', resp);
@@ -2676,7 +2751,7 @@ function maintOpenDoneModal(dealId,year){
   var d=deals.find(function(x){return x.id===dealId;}); if(!d) return;
   var sub=document.getElementById('maint-modal-sub');
   if(sub) sub.textContent=d.client+' — '+(d.desc||'')+' · Échéance '+year;
-  var dateEl=document.getElementById('maint-modal-date'); if(dateEl) dateEl.value=new Date().toISOString().split('T')[0];
+  var dateEl=document.getElementById('maint-modal-date'); if(dateEl){ dateEl.value=new Date().toISOString().split('T')[0]; dateEl.style.border=''; }
   var notesEl=document.getElementById('maint-modal-notes'); if(notesEl) notesEl.value='';
   var bg=document.getElementById('maint-modal-bg'); if(bg) bg.style.display='flex';
 }
@@ -2687,8 +2762,21 @@ function closeMaintModal(){
 function confirmMaintDone(){
   if(!maintModalDealId) return;
   var d=deals.find(function(x){return x.id===maintModalDealId;}); if(!d){ closeMaintModal(); return; }
-  var dateVal=(document.getElementById('maint-modal-date')||{}).value||new Date().toISOString().split('T')[0];
+  var dateVal=(document.getElementById('maint-modal-date')||{}).value||'';
   var notesVal=(document.getElementById('maint-modal-notes')||{}).value||'';
+  if(!dateVal){
+    flagFieldError('maint-modal-date','⚠️ La date de réalisation est obligatoire');
+    return;
+  }
+  if(dateVal>todayISO()){
+    flagFieldError('maint-modal-date','⚠️ La date de réalisation ne peut pas être dans le futur');
+    return;
+  }
+  if(d.dateLivraison && dateVal<d.dateLivraison){
+    flagFieldError('maint-modal-date','⚠️ La date de réalisation ne peut pas être antérieure à la date de livraison ('+fDate(d.dateLivraison)+')');
+    return;
+  }
+  clearFieldFlag('maint-modal-date');
   if(!d.maintenanceLog) d.maintenanceLog={};
   d.maintenanceLog[maintModalYear]={done:true, date:dateVal, notes:notesVal};
   updateFirestore(d.id, {maintenanceLog:d.maintenanceLog}, function(){
@@ -2707,6 +2795,54 @@ function maintUndo(dealId,year){
     var det=document.getElementById('maint-day-detail'); if(det) det.style.display='none';
     renderMaintenance();
   });
+}
+
+// ---- Activation en masse de la Maintenance sur les dossiers Terminés ----
+function openBulkMaintModal(){
+  var termines=deals.filter(function(d){return d.statut==='Terminé';});
+  var candidates=termines.filter(function(d){return !d.maintenance;});
+  var alreadyOn=termines.length-candidates.length;
+  var sub=document.getElementById('bulk-maint-sub');
+  if(!candidates.length){
+    toast(alreadyOn ? 'ℹ️ Les '+alreadyOn+' projet(s) Terminé(s) ont déjà la Maintenance activée.' : 'ℹ️ Aucun projet Terminé trouvé.');
+    return;
+  }
+  if(sub) sub.textContent='Vous allez cocher « Maintenance requise » sur '+candidates.length+' projet(s) Terminé(s) qui ne l\'ont pas encore'
+    +(alreadyOn?' ('+alreadyOn+' l\'ont déjà et ne seront pas modifiés)':'')+'. '
+    +'La 1ère échéance de chaque projet sera calculée automatiquement 1 an après sa Date de livraison réelle. Continuer ?';
+  var bg=document.getElementById('bulk-maint-modal-bg'); if(bg) bg.style.display='flex';
+}
+function closeBulkMaintModal(){
+  var bg=document.getElementById('bulk-maint-modal-bg'); if(bg) bg.style.display='none';
+}
+function confirmBulkMaintenance(){
+  closeBulkMaintModal();
+  var candidates=deals.filter(function(d){return d.statut==='Terminé' && !d.maintenance;});
+  if(!candidates.length){ toast('ℹ️ Rien à activer.'); return; }
+  if(!db){ toast('⚠️ Firebase non disponible'); return; }
+  toast('⏳ Activation en cours sur '+candidates.length+' projet(s)…');
+  var CHUNK=400, idx=0, done=0;
+  function nextChunk(){
+    var slice=candidates.slice(idx, idx+CHUNK);
+    if(!slice.length){
+      saveData(); renderAll(); renderDeliveryPage(); renderPlanning(); renderMaintenance(); buildFilters();
+      toast('✅ Maintenance activée sur '+done+' projet(s) Terminé(s).');
+      return;
+    }
+    var batch=db.batch();
+    slice.forEach(function(d){
+      d.maintenance=true;
+      if(!d.maintenanceLog) d.maintenanceLog={};
+      var ref=db.collection(ICT_COL).doc(d.id);
+      batch.set(ref,{maintenance:true},{merge:true});
+    });
+    batch.commit().then(function(){
+      done+=slice.length; idx+=CHUNK; nextChunk();
+    }).catch(function(e){
+      toast('⚠️ Erreur lors de l\'activation : '+e.message);
+    });
+  }
+  nextChunk();
 }
 
 // ---- Raisons retard custom ----
@@ -2907,6 +3043,7 @@ function autoSetDelivery(){
   }
 }
 function saveNewDeal(){
+  ['np-client','np-desc','np-comm','np-montant','np-closing','np-dliv-prev'].forEach(clearFieldFlag);
   var client=document.getElementById('np-client').value.trim();
   var desc=document.getElementById('np-desc').value.trim();
   var comm=document.getElementById('np-comm').value.trim();
@@ -2919,9 +3056,26 @@ function saveNewDeal(){
     toast('⚠️ Champs obligatoires manquants (Client, Description, Commercial, Montant, Closing)');
     return;
   }
+  if(montant<=0){
+    flagFieldError('np-montant','⚠️ Le montant doit être supérieur à 0');
+    return;
+  }
   if(!dlivPrevVal){
-    toast('⚠️ La Date de livraison prévue est obligatoire');
-    document.getElementById('np-dliv-prev').focus();
+    flagFieldError('np-dliv-prev','⚠️ La Date de livraison prévue est obligatoire');
+    return;
+  }
+  // Cohérence chronologique : Closing ≤ Livraison prévue
+  var dateErr=validateDateChain(closing, dlivPrevVal, null);
+  if(dateErr){
+    flagFieldError('np-dliv-prev', dateErr);
+    document.getElementById('np-closing').style.border='2px solid #dc2626';
+    return;
+  }
+  // Anti-doublon : même client + même description + même date de closing déjà enregistrés
+  var dup=findDuplicateDeal(client, desc, closing);
+  if(dup){
+    flagFieldError('np-client','⚠️ Ce deal existe déjà : "'+client+'" / "'+desc+'" avec la même date de closing ('+fDate(closing)+'). Vérifiez le Pipe avant de ré-enregistrer.');
+    document.getElementById('np-desc').style.border='2px solid #dc2626';
     return;
   }
 
@@ -2967,6 +3121,7 @@ function resetNewDeal(){
   var mc=document.getElementById('np-maintenance'); if(mc) mc.checked=false;
   // Set closing to today
   document.getElementById('np-closing').value=new Date().toISOString().split('T')[0];
+  ['np-client','np-desc','np-comm','np-montant','np-closing','np-dliv-prev'].forEach(clearFieldFlag);
 
   initFormDatalist(); initFirebaseLists();
 }
@@ -3130,6 +3285,7 @@ document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('export-modal-bg').addEventListener('click',function(e){if(e.target===this)closeExportModal();});
   document.getElementById('import-modal-bg').addEventListener('click',function(e){if(e.target===this)closeImportModal();});
   var maintBg=document.getElementById('maint-modal-bg'); if(maintBg) maintBg.addEventListener('click',function(e){if(e.target===this)closeMaintModal();});
+  var bulkMaintBg=document.getElementById('bulk-maint-modal-bg'); if(bulkMaintBg) bulkMaintBg.addEventListener('click',function(e){if(e.target===this)closeBulkMaintModal();});
   var fi=document.getElementById('excel-import-secure');
   if(!fi) return;
   fi.addEventListener('change',function(e){
@@ -3151,6 +3307,8 @@ document.addEventListener('DOMContentLoaded',function(){
           return d.toISOString().slice(0,10);
         }
         var deals2import=[];
+        var seenKeys={};
+        var skippedDup=0, incoherentCount=0;
         rows.forEach(function(row,idx){
           var rClient=(row.Client||row.client||row['Nom du client']||'').toString().trim();
           if(!rClient||rClient.toLowerCase().startsWith('colonne')) return;
@@ -3166,6 +3324,14 @@ document.addEventListener('DOMContentLoaded',function(){
           var rNotes=(row.Notes||row.notes||'').toString().trim();
           var rDateLivReelle=xlDate(row['Date Livraison Réelle']||row['Date Livraison Reelle']||row.DateLivraisonReelle||row.dateLivraison||'');
           var rCreatedAt=row.CreatedAt||new Date().toISOString();
+          // Anti-doublon : ignore les lignes strictement identiques (client+description+closing) déjà vues dans ce fichier
+          // ou déjà présentes en base
+          var dupKey=rClient.toLowerCase()+'|'+rDesc.toLowerCase()+'|'+rClosing;
+          if(seenKeys[dupKey] || findDuplicateDeal(rClient,rDesc,rClosing)){ skippedDup++; return; }
+          seenKeys[dupKey]=true;
+          // Cohérence chronologique (informative — l'import n'est pas bloqué pour ne pas perdre d'historique,
+          // mais un récapitulatif des lignes suspectes est affiché en fin d'import)
+          if(validateDateChain(rClosing, rDlivPrev, rDateLivReelle)) incoherentCount++;
           var idBase='imp_'+idx+'_'+(rClient+rDesc).toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,30);
           deals2import.push({
             id:idBase, client:rClient, desc:rDesc, commercial:rCommercial,
@@ -3197,7 +3363,10 @@ document.addEventListener('DOMContentLoaded',function(){
         function importNextBatch(){
           var slice=deals2import.slice(batchIdx,batchIdx+BATCH);
           if(!slice.length){
-            endProgress('✅ '+imported+'/'+totalToImport+' deals importés avec succès !');
+            var summary='✅ '+imported+'/'+totalToImport+' deals importés avec succès !';
+            if(skippedDup) summary+=' · '+skippedDup+' doublon(s) ignoré(s)';
+            if(incoherentCount) summary+=' · ⚠️ '+incoherentCount+' ligne(s) avec dates incohérentes (à vérifier dans le Pipe)';
+            endProgress(summary);
             if(typeof loadDealsFromFirestore==='function'){
               loadDealsFromFirestore();
             } else {
