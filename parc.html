@@ -201,6 +201,42 @@
       padding: 1px 5px;
       border-radius: 4px;
     }
+    .ca-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .ca-metric-card {
+      background: var(--surface-2);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+    }
+    .ca-metric-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-3);
+      margin-bottom: 6px;
+    }
+    .ca-metric-value {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1;
+    }
+    .ca-metric-value.danger { color: var(--coral); }
+    .ca-metric-sub {
+      font-size: 11px;
+      color: var(--text-3);
+      margin-top: 5px;
+    }
+    .chart-card-block + .chart-card-block {
+      margin-top: 26px;
+      padding-top: 22px;
+      border-top: 1px solid var(--border);
+    }
 
     /* ── ACTION ROW ── */
     .action-row {
@@ -757,6 +793,63 @@
     </div>
 
 
+    <!-- ANALYSE CA & PERFORMANCE PRODUIT -->
+    <div class="chart-card" id="chart-card-analyse-ca">
+
+      <div class="ca-metrics-grid">
+        <div class="ca-metric-card">
+          <div class="ca-metric-label">CA actif total</div>
+          <div class="ca-metric-value" id="ca-metric-actif">—</div>
+          <div class="ca-metric-sub">F CFA / mois</div>
+        </div>
+        <div class="ca-metric-card">
+          <div class="ca-metric-label">CA résilié</div>
+          <div class="ca-metric-value danger" id="ca-metric-resilie">—</div>
+          <div class="ca-metric-sub">manque à gagner / mois</div>
+        </div>
+        <div class="ca-metric-card">
+          <div class="ca-metric-label">Lignes résiliées</div>
+          <div class="ca-metric-value" id="ca-metric-nb-resilie">—</div>
+          <div class="ca-metric-sub" id="ca-metric-nb-resilie-sub">—</div>
+        </div>
+        <div class="ca-metric-card">
+          <div class="ca-metric-label">Taux de churn</div>
+          <div class="ca-metric-value" id="ca-metric-churn">—</div>
+          <div class="ca-metric-sub">lignes résiliées / parc total</div>
+        </div>
+      </div>
+
+      <div class="chart-card-block">
+        <div class="chart-card-head">
+          <div>
+            <div class="chart-card-title">CA par produit — actif vs résilié</div>
+            <div class="chart-card-sub">Répartition du récurrent mensuel par segment</div>
+          </div>
+          <div class="chart-legend">
+            <span class="chart-legend-item"><span class="dot" style="background:#2a78d6;"></span>CA actif</span>
+            <span class="chart-legend-item"><span class="dot" style="background:#e34948;"></span>CA résilié</span>
+          </div>
+        </div>
+        <div style="position:relative;width:100%;height:240px;">
+          <canvas id="chartCaProduit" role="img" aria-label="Comparaison du chiffre d'affaires actif et résilié par produit, téléphonie, LSI, liaisons spécialisées">Graphique du CA par produit, actif et résilié.</canvas>
+        </div>
+      </div>
+
+      <div class="chart-card-block">
+        <div class="chart-card-head">
+          <div>
+            <div class="chart-card-title">Évolution du CA activé</div>
+            <div class="chart-card-sub" id="ca-evo-sub">Cumul mensuel du récurrent, basé sur la date de mise en service (12 derniers mois)</div>
+          </div>
+        </div>
+        <div style="position:relative;width:100%;height:240px;">
+          <canvas id="chartCaEvolution" role="img" aria-label="Courbe du chiffre d'affaires cumulé activé mois par mois sur les 12 derniers mois">Courbe d'évolution du CA cumulé activé.</canvas>
+        </div>
+      </div>
+
+    </div>
+
+
     <!-- BOUTON TYPE DE LIEN -->
     <div class="action-row" style="justify-content:center; margin-bottom:12px; margin-top:20px;">
       <button class="btn-type-lien" onclick="ouvrirPickerLien()">
@@ -1024,6 +1117,168 @@ function parseDateFlexible(val) {
 }
 
 let chartFluxInstance = null;
+let chartCaProduitInstance = null;
+let chartCaEvolutionInstance = null;
+
+function sumRec(arr) {
+  return arr.reduce((s, r) => s + (parseFloat(r['RECURRENT_MENSUEL']) || 0), 0);
+}
+function fmtCompact(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n/1e9).toFixed(1).replace('.',',') + ' Md';
+  if (abs >= 1e6) return (n/1e6).toFixed(1).replace('.',',') + ' M';
+  if (abs >= 1e3) return (n/1e3).toFixed(0) + ' K';
+  return Math.round(n).toLocaleString('fr-FR');
+}
+
+// ── Analyse CA & Performance Produit ──
+function calculerAnalyseCA() {
+  if (!baseData.length) return;
+
+  const actifs   = baseData.filter(r => r['ETAT_LIGNE'] !== 'RESILIE');
+  const resilies = baseData.filter(r => r['ETAT_LIGNE'] === 'RESILIE');
+
+  const segment = arr => ({
+    tel: arr.filter(r => r['PRODUIT'] === 'TELEPHONE'),
+    lsi: arr.filter(r => String(r['ND']||'').startsWith('SYT')),
+    ls:  arr.filter(r => r['PRODUIT'] !== 'TELEPHONE' && !String(r['ND']||'').startsWith('SYT'))
+  });
+
+  const segActifs   = segment(actifs);
+  const segResilies = segment(resilies);
+
+  const caActifTotal   = sumRec(actifs);
+  const caResilieTotal = sumRec(resilies);
+  const nbResilies      = resilies.length;
+  const nbTotal          = baseData.length;
+  const tauxChurn        = nbTotal ? (nbResilies / nbTotal * 100) : 0;
+
+  document.getElementById('ca-metric-actif').textContent      = fmtCompact(caActifTotal);
+  document.getElementById('ca-metric-resilie').textContent    = '-' + fmtCompact(caResilieTotal);
+  document.getElementById('ca-metric-nb-resilie').textContent = nbResilies.toLocaleString('fr-FR');
+  document.getElementById('ca-metric-nb-resilie-sub').textContent = `sur ${nbTotal.toLocaleString('fr-FR')} lignes`;
+  document.getElementById('ca-metric-churn').textContent      = tauxChurn.toFixed(1).replace('.',',') + '%';
+
+  // ── Chart CA par produit ──
+  const canvasProduit = document.getElementById('chartCaProduit');
+  if (canvasProduit) {
+    if (chartCaProduitInstance) chartCaProduitInstance.destroy();
+    chartCaProduitInstance = new Chart(canvasProduit, {
+      type: 'bar',
+      data: {
+        labels: ['Téléphonie', 'LSI', 'LS'],
+        datasets: [
+          { label: 'CA actif',   data: [sumRec(segActifs.tel),   sumRec(segActifs.lsi),   sumRec(segActifs.ls)],   backgroundColor: '#2a78d6', borderRadius: 4 },
+          { label: 'CA résilié', data: [sumRec(segResilies.tel), sumRec(segResilies.lsi), sumRec(segResilies.ls)], backgroundColor: '#e34948', borderRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => fmtCompact(v) }, grid: { color: '#e1e0d9' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  // ── Chart évolution CA (cumulé, DATE_MS, 12 derniers mois) ──
+  const canvasEvo = document.getElementById('chartCaEvolution');
+  if (canvasEvo) {
+    const now = new Date();
+    const months = [];
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleDateString('fr-FR', {month:'short', year:'2-digit'}) });
+    }
+    const parMois = months.map(() => 0);
+    let horsFenetre = 0;
+    actifs.forEach(r => {
+      const dms = parseDateFlexible(r['DATE_MS']);
+      const rec = parseFloat(r['RECURRENT_MENSUEL']) || 0;
+      if (!dms) return;
+      const idx = months.findIndex(mo => mo.y === dms.getFullYear() && mo.m === dms.getMonth());
+      if (idx !== -1) parMois[idx] += rec;
+      else horsFenetre += rec;
+    });
+    const cumul = [];
+    let acc = horsFenetre;
+    parMois.forEach(v => { acc += v; cumul.push(acc); });
+
+    const subEvo = document.getElementById('ca-evo-sub');
+    if (subEvo) {
+      subEvo.textContent = horsFenetre > 0
+        ? `Cumul du CA actif, basé sur la date de mise en service — inclut ${fmtCompact(horsFenetre)} de CA activé avant les 12 derniers mois`
+        : 'Cumul mensuel du récurrent, basé sur la date de mise en service (12 derniers mois)';
+    }
+
+    if (chartCaEvolutionInstance) chartCaEvolutionInstance.destroy();
+    chartCaEvolutionInstance = new Chart(canvasEvo, {
+      type: 'line',
+      data: {
+        labels: months.map(m => m.label),
+        datasets: [{
+          data: cumul,
+          borderColor: '#1baf7a',
+          backgroundColor: 'rgba(27,175,122,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 3,
+          pointBackgroundColor: '#1baf7a'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { ticks: { callback: v => fmtCompact(v) }, grid: { color: '#e1e0d9' } },
+          x: { grid: { display: false } }
+        }
+      }
+    });
+  }
+}
+
+// ── Détection des sorties par comparaison mensuelle (localStorage) ──
+// Principe : à chaque ouverture, on compare le parc actif actuel à la
+// dernière "photo" enregistrée. Tout ND présent avant et absent maintenant
+// est compté comme une sortie du mois en cours. L'historique s'accumule
+// automatiquement à chaque nouvelle ouverture mensuelle.
+const SNAPSHOT_KEY = 'ddms_parc_sorties_snapshot_v1';
+
+function monthKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+
+function updateSortiesSnapshot(activeNDs) {
+  let store;
+  try { store = JSON.parse(localStorage.getItem(SNAPSHOT_KEY)) || {}; } catch(e) { store = {}; }
+  if (!store.sortiesByMonth) store.sortiesByMonth = {};
+
+  const curKey = monthKey(new Date());
+  const curSet = new Set(activeNDs);
+  let isFirstEver = false;
+
+  if (store.lastActiveNDs && store.lastSnapshotMonth) {
+    if (store.lastSnapshotMonth !== curKey) {
+      const disparus = store.lastActiveNDs.filter(nd => !curSet.has(nd));
+      store.sortiesByMonth[curKey] = (store.sortiesByMonth[curKey] || 0) + disparus.length;
+      store.lastActiveNDs = activeNDs;
+      store.lastSnapshotMonth = curKey;
+    } else {
+      store.lastActiveNDs = activeNDs;
+    }
+  } else {
+    isFirstEver = true;
+    store.lastActiveNDs = activeNDs;
+    store.lastSnapshotMonth = curKey;
+  }
+
+  try { localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(store)); } catch(e) {}
+  return { sortiesByMonth: store.sortiesByMonth, isFirstEver };
+}
 
 // ── Graphe Entrées vs Sorties ──
 function calculerFluxEntreesSorties() {
@@ -1034,11 +1289,11 @@ function calculerFluxEntreesSorties() {
   const months = [];
   for (let i = 11; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleDateString('fr-FR', {month:'short', year:'2-digit'}) });
+    months.push({ y: d.getFullYear(), m: d.getMonth(), key: monthKey(d), label: d.toLocaleDateString('fr-FR', {month:'short', year:'2-digit'}) });
   }
 
   const entrees = months.map(() => 0);
-  const sorties = months.map(() => 0);
+  const sortiesDatees = months.map(() => 0);
   let sortiesDatables = false;
 
   baseData.forEach(r => {
@@ -1052,7 +1307,7 @@ function calculerFluxEntreesSorties() {
       if (dr) {
         sortiesDatables = true;
         const idx = months.findIndex(mo => mo.y === dr.getFullYear() && mo.m === dr.getMonth());
-        if (idx !== -1) sorties[idx]++;
+        if (idx !== -1) sortiesDatees[idx]++;
       }
     }
   });
@@ -1066,17 +1321,30 @@ function calculerFluxEntreesSorties() {
   ];
 
   if (sortiesDatables) {
+    // Cas idéal : une colonne DATE_RESILIATION existe, on l'utilise telle quelle.
     warningEl.style.display = 'none';
     subEl.textContent = 'Nouvelles lignes activées et lignes résiliées, par mois (12 derniers mois)';
-    datasets.push({ label: 'Sorties', data: sorties, backgroundColor: '#e34948', borderRadius: 4 });
-  } else if (totalResilies > 0) {
-    warningEl.style.display = 'flex';
-    subEl.textContent = 'Entrées datées (DATE_MS) — sorties non datées, total affiché en référence';
-    const sortiesRef = months.map((_, i) => i === months.length - 1 ? totalResilies : 0);
-    datasets.push({ label: 'Sorties (total, non daté)', data: sortiesRef, backgroundColor: '#e34948', borderRadius: 4 });
+    datasets.push({ label: 'Sorties', data: sortiesDatees, backgroundColor: '#e34948', borderRadius: 4 });
   } else {
-    warningEl.style.display = 'none';
-    subEl.textContent = 'Nouvelles lignes activées, par mois (12 derniers mois) — aucune résiliation enregistrée';
+    // Pas de date de résiliation : on détecte les sorties par comparaison
+    // du parc actif d'une ouverture à l'autre (photo enregistrée dans ce navigateur).
+    const activeNDs = baseData.filter(r => r['ETAT_LIGNE'] !== 'RESILIE').map(r => String(r['ND'] || ''));
+    const { sortiesByMonth, isFirstEver } = updateSortiesSnapshot(activeNDs);
+    const sortiesDetectees = months.map(mo => sortiesByMonth[mo.key] || 0);
+    const aHistorique = Object.keys(sortiesByMonth).length > 0;
+
+    if (aHistorique) {
+      warningEl.style.display = 'flex';
+      warningEl.innerHTML = '<span>ℹ️</span><span>Sorties détectées automatiquement par comparaison du parc actif d\'une ouverture à l\'autre (pas de colonne <code>DATE_RESILIATION</code>). L\'historique se construit dans ce navigateur — un dossier disparu entre deux ouvertures est compté sur le mois de détection.</span>';
+      subEl.textContent = 'Entrées datées (DATE_MS) — sorties détectées par comparaison mensuelle';
+      datasets.push({ label: 'Sorties (détectées)', data: sortiesDetectees, backgroundColor: '#e34948', borderRadius: 4 });
+    } else {
+      warningEl.style.display = 'flex';
+      warningEl.innerHTML = '<span>⚠️</span><span>Première ouverture sans historique : aucune comparaison possible pour l\'instant. À partir de la prochaine ouverture, les sorties seront détectées automatiquement mois par mois. Le total résilié actuel (' + totalResilies + ') est affiché en référence.</span>';
+      subEl.textContent = 'Entrées datées (DATE_MS) — historique des sorties en cours de constitution';
+      const sortiesRef = months.map((_, i) => i === months.length - 1 ? totalResilies : 0);
+      datasets.push({ label: 'Sorties (total, référence)', data: sortiesRef, backgroundColor: '#e34948', borderRadius: 4 });
+    }
   }
 
   if (chartFluxInstance) chartFluxInstance.destroy();
@@ -1138,6 +1406,7 @@ function traiterDonnees(arrayBuffer) {
   document.getElementById("export-client").onclick = () => exporterExcel("table-client", "Clients_Filtré.xlsx");
 
   calculerFluxEntreesSorties();
+  calculerAnalyseCA();
 }
 
 // ── Recherche client ──
