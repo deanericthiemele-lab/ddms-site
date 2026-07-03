@@ -387,9 +387,10 @@ window.switchTab = function(name, btn) {
   if (name === 'bilan') renderBilan();
   if (name === 'pda') renderPda();
   if (name === 'risques') renderRisques();
+  if (name === 'comex') renderComex();
 };
 
-function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderRisques(); renderSouffrances(); renderPda(); }
+function renderAll() { renderIncidents(); renderDocuments(); renderOpportunites(); renderRisques(); renderSouffrances(); renderPda(); renderComex(); }
 
 window.openModal = function(id) {
   document.getElementById(id).style.display='flex';
@@ -1346,6 +1347,154 @@ window.deletePda = async function(i) {
   if (!confirm('Supprimer cette action ?')) return;
   const c = getClient(); c.pda.splice(i,1);
   try { await fsSaveClient(c); renderPda(); toast('Supprimé ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+// ── COMEX ──
+let editStateComex = null;
+let comexCalDate = new Date();
+const COMEX_MONTH_NAMES = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+function cxPad2(n) { return n < 10 ? '0'+n : ''+n; }
+function cxDstr(y,m,d) { return y+'-'+cxPad2(m+1)+'-'+cxPad2(d); }
+function comexPillClass(s) { return s==='Réalisé' ? 'st-done' : s==='Non réalisé' ? 'st-ko' : 'st-plan'; }
+function comexTagClass(s) { return s==='Réalisé' ? 'tag-green' : s==='Non réalisé' ? 'tag-red' : 'tag-blue'; }
+
+function renderComex() {
+  renderComexStats();
+  renderComexCalendar();
+  renderComexTable();
+}
+
+function renderComexStats() {
+  const c = getClient(); if (!c) return;
+  const list = c.comex || [];
+  const total = list.length;
+  const done = list.filter(r=>r.status==='Réalisé').length;
+  const ko = list.filter(r=>r.status==='Non réalisé').length;
+  const plan = total - done - ko;
+  document.getElementById('comex-stats').innerHTML = `
+    <div class="comex-stat"><b>${total}</b> RDV planifiés</div>
+    <div class="comex-stat st-done"><b>${done}</b> Réalisés</div>
+    <div class="comex-stat st-ko"><b>${ko}</b> Non réalisés</div>
+    <div class="comex-stat st-plan"><b>${plan}</b> À venir</div>`;
+}
+
+function renderComexCalendar() {
+  const c = getClient(); if (!c) return;
+  const list = c.comex || [];
+  const y = comexCalDate.getFullYear(), m = comexCalDate.getMonth();
+  document.getElementById('comex-cal-month').textContent = COMEX_MONTH_NAMES[m] + ' ' + y;
+
+  const first = new Date(y, m, 1);
+  const startOffset = (first.getDay() + 6) % 7; // lundi = 0
+  const daysInMonth = new Date(y, m+1, 0).getDate();
+  const daysInPrevMonth = new Date(y, m, 0).getDate();
+  const todayStr = cxDstr(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+
+  const byDate = {};
+  list.forEach((r,i) => { if (!r.date) return; (byDate[r.date] = byDate[r.date]||[]).push(i); });
+
+  const cells = [];
+  for (let i = startOffset; i > 0; i--) cells.push({ day: daysInPrevMonth - i + 1, other: true, dateStr: null });
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d, other: false, dateStr: cxDstr(y,m,d) });
+  while (cells.length % 7 !== 0) {
+    const extra = cells.length - startOffset - daysInMonth + 1;
+    cells.push({ day: extra, other: true, dateStr: null });
+  }
+
+  document.getElementById('comex-cal-grid').innerHTML = cells.map(cell => {
+    const idxs = cell.dateStr ? (byDate[cell.dateStr]||[]) : [];
+    const isToday = cell.dateStr === todayStr;
+    const pills = idxs.map(i => {
+      const r = list[i];
+      return `<span class="comex-pill ${comexPillClass(r.status)}" onclick="editComex(${i})" title="${(r.title||'').replace(/"/g,'&quot;')}">${r.title||'—'}</span>`;
+    }).join('');
+    return `<div class="comex-cal-day${cell.other?' other':''}${isToday?' today':''}">
+      <div class="comex-cal-daynum">${cell.day}</div>${pills}
+    </div>`;
+  }).join('');
+}
+
+function renderComexTable() {
+  const c = getClient(); if (!c) return;
+  const search = (document.getElementById('comex-search').value||'').toLowerCase();
+  const list = c.comex || [];
+  const rows = list
+    .map((r,i)=>({...r, _i:i}))
+    .filter(r => r.status !== 'Réalisé' && (!search || (r.title||'').toLowerCase().indexOf(search)!==-1))
+    .sort((a,b) => (a.date||'9999') < (b.date||'9999') ? -1 : 1);
+
+  const tbody = document.getElementById('comex-table-body');
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text3);font-family:'DM Mono',monospace;font-size:12px">Aucun COMEX en attente</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr class="tbl-tr">
+      <td class="tbl-td" style="font-size:12px">${r.title||'—'}</td>
+      <td class="tbl-td mono" style="font-size:12px">${r.date?formatDate(r.date):'—'}</td>
+      <td class="tbl-td"><span class="tag ${comexTagClass(r.status)}">${r.status||'—'}</span></td>
+      <td class="tbl-td tbl-actions">
+        ${canWrite()?`<button class="btn-sm-edit" onclick="confirmComex(${r._i})" title="Confirmer réalisé">✓</button>
+        <button class="btn-sm-edit" onclick="editComex(${r._i})" title="Modifier">✏️</button>
+        <button class="btn-sm" onclick="deleteItem('comex',${r._i})" title="Supprimer">🗑</button>`:''}
+      </td>
+    </tr>`).join('');
+}
+
+function comexPrevMonth() { comexCalDate = new Date(comexCalDate.getFullYear(), comexCalDate.getMonth()-1, 1); renderComexCalendar(); }
+function comexNextMonth() { comexCalDate = new Date(comexCalDate.getFullYear(), comexCalDate.getMonth()+1, 1); renderComexCalendar(); }
+window.comexPrevMonth = comexPrevMonth;
+window.comexNextMonth = comexNextMonth;
+
+window.openAddComex = function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  editStateComex = null;
+  document.getElementById('comex-modal-title').innerHTML = 'Nouveau RDV COMEX <button class="modal-close" onclick="closeModal(\'modal-comex\')">✕</button>';
+  document.getElementById('cx-title').value = '';
+  document.getElementById('cx-date').value = '';
+  document.getElementById('cx-time').value = '';
+  document.getElementById('cx-status').value = 'Planifié';
+  document.getElementById('cx-comment').value = '';
+  document.getElementById('modal-comex').style.display='flex';
+};
+
+window.editComex = function(i) {
+  const c = getClient(); const r = (c.comex||[])[i]; if (!r) return;
+  editStateComex = i;
+  document.getElementById('comex-modal-title').innerHTML = 'Modifier le RDV <button class="modal-close" onclick="closeModal(\'modal-comex\')">✕</button>';
+  document.getElementById('cx-title').value = r.title || '';
+  document.getElementById('cx-date').value = r.date || '';
+  document.getElementById('cx-time').value = r.time || '';
+  document.getElementById('cx-status').value = r.status || 'Planifié';
+  document.getElementById('cx-comment').value = r.comment || '';
+  document.getElementById('modal-comex').style.display='flex';
+};
+
+window.saveComex = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  const c = getClient(); if (!c) return;
+  const title = document.getElementById('cx-title').value.trim(); if (!title) { toast('⚠️ Le titre est obligatoire','error'); return; }
+  const date = document.getElementById('cx-date').value;
+  if (!date) { toast('⚠️ La date est obligatoire','error'); document.getElementById('cx-date').focus(); return; }
+  const obj = {
+    title, date,
+    time: document.getElementById('cx-time').value,
+    status: document.getElementById('cx-status').value,
+    comment: document.getElementById('cx-comment').value.trim()
+  };
+  if (!c.comex) c.comex = [];
+  if (editStateComex !== null) c.comex[editStateComex] = obj; else c.comex.push(obj);
+  try { toast('Enregistrement…'); await fsSaveClient(c); closeModal('modal-comex'); renderComex(); toast('RDV enregistré ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+window.confirmComex = async function(i) {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  const c = getClient(); if (!c || !c.comex || !c.comex[i]) return;
+  c.comex[i].status = 'Réalisé';
+  try { await fsSaveClient(c); renderComex(); toast('RDV confirmé réalisé ✓','success'); }
   catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
@@ -2777,6 +2926,36 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
   .empty-state{text-align:center;padding:36px 20px;color:var(--text3);font-size:13px;font-family:'DM Mono',monospace;}
   .empty-state .icon{font-size:32px;margin-bottom:10px;}
 
+  /* COMEX */
+  .comex-stats-strip{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+  .comex-stat{display:flex;align-items:center;gap:6px;padding:7px 14px;border-radius:20px;font-size:12px;font-family:'DM Mono',monospace;border:1px solid var(--border);background:var(--surface2);color:var(--text2);}
+  .comex-stat b{font-family:'Syne',sans-serif;font-weight:800;font-size:13px;}
+  .comex-stat.st-done{background:rgba(22,163,74,.08);color:var(--green);border-color:rgba(22,163,74,.25);}
+  .comex-stat.st-ko{background:rgba(220,38,38,.08);color:var(--red);border-color:rgba(220,38,38,.25);}
+  .comex-stat.st-plan{background:rgba(37,99,235,.08);color:var(--accent);border-color:rgba(37,99,235,.25);}
+  .comex-grid{display:grid;grid-template-columns:1fr 360px;gap:18px;align-items:start;}
+  @media(max-width:900px){.comex-grid{grid-template-columns:1fr;}}
+  .comex-cal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;}
+  .comex-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .comex-cal-nav{background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);font-size:14px;transition:all .15s;user-select:none;}
+  .comex-cal-nav:hover{border-color:var(--accent);color:var(--accent);}
+  .comex-cal-month{font-family:'Syne',sans-serif;font-weight:800;font-size:14px;text-transform:capitalize;}
+  .comex-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:5px;}
+  .comex-cal-weekdays span{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--text3);text-align:center;letter-spacing:.05em;text-transform:uppercase;}
+  .comex-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+  .comex-cal-day{min-height:80px;border:1px solid var(--border);border-radius:8px;padding:5px;background:var(--surface2);position:relative;}
+  .comex-cal-day.other{opacity:.35;}
+  .comex-cal-day.today{border-color:var(--accent);background:rgba(37,99,235,.06);}
+  .comex-cal-daynum{font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--text2);}
+  .comex-cal-day.today .comex-cal-daynum{color:var(--accent);}
+  .comex-pill{display:block;font-size:9.5px;font-family:'DM Sans',sans-serif;font-weight:600;padding:2px 5px;border-radius:5px;margin-top:3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:none;}
+  .comex-pill.st-plan{background:rgba(37,99,235,.14);color:var(--accent);}
+  .comex-pill.st-done{background:rgba(22,163,74,.14);color:var(--green);}
+  .comex-pill.st-ko{background:rgba(220,38,38,.14);color:var(--red);}
+  .comex-side{display:flex;flex-direction:column;}
+  .comex-side-title{font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:8px;}
+  .comex-side .search-box{margin-bottom:10px;background:var(--surface);}
+
   /* ALL PDA MODAL */
   .apda-client-block { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; margin-bottom:14px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
   .apda-client-header { display:flex; align-items:center; gap:10px; padding:13px 16px; background:var(--surface2); border-bottom:1px solid var(--border); }
@@ -2917,6 +3096,7 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
       <button class="tab-btn" onclick="switchTab('opportunites',this)">💡 Opportunités</button>
       <button class="tab-btn" onclick="switchTab('risques',this)">⚠️ Risques</button>
       <button class="tab-btn" onclick="switchTab('pda',this)">📌 PDA</button>
+      <button class="tab-btn" onclick="switchTab('comex',this)">📅 COMEX</button>
       <button class="tab-btn" onclick="switchTab('bilan',this)">📋 Bilan des actions en cours</button>
     </div>
     <div id="content">
@@ -2957,6 +3137,40 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
           <span class="section-title">📌 Plan d'Action (PDA)</span>
         </div>
         <div id="pda-tree"></div>
+      </div>
+
+      <!-- COMEX -->
+      <div class="tab-panel" id="panel-comex">
+        <div class="section-header">
+          <span class="section-title">📅 Suivi des COMEX — Réunions mensuelles client</span>
+          <button class="btn-add" onclick="openAddComex()">+ Nouveau RDV</button>
+        </div>
+        <div class="comex-stats-strip" id="comex-stats"></div>
+        <div class="comex-grid">
+          <div class="comex-cal">
+            <div class="comex-cal-head">
+              <div class="comex-cal-nav" onclick="comexPrevMonth()">‹</div>
+              <div class="comex-cal-month" id="comex-cal-month"></div>
+              <div class="comex-cal-nav" onclick="comexNextMonth()">›</div>
+            </div>
+            <div class="comex-cal-weekdays">
+              <span>Lun</span><span>Mar</span><span>Mer</span><span>Jeu</span><span>Ven</span><span>Sam</span><span>Dim</span>
+            </div>
+            <div class="comex-cal-grid" id="comex-cal-grid"></div>
+          </div>
+          <div class="comex-side">
+            <div class="comex-side-title">COMEX non réalisés</div>
+            <div class="search-box">
+              <input type="text" id="comex-search" placeholder="Rechercher un RDV…" oninput="renderComexTable()">
+            </div>
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead><tr><th class="tbl-th">Titre</th><th class="tbl-th">Date</th><th class="tbl-th">Statut</th><th class="tbl-th" style="width:80px"></th></tr></thead>
+                <tbody id="comex-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- BILAN -->
@@ -3260,6 +3474,29 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('modal-pda')">Annuler</button>
       <button class="btn-primary" onclick="savePda()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-comex" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-comex')">
+  <div class="modal">
+    <div class="modal-title" id="comex-modal-title">Nouveau RDV COMEX <button class="modal-close" onclick="closeModal('modal-comex')">✕</button></div>
+    <div class="field"><label>Client / Titre <span style="color:var(--red)">*</span></label><input id="cx-title" placeholder="ex: COMEX Orange CI – Juillet"></div>
+    <div class="grid2">
+      <div class="field"><label>Date <span style="color:var(--red)">*</span></label><input id="cx-date" type="date"></div>
+      <div class="field"><label>Heure</label><input id="cx-time" type="time"></div>
+    </div>
+    <div class="field"><label>Statut</label>
+      <select id="cx-status">
+        <option value="Planifié">Planifié</option>
+        <option value="Réalisé">Réalisé</option>
+        <option value="Non réalisé">Non réalisé</option>
+      </select>
+    </div>
+    <div class="field"><label>Commentaire</label><textarea id="cx-comment" placeholder="Observations, points abordés…" style="min-height:70px"></textarea></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-comex')">Annuler</button>
+      <button class="btn-primary" onclick="saveComex()">Enregistrer</button>
     </div>
   </div>
 </div>
