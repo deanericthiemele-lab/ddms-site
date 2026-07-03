@@ -236,6 +236,26 @@ body {
 .chart-wrap.short { height: 220px; }
 .empty-chart { text-align: center; padding: 60px 10px; color: var(--text-3); font-size: 13px; }
 
+/* ── FILTRE RAPIDE (rappel) ── */
+.quick-filter-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--blue-light);
+  border: 1px solid #c5ddf5;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 12.5px;
+}
+.quick-filter-label { font-weight: 600; color: var(--blue); white-space: nowrap; }
+.quick-filter-bar .filter-select { background: var(--surface); }
+.quick-filter-sep { color: var(--text-3); }
+.quick-filter-count { color: var(--text-2); margin-left: 4px; }
+.quick-filter-link {
+  margin-left: auto; font-size: 12px; font-weight: 600; color: var(--blue);
+  text-decoration: none; white-space: nowrap;
+}
+.quick-filter-link:hover { text-decoration: underline; }
+
 /* ── TABS ── */
 .tabs-bar {
   display: flex; gap: 4px; border-bottom: 1px solid var(--border);
@@ -381,6 +401,15 @@ tbody tr:hover td { background: var(--surface-2); }
 .dg-mini-title.neg { color: var(--coral); }
 #table-top-croissance, #table-top-decroissance { font-size: 12px; min-width: 0; }
 #table-top-croissance thead th, #table-top-decroissance thead th { font-size: 10px; }
+.trend-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 20px; white-space: nowrap;
+}
+.trend-badge.up { background: var(--green-light); color: var(--green); }
+.trend-badge.flat { background: var(--amber-light); color: var(--amber); }
+.trend-badge.down { background: var(--coral-light); color: var(--coral); }
+.trend-badge.na { background: var(--surface-2); color: var(--text-3); }
+
 .client-lost-badge { font-size: 9.5px; font-weight: 700; color: var(--coral); background: var(--coral-light); border-radius: 10px; padding: 1px 6px; margin-left: 5px; white-space: nowrap; }
 
 @media (max-width: 600px) {
@@ -480,7 +509,7 @@ tbody tr:hover td { background: var(--surface-2); }
   <div class="kpi-grid" id="kpi-grid-2"></div>
 
   <!-- FILTERS -->
-  <div class="section-title">Analyse &amp; filtres</div>
+  <div class="section-title" id="filtres-complets">Analyse &amp; filtres</div>
   <div class="filter-bar">
     <div class="search-wrap">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
@@ -556,6 +585,14 @@ tbody tr:hover td { background: var(--surface-2); }
 
   <!-- TABLES -->
   <div class="section-title">Données détaillées</div>
+  <div class="quick-filter-bar">
+    <span class="quick-filter-label">📅 Période affichée :</span>
+    <select class="filter-select" id="filter-annee-min-quick"></select>
+    <span class="quick-filter-sep">→</span>
+    <select class="filter-select" id="filter-annee-max-quick"></select>
+    <span class="quick-filter-count" id="quick-filter-count"></span>
+    <a href="#filtres-complets" class="quick-filter-link">Voir tous les filtres ↑</a>
+  </div>
   <div class="tabs-bar">
     <button class="tab-btn active" data-tab="clients" onclick="switchTab('clients')">Regroupement par client</button>
     <button class="tab-btn" data-tab="produits" onclick="switchTab('produits')">Par type de liaison</button>
@@ -659,6 +696,7 @@ function canonicalClientKey(raw){
    ========================================================= */
 const SCOPE_START_YEAR = 2020;
 const SCOPE_END_YEAR = new Date().getFullYear(); // toujours l'année en cours
+const YEARS_CA = [SCOPE_END_YEAR-2, SCOPE_END_YEAR-1, SCOPE_END_YEAR]; // 3 dernières années, glissant automatiquement
 
 /* =========================================================
    IDENTIFICATION DES PRODUITS (LS / LSI (SYT) / Numérique T0-T2)
@@ -901,6 +939,8 @@ function populateFilterOptions(){
   fillSelect('filter-commune', communes, 'Commune — Toutes');
   fillSelect('filter-annee-min', annees, 'Année MS min (' + SCOPE_START_YEAR + ')');
   fillSelect('filter-annee-max', annees, 'Année MS max (' + SCOPE_END_YEAR + ')');
+  fillSelect('filter-annee-min-quick', annees, 'Année MS min (' + SCOPE_START_YEAR + ')');
+  fillSelect('filter-annee-max-quick', annees, 'Année MS max (' + SCOPE_END_YEAR + ')');
 
   document.getElementById('topbar-sub').textContent = 'Liaisons construites — clients B2B — analyse dynamique ' + SCOPE_START_YEAR + ' – ' + SCOPE_END_YEAR;
   const scopeNote = document.getElementById('scope-note');
@@ -918,6 +958,12 @@ document.getElementById('search-input').addEventListener('input', function(){
 });
 ['filter-etat','filter-produit','filter-categorie','filter-commune','filter-annee-min','filter-annee-max'].forEach(id=>{
   document.getElementById(id).addEventListener('change', applyFilters);
+});
+document.getElementById('filter-annee-min-quick').addEventListener('change', function(){
+  document.getElementById('filter-annee-min').value = this.value; applyFilters();
+});
+document.getElementById('filter-annee-max-quick').addEventListener('change', function(){
+  document.getElementById('filter-annee-max').value = this.value; applyFilters();
 });
 function resetFilters(){
   document.getElementById('search-input').value = '';
@@ -953,6 +999,11 @@ function applyFilters(){
 
   const pct = rawRows.length ? Math.round(filteredRows.length/rawRows.length*100) : 0;
   document.getElementById('filter-count').textContent = filteredRows.length.toLocaleString('fr-FR') + ' / ' + rawRows.length.toLocaleString('fr-FR') + ' lignes (' + pct + '%)';
+
+  // Synchronise le rappel de filtre rapide (au-dessus des tableaux) avec le filtre principal
+  document.getElementById('filter-annee-min-quick').value = anneeMin;
+  document.getElementById('filter-annee-max-quick').value = anneeMax;
+  document.getElementById('quick-filter-count').textContent = '(' + filteredRows.length.toLocaleString('fr-FR') + ' lignes)';
 
   pageState.clients = 1; pageState.detail = 1;
   renderAll();
@@ -1585,6 +1636,55 @@ function toggleSort(tableKey, col){
 
 /* ── Table clients ── */
 document.getElementById('search-clients').addEventListener('input', function(){ pageState.clients=1; renderTableClients(); });
+/* ── CA par client, à la fin de chaque année cible (YEARS_CA) ──
+   Reconstitué sur l'historique complet du client (toutes ses lignes),
+   indépendamment des autres filtres, par la même méthode événementielle
+   que la Synthèse Direction. ── */
+function computeClientCAByYear(){
+  const eventsByClient = new Map();
+  rawRows.forEach(r=>{
+    if (!eventsByClient.has(r.clientKey)) eventsByClient.set(r.clientKey, []);
+    eventsByClient.get(r.clientKey).push({ year:r.dateMS.getFullYear(), delta:r.ca });
+    if (r.etat==='RESILIE' && r.dateSortie) eventsByClient.get(r.clientKey).push({ year:r.dateSortie.getFullYear(), delta:-r.ca });
+  });
+  const result = new Map();
+  eventsByClient.forEach((events, key)=>{
+    const perYear = {};
+    YEARS_CA.forEach(y=>{ perYear[y] = Math.max(0, events.filter(e=>e.year<=y).reduce((s,e)=>s+e.delta,0)); });
+    result.set(key, perYear);
+  });
+  return result;
+}
+// Une colonne année est "vidée" (—) si la période sélectionnée (filtres Année MS) exclut cette année
+function yearExcludedByFilter(year, anneeMinVal, anneeMaxVal){
+  if (anneeMinVal && year < parseInt(anneeMinVal)) return true;
+  if (anneeMaxVal && year > parseInt(anneeMaxVal)) return true;
+  return false;
+}
+
+// Statut visuel de tendance : compare le CA de fin de 1ère année (YEARS_CA[0]) à celui de la dernière (YEARS_CA[2])
+function computeClientTrend(clientKey, caByYear, anneeMinVal, anneeMaxVal){
+  const yFirst = YEARS_CA[0], yLast = YEARS_CA[YEARS_CA.length-1];
+  if (yearExcludedByFilter(yFirst, anneeMinVal, anneeMaxVal) || yearExcludedByFilter(yLast, anneeMinVal, anneeMaxVal)){
+    return { html: '<span class="trend-badge na">—</span>', sortVal: -Infinity };
+  }
+  const vals = caByYear.get(clientKey) || {};
+  const ca0 = vals[yFirst] || 0, ca1 = vals[yLast] || 0;
+  let pct = null;
+  if (ca0 === 0 && ca1 === 0) pct = 0;
+  else if (ca0 === 0) pct = 100; // apparition d'un CA là où il n'y en avait pas
+  else pct = (ca1-ca0)/ca0*100;
+
+  let cls, arrow, label;
+  if (ca0 === 0 && ca1 === 0){ cls='na'; arrow='—'; label='Sans activité'; }
+  else if (pct > 5){ cls='up'; arrow='▲'; label='Croissance'; }
+  else if (pct < -5){ cls='down'; arrow='▼'; label='Décroissance'; }
+  else { cls='flat'; arrow='●'; label='Stagnation'; }
+
+  const pctTxt = (ca0===0 && ca1>0) ? '' : ' ' + (pct>=0?'+':'') + pct.toFixed(0) + '%';
+  return { html: `<span class="trend-badge ${cls}" title="${label} — CA ${yFirst} → ${yLast}">${arrow}${pctTxt}</span>`, sortVal: pct };
+}
+
 function renderTableClients(){
   const searchTerm = normalize(document.getElementById('search-clients').value);
   const keysInView = new Set(filteredRows.map(r=>r.clientKey));
@@ -1608,8 +1708,21 @@ function renderTableClients(){
   rows = [...byKey.values()].map(a => ({ ...a, displayName: (clientAgg.get(a.key)&&clientAgg.get(a.key).displayName) || a.key }));
   if (searchTerm) rows = rows.filter(a => normalize(a.displayName).includes(searchTerm));
 
+  const caByYear = computeClientCAByYear();
+  const anneeMinVal = document.getElementById('filter-annee-min').value;
+  const anneeMaxVal = document.getElementById('filter-annee-max').value;
+  const yearsState = YEARS_CA.map(y => ({ year:y, excluded: yearExcludedByFilter(y, anneeMinVal, anneeMaxVal) }));
+
   const st = sortState.clients;
   const getter = (a,col)=>{
+    const ym = col.match(/^ca(\d{4})(m|a)$/);
+    if (ym){
+      const yr = +ym[1];
+      if (yearExcludedByFilter(yr, anneeMinVal, anneeMaxVal)) return -1;
+      const val = (caByYear.get(a.key) || {})[yr] || 0;
+      return ym[2]==='a' ? val*12 : val;
+    }
+    if (col === 'trend') return computeClientTrend(a.key, caByYear, anneeMinVal, anneeMaxVal).sortVal;
     switch(col){
       case 'displayName': return a.displayName;
       case 'ncli': return a.ncli.size;
@@ -1629,7 +1742,8 @@ function renderTableClients(){
 
   document.getElementById('info-clients').textContent = rows.length.toLocaleString('fr-FR') + ' client(s)';
   const thead = document.querySelector('#table-clients thead');
-  thead.innerHTML = '<tr>' + thSort('clients','displayName','Client') + thSort('clients','ncli','N° comptes',true) + thSort('clients','actives','Lignes actives',true) + thSort('clients','lsActif','LS actif',true) + thSort('clients','lsiActif','LSI actif',true) + thSort('clients','numActif','Numérique actif',true) + thSort('clients','resiliees','Résiliées',true) + thSort('clients','caMensuel','CA mensuel',true) + thSort('clients','caAnnuel','CA annualisé',true) + '</tr>';
+  const yearHeaders = yearsState.map(ys => thSort('clients','ca'+ys.year+'m','CA mensuel '+ys.year,true) + thSort('clients','ca'+ys.year+'a','CA annualisé '+ys.year,true)).join('');
+  thead.innerHTML = '<tr>' + thSort('clients','displayName','Client') + thSort('clients','actives','Lignes actives',true) + thSort('clients','lsActif','LS actif',true) + thSort('clients','lsiActif','LSI actif',true) + thSort('clients','numActif','Numérique actif',true) + thSort('clients','resiliees','Résiliées',true) + thSort('clients','caMensuel','CA mensuel',true) + thSort('clients','caAnnuel','CA annualisé',true) + yearHeaders + thSort('clients','trend','Tendance',true) + '</tr>';
 
   const totalPages = Math.max(1, Math.ceil(rows.length/PAGE_SIZE));
   if (pageState.clients > totalPages) pageState.clients = totalPages;
@@ -1637,12 +1751,19 @@ function renderTableClients(){
   const pageRows = rows.slice(start, start+PAGE_SIZE);
 
   const tbody = document.querySelector('#table-clients tbody');
+  const nbCols = 9 + yearsState.length*2;
   if (!pageRows.length){
-    tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state">Aucun client trouvé</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="'+nbCols+'"><div class="empty-state">Aucun client trouvé</div></td></tr>';
   } else {
-    tbody.innerHTML = pageRows.map(a => `<tr>
+    tbody.innerHTML = pageRows.map(a => {
+      const yearCells = yearsState.map(ys => {
+        if (ys.excluded) return '<td class="num">—</td><td class="num">—</td>';
+        const val = (caByYear.get(a.key) || {})[ys.year] || 0;
+        return `<td class="num">${fmtCFA(val)}</td><td class="num">${fmtCFA(val*12)}</td>`;
+      }).join('');
+      const trend = computeClientTrend(a.key, caByYear, anneeMinVal, anneeMaxVal);
+      return `<tr>
       <td class="cell-ellipsis" title="${escHtml(a.displayName)}">${escHtml(a.displayName)}</td>
-      <td class="num">${a.ncli.size}</td>
       <td class="num">${fmtNum(a.actives+a.suspendues)}</td>
       <td class="num">${fmtNum(a.lsActif)}</td>
       <td class="num">${fmtNum(a.lsiActif)}</td>
@@ -1650,7 +1771,10 @@ function renderTableClients(){
       <td class="num">${fmtNum(a.resiliees)}</td>
       <td class="num">${fmtCFA(a.caMensuel)}</td>
       <td class="num">${fmtCFA(a.caMensuel*12)}</td>
-    </tr>`).join('');
+      ${yearCells}
+      <td class="num">${trend.html}</td>
+    </tr>`;
+    }).join('');
   }
   renderPagination('pag-clients', pageState.clients, totalPages, p=>{ pageState.clients=p; renderTableClients(); });
 }
@@ -1769,8 +1893,22 @@ function exportRowsToExcel(rows, filename, sheetName){
 }
 function exportTable(which){
   if (which === 'clients'){
+    const caByYear = computeClientCAByYear();
+    const anneeMinVal = document.getElementById('filter-annee-min').value;
+    const anneeMaxVal = document.getElementById('filter-annee-max').value;
     const rows = [...clientAgg.values()].filter(a => new Set(filteredRows.map(r=>r.clientKey)).has(a.key))
-      .map(a=>({ Client:a.displayName, 'N° Comptes':a.ncli.size, 'Lignes Actives':a.lignesActives+a.lignesSuspendues, 'LS Actif':a.lsActif, 'LSI Actif':a.lsiActif, 'Numérique Actif':a.numActif, 'Lignes Résiliées':a.lignesResiliees, 'Total Lignes':a.total, 'CA Mensuel':a.caMensuel, 'CA Annualisé':a.caMensuel*12 }));
+      .map(a=>{
+        const base = { Client:a.displayName, 'N° Comptes':a.ncli.size, 'Lignes Actives':a.lignesActives+a.lignesSuspendues, 'LS Actif':a.lsActif, 'LSI Actif':a.lsiActif, 'Numérique Actif':a.numActif, 'Lignes Résiliées':a.lignesResiliees, 'Total Lignes':a.total, 'CA Mensuel':a.caMensuel, 'CA Annualisé':a.caMensuel*12 };
+        YEARS_CA.forEach(y=>{
+          const excluded = yearExcludedByFilter(y, anneeMinVal, anneeMaxVal);
+          const val = excluded ? null : ((caByYear.get(a.key)||{})[y] || 0);
+          base['CA Mensuel ' + y] = excluded ? '' : val;
+          base['CA Annualisé ' + y] = excluded ? '' : val*12;
+        });
+        const trend = computeClientTrend(a.key, caByYear, anneeMinVal, anneeMaxVal);
+        base['Tendance'] = trend.sortVal===-Infinity ? '' : (trend.sortVal>=0?'+':'') + trend.sortVal.toFixed(0) + '%';
+        return base;
+      });
     exportRowsToExcel(rows, 'Clients_Regroupes.xlsx', 'Clients');
   } else if (which === 'produits'){
     const order = ['NUMERIQUE','LSI','LS'];
