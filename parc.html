@@ -364,11 +364,24 @@ tbody tr:hover td { background: var(--surface-2); }
 .dg-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 20px; align-items: start; }
 @media (max-width: 900px) { .dg-grid { grid-template-columns: 1fr; } }
 .dg-chart-wrap { position: relative; height: 300px; }
+.dg-table-wrap { overflow-x: auto; }
 .dg-table-wrap table { font-size: 12.5px; }
 .dg-table-wrap thead th { background: var(--surface-2); font-size: 10.5px; }
 .dg-table-wrap td.solde-pos { color: var(--green); font-weight: 700; }
 .dg-table-wrap td.solde-neg { color: var(--coral); font-weight: 700; }
 .dg-table-wrap tr.current-year td { background: var(--blue-light); font-weight: 600; }
+.dg-subhead {
+  font-size: 13.5px; font-weight: 700; color: var(--text);
+  margin: 22px 0 10px; padding-top: 18px; border-top: 1px solid var(--border);
+}
+.dg-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 4px; }
+@media (max-width: 800px) { .dg-two-col { grid-template-columns: 1fr; } }
+.dg-mini-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+.dg-mini-title.pos { color: var(--green); }
+.dg-mini-title.neg { color: var(--coral); }
+#table-top-croissance, #table-top-decroissance { font-size: 12px; min-width: 0; }
+#table-top-croissance thead th, #table-top-decroissance thead th { font-size: 10px; }
+.client-lost-badge { font-size: 9.5px; font-weight: 700; color: var(--coral); background: var(--coral-light); border-radius: 10px; padding: 1px 6px; margin-left: 5px; white-space: nowrap; }
 
 @media (max-width: 600px) {
   .kpi-grid { grid-template-columns: 1fr 1fr; }
@@ -425,7 +438,33 @@ tbody tr:hover td { background: var(--surface-2); }
     <div class="dg-grid">
       <div class="dg-chart-wrap"><canvas id="chart-synthese"></canvas></div>
       <div class="dg-table-wrap">
-        <table id="table-synthese"><thead><tr><th>Année</th><th class="num">Gains</th><th class="num">Pertes</th><th class="num">Solde net</th><th class="num">Parc fin d'année</th><th class="num">Croissance</th></tr></thead><tbody></tbody></table>
+        <table id="table-synthese"><thead><tr><th>Année</th><th class="num">Gains</th><th class="num">Pertes</th><th class="num">Solde net</th><th class="num">Parc fin d'année</th><th class="num">Taux d'activation</th><th class="num">Taux de résiliation</th><th class="num">Croissance</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <div class="dg-subhead">Analyse par type de liaison — LS / LSI (SYT) / Numérique (T0-T2)</div>
+    <div class="dg-comment" id="dg-comment-produit">Analyse en cours de génération…</div>
+    <div class="dg-chart-wrap" style="height:260px;"><canvas id="chart-synthese-produit"></canvas></div>
+
+    <div class="dg-subhead">Analyse par client — succès et signaux d'alerte</div>
+    <div class="dg-comment" id="dg-comment-client">Analyse en cours de génération…</div>
+    <div class="dg-two-col">
+      <div>
+        <div class="dg-mini-title pos" id="titre-top-croissance">🟢 Top progressions</div>
+        <div class="table-scroll"><table id="table-top-croissance"><thead><tr><th>Client</th><th class="num">Gains</th><th class="num">Pertes</th><th class="num">Solde net</th><th class="num">CA actuel</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div>
+        <div class="dg-mini-title neg">🔴 Signaux d'alerte (pertes nettes)</div>
+        <div class="table-scroll"><table id="table-top-decroissance"><thead><tr><th>Client</th><th class="num">Gains</th><th class="num">Pertes</th><th class="num">Solde net</th><th class="num">CA actuel</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </div>
+
+    <div class="dg-subhead">Analyse du chiffre d'affaires — gains et pertes de CA récurrent</div>
+    <div class="dg-comment" id="dg-comment-ca">Analyse en cours de génération…</div>
+    <div class="dg-grid">
+      <div class="dg-chart-wrap"><canvas id="chart-synthese-ca"></canvas></div>
+      <div class="dg-table-wrap">
+        <table id="table-synthese-ca"><thead><tr><th>Année</th><th class="num">CA gagné</th><th class="num">CA perdu</th><th class="num">Solde CA</th><th class="num">CA fin d'année</th><th class="num">Croissance CA</th></tr></thead><tbody></tbody></table>
       </div>
     </div>
   </div>
@@ -780,8 +819,7 @@ function buildDataset(json){
     const ca = parseFloat(r.RECURRENT_MENSUEL) || 0;
     const dateMS = parseDateFlexible(r.DATE_MS);
     const dateRS = parseDateFlexible(r.DATE_RS);
-    const dateEtat = parseDateFlexible(r.DATE_ETAT);
-    const dateSortie = dateRS || (etatGroup === 'RESILIE' ? dateEtat : null);
+    const dateSortie = dateRS; // uniquement DATE_RS fait foi ; pas de fallback sur DATE_ETAT (fiabilité prioritaire sur exhaustivité)
     const nom = (r.NOM_PRENOMS || '').toString().trim();
     const clientKey = canonicalClientKey(nom);
     const nd = r.ND || '';
@@ -801,9 +839,11 @@ function buildDataset(json){
   }).filter(r => !!r.dateMS); // on conserve tout l'historique (nécessaire aux calculs globaux) ; seules les lignes sans date exploitable sont écartées
 
   const excludedNoDate = json.length - rawRows.length;
-  if (excludedNoDate){
-    showBanner(excludedNoDate.toLocaleString('fr-FR') + " ligne(s) sans date d'installation exploitable ont été écartées de l'analyse.");
-  }
+  const resilieSansDate = rawRows.filter(r => r.etat === 'RESILIE' && !r.dateSortie).length;
+  const bannerParts = [];
+  if (excludedNoDate) bannerParts.push(excludedNoDate.toLocaleString('fr-FR') + " ligne(s) sans date d'installation exploitable ont été écartées de l'analyse");
+  if (resilieSansDate) bannerParts.push(resilieSansDate.toLocaleString('fr-FR') + " ligne(s) résiliée(s) sans date de résiliation (DATE_RS) exploitable — non comptabilisée(s) dans l'analyse gains/pertes par année, mais toujours incluses dans le parc résilié total");
+  if (bannerParts.length) showBanner(bannerParts.join(' · ') + '.');
 
   // Agrégation client (regroupement intelligent, insensible casse/accents)
   clientAgg = new Map();
@@ -811,7 +851,7 @@ function buildDataset(json){
   for (const row of rawRows){
     const k = row.clientKey;
     if (!clientAgg.has(k)){
-      clientAgg.set(k, { key:k, ncli:new Set(), lignesActives:0, lignesSuspendues:0, lignesResiliees:0, total:0, caMensuel:0, produits:new Set(), premiereDate:null, dernierMouvement:null });
+      clientAgg.set(k, { key:k, ncli:new Set(), lignesActives:0, lignesSuspendues:0, lignesResiliees:0, total:0, caMensuel:0, produits:new Set(), premiereDate:null, dernierMouvement:null, lsActif:0, lsiActif:0, numActif:0 });
       nameFreq.set(k, new Map());
     }
     const agg = clientAgg.get(k);
@@ -821,6 +861,11 @@ function buildDataset(json){
     if (row.etat === 'ACTIF - NON-SUSPENDU'){ agg.lignesActives++; agg.caMensuel += row.ca; }
     else if (row.etat === 'ACTIF - SUSPENDU'){ agg.lignesSuspendues++; agg.caMensuel += row.ca; }
     else if (row.etat === 'RESILIE'){ agg.lignesResiliees++; }
+    if (row.etatGroup === 'ACTIF'){
+      if (row.catProduit === 'LS') agg.lsActif++;
+      else if (row.catProduit === 'LSI') agg.lsiActif++;
+      else if (row.catProduit === 'NUMERIQUE') agg.numActif++;
+    }
     if (row.dateMS && (!agg.premiereDate || row.dateMS < agg.premiereDate)) agg.premiereDate = row.dateMS;
     const nf = nameFreq.get(k);
     nf.set(row.NOM_PRENOMS, (nf.get(row.NOM_PRENOMS)||0) + 1);
@@ -1184,8 +1229,9 @@ function computeYearlySynthesis(){
     const solde = g - p;
     const parcFin = Math.max(0, parcDebut + solde);
     const croissance = parcDebut ? (solde/parcDebut*100) : null;
+    const tauxActivation = parcDebut ? (g/parcDebut*100) : null;
     const churn = parcDebut ? (p/parcDebut*100) : null;
-    rows.push({ year:y, gains:g, pertes:p, solde, parcDebut, parcFin, croissance, churn, isCurrent: y===SCOPE_END_YEAR });
+    rows.push({ year:y, gains:g, pertes:p, solde, parcDebut, parcFin, croissance, tauxActivation, churn, isCurrent: y===SCOPE_END_YEAR });
     parcDebut = parcFin;
   }
   return { baseline, rows };
@@ -1207,6 +1253,7 @@ function renderSynthese(){
   const best = completeRows.length ? completeRows.reduce((a,b)=>b.solde>a.solde?b:a) : rows[0];
   const worst = completeRows.length ? completeRows.reduce((a,b)=>b.solde<a.solde?b:a) : rows[0];
   const avgChurn = completeRows.length ? completeRows.reduce((s,r)=>s+(r.churn||0),0)/completeRows.length : 0;
+  const avgActivation = completeRows.length ? completeRows.reduce((s,r)=>s+(r.tauxActivation||0),0)/completeRows.length : 0;
 
   // Badge global
   const badge = document.getElementById('dg-badge');
@@ -1231,7 +1278,7 @@ function renderSynthese(){
     `<strong>${fmtNum(totalPertes)} résiliations</strong>, soit un solde net de <span class="${dirClass}">${soldeTotal>=0?'+':''}${fmtNum(soldeTotal)} lignes</span> ` +
     `(<span class="${dirClass}">${croissanceGlobale!==null ? (croissanceGlobale>=0?'+':'')+croissanceGlobale.toFixed(1)+'%' : '—'}</span> par rapport au parc de ${synth.baseline.toLocaleString('fr-FR')} lignes fin ${SCOPE_START_YEAR-1}) — le parc est en <strong>${dirWord}</strong> sur la période. ` +
     `${best ? `L'année la plus dynamique est <strong>${best.year}</strong> (solde net ${best.solde>=0?'+':''}${fmtNum(best.solde)}), tandis que <strong>${worst.year}</strong> a enregistré le solde le plus faible (${worst.solde>=0?'+':''}${fmtNum(worst.solde)}). ` : ''}` +
-    `Le taux de résiliation annuel moyen s'établit à <strong>${avgChurn.toFixed(1)}%</strong> du parc en début d'année. ${tendance}${anneeEnCours}`;
+    `Le taux d'activation annuel moyen s'établit à <strong>${avgActivation.toFixed(1)}%</strong> du parc en début d'année, pour un taux de résiliation moyen de <strong>${avgChurn.toFixed(1)}%</strong> — soit un taux de rétention moyen d'environ <strong>${(100-avgChurn).toFixed(1)}%</strong>. ${tendance}${anneeEnCours}`;
 
   // Tableau
   document.querySelector('#table-synthese tbody').innerHTML = rows.map(r => `<tr class="${r.isCurrent?'current-year':''}">
@@ -1240,6 +1287,8 @@ function renderSynthese(){
     <td class="num">−${fmtNum(r.pertes)}</td>
     <td class="num ${r.solde>=0?'solde-pos':'solde-neg'}">${r.solde>=0?'+':''}${fmtNum(r.solde)}</td>
     <td class="num">${fmtNum(r.parcFin)}</td>
+    <td class="num solde-pos">${r.tauxActivation!==null ? '+'+r.tauxActivation.toFixed(1)+'%' : '—'}</td>
+    <td class="num solde-neg">${r.churn!==null ? '−'+r.churn.toFixed(1)+'%' : '—'}</td>
     <td class="num ${r.croissance!==null && r.croissance>=0?'solde-pos':'solde-neg'}">${r.croissance!==null ? (r.croissance>=0?'+':'')+r.croissance.toFixed(1)+'%' : '—'}</td>
   </tr>`).join('');
 
@@ -1263,6 +1312,249 @@ function renderSynthese(){
       },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
         tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex<2 ? Math.abs(c.raw).toLocaleString('fr-FR') : c.raw.toLocaleString('fr-FR')) } } }
+    }
+  });
+
+  renderSyntheseProduit();
+  renderSyntheseClient();
+}
+
+/* =========================================================
+   ANALYSE PAR TYPE DE LIAISON (LS / LSI / Numérique)
+   même méthode événementielle que la synthèse globale,
+   appliquée séparément à chaque catégorie, sur l'historique complet.
+   ========================================================= */
+function computeProduitYearly(){
+  const order = ['LS','LSI','NUMERIQUE'];
+  const result = {};
+  order.forEach(cat=>{
+    const catRows = rawRows.filter(r=>r.catProduit===cat);
+    const events = [];
+    catRows.forEach(r=>{
+      events.push({ y:r.dateMS.getFullYear(), type:'gain' });
+      if (r.etat==='RESILIE' && r.dateSortie) events.push({ y:r.dateSortie.getFullYear(), type:'perte' });
+    });
+    const years = events.map(e=>e.y);
+    const minY = years.length ? Math.min(...years) : SCOPE_START_YEAR;
+    const maxY = Math.max(SCOPE_END_YEAR, ...(years.length ? years : [SCOPE_START_YEAR]));
+    const byYear = {};
+    for (let y=minY;y<=maxY;y++) byYear[y] = { gains:0, pertes:0 };
+    events.forEach(e => { byYear[e.y][e.type==='gain'?'gains':'pertes']++; });
+    let cum = 0; const cumByYear = {};
+    for (let y=minY;y<=maxY;y++){ cum += byYear[y].gains - byYear[y].pertes; cumByYear[y] = cum; }
+    const baseline = cumByYear[SCOPE_START_YEAR-1] !== undefined ? Math.max(0,cumByYear[SCOPE_START_YEAR-1]) : 0;
+    const rows = []; let parcDebut = baseline;
+    for (let y=SCOPE_START_YEAR; y<=SCOPE_END_YEAR; y++){
+      const g = byYear[y] ? byYear[y].gains : 0;
+      const p = byYear[y] ? byYear[y].pertes : 0;
+      const solde = g - p;
+      const parcFin = Math.max(0, parcDebut + solde);
+      rows.push({ year:y, gains:g, pertes:p, solde, parcFin, isCurrent:y===SCOPE_END_YEAR });
+      parcDebut = parcFin;
+    }
+    result[cat] = { baseline, rows };
+  });
+  return result;
+}
+
+function renderSyntheseProduit(){
+  const data = computeProduitYearly();
+  const order = ['LS','LSI','NUMERIQUE'];
+  const colors = { LS:'#D85A30', LSI:'#e8a12a', NUMERIQUE:'#5ab82d' };
+
+  destroyChart('syntheseProduit');
+  const years = data.LS.rows.map(r=>r.year + (r.year===SCOPE_END_YEAR?' (en cours)':''));
+  charts.syntheseProduit = new Chart(document.getElementById('chart-synthese-produit'), {
+    type:'bar',
+    data:{ labels: years, datasets: order.map(cat => ({
+      label: PRODUIT_CAT_LABELS[cat], data: data[cat].rows.map(r=>r.solde), backgroundColor: colors[cat]
+    })) },
+    options:{ responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'Solde net (lignes)'} } },
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.raw>=0?'+':'') + c.raw.toLocaleString('fr-FR') } } }
+    }
+  });
+
+  // Commentaire : identifie le moteur de croissance et le point d'attention
+  const totals = {};
+  order.forEach(cat=>{
+    const rows = data[cat].rows;
+    const totalSolde = rows.reduce((s,r)=>s+r.solde,0);
+    const croissancePct = data[cat].baseline ? (totalSolde/data[cat].baseline*100) : null;
+    const lastComplete = rows.filter(r=>!r.isCurrent).slice(-1)[0] || rows[rows.length-1];
+    totals[cat] = { totalSolde, croissancePct, lastComplete };
+  });
+  const meilleur = order.reduce((a,b)=> totals[b].totalSolde > totals[a].totalSolde ? b : a);
+  const pire = order.reduce((a,b)=> totals[b].totalSolde < totals[a].totalSolde ? b : a);
+  const alerte = order.filter(cat => totals[cat].lastComplete && totals[cat].lastComplete.solde < 0);
+
+  let phraseAlerte = '';
+  if (alerte.length){
+    phraseAlerte = ' À surveiller : ' + alerte.map(cat => `<strong>${PRODUIT_CAT_LABELS[cat]}</strong> a terminé ${totals[cat].lastComplete.year} sur un solde négatif (${totals[cat].lastComplete.solde} lignes)`).join(', ') + '.';
+  } else {
+    phraseAlerte = ' Aucune des trois familles de produits n\'a terminé son dernier exercice complet en solde négatif.';
+  }
+
+  document.getElementById('dg-comment-produit').innerHTML =
+    `<strong>${PRODUIT_CAT_LABELS[meilleur]}</strong> est le principal moteur de croissance depuis ${SCOPE_START_YEAR} ` +
+    `avec un solde net de <span class="up">${totals[meilleur].totalSolde>=0?'+':''}${fmtNum(totals[meilleur].totalSolde)} lignes</span>` +
+    `${totals[meilleur].croissancePct!==null ? ' (' + (totals[meilleur].croissancePct>=0?'+':'') + totals[meilleur].croissancePct.toFixed(1) + '% vs fin ' + (SCOPE_START_YEAR-1) + ')' : ''}, ` +
+    `tandis que <strong>${PRODUIT_CAT_LABELS[pire]}</strong> affiche la progression la plus faible des trois ` +
+    `(<span class="${totals[pire].totalSolde>=0?'up':'down'}">${totals[pire].totalSolde>=0?'+':''}${fmtNum(totals[pire].totalSolde)} lignes</span>).` +
+    phraseAlerte;
+}
+
+/* =========================================================
+   ANALYSE PAR CLIENT — succès et signaux d'alerte
+   Calculée sur l'historique complet (rawRows), gains/pertes
+   comptabilisés depuis SCOPE_START_YEAR pour chaque client.
+   ========================================================= */
+function computeClientMovements(){
+  const map = new Map();
+  rawRows.forEach(r=>{
+    if (!map.has(r.clientKey)) map.set(r.clientKey, { gains:0, pertes:0, caActuel:0, actifActuel:0 });
+    const m = map.get(r.clientKey);
+    if (r.dateMS.getFullYear() >= SCOPE_START_YEAR) m.gains++;
+    if (r.etat==='RESILIE' && r.dateSortie && r.dateSortie.getFullYear() >= SCOPE_START_YEAR) m.pertes++;
+    if (r.etatGroup==='ACTIF'){ m.caActuel += r.ca; m.actifActuel++; }
+  });
+  return [...map.entries()].map(([k,m]) => ({
+    key:k,
+    display: (clientAgg.get(k) && clientAgg.get(k).displayName) || k,
+    gains:m.gains, pertes:m.pertes, solde:m.gains-m.pertes,
+    caActuel:m.caActuel, actifActuel:m.actifActuel
+  }));
+}
+
+function renderClientMiniTable(tbodyId, rows){
+  document.querySelector('#'+tbodyId+' tbody').innerHTML = rows.length ? rows.map(r => `<tr>
+    <td class="cell-ellipsis" title="${escHtml(r.display)}">${escHtml(r.display)}${r.actifActuel===0 && r.gains>0 ? '<span class="client-lost-badge">Parc résilié</span>' : ''}</td>
+    <td class="num">+${fmtNum(r.gains)}</td>
+    <td class="num">−${fmtNum(r.pertes)}</td>
+    <td class="num ${r.solde>=0?'solde-pos':'solde-neg'}">${r.solde>=0?'+':''}${fmtNum(r.solde)}</td>
+    <td class="num">${fmtCFA(r.caActuel)}</td>
+  </tr>`).join('') : '<tr><td colspan="5"><div class="empty-state">Aucune donnée</div></td></tr>';
+}
+
+function renderSyntheseClient(){
+  const movements = computeClientMovements();
+  const withMovement = movements.filter(m => m.gains>0 || m.pertes>0);
+
+  const topCroissance = [...withMovement].filter(m=>m.solde>0).sort((a,b)=>b.solde-a.solde).slice(0,8);
+  const topDecroissance = [...withMovement].filter(m=>m.solde<0).sort((a,b)=>a.solde-b.solde).slice(0,8);
+  const clientsPerdus = withMovement.filter(m=>m.actifActuel===0 && m.gains>0);
+
+  document.getElementById('titre-top-croissance').textContent = '🟢 Top progressions (depuis ' + SCOPE_START_YEAR + ')';
+  renderClientMiniTable('table-top-croissance', topCroissance);
+  renderClientMiniTable('table-top-decroissance', topDecroissance);
+
+  const totalGainNet = withMovement.filter(m=>m.solde>0).reduce((s,m)=>s+m.solde,0);
+  const top8GainNet = topCroissance.reduce((s,m)=>s+m.solde,0);
+  const partTop8 = totalGainNet ? (top8GainNet/totalGainNet*100) : 0;
+
+  let phrase = '';
+  if (topCroissance.length){
+    phrase += `Les 8 clients les plus dynamiques ont apporté <strong>${fmtNum(top8GainNet)} lignes nettes</strong> depuis ${SCOPE_START_YEAR} ` +
+      `(soit <strong>${partTop8.toFixed(0)}%</strong> du gain net total du parc), menés par <strong>${escHtml(topCroissance[0].display)}</strong> (${topCroissance[0].solde>=0?'+':''}${fmtNum(topCroissance[0].solde)} lignes). `;
+  }
+  if (topDecroissance.length){
+    phrase += `À l'inverse, <strong>${escHtml(topDecroissance[0].display)}</strong> concentre le solde le plus négatif (${fmtNum(topDecroissance[0].solde)} lignes)` +
+      `${topDecroissance[0].actifActuel===0 ? ', avec un parc désormais entièrement résilié' : ''}. `;
+  }
+  if (clientsPerdus.length){
+    phrase += `<span class="down"><strong>${clientsPerdus.length} client(s)</strong></span> ayant eu des lignes actives depuis ${SCOPE_START_YEAR} n'ont aujourd'hui plus aucune ligne active — à qualifier en priorité (churn total).`;
+  } else {
+    phrase += `Aucun client actif depuis ${SCOPE_START_YEAR} n'a totalement résilié son parc à ce jour.`;
+  }
+  document.getElementById('dg-comment-client').innerHTML = phrase;
+  renderSyntheseCA();
+}
+
+/* =========================================================
+   ANALYSE DU CHIFFRE D'AFFAIRES — gains et pertes de CA récurrent
+   Même méthode événementielle que le parc (en lignes), appliquée
+   au CA mensuel récurrent (RECURRENT_MENSUEL), sur l'historique complet.
+   ========================================================= */
+function computeCAYearly(){
+  const events = [];
+  rawRows.forEach(r => {
+    events.push({ y:r.dateMS.getFullYear(), delta:r.ca });
+    if (r.etat === 'RESILIE' && r.dateSortie) events.push({ y:r.dateSortie.getFullYear(), delta:-r.ca });
+  });
+  const years = events.map(e=>e.y);
+  const minY = Math.min(...years);
+  const maxY = Math.max(SCOPE_END_YEAR, ...years);
+  const byYear = {};
+  for (let y=minY;y<=maxY;y++) byYear[y] = { gagne:0, perdu:0 };
+  events.forEach(e => { if (e.delta>=0) byYear[e.y].gagne += e.delta; else byYear[e.y].perdu += -e.delta; });
+  let cum = 0; const cumByYear = {};
+  for (let y=minY;y<=maxY;y++){ cum += byYear[y].gagne - byYear[y].perdu; cumByYear[y] = cum; }
+  const baseline = cumByYear[SCOPE_START_YEAR-1] !== undefined ? Math.max(0,cumByYear[SCOPE_START_YEAR-1]) : 0;
+  const rows = []; let caDebut = baseline;
+  for (let y=SCOPE_START_YEAR; y<=SCOPE_END_YEAR; y++){
+    const g = byYear[y] ? byYear[y].gagne : 0;
+    const p = byYear[y] ? byYear[y].perdu : 0;
+    const solde = g - p;
+    const caFin = Math.max(0, caDebut + solde);
+    const croissance = caDebut ? (solde/caDebut*100) : null;
+    rows.push({ year:y, gagne:g, perdu:p, solde, caDebut, caFin, croissance, isCurrent:y===SCOPE_END_YEAR });
+    caDebut = caFin;
+  }
+  return { baseline, rows };
+}
+
+function renderSyntheseCA(){
+  const synth = computeCAYearly();
+  const rows = synth.rows;
+  const completeRows = rows.filter(r=>!r.isCurrent);
+  const last = rows[rows.length-1];
+
+  const totalGagne = rows.reduce((s,r)=>s+r.gagne,0);
+  const totalPerdu = rows.reduce((s,r)=>s+r.perdu,0);
+  const soldeTotal = totalGagne - totalPerdu;
+  const croissanceGlobale = synth.baseline ? (soldeTotal/synth.baseline*100) : null;
+  const best = completeRows.length ? completeRows.reduce((a,b)=>b.solde>a.solde?b:a) : rows[0];
+  const worst = completeRows.length ? completeRows.reduce((a,b)=>b.solde<a.solde?b:a) : rows[0];
+  const dirWord = soldeTotal>0 ? 'croissance' : (soldeTotal<0 ? 'recul' : 'stabilité');
+  const dirClass = soldeTotal>0 ? 'up' : (soldeTotal<0 ? 'down' : '');
+  const anneeEnCours = last.isCurrent ? ` <em>(${last.year} : année en cours, non définitive)</em>` : '';
+
+  document.getElementById('dg-comment-ca').innerHTML =
+    `Depuis ${SCOPE_START_YEAR}, le parc a généré <strong>${fmtCFA(totalGagne)}</strong> de CA mensuel récurrent supplémentaire ` +
+    `à l'activation, contre <strong>${fmtCFA(totalPerdu)}</strong> perdus sur résiliation, soit un solde net de ` +
+    `<span class="${dirClass}">${soldeTotal>=0?'+':''}${fmtCFA(soldeTotal)}</span> par mois ` +
+    `(<span class="${dirClass}">${croissanceGlobale!==null ? (croissanceGlobale>=0?'+':'')+croissanceGlobale.toFixed(1)+'%' : '—'}</span> vs ${fmtCFA(synth.baseline)} fin ${SCOPE_START_YEAR-1}) — le CA récurrent est en <strong>${dirWord}</strong> sur la période. ` +
+    `${best ? `<strong>${best.year}</strong> a été la meilleure année en valeur (solde ${best.solde>=0?'+':''}${fmtCFA(best.solde)}), tandis que <strong>${worst.year}</strong> a enregistré le solde le plus faible (${worst.solde>=0?'+':''}${fmtCFA(worst.solde)}).` : ''}${anneeEnCours}`;
+
+  document.querySelector('#table-synthese-ca tbody').innerHTML = rows.map(r => `<tr class="${r.isCurrent?'current-year':''}">
+    <td>${r.year}${r.isCurrent?' <span class="tag">en cours</span>':''}</td>
+    <td class="num solde-pos">+${fmtCFA(r.gagne)}</td>
+    <td class="num solde-neg">−${fmtCFA(r.perdu)}</td>
+    <td class="num ${r.solde>=0?'solde-pos':'solde-neg'}">${r.solde>=0?'+':''}${fmtCFA(r.solde)}</td>
+    <td class="num">${fmtCFA(r.caFin)}</td>
+    <td class="num ${r.croissance!==null && r.croissance>=0?'solde-pos':'solde-neg'}">${r.croissance!==null ? (r.croissance>=0?'+':'')+r.croissance.toFixed(1)+'%' : '—'}</td>
+  </tr>`).join('');
+
+  destroyChart('syntheseCA');
+  charts.syntheseCA = new Chart(document.getElementById('chart-synthese-ca'), {
+    data: {
+      labels: rows.map(r=>r.year + (r.isCurrent?' (en cours)':'')),
+      datasets: [
+        { type:'bar', label:'CA gagné', data: rows.map(r=>r.gagne), backgroundColor:'#5ab82d', order:2 },
+        { type:'bar', label:'CA perdu', data: rows.map(r=>-r.perdu), backgroundColor:'#D85A30', order:2 },
+        { type:'line', label:'CA total fin d\'année', data: rows.map(r=>r.caFin), borderColor:'#185FA5', backgroundColor:'#185FA5', yAxisID:'y1', tension:0.25, pointRadius:3, order:1 }
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      scales:{
+        x:{ grid:{display:false} },
+        y:{ title:{display:true,text:'CA gagné / perdu (FCFA)'}, ticks:{ callback:v=>fmtCompact(Math.abs(v)) } },
+        y1:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'CA total (FCFA)'}, ticks:{ callback:v=>fmtCompact(v) } }
+      },
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + fmtCFA(Math.abs(c.raw)) } } }
     }
   });
 }
@@ -1300,12 +1592,17 @@ function renderTableClients(){
   // recompute metrics from filteredRows (so table respects filters, not just presence)
   const byKey = new Map();
   filteredRows.forEach(r=>{
-    if (!byKey.has(r.clientKey)) byKey.set(r.clientKey, { key:r.clientKey, ncli:new Set(), actives:0, suspendues:0, resiliees:0, total:0, caMensuel:0, produits:new Set(), premiereDate:null });
+    if (!byKey.has(r.clientKey)) byKey.set(r.clientKey, { key:r.clientKey, ncli:new Set(), actives:0, suspendues:0, resiliees:0, total:0, caMensuel:0, produits:new Set(), premiereDate:null, lsActif:0, lsiActif:0, numActif:0 });
     const a = byKey.get(r.clientKey);
     a.ncli.add(r.NCLI); a.total++; a.produits.add(r.PRODUIT);
     if (r.etat==='ACTIF - NON-SUSPENDU'){ a.actives++; a.caMensuel+=r.ca; }
     else if (r.etat==='ACTIF - SUSPENDU'){ a.suspendues++; a.caMensuel+=r.ca; }
     else if (r.etat==='RESILIE') a.resiliees++;
+    if (r.etatGroup==='ACTIF'){
+      if (r.catProduit==='LS') a.lsActif++;
+      else if (r.catProduit==='LSI') a.lsiActif++;
+      else if (r.catProduit==='NUMERIQUE') a.numActif++;
+    }
     if (r.dateMS && (!a.premiereDate || r.dateMS<a.premiereDate)) a.premiereDate = r.dateMS;
   });
   rows = [...byKey.values()].map(a => ({ ...a, displayName: (clientAgg.get(a.key)&&clientAgg.get(a.key).displayName) || a.key }));
@@ -1317,6 +1614,9 @@ function renderTableClients(){
       case 'displayName': return a.displayName;
       case 'ncli': return a.ncli.size;
       case 'actives': return a.actives+a.suspendues;
+      case 'lsActif': return a.lsActif;
+      case 'lsiActif': return a.lsiActif;
+      case 'numActif': return a.numActif;
       case 'resiliees': return a.resiliees;
       case 'total': return a.total;
       case 'caMensuel': return a.caMensuel;
@@ -1329,7 +1629,7 @@ function renderTableClients(){
 
   document.getElementById('info-clients').textContent = rows.length.toLocaleString('fr-FR') + ' client(s)';
   const thead = document.querySelector('#table-clients thead');
-  thead.innerHTML = '<tr>' + thSort('clients','displayName','Client') + thSort('clients','ncli','N° comptes',true) + thSort('clients','actives','Lignes actives',true) + thSort('clients','resiliees','Résiliées',true) + thSort('clients','total','Total',true) + thSort('clients','caMensuel','CA mensuel',true) + thSort('clients','caAnnuel','CA annualisé',true) + thSort('clients','premiereDate','1ère MS',true) + '<th>Produits</th></tr>';
+  thead.innerHTML = '<tr>' + thSort('clients','displayName','Client') + thSort('clients','ncli','N° comptes',true) + thSort('clients','actives','Lignes actives',true) + thSort('clients','lsActif','LS actif',true) + thSort('clients','lsiActif','LSI actif',true) + thSort('clients','numActif','Numérique actif',true) + thSort('clients','resiliees','Résiliées',true) + thSort('clients','caMensuel','CA mensuel',true) + thSort('clients','caAnnuel','CA annualisé',true) + '</tr>';
 
   const totalPages = Math.max(1, Math.ceil(rows.length/PAGE_SIZE));
   if (pageState.clients > totalPages) pageState.clients = totalPages;
@@ -1344,12 +1644,12 @@ function renderTableClients(){
       <td class="cell-ellipsis" title="${escHtml(a.displayName)}">${escHtml(a.displayName)}</td>
       <td class="num">${a.ncli.size}</td>
       <td class="num">${fmtNum(a.actives+a.suspendues)}</td>
+      <td class="num">${fmtNum(a.lsActif)}</td>
+      <td class="num">${fmtNum(a.lsiActif)}</td>
+      <td class="num">${fmtNum(a.numActif)}</td>
       <td class="num">${fmtNum(a.resiliees)}</td>
-      <td class="num">${fmtNum(a.total)}</td>
       <td class="num">${fmtCFA(a.caMensuel)}</td>
       <td class="num">${fmtCFA(a.caMensuel*12)}</td>
-      <td class="num">${a.premiereDate?fmtDateFR(a.premiereDate):'—'}</td>
-      <td>${[...a.produits].slice(0,3).map(p=>`<span class="tag">${escHtml(p)}</span>`).join('')}${a.produits.size>3?'<span class="tag">+'+(a.produits.size-3)+'</span>':''}</td>
     </tr>`).join('');
   }
   renderPagination('pag-clients', pageState.clients, totalPages, p=>{ pageState.clients=p; renderTableClients(); });
@@ -1470,7 +1770,7 @@ function exportRowsToExcel(rows, filename, sheetName){
 function exportTable(which){
   if (which === 'clients'){
     const rows = [...clientAgg.values()].filter(a => new Set(filteredRows.map(r=>r.clientKey)).has(a.key))
-      .map(a=>({ Client:a.displayName, 'N° Comptes':a.ncli.size, 'Lignes Actives':a.lignesActives+a.lignesSuspendues, 'Lignes Résiliées':a.lignesResiliees, 'Total Lignes':a.total, 'CA Mensuel':a.caMensuel, 'CA Annualisé':a.caMensuel*12 }));
+      .map(a=>({ Client:a.displayName, 'N° Comptes':a.ncli.size, 'Lignes Actives':a.lignesActives+a.lignesSuspendues, 'LS Actif':a.lsActif, 'LSI Actif':a.lsiActif, 'Numérique Actif':a.numActif, 'Lignes Résiliées':a.lignesResiliees, 'Total Lignes':a.total, 'CA Mensuel':a.caMensuel, 'CA Annualisé':a.caMensuel*12 }));
     exportRowsToExcel(rows, 'Clients_Regroupes.xlsx', 'Clients');
   } else if (which === 'produits'){
     const order = ['NUMERIQUE','LSI','LS'];
