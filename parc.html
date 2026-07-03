@@ -1641,9 +1641,10 @@ document.getElementById('search-clients').addEventListener('input', function(){ 
    Reconstitué sur l'historique complet du client (toutes ses lignes),
    indépendamment des autres filtres, par la même méthode événementielle
    que la Synthèse Direction. ── */
-function computeClientCAByYear(){
+function computeClientCAByYear(baseRows){
+  const source = baseRows || rawRows;
   const eventsByClient = new Map();
-  rawRows.forEach(r=>{
+  source.forEach(r=>{
     if (!eventsByClient.has(r.clientKey)) eventsByClient.set(r.clientKey, []);
     eventsByClient.get(r.clientKey).push({ year:r.dateMS.getFullYear(), delta:r.ca });
     if (r.etat==='RESILIE' && r.dateSortie) eventsByClient.get(r.clientKey).push({ year:r.dateSortie.getFullYear(), delta:-r.ca });
@@ -1655,6 +1656,26 @@ function computeClientCAByYear(){
     result.set(key, perYear);
   });
   return result;
+}
+// Lignes correspondant aux filtres état/produit/catégorie/commune/recherche, mais SANS la contrainte
+// Année MS min/max — nécessaire pour reconstituer un historique de CA correct (voir computeClientCAByYear)
+function rowsForCAHistory(){
+  const etat = document.getElementById('filter-etat').value;
+  const produit = document.getElementById('filter-produit').value;
+  const categorie = document.getElementById('filter-categorie').value;
+  const commune = document.getElementById('filter-commune').value;
+  const search = normalize(document.getElementById('search-input').value);
+  return rawRows.filter(r => {
+    if (etat && r.etat !== etat) return false;
+    if (produit && r.catProduit !== produit) return false;
+    if (categorie && r.CATEGORIE_CLIENT !== categorie) return false;
+    if (commune && r.COMMUNE !== commune) return false;
+    if (search){
+      const hay = normalize(r.NOM_PRENOMS + ' ' + r.NCLI + ' ' + r.ND);
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
 }
 // Une colonne année est "vidée" (—) si la période sélectionnée (filtres Année MS) exclut cette année
 function yearExcludedByFilter(year, anneeMinVal, anneeMaxVal){
@@ -1709,10 +1730,12 @@ function renderTableClients(){
   rows = [...byKey.values()].map(a => ({ ...a, displayName: (clientAgg.get(a.key)&&clientAgg.get(a.key).displayName) || a.key }));
   if (searchTerm) rows = rows.filter(a => normalize(a.displayName).includes(searchTerm));
 
-  const caByYear = computeClientCAByYear();
+  const caByYear = computeClientCAByYear(rowsForCAHistory());
   const anneeMinVal = document.getElementById('filter-annee-min').value;
   const anneeMaxVal = document.getElementById('filter-annee-max').value;
-  const yearsState = YEARS_CA.map(y => ({ year:y, excluded: yearExcludedByFilter(y, anneeMinVal, anneeMaxVal) }));
+  const yearsState = YEARS_CA.slice(0, -1).map(y => ({ year:y, excluded: yearExcludedByFilter(y, anneeMinVal, anneeMaxVal) })); // la dernière année (courante) est déjà affichée via "CA annualisé {SCOPE_END_YEAR}"
+  const currentExcluded = yearExcludedByFilter(SCOPE_END_YEAR, anneeMinVal, anneeMaxVal);
+  const caCourant = key => (caByYear.get(key) || {})[SCOPE_END_YEAR] || 0;
 
   const st = sortState.clients;
   const getter = (a,col)=>{
@@ -1733,8 +1756,8 @@ function renderTableClients(){
       case 'numActif': return a.numActif;
       case 'resiliees': return a.resilieesAnnee;
       case 'total': return a.total;
-      case 'caMensuel': return a.caMensuel;
-      case 'caAnnuel': return a.caMensuel*12;
+      case 'caMensuel': return currentExcluded ? -1 : caCourant(a.key);
+      case 'caAnnuel': return currentExcluded ? -1 : caCourant(a.key)*12;
       case 'premiereDate': return a.premiereDate ? a.premiereDate.getTime() : 0;
       default: return 0;
     }
@@ -1744,7 +1767,7 @@ function renderTableClients(){
   document.getElementById('info-clients').textContent = rows.length.toLocaleString('fr-FR') + ' client(s)';
   const thead = document.querySelector('#table-clients thead');
   const yearHeaders = yearsState.map(ys => thSort('clients','ca'+ys.year+'a','CA annualisé '+ys.year,true)).join('');
-  thead.innerHTML = '<tr>' + thSort('clients','displayName','Client') + thSort('clients','actives','Lignes actives',true) + thSort('clients','lsActif','LS actif',true) + thSort('clients','lsiActif','LSI actif',true) + thSort('clients','numActif','Numérique actif',true) + thSort('clients','caMensuel','CA mensuel '+SCOPE_END_YEAR,true) + thSort('clients','caAnnuel','CA annualisé '+SCOPE_END_YEAR,true) + yearHeaders + thSort('clients','trend','Tendance',true) + '</tr>';
+  thead.innerHTML = '<tr>' + thSort('clients','displayName','Client') + thSort('clients','actives','Lignes actives',true) + thSort('clients','lsActif','LS actif',true) + thSort('clients','lsiActif','LSI actif',true) + thSort('clients','numActif','Numérique actif',true) + thSort('clients','trend','Tendance',true) + thSort('clients','caMensuel','CA mensuel '+SCOPE_END_YEAR,true) + thSort('clients','caAnnuel','CA annualisé '+SCOPE_END_YEAR,true) + yearHeaders + '</tr>';
 
   const tbody = document.querySelector('#table-clients tbody');
   const nbCols = 8 + yearsState.length;
@@ -1758,16 +1781,17 @@ function renderTableClients(){
         return `<td class="num">${fmtCFA(val*12)}</td>`;
       }).join('');
       const trend = computeClientTrend(a.key, caByYear, anneeMinVal, anneeMaxVal);
+      const caM = currentExcluded ? null : caCourant(a.key);
       return `<tr>
       <td class="cell-ellipsis" title="${escHtml(a.displayName)}">${escHtml(a.displayName)}</td>
       <td class="num">${fmtNum(a.actives+a.suspendues)}</td>
       <td class="num">${fmtNum(a.lsActif)}</td>
       <td class="num">${fmtNum(a.lsiActif)}</td>
       <td class="num">${fmtNum(a.numActif)}</td>
-      <td class="num">${fmtCFA(a.caMensuel)}</td>
-      <td class="num">${fmtCFA(a.caMensuel*12)}</td>
-      ${yearCells}
       <td class="num">${trend.html}</td>
+      <td class="num">${caM===null ? '—' : fmtCFA(caM)}</td>
+      <td class="num">${caM===null ? '—' : fmtCFA(caM*12)}</td>
+      ${yearCells}
     </tr>`;
     }).join('');
   }
@@ -1887,17 +1911,17 @@ function exportRowsToExcel(rows, filename, sheetName){
 }
 function exportTable(which){
   if (which === 'clients'){
-    const caByYear = computeClientCAByYear();
+    const caByYear = computeClientCAByYear(rowsForCAHistory());
     const anneeMinVal = document.getElementById('filter-annee-min').value;
     const anneeMaxVal = document.getElementById('filter-annee-max').value;
+    const currentExcluded = yearExcludedByFilter(SCOPE_END_YEAR, anneeMinVal, anneeMaxVal);
     const byKeyExp = new Map();
     filteredRows.forEach(r=>{
-      if (!byKeyExp.has(r.clientKey)) byKeyExp.set(r.clientKey, { key:r.clientKey, ncli:new Set(), actives:0, suspendues:0, resilieesAnnee:0, caMensuel:0, lsActif:0, lsiActif:0, numActif:0 });
+      if (!byKeyExp.has(r.clientKey)) byKeyExp.set(r.clientKey, { key:r.clientKey, ncli:new Set(), actives:0, suspendues:0, lsActif:0, lsiActif:0, numActif:0 });
       const a = byKeyExp.get(r.clientKey);
       a.ncli.add(r.NCLI);
-      if (r.etat==='ACTIF - NON-SUSPENDU'){ a.actives++; a.caMensuel+=r.ca; }
-      else if (r.etat==='ACTIF - SUSPENDU'){ a.suspendues++; a.caMensuel+=r.ca; }
-      else if (r.etat==='RESILIE' && r.dateSortie && r.dateSortie.getFullYear()===SCOPE_END_YEAR) a.resilieesAnnee++;
+      if (r.etat==='ACTIF - NON-SUSPENDU') a.actives++;
+      else if (r.etat==='ACTIF - SUSPENDU') a.suspendues++;
       if (r.etatGroup==='ACTIF'){
         if (r.catProduit==='LS') a.lsActif++;
         else if (r.catProduit==='LSI') a.lsiActif++;
@@ -1906,14 +1930,16 @@ function exportTable(which){
     });
     const rows = [...byKeyExp.values()].map(a=>{
       const displayName = (clientAgg.get(a.key) && clientAgg.get(a.key).displayName) || a.key;
-      const base = { Client:displayName, 'N° Comptes':a.ncli.size, 'Lignes Actives':a.actives+a.suspendues, 'LS Actif':a.lsActif, 'LSI Actif':a.lsiActif, 'Numérique Actif':a.numActif, ['CA Mensuel '+SCOPE_END_YEAR]:a.caMensuel, ['CA Annualisé '+SCOPE_END_YEAR]:a.caMensuel*12 };
-      YEARS_CA.forEach(y=>{
+      const trend = computeClientTrend(a.key, caByYear, anneeMinVal, anneeMaxVal);
+      const caM = currentExcluded ? '' : ((caByYear.get(a.key)||{})[SCOPE_END_YEAR] || 0);
+      const base = { Client:displayName, 'N° Comptes':a.ncli.size, 'Lignes Actives':a.actives+a.suspendues, 'LS Actif':a.lsActif, 'LSI Actif':a.lsiActif, 'Numérique Actif':a.numActif,
+        'Tendance': trend.sortVal===-Infinity ? '' : (trend.sortVal>=0?'+':'') + trend.sortVal.toFixed(0) + '%',
+        ['CA Mensuel '+SCOPE_END_YEAR]: caM, ['CA Annualisé '+SCOPE_END_YEAR]: caM===''?'':caM*12 };
+      YEARS_CA.slice(0, -1).forEach(y=>{
         const excluded = yearExcludedByFilter(y, anneeMinVal, anneeMaxVal);
         const val = excluded ? null : ((caByYear.get(a.key)||{})[y] || 0);
         base['CA Annualisé ' + y] = excluded ? '' : val*12;
       });
-      const trend = computeClientTrend(a.key, caByYear, anneeMinVal, anneeMaxVal);
-      base['Tendance'] = trend.sortVal===-Infinity ? '' : (trend.sortVal>=0?'+':'') + trend.sortVal.toFixed(0) + '%';
       return base;
     });
     exportRowsToExcel(rows, 'Clients_Regroupes.xlsx', 'Clients');
