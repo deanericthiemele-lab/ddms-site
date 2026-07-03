@@ -372,6 +372,14 @@ tbody tr:hover td { background: var(--surface-2); }
 .dg-table-wrap td.solde-pos { color: var(--green); font-weight: 700; }
 .dg-table-wrap td.solde-neg { color: var(--coral); font-weight: 700; }
 .dg-table-wrap tr.current-year td { background: var(--blue-light); font-weight: 600; }
+/* Première colonne figée sur TOUS les tableaux (défilement horizontal) */
+table td:first-child, table th:first-child {
+  position: sticky; left: 0; z-index: 1; background: var(--surface);
+  box-shadow: 2px 0 4px rgba(0,0,0,0.05);
+}
+table thead th:first-child { z-index: 3; background: var(--surface-2); }
+tbody tr:hover td:first-child { background: var(--surface-2); }
+#table-synthese tr.current-year td:first-child, .dg-table-wrap tr.current-year td:first-child { background: var(--blue-light); }
 .dg-subhead {
   font-size: 13.5px; font-weight: 700; color: var(--text);
   margin: 22px 0 10px; padding-top: 18px; border-top: 1px solid var(--border);
@@ -435,6 +443,10 @@ tbody tr:hover td { background: var(--surface-2); }
     <button onclick="document.getElementById('load-banner').classList.remove('show')">Fermer</button>
   </div>
 
+  <!-- KPIs CA PAR ANNEE -->
+  <div class="section-title">Chiffre d'affaires annualisé par année</div>
+  <div class="kpi-grid" id="kpi-grid-ca-years"></div>
+
   <!-- KPIs -->
   <!-- SYNTHÈSE DIRECTION GÉNÉRALE -->
   <div class="dg-section" id="dg-section">
@@ -480,16 +492,6 @@ tbody tr:hover td { background: var(--surface-2); }
     </div>
   </div>
 
-  <div class="section-title">Vue d'ensemble du parc</div>
-  <div class="kpi-grid" id="kpi-grid-1"></div>
-
-  <div class="section-title" style="margin-top:16px;">Répartition par type de liaison (parc actif)</div>
-  <div class="kpi-grid" id="kpi-grid-produit"></div>
-  <div class="chart-card-sub" id="scope-note" style="margin:2px 2px 0;"></div>
-
-  <div class="section-title" style="margin-top:16px;">Chiffre d'affaires récurrent</div>
-  <div class="kpi-grid" id="kpi-grid-2"></div>
-
   <!-- FILTERS -->
   <div class="section-title" id="filtres-complets">Analyse &amp; filtres</div>
   <div class="filter-bar">
@@ -511,6 +513,16 @@ tbody tr:hover td { background: var(--surface-2); }
     <button class="btn-reset" onclick="resetFilters()">✕ Réinitialiser</button>
     <span class="filter-chip-count" id="filter-count"></span>
   </div>
+
+  <div class="section-title" style="margin-top:16px;">Vue d'ensemble du parc</div>
+  <div class="kpi-grid" id="kpi-grid-1"></div>
+
+  <div class="section-title" style="margin-top:16px;">Répartition par type de liaison (parc actif)</div>
+  <div class="kpi-grid" id="kpi-grid-produit"></div>
+  <div class="chart-card-sub" id="scope-note" style="margin:2px 2px 0;"></div>
+
+  <div class="section-title" style="margin-top:16px;">Chiffre d'affaires récurrent</div>
+  <div class="kpi-grid" id="kpi-grid-2"></div>
 
   <!-- CHARTS -->
   <div class="section-title">Répartition &amp; structure du parc</div>
@@ -547,7 +559,7 @@ tbody tr:hover td { background: var(--surface-2); }
       <div class="chart-card-head">
         <div><div class="chart-card-title">Évolution annuelle du parc actif et du CA récurrent mensuel</div><div class="chart-card-sub">Cumul des lignes actives (axe gauche) et CA récurrent mensuel en FCFA (axe droit), par année d'installation / résiliation</div></div>
       </div>
-      <div class="chart-wrap tall"><canvas id="chart-evolution"></canvas></div>
+      <div class="chart-wrap tall"><canvas id="chart-evolution"></canvas><div class="empty-chart" id="chart-evolution-empty" style="display:none;">Aucune donnée pour la période sélectionnée</div></div>
     </div>
   </div>
   <div class="charts-grid">
@@ -561,7 +573,7 @@ tbody tr:hover td { background: var(--surface-2); }
       <div class="chart-card-head">
         <div><div class="chart-card-title">Top 20 clients par CA mensuel récurrent</div><div class="chart-card-sub">Regroupement intelligent des clients</div></div>
       </div>
-      <div class="chart-wrap tall"><canvas id="chart-top-clients"></canvas></div>
+      <div class="chart-wrap tall"><canvas id="chart-top-clients"></canvas><div class="empty-chart" id="chart-top-clients-empty" style="display:none;">Aucun client actif pour la sélection</div></div>
     </div>
   </div>
 
@@ -777,6 +789,37 @@ const PAGE_SIZE = 50;
 
 const COLORS = ['#185FA5','#3B6D11','#854F0B','#993C1D','#5B3A9E','#378ADD','#5ab82d','#e8a12a','#D85A30','#8a5fd6','#0e7d8f','#c2185b'];
 
+// Plugin maison : affiche la valeur au-dessus (ou en dessous si négative) de chaque barre.
+// Désactivé par défaut ; activé graphique par graphique via options.plugins.valueLabels.enabled = true
+const valueLabelsPlugin = {
+  id: 'valueLabels',
+  afterDatasetsDraw(chart){
+    const opts = chart.options.plugins && chart.options.plugins.valueLabels;
+    if (!opts || !opts.enabled) return;
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, i) => {
+      if (dataset.type === 'line') return; // on ne libelle que les barres
+      const meta = chart.getDatasetMeta(i);
+      if (!meta || meta.hidden) return;
+      meta.data.forEach((bar, index) => {
+        const value = dataset.data[index];
+        if (value === null || value === undefined) return;
+        if (value === 0 && opts.skipZero) return;
+        const label = opts.formatter ? opts.formatter(value, dataset, index) : value;
+        ctx.save();
+        ctx.fillStyle = typeof opts.color === 'function' ? opts.color(dataset, index) : (opts.color || '#333');
+        ctx.font = opts.font || "700 10px 'DM Sans', sans-serif";
+        ctx.textAlign = 'center';
+        const isNeg = value < 0;
+        ctx.textBaseline = isNeg ? 'top' : 'bottom';
+        ctx.fillText(label, bar.x, bar.y + (isNeg ? 4 : -4));
+        ctx.restore();
+      });
+    });
+  }
+};
+Chart.register(valueLabelsPlugin);
+
 /* =========================================================
    CHARGEMENT DES DONNÉES
    ========================================================= */
@@ -878,10 +921,23 @@ function buildDataset(json){
     };
   }).filter(r => !!r.dateMS); // on conserve tout l'historique (nécessaire aux calculs globaux) ; seules les lignes sans date exploitable sont écartées
 
-  const excludedNoDate = json.length - rawRows.length;
+  // Déduplication : certaines lignes du fichier source sont des doublons exacts
+  // (même ND, NCLI, état, date d'installation, CA, produit) — probablement une
+  // erreur d'export/saisie en amont. On ne garde qu'un seul exemplaire de chacune.
+  const seenExact = new Set();
+  let nbDoublonsExacts = 0;
+  rawRows = rawRows.filter(r => {
+    const sig = [r.ND, r.NCLI, r.etat, r.dateMS?r.dateMS.getTime():'', r.ca, r.PRODUIT].join('|');
+    if (seenExact.has(sig)){ nbDoublonsExacts++; return false; }
+    seenExact.add(sig);
+    return true;
+  });
+
+  const excludedNoDate = json.length - rawRows.length - nbDoublonsExacts;
   const resilieSansDate = rawRows.filter(r => r.etat === 'RESILIE' && !r.dateSortie).length;
   const bannerParts = [];
   if (excludedNoDate) bannerParts.push(excludedNoDate.toLocaleString('fr-FR') + " ligne(s) sans date d'installation exploitable ont été écartées de l'analyse");
+  if (nbDoublonsExacts) bannerParts.push(nbDoublonsExacts.toLocaleString('fr-FR') + " ligne(s) strictement dupliquée(s) dans le fichier source (même ligne exportée deux fois) ont été dédupliquées");
   if (resilieSansDate) bannerParts.push(resilieSansDate.toLocaleString('fr-FR') + " ligne(s) résiliée(s) sans date de résiliation (DATE_RS) exploitable — non comptabilisée(s) dans l'analyse gains/pertes par année, mais toujours incluses dans le parc résilié total");
   if (bannerParts.length) showBanner(bannerParts.join(' · ') + '.');
 
@@ -923,6 +979,7 @@ function buildDataset(json){
 
   populateFilterOptions();
   document.getElementById('filter-annee-min').value = String(SCOPE_START_YEAR);
+  renderKPIsCAYears();
   renderSynthese();
   applyFilters();
 }
@@ -1147,9 +1204,13 @@ function renderChartEvolution(data){
     if (r.etat === 'RESILIE' && r.dateSortie) events.push({ y:r.dateSortie.getFullYear(), dCount:-1, dCA:-r.ca });
   }
   if (!events.length){
-    document.getElementById('chart-evolution').parentElement.innerHTML = '<div class="empty-chart">Aucune donnée pour la période sélectionnée</div>';
+    charts.evolution = null;
+    document.getElementById('chart-evolution').style.display = 'none';
+    document.getElementById('chart-evolution-empty').style.display = '';
     return;
   }
+  document.getElementById('chart-evolution').style.display = '';
+  document.getElementById('chart-evolution-empty').style.display = 'none';
   const minY = Math.min(...events.map(e=>e.y));
   const maxY = Math.max(new Date().getFullYear(), Math.max(...events.map(e=>e.y)));
   const years = [];
@@ -1225,9 +1286,13 @@ function renderChartTopClients(data){
   const top = [...agg.entries()].map(([k,v])=>({ key:k, ca:v, display: (clientAgg.get(k)&&clientAgg.get(k).displayName) || k }))
     .sort((a,b)=>b.ca-a.ca).slice(0,20);
   if (!top.length){
-    document.getElementById('chart-top-clients').parentElement.innerHTML = '<div class="empty-chart">Aucun client actif pour la sélection</div>';
+    charts.topClients = null;
+    document.getElementById('chart-top-clients').style.display = 'none';
+    document.getElementById('chart-top-clients-empty').style.display = '';
     return;
   }
+  document.getElementById('chart-top-clients').style.display = '';
+  document.getElementById('chart-top-clients-empty').style.display = 'none';
   charts.topClients = new Chart(document.getElementById('chart-top-clients'), {
     type:'bar',
     data:{ labels: top.map(t=> t.display.length>32 ? t.display.slice(0,32)+'…' : t.display), datasets:[{ label:'CA mensuel récurrent', data: top.map(t=>t.ca), backgroundColor: top.map((_,i)=>COLORS[i%COLORS.length]) }] },
@@ -1243,6 +1308,14 @@ function renderChartTopClients(data){
    le solde net et le parc global soient exacts, indépendamment
    des filtres appliqués par ailleurs sur le tableau de bord.
    ========================================================= */
+// Projection indicative simple : moyenne / min / max des derniers exercices complets (pas un modèle statistique formel)
+function projectNext(values){
+  const v = values.filter(x=>x!==null && x!==undefined);
+  if (!v.length) return null;
+  const avg = v.reduce((a,b)=>a+b,0)/v.length;
+  return { avg, min: Math.min(...v), max: Math.max(...v), n: v.length };
+}
+
 function computeYearlySynthesis(){
   if (!rawRows.length) return null;
   const events = [];
@@ -1275,6 +1348,21 @@ function computeYearlySynthesis(){
     parcDebut = parcFin;
   }
   return { baseline, rows };
+}
+
+// KPI "CA annualisé" pour chaque année de YEARS_CA (ex: 2024, 2025, 2026),
+// calculé sur l'historique complet (indépendant des filtres), même méthode que la synthèse CA.
+function renderKPIsCAYears(){
+  const caY = computeCAYearly();
+  const byYear = {};
+  caY.rows.forEach(r => { byYear[r.year] = r; });
+  const colors = ['blue','amber','green'];
+  document.getElementById('kpi-grid-ca-years').innerHTML = YEARS_CA.map((y,i) => {
+    const r = byYear[y];
+    const caFin = r ? r.caFin : 0;
+    const sub = r && r.isCurrent ? 'Année en cours — CA actif à ce jour' : `CA récurrent actif fin ${y}`;
+    return kpiCard(colors[i%colors.length], 'CA annualisé ' + y + (r && r.isCurrent ? ' (en cours)' : ''), fmtCompact(caFin*12)+' FCFA', sub + ' · ' + fmtCFA(caFin) + '/mois');
+  }).join('');
 }
 
 function renderSynthese(){
@@ -1313,12 +1401,20 @@ function renderSynthese(){
   }
   const anneeEnCours = last.isCurrent ? ` <em>(${last.year} : année en cours, données arrêtées à ce jour — le solde n'est pas encore définitif)</em>` : '';
 
+  const projSolde = projectNext(completeRows.slice(-3).map(r=>r.solde));
+  let perspective = '';
+  if (projSolde){
+    const nextYear = SCOPE_END_YEAR + 1;
+    perspective = `<br><br><strong>Perspective ${nextYear} :</strong> sur la base des ${projSolde.n} derniers exercices complets, le solde net pourrait se situer autour de ${projSolde.avg>=0?'+':''}${fmtNum(projSolde.avg)} lignes (entre ${projSolde.min>=0?'+':''}${fmtNum(projSolde.min)} et ${projSolde.max>=0?'+':''}${fmtNum(projSolde.max)} selon les années passées) — une estimation indicative fondée sur la tendance récente, pas une garantie. ` +
+      `<strong>Actions à prioriser :</strong> maintenir le rythme d'activation observé ces dernières années en répliquant les leviers commerciaux qui ont porté ${best?best.year:''}, renforcer la rétention sur les segments à risque détaillés plus bas (par type de liaison et par client), et suivre mensuellement l'écart gains/pertes pour anticiper tout ralentissement avant qu'il ne s'installe.`;
+  }
+
   document.getElementById('dg-comment').innerHTML =
     `Entre ${SCOPE_START_YEAR} et ${SCOPE_END_YEAR}, le parc B2B a enregistré <strong>${fmtNum(totalGains)} activations</strong> pour ` +
     `<strong>${fmtNum(totalPertes)} résiliations</strong>, soit un solde net de <span class="${dirClass}">${soldeTotal>=0?'+':''}${fmtNum(soldeTotal)} lignes</span> ` +
     `(<span class="${dirClass}">${croissanceGlobale!==null ? (croissanceGlobale>=0?'+':'')+croissanceGlobale.toFixed(1)+'%' : '—'}</span> par rapport au parc de ${synth.baseline.toLocaleString('fr-FR')} lignes fin ${SCOPE_START_YEAR-1}) — le parc est en <strong>${dirWord}</strong> sur la période. ` +
     `${best ? `L'année la plus dynamique est <strong>${best.year}</strong> (solde net ${best.solde>=0?'+':''}${fmtNum(best.solde)}), tandis que <strong>${worst.year}</strong> a enregistré le solde le plus faible (${worst.solde>=0?'+':''}${fmtNum(worst.solde)}). ` : ''}` +
-    `Le taux d'activation annuel moyen s'établit à <strong>${avgActivation.toFixed(1)}%</strong> du parc en début d'année, pour un taux de résiliation moyen de <strong>${avgChurn.toFixed(1)}%</strong> — soit un taux de rétention moyen d'environ <strong>${(100-avgChurn).toFixed(1)}%</strong>. ${tendance}${anneeEnCours}`;
+    `Le taux d'activation annuel moyen s'établit à <strong>${avgActivation.toFixed(1)}%</strong> du parc en début d'année, pour un taux de résiliation moyen de <strong>${avgChurn.toFixed(1)}%</strong> — soit un taux de rétention moyen d'environ <strong>${(100-avgChurn).toFixed(1)}%</strong>. ${tendance}${anneeEnCours}${perspective}`;
 
   // Tableau
   document.querySelector('#table-synthese tbody').innerHTML = rows.map(r => `<tr class="${r.isCurrent?'current-year':''}">
@@ -1351,7 +1447,8 @@ function renderSynthese(){
         y1:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'Parc total (lignes)'} }
       },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
-        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex<2 ? Math.abs(c.raw).toLocaleString('fr-FR') : c.raw.toLocaleString('fr-FR')) } } }
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex<2 ? Math.abs(c.raw).toLocaleString('fr-FR') : c.raw.toLocaleString('fr-FR')) } },
+        valueLabels:{ enabled:true, skipZero:true, color:(ds)=> ds.label.startsWith('Pertes') ? '#993C1D' : '#3B6D11', formatter:v=>Math.abs(v).toLocaleString('fr-FR') } }
     }
   });
 
@@ -1412,7 +1509,8 @@ function renderSyntheseProduit(){
     options:{ responsive:true, maintainAspectRatio:false,
       scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'Solde net (lignes)'} } },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
-        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.raw>=0?'+':'') + c.raw.toLocaleString('fr-FR') } } }
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.raw>=0?'+':'') + c.raw.toLocaleString('fr-FR') } },
+        valueLabels:{ enabled:true, skipZero:true, color:'#333', formatter:v=>(v>=0?'+':'')+v.toLocaleString('fr-FR') } }
     }
   });
 
@@ -1436,13 +1534,23 @@ function renderSyntheseProduit(){
     phraseAlerte = ' Aucune des trois familles de produits n\'a terminé son dernier exercice complet en solde négatif.';
   }
 
+  const nextYear = SCOPE_END_YEAR + 1;
+  const projPerCat = {};
+  order.forEach(cat=>{
+    const completeRows = data[cat].rows.filter(r=>!r.isCurrent);
+    projPerCat[cat] = projectNext(completeRows.slice(-3).map(r=>r.solde));
+  });
+  const projTxts = order.filter(cat=>projPerCat[cat]).map(cat => `${PRODUIT_CAT_LABELS[cat]} ≈ ${projPerCat[cat].avg>=0?'+':''}${fmtNum(projPerCat[cat].avg)}`).join(', ');
+  const perspectiveProduit = projTxts ? `<br><br><strong>Perspective ${nextYear} :</strong> à tendance inchangée, le solde net par famille pourrait avoisiner ${projTxts} lignes — estimation indicative sur la moyenne des derniers exercices complets. ` +
+    `<strong>Actions à prioriser :</strong> concentrer les efforts commerciaux et l'avant-vente technique sur <strong>${PRODUIT_CAT_LABELS[meilleur]}</strong> qui tire la croissance, et engager un plan de reconquête ciblé sur <strong>${PRODUIT_CAT_LABELS[pire]}</strong>${alerte.length ? ' avant que le repli ne s\'aggrave en ' + nextYear : ' pour consolider sa dynamique'}.` : '';
+
   document.getElementById('dg-comment-produit').innerHTML =
     `<strong>${PRODUIT_CAT_LABELS[meilleur]}</strong> est le principal moteur de croissance depuis ${SCOPE_START_YEAR} ` +
     `avec un solde net de <span class="up">${totals[meilleur].totalSolde>=0?'+':''}${fmtNum(totals[meilleur].totalSolde)} lignes</span>` +
     `${totals[meilleur].croissancePct!==null ? ' (' + (totals[meilleur].croissancePct>=0?'+':'') + totals[meilleur].croissancePct.toFixed(1) + '% vs fin ' + (SCOPE_START_YEAR-1) + ')' : ''}, ` +
     `tandis que <strong>${PRODUIT_CAT_LABELS[pire]}</strong> affiche la progression la plus faible des trois ` +
     `(<span class="${totals[pire].totalSolde>=0?'up':'down'}">${totals[pire].totalSolde>=0?'+':''}${fmtNum(totals[pire].totalSolde)} lignes</span>).` +
-    phraseAlerte;
+    phraseAlerte + perspectiveProduit;
 }
 
 /* =========================================================
@@ -1507,7 +1615,18 @@ function renderSyntheseClient(){
   } else {
     phrase += `Aucun client actif depuis ${SCOPE_START_YEAR} n'a totalement résilié son parc à ce jour.`;
   }
-  document.getElementById('dg-comment-client').innerHTML = phrase;
+
+  const nextYear = SCOPE_END_YEAR + 1;
+  const expositionRisque = topDecroissance.reduce((s,m)=>s+Math.abs(m.solde),0);
+  const caRisque = topDecroissance.filter(m=>m.actifActuel>0).reduce((s,m)=>s+m.caActuel,0);
+  let perspectiveClient = '';
+  if (topCroissance.length || topDecroissance.length){
+    perspectiveClient = `<br><br><strong>Perspective ${nextYear} :</strong> si les tendances actuelles se poursuivent sans intervention, une perte supplémentaire de l'ordre de <strong>${fmtNum(expositionRisque)} lignes</strong>` +
+      `${caRisque ? ` (environ ${fmtCFA(caRisque)}/mois de CA encore actif à défendre)` : ''} est envisageable sur les comptes en tête du signal d'alerte — une estimation indicative, pas une fatalité. ` +
+      `<strong>Actions à prioriser :</strong> planifier un point commercial proactif avec ${topDecroissance.length ? '<strong>'+escHtml(topDecroissance[0].display)+'</strong> et les comptes suivants du tableau d\'alerte' : 'les comptes à risque'} avant qu'ils ne basculent en churn total` +
+      `${clientsPerdus.length ? ', envisager une action de reconquête ciblée sur les ' + clientsPerdus.length + ' client(s) déjà entièrement résiliés' : ''}, et sécuriser la relation avec ${topCroissance.length ? '<strong>'+escHtml(topCroissance[0].display)+'</strong>' : 'les comptes en forte croissance'} pour transformer leur dynamique en engagement contractuel durable.`;
+  }
+  document.getElementById('dg-comment-client').innerHTML = phrase + perspectiveClient;
   renderSyntheseCA();
 }
 
@@ -1560,12 +1679,20 @@ function renderSyntheseCA(){
   const dirClass = soldeTotal>0 ? 'up' : (soldeTotal<0 ? 'down' : '');
   const anneeEnCours = last.isCurrent ? ` <em>(${last.year} : année en cours, non définitive)</em>` : '';
 
+  const nextYear = SCOPE_END_YEAR + 1;
+  const projCA = projectNext(completeRows.slice(-3).map(r=>r.solde));
+  let perspectiveCA = '';
+  if (projCA){
+    perspectiveCA = `<br><br><strong>Perspective ${nextYear} :</strong> sur la base des ${projCA.n} derniers exercices complets, le solde CA net pourrait se situer autour de ${projCA.avg>=0?'+':''}${fmtCFA(projCA.avg)}/mois (entre ${projCA.min>=0?'+':''}${fmtCFA(projCA.min)} et ${projCA.max>=0?'+':''}${fmtCFA(projCA.max)}) — une estimation indicative fondée sur la tendance récente. ` +
+      `<strong>Actions à prioriser :</strong> orienter les efforts commerciaux vers les offres à plus forte valeur unitaire pour maximiser le CA additionnel généré par chaque nouvelle activation, et sécuriser en priorité le CA identifié à risque chez les comptes en repli signalés dans l'analyse par client ci-dessus avant qu'il ne soit perdu en ${nextYear}.`;
+  }
+
   document.getElementById('dg-comment-ca').innerHTML =
     `Depuis ${SCOPE_START_YEAR}, le parc a généré <strong>${fmtCFA(totalGagne)}</strong> de CA mensuel récurrent supplémentaire ` +
     `à l'activation, contre <strong>${fmtCFA(totalPerdu)}</strong> perdus sur résiliation, soit un solde net de ` +
     `<span class="${dirClass}">${soldeTotal>=0?'+':''}${fmtCFA(soldeTotal)}</span> par mois ` +
     `(<span class="${dirClass}">${croissanceGlobale!==null ? (croissanceGlobale>=0?'+':'')+croissanceGlobale.toFixed(1)+'%' : '—'}</span> vs ${fmtCFA(synth.baseline)} fin ${SCOPE_START_YEAR-1}) — le CA récurrent est en <strong>${dirWord}</strong> sur la période. ` +
-    `${best ? `<strong>${best.year}</strong> a été la meilleure année en valeur (solde ${best.solde>=0?'+':''}${fmtCFA(best.solde)}), tandis que <strong>${worst.year}</strong> a enregistré le solde le plus faible (${worst.solde>=0?'+':''}${fmtCFA(worst.solde)}).` : ''}${anneeEnCours}`;
+    `${best ? `<strong>${best.year}</strong> a été la meilleure année en valeur (solde ${best.solde>=0?'+':''}${fmtCFA(best.solde)}), tandis que <strong>${worst.year}</strong> a enregistré le solde le plus faible (${worst.solde>=0?'+':''}${fmtCFA(worst.solde)}).` : ''}${anneeEnCours}${perspectiveCA}`;
 
   document.querySelector('#table-synthese-ca tbody').innerHTML = rows.map(r => `<tr class="${r.isCurrent?'current-year':''}">
     <td>${r.year}${r.isCurrent?' <span class="tag">en cours</span>':''}</td>
