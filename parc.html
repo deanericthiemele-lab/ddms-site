@@ -818,7 +818,7 @@ const valueLabelsPlugin = {
     });
   }
 };
-Chart.register(valueLabelsPlugin);
+try { Chart.register(valueLabelsPlugin); } catch(e){ console.error('Erreur enregistrement plugin valueLabels:', e); }
 
 /* =========================================================
    CHARGEMENT DES DONNÉES
@@ -977,10 +977,18 @@ function buildDataset(json){
     agg.displayName = best || k;
   }
 
-  populateFilterOptions();
-  document.getElementById('filter-annee-min').value = String(SCOPE_START_YEAR);
-  renderKPIsCAYears();
-  renderSynthese();
+  try {
+    populateFilterOptions();
+    document.getElementById('filter-annee-min').value = String(SCOPE_START_YEAR);
+    renderKPIsCAYears();
+  } catch(e){
+    console.error('Erreur KPI CA par année:', e);
+    showBanner('⚠️ Erreur lors du calcul des KPI CA par année : ' + e.message);
+  }
+  try { renderSynthese(); } catch(e){ console.error('Erreur synthèse parc:', e); showBanner('⚠️ Erreur dans la synthèse "Variation du parc" : ' + e.message); }
+  try { renderSyntheseProduit(); } catch(e){ console.error('Erreur synthèse produit:', e); showBanner('⚠️ Erreur dans l\'analyse par type de liaison : ' + e.message); }
+  try { renderSyntheseClient(); } catch(e){ console.error('Erreur synthèse client:', e); showBanner('⚠️ Erreur dans l\'analyse par client : ' + e.message); }
+  try { renderSyntheseCA(); } catch(e){ console.error('Erreur synthèse CA:', e); showBanner('⚠️ Erreur dans l\'analyse du chiffre d\'affaires : ' + e.message); }
   applyFilters();
 }
 
@@ -1075,15 +1083,30 @@ function aggregateBy(data, keyFn){
 /* =========================================================
    RENDU GLOBAL
    ========================================================= */
+/* Filet de sécurité : toute erreur JS non interceptée devient visible dans le bandeau,
+   au lieu de laisser le dashboard silencieusement à moitié vide sans indice de la cause. */
+window.addEventListener('error', function(evt){
+  try {
+    showBanner('⚠️ Erreur technique détectée : ' + evt.message + ' (fichier: ' + (evt.filename||'?').split('/').pop() + ', ligne ' + evt.lineno + '). Merci de faire une capture ecran de ce message et de la console (F12) pour le signaler.');
+  } catch(e){ /* pas de fallback supplémentaire */ }
+});
+
 function renderAll(){
-  renderKPIs();
-  renderKPIsProduit();
-  renderCharts();
-  renderTableClients();
-  renderTableProduits();
-  renderTableCategories();
-  renderTableDetail();
+  try {
+    renderKPIs();
+    renderKPIsProduit();
+  } catch(e){ showBanner('⚠️ Erreur lors du calcul des indicateurs (KPI) : ' + e.message); }
+  try {
+    renderCharts();
+  } catch(e){ showBanner('⚠️ Erreur lors de l\'affichage des graphiques : ' + e.message); }
+  try {
+    safeRun(renderTableClients, 'tableau clients');
+    safeRun(renderTableProduits, 'tableau produits');
+    safeRun(renderTableCategories, 'tableau catégories');
+    safeRun(renderTableDetail, 'tableau détail');
+  } catch(e){ showBanner('⚠️ Erreur lors de l\'affichage des tableaux : ' + e.message); }
 }
+function safeRun(fn, label){ try { fn(); } catch(e){ console.error('Erreur [' + label + ']:', e); } }
 
 /* ── KPIs ── */
 function renderKPIs(){
@@ -1134,13 +1157,14 @@ function destroyChart(id){ if (charts[id]){ charts[id].destroy(); delete charts[
 
 function renderCharts(){
   const data = filteredRows;
-  renderChartEtat(data);
-  renderChartProduit(data);
-  renderChartCategorie(data);
-  renderChartCommune(data);
-  renderChartEvolution(data);
-  renderChartMouvements(data);
-  renderChartTopClients(data);
+  const safe = (fn, label) => { try { fn(data); } catch(e){ console.error('Erreur graphique [' + label + ']:', e); } };
+  safe(renderChartEtat, 'répartition par état');
+  safe(renderChartProduit, 'répartition par produit');
+  safe(renderChartCategorie, 'top catégories');
+  safe(renderChartCommune, 'top communes');
+  safe(renderChartEvolution, 'évolution');
+  safe(renderChartMouvements, 'mouvements mensuels');
+  safe(renderChartTopClients, 'top clients');
 }
 
 function renderChartEtat(data){
@@ -1235,7 +1259,7 @@ function renderChartEvolution(data){
     options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       scales:{
         y:{ position:'left', beginAtZero:true, title:{display:true,text:'Lignes actives'} },
-        y1:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'CA mensuel (FCFA)'}, ticks:{ callback:v=>fmtCompact(v) } }
+        y1:{ type:'linear', position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'CA mensuel (FCFA)'}, ticks:{ callback:v=>fmtCompact(v) } }
       },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
         tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex===1 ? fmtCFA(c.raw) : fmtNum(c.raw)) } } }
@@ -1444,16 +1468,13 @@ function renderSynthese(){
       scales:{
         x:{ grid:{display:false} },
         y:{ title:{display:true,text:'Gains / Pertes (lignes)'}, ticks:{ callback:v=>Math.abs(v) } },
-        y1:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'Parc total (lignes)'} }
+        y1:{ type:'linear', position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'Parc total (lignes)'} }
       },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
         tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex<2 ? Math.abs(c.raw).toLocaleString('fr-FR') : c.raw.toLocaleString('fr-FR')) } },
         valueLabels:{ enabled:true, skipZero:true, color:(ds)=> ds.label.startsWith('Pertes') ? '#993C1D' : '#3B6D11', formatter:v=>Math.abs(v).toLocaleString('fr-FR') } }
     }
   });
-
-  renderSyntheseProduit();
-  renderSyntheseClient();
 }
 
 /* =========================================================
@@ -1627,7 +1648,6 @@ function renderSyntheseClient(){
       `${clientsPerdus.length ? ', envisager une action de reconquête ciblée sur les ' + clientsPerdus.length + ' client(s) déjà entièrement résiliés' : ''}, et sécuriser la relation avec ${topCroissance.length ? '<strong>'+escHtml(topCroissance[0].display)+'</strong>' : 'les comptes en forte croissance'} pour transformer leur dynamique en engagement contractuel durable.`;
   }
   document.getElementById('dg-comment-client').innerHTML = phrase + perspectiveClient;
-  renderSyntheseCA();
 }
 
 /* =========================================================
@@ -1718,7 +1738,7 @@ function renderSyntheseCA(){
       scales:{
         x:{ grid:{display:false} },
         y:{ title:{display:true,text:'CA gagné / perdu (FCFA)'}, ticks:{ callback:v=>fmtCompact(Math.abs(v)) } },
-        y1:{ position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'CA total (FCFA)'}, ticks:{ callback:v=>fmtCompact(v) } }
+        y1:{ type:'linear', position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'CA total (FCFA)'}, ticks:{ callback:v=>fmtCompact(v) } }
       },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
         tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + fmtCFA(Math.abs(c.raw)) } } }
