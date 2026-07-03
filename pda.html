@@ -91,6 +91,17 @@ tbody tr.row-important:hover { background: #ffe0e0; }
 .icon-btn:hover { background: #f0f2f5; border-color: var(--border); color: #333; }
 .icon-btn.del:hover { background: var(--red-bg); border-color: #ffcdd2; color: var(--red); }
 .empty-row td { text-align: center; padding: 3rem; color: var(--text-muted); font-size: 13px; }
+.done-section { margin-top: 1.5rem; }
+.done-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; margin-bottom: 10px; padding: 8px 14px; background: #eef0f3; border: 1px solid var(--border); border-radius: var(--radius); color: var(--text-muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; transition: background .15s; }
+.done-toggle:hover { background: #e5e8ec; }
+.done-toggle .chevron { transition: transform .2s; display: inline-flex; }
+.done-toggle.collapsed .chevron { transform: rotate(-90deg); }
+.table-wrap-done { background: #eef0f3; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; opacity: .72; filter: grayscale(35%); transition: opacity .15s, filter .15s; }
+.table-wrap-done:hover { opacity: .92; filter: grayscale(10%); }
+.table-wrap-done.hidden { display: none; }
+.table-wrap-done thead { background: #e6e9ed; }
+.table-wrap-done tbody tr:hover { background: #e6e9ed; }
+.table-wrap-done .action-text { color: #444; }
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; opacity: 0; pointer-events: none; transition: opacity .2s; }
 .modal-backdrop.open { opacity: 1; pointer-events: all; }
 .modal { background: #fff; border-radius: 14px; padding: 1.75rem; width: 100%; max-width: 560px; box-shadow: 0 12px 40px rgba(0,0,0,.18); transform: translateY(10px); transition: transform .2s; max-height: 90vh; overflow-y: auto; }
@@ -206,6 +217,29 @@ tbody tr.row-important:hover { background: #ffe0e0; }
       </thead>
       <tbody id="actionsTbody"></tbody>
     </table>
+  </div>
+
+  <div class="done-section" id="doneSection" style="display:none;">
+    <div class="done-toggle" id="doneToggle">
+      <span class="chevron">▾</span>
+      <span id="doneToggleLabel">Actions terminées (0)</span>
+    </div>
+    <div class="table-wrap-done" id="doneTableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Action</th>
+            <th>Date cible</th>
+            <th>Porteur</th>
+            <th>Statut</th>
+            <th>Commentaire</th>
+            <th style="width:40px;" title="Important">⚑</th>
+            <th style="width:72px;"></th>
+          </tr>
+        </thead>
+        <tbody id="doneTbody"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="page-footer">Département Delivery et Management de Service</div>
@@ -497,26 +531,48 @@ function renderTable() {
     return sortAsc?c:-c;
   });
 
+  var activeRows = rows.filter(function(a){ return a.status !== 'Terminé'; });
+  var doneRows   = rows.filter(function(a){ return a.status === 'Terminé'; });
+
   var tbody = document.getElementById('actionsTbody');
-  if (!rows.length) {
+  if (!activeRows.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="7">Aucune action.<br>Cliquez sur <strong>+ Nouvelle action</strong> pour commencer.</td></tr>';
-    return;
+  } else {
+    tbody.innerHTML = activeRows.map(rowHtml).join('');
   }
-  tbody.innerHTML = rows.map(function(a) {
-    return '<tr class="'+(a.important?'row-important':'')+'">' +
-      '<td class="td-action"><div class="action-text">'+esc(a.action)+'</div>'+(a.objectif?'<div class="action-meta">🎯 '+esc(a.objectif)+'</div>':'')+'</td>' +
-      '<td class="date-cell '+dateClass(a.date)+'">'+fmtDate(a.date)+'</td>' +
-      '<td>'+(a.porteur?'<span class="porteur-badge"><span class="porteur-avatar">'+esc(initials(a.porteur))+'</span>'+esc(a.porteur)+'</span>':'<span style="color:#ccc">—</span>')+'</td>' +
-      '<td><span class="status-badge '+statusClass(a.status)+'">'+esc(a.status)+'</span></td>' +
-      '<td class="comment-cell">'+(a.comment?esc(a.comment):'<span style="color:#ccc">—</span>')+'</td>' +
-      '<td class="important-cell"><input type="checkbox" class="important-check" title="Marquer comme important" '+(a.important?'checked':'')+' onchange="toggleImportant(\''+a._id+'\', this.checked)"></td>' +
-      '<td><div class="row-actions">' +
-        '<button class="icon-btn" onclick="openEdit(\''+a._id+'\')" title="Modifier"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>' +
-        '<button class="icon-btn del" onclick="deleteAction(\''+a._id+'\')" title="Supprimer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>' +
-      '</div></td>' +
-    '</tr>';
-  }).join('');
+
+  var doneSection = document.getElementById('doneSection');
+  var doneTbody = document.getElementById('doneTbody');
+  var doneLabel = document.getElementById('doneToggleLabel');
+  if (!doneRows.length) {
+    doneSection.style.display = 'none';
+  } else {
+    doneSection.style.display = '';
+    doneLabel.textContent = 'Actions terminées (' + doneRows.length + ')';
+    doneTbody.innerHTML = doneRows.map(rowHtml).join('');
+  }
 }
+
+function rowHtml(a) {
+  return '<tr class="'+(a.important?'row-important':'')+'">' +
+    '<td class="td-action"><div class="action-text">'+esc(a.action)+'</div>'+(a.objectif?'<div class="action-meta">🎯 '+esc(a.objectif)+'</div>':'')+'</td>' +
+    '<td class="date-cell '+dateClass(a.date)+'">'+fmtDate(a.date)+'</td>' +
+    '<td>'+(a.porteur?'<span class="porteur-badge"><span class="porteur-avatar">'+esc(initials(a.porteur))+'</span>'+esc(a.porteur)+'</span>':'<span style="color:#ccc">—</span>')+'</td>' +
+    '<td><span class="status-badge '+statusClass(a.status)+'">'+esc(a.status)+'</span></td>' +
+    '<td class="comment-cell">'+(a.comment?esc(a.comment):'<span style="color:#ccc">—</span>')+'</td>' +
+    '<td class="important-cell"><input type="checkbox" class="important-check" title="Marquer comme important" '+(a.important?'checked':'')+' onchange="toggleImportant(\''+a._id+'\', this.checked)"></td>' +
+    '<td><div class="row-actions">' +
+      '<button class="icon-btn" onclick="openEdit(\''+a._id+'\')" title="Modifier"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>' +
+      '<button class="icon-btn del" onclick="deleteAction(\''+a._id+'\')" title="Supprimer"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button>' +
+    '</div></td>' +
+  '</tr>';
+}
+
+// ── DONE SECTION TOGGLE ───────────────────────────────────────────────────
+document.getElementById('doneToggle').addEventListener('click', function() {
+  this.classList.toggle('collapsed');
+  document.getElementById('doneTableWrap').classList.toggle('hidden');
+});
 
 // ── SORT ───────────────────────────────────────────────────────────────────
 document.querySelectorAll('th[data-col]').forEach(function(th) {
