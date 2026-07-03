@@ -1561,15 +1561,18 @@ function computeProduitYearly(){
     const catRows = rawRows.filter(r=>r.catProduit===cat);
     const events = [];
     catRows.forEach(r=>{
-      events.push({ y:r.dateMS.getFullYear(), type:'gain' });
-      if (r.etat==='RESILIE' && r.dateSortie) events.push({ y:r.dateSortie.getFullYear(), type:'perte' });
+      events.push({ y:r.dateMS.getFullYear(), type:'gain', ca:r.ca });
+      if (r.etat==='RESILIE' && r.dateSortie) events.push({ y:r.dateSortie.getFullYear(), type:'perte', ca:r.ca });
     });
     const years = events.map(e=>e.y);
     const minY = years.length ? Math.min(...years) : SCOPE_START_YEAR;
     const maxY = Math.max(SCOPE_END_YEAR, ...(years.length ? years : [SCOPE_START_YEAR]));
     const byYear = {};
-    for (let y=minY;y<=maxY;y++) byYear[y] = { gains:0, pertes:0 };
-    events.forEach(e => { byYear[e.y][e.type==='gain'?'gains':'pertes']++; });
+    for (let y=minY;y<=maxY;y++) byYear[y] = { gains:0, pertes:0, caGagne:0, caPerdu:0 };
+    events.forEach(e => {
+      if (e.type==='gain'){ byYear[e.y].gains++; byYear[e.y].caGagne += e.ca; }
+      else { byYear[e.y].pertes++; byYear[e.y].caPerdu += e.ca; }
+    });
     let cum = 0; const cumByYear = {};
     for (let y=minY;y<=maxY;y++){ cum += byYear[y].gains - byYear[y].pertes; cumByYear[y] = cum; }
     const baseline = cumByYear[SCOPE_START_YEAR-1] !== undefined ? Math.max(0,cumByYear[SCOPE_START_YEAR-1]) : 0;
@@ -1577,9 +1580,10 @@ function computeProduitYearly(){
     for (let y=SCOPE_START_YEAR; y<=SCOPE_END_YEAR; y++){
       const g = byYear[y] ? byYear[y].gains : 0;
       const p = byYear[y] ? byYear[y].pertes : 0;
+      const caSolde = byYear[y] ? (byYear[y].caGagne - byYear[y].caPerdu) : 0;
       const solde = g - p;
       const parcFin = Math.max(0, parcDebut + solde);
-      rows.push({ year:y, gains:g, pertes:p, solde, parcFin, isCurrent:y===SCOPE_END_YEAR });
+      rows.push({ year:y, gains:g, pertes:p, solde, caSolde, parcFin, isCurrent:y===SCOPE_END_YEAR });
       parcDebut = parcFin;
     }
     result[cat] = { baseline, rows };
@@ -1605,7 +1609,15 @@ function renderSyntheseProduit(){
         tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.raw>=0?'+':'') + c.raw.toLocaleString('fr-FR') } } }
     }
   });
-  setValueLabels('chart-synthese-produit', { enabled:true, skipZero:true, color:'#333', formatter:v=>numSafe(v).toLocaleString('fr-FR') });
+  setValueLabels('chart-synthese-produit', { enabled:true, skipZero:true, color:'#333', font:"700 9px 'DM Sans', sans-serif",
+    formatter:(v, dataset, index) => {
+      const n = numSafe(v);
+      const catKey = order.find(cat => PRODUIT_CAT_LABELS[cat] === dataset.label);
+      const caSolde = catKey && data[catKey] && data[catKey].rows[index] ? data[catKey].rows[index].caSolde : 0;
+      const caTxt = fmtCompact(Math.abs(numSafe(caSolde)));
+      return n.toLocaleString('fr-FR') + ' (' + (caSolde>=0?'+':'−') + caTxt + ')';
+    }
+  });
 
   // Commentaire : identifie le moteur de croissance et le point d'attention
   const totals = {};
@@ -1816,6 +1828,7 @@ function renderSyntheseCA(){
         tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + fmtCFA(Math.abs(numSafe(c.raw))) } } }
     }
   });
+  setValueLabels('chart-synthese-ca', { enabled:true, skipZero:true, color:(ds)=> ds.label.startsWith('CA perdu') ? '#993C1D' : '#3B6D11', formatter:v=>fmtCompact(Math.abs(numSafe(v))) });
 }
 
 /* =========================================================
