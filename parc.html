@@ -6,12 +6,20 @@
 <title>Dashboard Parc B2B & Chiffre d'Affaires</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <script>
   // Filet de secours : si le CDN principal (cdnjs) est bloqué ou inaccessible
   // (réseau d'entreprise, bloqueur de publicité, etc.), on recharge immédiatement
   // les mêmes librairies depuis un CDN de secours (jsdelivr) avant de continuer.
   if (typeof XLSX === 'undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>');
   if (typeof Chart === 'undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>');
+  if (typeof window.jspdf === 'undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"><\/script>');
+</script>
+<script>
+  if (typeof window.jspdf !== 'undefined' && !(window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable)) {
+    document.write('<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"><\/script>');
+  }
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -452,6 +460,7 @@ tbody tr:hover td:first-child { background: var(--surface-2); }
     <input type="file" id="file-input" accept=".xlsx,.xls,.csv" style="display:none">
     <button class="btn-action" id="btn-refresh" onclick="chargerAuto(true)">🔄 Actualiser</button>
     <button class="btn-action" onclick="toggleDiagnostic()">🔧 Diagnostic</button>
+    <button class="btn-action primary" onclick="exportPDF()">📄 Rapport PDF</button>
     <button class="btn-action green" onclick="exportGlobal()">⬇️ Exporter</button>
   </div>
 </div>
@@ -557,34 +566,6 @@ tbody tr:hover td:first-child { background: var(--surface-2); }
   <div class="kpi-grid" id="kpi-grid-2"></div>
 
   <!-- CHARTS -->
-  <div class="section-title">Répartition &amp; structure du parc</div>
-  <div class="charts-grid">
-    <div class="chart-card">
-      <div class="chart-card-head">
-        <div><div class="chart-card-title">Répartition du parc par état</div><div class="chart-card-sub">Nombre de lignes</div></div>
-      </div>
-      <div class="chart-wrap"><canvas id="chart-etat"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-card-head">
-        <div><div class="chart-card-title">Répartition par type de liaison (LS / LSI / Numérique)</div><div class="chart-card-sub">Actif vs résilié, nombre de lignes</div></div>
-      </div>
-      <div class="chart-wrap"><canvas id="chart-produit"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-card-head">
-        <div><div class="chart-card-title">Top 10 catégories clients</div><div class="chart-card-sub">Lignes actives</div></div>
-      </div>
-      <div class="chart-wrap"><canvas id="chart-categorie"></canvas></div>
-    </div>
-    <div class="chart-card">
-      <div class="chart-card-head">
-        <div><div class="chart-card-title">Top 15 communes</div><div class="chart-card-sub">Lignes actives</div></div>
-      </div>
-      <div class="chart-wrap"><canvas id="chart-commune"></canvas></div>
-    </div>
-  </div>
-
   <div class="section-title">Évolution &amp; chiffre d'affaires</div>
   <div class="charts-grid full">
     <div class="chart-card">
@@ -594,13 +575,7 @@ tbody tr:hover td:first-child { background: var(--surface-2); }
       <div class="chart-wrap tall"><canvas id="chart-evolution"></canvas><div class="empty-chart" id="chart-evolution-empty" style="display:none;">Aucune donnée pour la période sélectionnée</div></div>
     </div>
   </div>
-  <div class="charts-grid">
-    <div class="chart-card">
-      <div class="chart-card-head">
-        <div><div class="chart-card-title">Mouvements mensuels (24 derniers mois)</div><div class="chart-card-sub">Installations vs résiliations</div></div>
-      </div>
-      <div class="chart-wrap"><canvas id="chart-mouvements"></canvas></div>
-    </div>
+  <div class="charts-grid full">
     <div class="chart-card">
       <div class="chart-card-head">
         <div><div class="chart-card-title">Top 20 clients par CA mensuel récurrent</div><div class="chart-card-sub">Regroupement intelligent des clients</div></div>
@@ -1137,6 +1112,223 @@ window.addEventListener('unhandledrejection', function(evt){
   try { erreursCapturees.push('Promesse rejetée : ' + (evt.reason && evt.reason.message ? evt.reason.message : evt.reason)); } catch(e){}
 });
 
+/* =========================================================
+   EXPORT PDF — rapport façon magazine pour la Direction
+   ========================================================= */
+function pdfStripHtml(html){
+  if (!html) return '';
+  return html.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/\s+\n/g,'\n').trim();
+}
+
+function exportPDF(){
+  if (typeof window.jspdf === 'undefined' || !window.jspdf.jsPDF){
+    alert("La génération du PDF n'a pas pu démarrer (bibliothèque manquante). Rechargez la page et réessayez ; si le problème persiste, consultez le panneau 🔧 Diagnostic.");
+    return;
+  }
+  if (!rawRows.length){
+    alert("Aucune donnée chargée : impossible de générer le rapport pour l'instant.");
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  const PW = 210, PH = 297, MARGIN = 15, CW = PW - MARGIN*2;
+  const COL = { blue:[24,95,165], blueDark:[12,68,124], green:[59,109,17], amber:[133,79,11], coral:[153,60,29], purple:[91,58,158], text:[30,30,30], gray:[120,120,120], lightGray:[235,238,242] };
+  let page = 1;
+
+  function footer(){
+    doc.setFontSize(8); doc.setTextColor(...COL.gray); doc.setFont(undefined,'normal');
+    doc.text('Dashboard Parc B2B & Chiffre d\'Affaires — Orange Côte d\'Ivoire / DDMS', MARGIN, PH-8);
+    doc.text('Page ' + page, PW-MARGIN, PH-8, { align:'right' });
+    doc.text(new Date().toLocaleDateString('fr-FR', {day:'2-digit',month:'long',year:'numeric'}), PW/2, PH-8, { align:'center' });
+  }
+  function newPage(){ footer(); doc.addPage(); page++; }
+  function sectionHeader(title, subtitle, color){
+    doc.setFillColor(...color); doc.rect(0, 0, PW, 24, 'F');
+    doc.setTextColor(255,255,255); doc.setFont(undefined,'bold'); doc.setFontSize(15);
+    doc.text(title, MARGIN, 14);
+    if (subtitle){ doc.setFont(undefined,'normal'); doc.setFontSize(9); doc.text(subtitle, MARGIN, 20); }
+    doc.setTextColor(...COL.text);
+    return 32;
+  }
+  function checkBreak(y, needed, color, title, subtitle){
+    if (y + needed > PH - 16){ newPage(); return sectionHeader(title, subtitle, color); }
+    return y;
+  }
+  function writeParagraph(text, y, color, maxWidth){
+    doc.setFont(undefined,'normal'); doc.setFontSize(10); doc.setTextColor(...COL.text);
+    const lines = doc.splitTextToSize(text, maxWidth || CW);
+    lines.forEach(line=>{
+      if (y > PH - 20){ newPage(); y = 32; doc.setFont(undefined,'normal'); doc.setFontSize(10); doc.setTextColor(...COL.text); }
+      doc.text(line, MARGIN, y);
+      y += 5;
+    });
+    return y + 3;
+  }
+  function addChartImage(canvasId, y, maxH){
+    const chart = Object.values(charts).find(c => c && c.canvas && c.canvas.id === canvasId);
+    if (!chart) return y;
+    try {
+      const img = chart.toBase64Image('image/png', 1.0);
+      const props = doc.getImageProperties(img);
+      let w = CW, h = w * props.height / props.width;
+      const cap = maxH || 85;
+      if (h > cap){ h = cap; w = h * props.width / props.height; }
+      if (y + h > PH - 18){ newPage(); y = 32; }
+      const x = MARGIN + (CW - w)/2;
+      doc.addImage(img, 'PNG', x, y, w, h);
+      return y + h + 8;
+    } catch(e){ console.error('Erreur export image graphique', canvasId, e); return y; }
+  }
+  function kpiBox(x, y, w, h, label, value, sub, color){
+    doc.setFillColor(250,250,251); doc.setDrawColor(...COL.lightGray);
+    doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+    doc.setFillColor(...color); doc.roundedRect(x, y, 2, h, 1, 1, 'F');
+    doc.setFontSize(7.5); doc.setTextColor(...COL.gray); doc.setFont(undefined,'bold');
+    doc.text(label.toUpperCase(), x+5, y+7, { maxWidth: w-8 });
+    doc.setFontSize(14); doc.setTextColor(...COL.text); doc.setFont(undefined,'bold');
+    doc.text(value, x+5, y+16);
+    doc.setFontSize(7.5); doc.setTextColor(...COL.gray); doc.setFont(undefined,'normal');
+    doc.text(sub, x+5, y+22, { maxWidth: w-8 });
+  }
+
+  // ===== PAGE 1 — COUVERTURE =====
+  doc.setFillColor(...COL.blueDark); doc.rect(0, 0, PW, 80, 'F');
+  doc.setFillColor(...COL.blue); doc.rect(0, 70, PW, 4, 'F');
+  doc.setTextColor(255,255,255); doc.setFont(undefined,'bold'); doc.setFontSize(26);
+  doc.text('DASHBOARD PARC B2B', MARGIN, 35);
+  doc.text('& CHIFFRE D\'AFFAIRES', MARGIN, 46);
+  doc.setFont(undefined,'normal'); doc.setFontSize(12);
+  doc.text('Rapport de synthèse — Direction Générale', MARGIN, 58);
+  doc.setFontSize(9); doc.setTextColor(210,224,240);
+  doc.text('Généré le ' + new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}) + ' — Source : PARC.xlsx — ' + rawRows.length.toLocaleString('fr-FR') + ' lignes analysées', MARGIN, 66);
+
+  let yCover = 96;
+  doc.setTextColor(...COL.text); doc.setFont(undefined,'bold'); doc.setFontSize(12);
+  doc.text('Chiffres clés', MARGIN, yCover);
+  yCover += 6;
+
+  const parcActifCover = rawRows.filter(r=>r.etatGroup==='ACTIF').length;
+  const caActifCover = rawRows.filter(r=>r.etatGroup==='ACTIF').reduce((s,r)=>s+r.ca,0);
+  const resiliesCover = rawRows.filter(r=>r.etat==='RESILIE').length;
+  const clientsCover = clientAgg.size;
+  const synthCover = computeYearlySynthesis();
+  const derniereAnneeCover = synthCover.rows[synthCover.rows.length-1];
+  const croissanceCover = synthCover.baseline ? ((parcActifCover-synthCover.baseline)/synthCover.baseline*100) : null;
+
+  const boxW = (CW - 10)/3, boxH = 26;
+  kpiBox(MARGIN, yCover, boxW, boxH, 'Parc actif total', fmtNum(parcActifCover) + ' lignes', 'Non-suspendu + suspendu', COL.blue);
+  kpiBox(MARGIN + boxW + 5, yCover, boxW, boxH, 'CA mensuel récurrent', fmtCompact(caActifCover) + ' FCFA', fmtCFA(caActifCover) + '/mois', COL.green);
+  kpiBox(MARGIN + (boxW+5)*2, yCover, boxW, boxH, 'CA annualisé', fmtCompact(caActifCover*12) + ' FCFA', 'Estimation CA mensuel × 12', COL.amber);
+  yCover += boxH + 5;
+  kpiBox(MARGIN, yCover, boxW, boxH, 'Clients uniques', fmtNum(clientsCover), 'Regroupement intelligent', COL.purple);
+  kpiBox(MARGIN + boxW + 5, yCover, boxW, boxH, 'Lignes résiliées (total)', fmtNum(resiliesCover), 'Historique complet', COL.coral);
+  kpiBox(MARGIN + (boxW+5)*2, yCover, boxW, boxH, 'Croissance parc depuis ' + SCOPE_START_YEAR, croissanceCover!==null ? (croissanceCover>=0?'+':'')+croissanceCover.toFixed(1)+'%' : '—', 'Solde net ' + (derniereAnneeCover.parcFin - synthCover.baseline >= 0 ? '+' : '') + fmtNum(derniereAnneeCover.parcFin - synthCover.baseline) + ' lignes', COL.blue);
+  yCover += boxH + 14;
+
+  doc.setFont(undefined,'bold'); doc.setFontSize(12); doc.setTextColor(...COL.text);
+  doc.text('Sommaire', MARGIN, yCover);
+  yCover += 7;
+  doc.setFont(undefined,'normal'); doc.setFontSize(10);
+  [['1.','Variation du parc — gains et pertes par année'],['2.','Analyse par type de liaison (LS / LSI / Numérique)'],['3.','Analyse par client — succès et signaux d\'alerte'],['4.','Chiffre d\'affaires — gains et pertes de CA récurrent']].forEach(([n,t])=>{
+    doc.setTextColor(...COL.blue); doc.text(n, MARGIN, yCover);
+    doc.setTextColor(...COL.text); doc.text(t, MARGIN+7, yCover);
+    yCover += 6;
+  });
+
+  newPage();
+
+  // ===== PAGE 2 — VARIATION DU PARC =====
+  let y = sectionHeader('Variation du parc', 'Gains (activations) vs pertes (résiliations), année par année', COL.blue);
+  y = addChartImage('chart-synthese', y, 90);
+  y = checkBreak(y, 20, COL.blue, 'Variation du parc', '(suite)');
+  y = writeParagraph(pdfStripHtml(document.getElementById('dg-comment') ? document.getElementById('dg-comment').innerHTML : ''), y, COL.text);
+
+  if (typeof doc.autoTable === 'function'){
+    const rowsSynth = synthCover.rows.map(r => [
+      r.year + (r.isCurrent ? ' (en cours)' : ''),
+      '+' + fmtNum(r.gains), '−' + fmtNum(r.pertes),
+      (r.solde>=0?'+':'') + fmtNum(r.solde), fmtNum(r.parcFin),
+      r.croissance!==null ? (r.croissance>=0?'+':'')+r.croissance.toFixed(1)+'%' : '—'
+    ]);
+    y = checkBreak(y, 40, COL.blue, 'Variation du parc', '(suite)');
+    doc.autoTable({ startY:y, margin:{left:MARGIN,right:MARGIN}, head:[['Année','Gains','Pertes','Solde net','Parc fin d\'année','Croissance']], body: rowsSynth,
+      styles:{ fontSize:8, cellPadding:2 }, headStyles:{ fillColor:COL.blue, textColor:255 }, alternateRowStyles:{ fillColor:[248,250,252] } });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  newPage();
+
+  // ===== PAGE 3 — TYPE DE LIAISON =====
+  y = sectionHeader('Analyse par type de liaison', 'LS · LSI (SYT) · T0/T2 (Numérique) — volume et valeur', COL.amber);
+  y = addChartImage('chart-synthese-produit', y, 75);
+  y = checkBreak(y, 75, COL.amber, 'Analyse par type de liaison', '(suite)');
+  y = addChartImage('chart-synthese-produit-ca', y, 75);
+  y = checkBreak(y, 20, COL.amber, 'Analyse par type de liaison', '(suite)');
+  y = writeParagraph(pdfStripHtml(document.getElementById('dg-comment-produit') ? document.getElementById('dg-comment-produit').innerHTML : ''), y, COL.text);
+
+  if (typeof doc.autoTable === 'function'){
+    const order = ['LS','LSI','NUMERIQUE'];
+    const arpuData = computeArpuByCategory(order);
+    const rowsArpu = order.map(cat => [PRODUIT_CAT_LABELS[cat], ...arpuData.arpuParCat[cat].map(s=>fmtCFA(s.moyenne))]);
+    y = checkBreak(y, 40, COL.amber, 'Analyse par type de liaison', '(suite)');
+    doc.autoTable({ startY:y, margin:{left:MARGIN,right:MARGIN}, head:[['Catégorie', ...arpuData.years.map(String)]], body: rowsArpu,
+      styles:{ fontSize:7.5, cellPadding:2 }, headStyles:{ fillColor:COL.amber, textColor:255 }, alternateRowStyles:{ fillColor:[250,247,240] } });
+    y = doc.lastAutoTable.finalY + 4;
+    doc.setFontSize(7.5); doc.setTextColor(...COL.gray); doc.setFont(undefined,'italic');
+    doc.text('CA moyen par ligne active (ARPU), moyenne robuste — valeurs extrêmes exclues.', MARGIN, y);
+    y += 8;
+  }
+
+  newPage();
+
+  // ===== PAGE 4 — ANALYSE CLIENT =====
+  y = sectionHeader('Analyse par client', 'Succès et signaux d\'alerte', COL.coral);
+  y = writeParagraph(pdfStripHtml(document.getElementById('dg-comment-client') ? document.getElementById('dg-comment-client').innerHTML : ''), y, COL.text);
+
+  if (typeof doc.autoTable === 'function'){
+    const movementsPdf = computeClientMovements().filter(m=>m.gains>0||m.pertes>0);
+    const topC = [...movementsPdf].filter(m=>m.solde>0).sort((a,b)=>b.solde-a.solde).slice(0,8);
+    const topD = [...movementsPdf].filter(m=>m.solde<0).sort((a,b)=>a.solde-b.solde).slice(0,8);
+    const nameOf = k => (clientAgg.get(k)&&clientAgg.get(k).displayName)||k;
+
+    y = checkBreak(y, 40, COL.coral, 'Analyse par client', '(suite)');
+    doc.setFont(undefined,'bold'); doc.setFontSize(10); doc.setTextColor(...COL.green);
+    doc.text('Top progressions (depuis ' + SCOPE_START_YEAR + ')', MARGIN, y); y += 5;
+    doc.autoTable({ startY:y, margin:{left:MARGIN,right:MARGIN}, head:[['Client','Gains','Pertes','Solde net','CA actuel']],
+      body: topC.map(m=>[nameOf(m.key), '+'+fmtNum(m.gains), '−'+fmtNum(m.pertes), (m.solde>=0?'+':'')+fmtNum(m.solde), fmtCFA(m.caActuel)]),
+      styles:{ fontSize:7.5, cellPadding:2 }, headStyles:{ fillColor:COL.green, textColor:255 }, alternateRowStyles:{ fillColor:[245,250,240] } });
+    y = doc.lastAutoTable.finalY + 8;
+
+    y = checkBreak(y, 40, COL.coral, 'Analyse par client', '(suite)');
+    doc.setFont(undefined,'bold'); doc.setFontSize(10); doc.setTextColor(...COL.coral);
+    doc.text('Signaux d\'alerte (pertes nettes)', MARGIN, y); y += 5;
+    doc.autoTable({ startY:y, margin:{left:MARGIN,right:MARGIN}, head:[['Client','Gains','Pertes','Solde net','CA actuel']],
+      body: topD.map(m=>[nameOf(m.key) + (m.actifActuel===0?' (parc résilié)':''), '+'+fmtNum(m.gains), '−'+fmtNum(m.pertes), fmtNum(m.solde), fmtCFA(m.caActuel)]),
+      styles:{ fontSize:7.5, cellPadding:2 }, headStyles:{ fillColor:COL.coral, textColor:255 }, alternateRowStyles:{ fillColor:[252,246,244] } });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  newPage();
+
+  // ===== PAGE 5 — CHIFFRE D'AFFAIRES =====
+  y = sectionHeader('Chiffre d\'affaires', 'Gains et pertes de CA récurrent mensuel', COL.green);
+  y = addChartImage('chart-synthese-ca', y, 90);
+  y = checkBreak(y, 20, COL.green, 'Chiffre d\'affaires', '(suite)');
+  y = writeParagraph(pdfStripHtml(document.getElementById('dg-comment-ca') ? document.getElementById('dg-comment-ca').innerHTML : ''), y, COL.text);
+
+  if (typeof doc.autoTable === 'function'){
+    const caY = computeCAYearly();
+    y = checkBreak(y, 40, COL.green, 'Chiffre d\'affaires', '(suite)');
+    doc.autoTable({ startY:y, margin:{left:MARGIN,right:MARGIN}, head:[['Année','CA gagné','CA perdu','Solde CA','CA fin d\'année']],
+      body: caY.rows.map(r=>[r.year+(r.isCurrent?' (en cours)':''), '+'+fmtCFA(r.gagne), '−'+fmtCFA(r.perdu), (r.solde>=0?'+':'')+fmtCFA(r.solde), fmtCFA(r.caFin)]),
+      styles:{ fontSize:7.5, cellPadding:2 }, headStyles:{ fillColor:COL.green, textColor:255 }, alternateRowStyles:{ fillColor:[245,250,240] } });
+  }
+
+  footer();
+  doc.save('Rapport_Parc_B2B_' + new Date().toISOString().slice(0,10) + '.pdf');
+}
+
 function toggleDiagnostic(){
   const panel = document.getElementById('diag-panel');
   const show = panel.style.display === 'none';
@@ -1238,12 +1430,7 @@ function renderCharts(){
   const data = filteredRows;
   let premierEchec = null;
   const safe = (fn, label) => { try { fn(data); } catch(e){ console.error('Erreur graphique [' + label + ']:', e); if (typeof erreursCapturees!=='undefined') erreursCapturees.push(label + ' — ' + e.message); if (!premierEchec) premierEchec = label + ' : ' + e.message; } };
-  safe(renderChartEtat, 'répartition par état');
-  safe(renderChartProduit, 'répartition par produit');
-  safe(renderChartCategorie, 'top catégories');
-  safe(renderChartCommune, 'top communes');
   safe(renderChartEvolution, 'évolution');
-  safe(renderChartMouvements, 'mouvements mensuels');
   safe(renderChartTopClients, 'top clients');
   if (premierEchec) showBanner('⚠️ Au moins un graphique n\'a pas pu s\'afficher (' + premierEchec + '). Rechargez la page ; si le problème persiste, faites une capture de la console (F12) et transmettez-la.');
 }
