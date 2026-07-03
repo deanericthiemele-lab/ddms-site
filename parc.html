@@ -342,6 +342,16 @@ tbody tr:hover td { background: var(--surface-2); }
   cursor: pointer; font-family: inherit; white-space: nowrap;
 }
 
+.diag-panel {
+  background: #1e2530; color: #d8e0ea; border-radius: var(--radius);
+  padding: 14px 18px; margin-bottom: 16px; font-family: 'Courier New', monospace; font-size: 12px;
+}
+.diag-title { font-weight: 700; color: #fff; margin-bottom: 10px; font-family: 'DM Sans', sans-serif; }
+.diag-row { padding: 3px 0; display: flex; gap: 8px; }
+.diag-ok { color: #7ee08a; }
+.diag-fail { color: #ff8a80; font-weight: 700; }
+.diag-err { color: #ffb74d; }
+
 /* ── SYNTHÈSE DIRECTION GÉNÉRALE ── */
 .dg-section {
   background: var(--surface);
@@ -439,6 +449,7 @@ tbody tr:hover td:first-child { background: var(--surface-2); }
     </button>
     <input type="file" id="file-input" accept=".xlsx,.xls,.csv" style="display:none">
     <button class="btn-action" id="btn-refresh" onclick="chargerAuto(true)">🔄 Actualiser</button>
+    <button class="btn-action" onclick="toggleDiagnostic()">🔧 Diagnostic</button>
     <button class="btn-action green" onclick="exportGlobal()">⬇️ Exporter</button>
   </div>
 </div>
@@ -448,6 +459,11 @@ tbody tr:hover td:first-child { background: var(--surface-2); }
   <div class="banner" id="load-banner">
     <span id="banner-text"></span>
     <button onclick="document.getElementById('load-banner').classList.remove('show')">Fermer</button>
+  </div>
+
+  <div class="diag-panel" id="diag-panel" style="display:none;">
+    <div class="diag-title">🔧 Diagnostic technique — fais une capture de ce bloc si un problème persiste</div>
+    <div id="diag-content">Chargement du diagnostic…</div>
   </div>
 
   <!-- KPIs CA PAR ANNEE -->
@@ -771,9 +787,11 @@ function fmtDateFR(d){
 /* =========================================================
    FORMATAGE
    ========================================================= */
-function fmtNum(n){ return (n===null||n===undefined||isNaN(n)) ? '0' : Math.round(n).toLocaleString('fr-FR'); }
+function fmtNum(n){ n = numSafe(n); return (n===null||n===undefined||isNaN(n)) ? '0' : Math.round(n).toLocaleString('fr-FR'); }
+function numSafe(v){ const n = Number(v); return isFinite(n) ? n : 0; } // conversion défensive (évite les plantages Math.abs sur valeur non numérique)
 function fmtCFA(n){ return fmtNum(n) + ' FCFA'; }
 function fmtCompact(n){
+  n = numSafe(n);
   if (n===null||n===undefined||isNaN(n)) return '—';
   const abs = Math.abs(n);
   if (abs >= 1e9) return (n/1e9).toLocaleString('fr-FR',{maximumFractionDigits:2}) + ' Md';
@@ -1092,11 +1110,49 @@ function aggregateBy(data, keyFn){
    ========================================================= */
 /* Filet de sécurité : toute erreur JS non interceptée devient visible dans le bandeau,
    au lieu de laisser le dashboard silencieusement à moitié vide sans indice de la cause. */
+const erreursCapturees = [];
 window.addEventListener('error', function(evt){
   try {
+    erreursCapturees.push((evt.filename||'?').split('/').pop() + ':' + evt.lineno + ' — ' + evt.message);
     showBanner('⚠️ Erreur technique détectée : ' + evt.message + ' (fichier: ' + (evt.filename||'?').split('/').pop() + ', ligne ' + evt.lineno + '). Merci de faire une capture ecran de ce message et de la console (F12) pour le signaler.');
   } catch(e){ /* pas de fallback supplémentaire */ }
 });
+window.addEventListener('unhandledrejection', function(evt){
+  try { erreursCapturees.push('Promesse rejetée : ' + (evt.reason && evt.reason.message ? evt.reason.message : evt.reason)); } catch(e){}
+});
+
+function toggleDiagnostic(){
+  const panel = document.getElementById('diag-panel');
+  const show = panel.style.display === 'none';
+  panel.style.display = show ? '' : 'none';
+  if (show) renderDiagnostic();
+}
+
+function renderDiagnostic(){
+  const rows = [];
+  const chk = (ok, label, detail) => rows.push(`<div class="diag-row"><span class="${ok?'diag-ok':'diag-fail'}">${ok?'✔':'✘'}</span> <span>${label}${detail?' — '+detail:''}</span></div>`);
+
+  chk(typeof XLSX !== 'undefined', 'Bibliothèque XLSX (lecture Excel)', typeof XLSX !== 'undefined' ? 'chargée' : 'NON chargée — export/import Excel impossible');
+  chk(typeof Chart !== 'undefined', 'Bibliothèque Chart.js (graphiques)', typeof Chart !== 'undefined' ? 'chargée' : 'NON chargée — aucun graphique ne peut s\'afficher');
+  chk(rawRows.length > 0, 'Données chargées (rawRows)', rawRows.length.toLocaleString('fr-FR') + ' ligne(s)');
+  chk(filteredRows.length > 0, 'Données filtrées (filteredRows)', filteredRows.length.toLocaleString('fr-FR') + ' ligne(s)');
+  chk(!!(charts && charts.etat), 'Graphique "Répartition par état" créé');
+  chk(!!(charts && charts.produit), 'Graphique "Répartition par produit" créé');
+  chk(!!(charts && charts.synthese), 'Graphique "Synthèse DG" créé');
+
+  rows.push('<div class="diag-row" style="margin-top:8px;">Navigateur : ' + escHtml(navigator.userAgent) + '</div>');
+  rows.push('<div class="diag-row">URL : ' + escHtml(window.location.href) + '</div>');
+  rows.push('<div class="diag-row">Heure : ' + new Date().toLocaleString('fr-FR') + '</div>');
+
+  if (erreursCapturees.length){
+    rows.push('<div class="diag-row" style="margin-top:8px;font-weight:700;">Erreurs JavaScript interceptées (' + erreursCapturees.length + ') :</div>');
+    erreursCapturees.forEach(e => rows.push('<div class="diag-row diag-err">• ' + escHtml(e) + '</div>'));
+  } else {
+    rows.push('<div class="diag-row" style="margin-top:8px;">Aucune erreur JavaScript interceptée.</div>');
+  }
+
+  document.getElementById('diag-content').innerHTML = rows.join('');
+}
 
 function renderAll(){
   try {
@@ -1113,7 +1169,7 @@ function renderAll(){
     safeRun(renderTableDetail, 'tableau détail');
   } catch(e){ showBanner('⚠️ Erreur lors de l\'affichage des tableaux : ' + e.message); }
 }
-function safeRun(fn, label){ try { fn(); } catch(e){ console.error('Erreur [' + label + ']:', e); showBanner('⚠️ Le bloc « ' + label + ' » n\'a pas pu s\'afficher (' + e.message + '). Rechargez la page ; si le problème persiste, transmettez une capture de la console (F12).'); } }
+function safeRun(fn, label){ try { fn(); } catch(e){ console.error('Erreur [' + label + ']:', e); if (typeof erreursCapturees!=='undefined') erreursCapturees.push(label + ' — ' + e.message); showBanner('⚠️ Le bloc « ' + label + ' » n\'a pas pu s\'afficher (' + e.message + '). Rechargez la page ; si le problème persiste, transmettez une capture de la console (F12).'); } }
 
 /* ── KPIs ── */
 function renderKPIs(){
@@ -1165,7 +1221,7 @@ function destroyChart(id){ if (charts[id]){ charts[id].destroy(); delete charts[
 function renderCharts(){
   const data = filteredRows;
   let premierEchec = null;
-  const safe = (fn, label) => { try { fn(data); } catch(e){ console.error('Erreur graphique [' + label + ']:', e); if (!premierEchec) premierEchec = label + ' : ' + e.message; } };
+  const safe = (fn, label) => { try { fn(data); } catch(e){ console.error('Erreur graphique [' + label + ']:', e); if (typeof erreursCapturees!=='undefined') erreursCapturees.push(label + ' — ' + e.message); if (!premierEchec) premierEchec = label + ' : ' + e.message; } };
   safe(renderChartEtat, 'répartition par état');
   safe(renderChartProduit, 'répartition par produit');
   safe(renderChartCategorie, 'top catégories');
@@ -1303,9 +1359,9 @@ function renderChartMouvements(data){
       { label:'Résiliations', data: months.map(m=>-m.resil), backgroundColor:'#D85A30' }
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
-      scales:{ x:{ grid:{display:false}, ticks:{maxRotation:60,minRotation:60,font:{size:10}} }, y:{ ticks:{ callback:v=>Math.abs(v) } } },
+      scales:{ x:{ grid:{display:false}, ticks:{maxRotation:60,minRotation:60,font:{size:10}} }, y:{ ticks:{ callback:v=>Math.abs(numSafe(v)) } } },
       plugins:{ legend:{position:'bottom',labels:{boxWidth:11,font:{size:11.5}}},
-        tooltip:{ callbacks:{ label: c => c.dataset.label+' : '+Math.abs(c.raw) } } } }
+        tooltip:{ callbacks:{ label: c => c.dataset.label+' : '+Math.abs(numSafe(c.raw)) } } } }
   });
 }
 
@@ -1476,12 +1532,12 @@ function renderSynthese(){
       responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       scales:{
         x:{ grid:{display:false} },
-        y:{ title:{display:true,text:'Gains / Pertes (lignes)'}, ticks:{ callback:v=>Math.abs(v) } },
+        y:{ title:{display:true,text:'Gains / Pertes (lignes)'}, ticks:{ callback:v=>Math.abs(numSafe(v)) } },
         y1:{ type:'linear', position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'Parc total (lignes)'} }
       },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
-        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex<2 ? Math.abs(c.raw).toLocaleString('fr-FR') : c.raw.toLocaleString('fr-FR')) } },
-        valueLabels:{ enabled:true, skipZero:true, color:(ds)=> ds.label.startsWith('Pertes') ? '#993C1D' : '#3B6D11', formatter:v=>Math.abs(v).toLocaleString('fr-FR') } }
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex<2 ? Math.abs(numSafe(c.raw)).toLocaleString('fr-FR') : numSafe(c.raw).toLocaleString('fr-FR')) } },
+        valueLabels:{ enabled:true, skipZero:true, color:(ds)=> ds.label.startsWith('Pertes') ? '#993C1D' : '#3B6D11', formatter:v=>Math.abs(numSafe(v)).toLocaleString('fr-FR') } }
     }
   });
 }
@@ -1540,7 +1596,7 @@ function renderSyntheseProduit(){
       scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'Solde net (lignes)'} } },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
         tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.raw>=0?'+':'') + c.raw.toLocaleString('fr-FR') } },
-        valueLabels:{ enabled:true, skipZero:true, color:'#333', formatter:v=>(v>=0?'+':'')+v.toLocaleString('fr-FR') } }
+        valueLabels:{ enabled:true, skipZero:true, color:'#333', formatter:v=>{ const n=numSafe(v); return (n>=0?'+':'')+n.toLocaleString('fr-FR'); } } }
     }
   });
 
@@ -1746,11 +1802,11 @@ function renderSyntheseCA(){
       responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
       scales:{
         x:{ grid:{display:false} },
-        y:{ title:{display:true,text:'CA gagné / perdu (FCFA)'}, ticks:{ callback:v=>fmtCompact(Math.abs(v)) } },
+        y:{ title:{display:true,text:'CA gagné / perdu (FCFA)'}, ticks:{ callback:v=>fmtCompact(Math.abs(numSafe(v))) } },
         y1:{ type:'linear', position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'CA total (FCFA)'}, ticks:{ callback:v=>fmtCompact(v) } }
       },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
-        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + fmtCFA(Math.abs(c.raw)) } } }
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + fmtCFA(Math.abs(numSafe(c.raw))) } } }
     }
   });
 }
