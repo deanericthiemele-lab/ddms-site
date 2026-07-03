@@ -1498,6 +1498,191 @@ window.confirmComex = async function(i) {
   catch(e) { toast('Erreur : '+e.message,'error'); }
 };
 
+// ── COMEX GLOBAL (page Performances KPI) ──
+let kpiComexCalDate = new Date();
+let editStateKpiComex = null; // { clientId, idx } ou null
+
+function kpiComexAllItems() {
+  const items = [];
+  clients.forEach(c => {
+    (c.comex||[]).forEach((r, idx) => {
+      items.push(Object.assign({ clientId: c.id, clientNom: c.nom, idx }, r));
+    });
+  });
+  return items;
+}
+
+function renderKpiComex() {
+  if (!document.getElementById('kpi-comex-stats')) return;
+  renderKpiComexStats();
+  renderKpiComexCalendar();
+  renderKpiComexTable();
+}
+
+function renderKpiComexStats() {
+  const items = kpiComexAllItems();
+  const total = items.length;
+  const done = items.filter(r=>r.status==='Réalisé').length;
+  const ko = items.filter(r=>r.status==='Non réalisé').length;
+  const plan = total - done - ko;
+  document.getElementById('kpi-comex-stats').innerHTML = `
+    <div class="comex-stat"><b>${total}</b> RDV planifiés</div>
+    <div class="comex-stat st-done"><b>${done}</b> Réalisés</div>
+    <div class="comex-stat st-ko"><b>${ko}</b> Non réalisés</div>
+    <div class="comex-stat st-plan"><b>${plan}</b> À venir</div>`;
+}
+
+function renderKpiComexCalendar() {
+  const items = kpiComexAllItems();
+  const y = kpiComexCalDate.getFullYear(), m = kpiComexCalDate.getMonth();
+  document.getElementById('kpi-comex-cal-month').textContent = COMEX_MONTH_NAMES[m] + ' ' + y;
+
+  const first = new Date(y, m, 1);
+  const startOffset = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(y, m+1, 0).getDate();
+  const daysInPrevMonth = new Date(y, m, 0).getDate();
+  const todayStr = cxDstr(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
+
+  const byDate = {};
+  items.forEach((r,i) => { if (!r.date) return; (byDate[r.date] = byDate[r.date]||[]).push(i); });
+
+  const cells = [];
+  for (let i = startOffset; i > 0; i--) cells.push({ day: daysInPrevMonth - i + 1, other: true, dateStr: null });
+  for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d, other: false, dateStr: cxDstr(y,m,d) });
+  while (cells.length % 7 !== 0) {
+    const extra = cells.length - startOffset - daysInMonth + 1;
+    cells.push({ day: extra, other: true, dateStr: null });
+  }
+
+  document.getElementById('kpi-comex-cal-grid').innerHTML = cells.map(cell => {
+    const idxs = cell.dateStr ? (byDate[cell.dateStr]||[]) : [];
+    const isToday = cell.dateStr === todayStr;
+    const pills = idxs.map(i => {
+      const r = items[i];
+      const label = (r.clientNom||'') + ' — ' + (r.title||'');
+      return `<span class="comex-pill ${comexPillClass(r.status)}" onclick="editKpiComex('${r.clientId}',${r.idx})" title="${label.replace(/"/g,'&quot;')}">${label}</span>`;
+    }).join('');
+    return `<div class="comex-cal-day${cell.other?' other':''}${isToday?' today':''}">
+      <div class="comex-cal-daynum">${cell.day}</div>${pills}
+    </div>`;
+  }).join('');
+}
+
+function renderKpiComexTable() {
+  const search = (document.getElementById('kpi-comex-search').value||'').toLowerCase();
+  const items = kpiComexAllItems()
+    .filter(r => r.status !== 'Réalisé' && (!search || (r.title||'').toLowerCase().indexOf(search)!==-1 || (r.clientNom||'').toLowerCase().indexOf(search)!==-1))
+    .sort((a,b) => (a.date||'9999') < (b.date||'9999') ? -1 : 1);
+
+  const tbody = document.getElementById('kpi-comex-table-body');
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3);font-family:'DM Mono',monospace;font-size:12px">Aucun COMEX en attente</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = items.map(r => `
+    <tr class="tbl-tr">
+      <td class="tbl-td" style="font-size:12px;font-weight:600">${r.clientNom||'—'}</td>
+      <td class="tbl-td" style="font-size:12px">${r.title||'—'}</td>
+      <td class="tbl-td mono" style="font-size:12px">${r.date?formatDate(r.date):'—'}</td>
+      <td class="tbl-td"><span class="tag ${comexTagClass(r.status)}">${r.status||'—'}</span></td>
+      <td class="tbl-td tbl-actions">
+        ${canWrite()?`<button class="btn-sm-edit" onclick="confirmKpiComex('${r.clientId}',${r.idx})" title="Confirmer réalisé">✓</button>
+        <button class="btn-sm-edit" onclick="editKpiComex('${r.clientId}',${r.idx})" title="Modifier">✏️</button>
+        <button class="btn-sm" onclick="deleteKpiComex('${r.clientId}',${r.idx})" title="Supprimer">🗑</button>`:''}
+      </td>
+    </tr>`).join('');
+}
+
+function kpiComexPrevMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()-1, 1); renderKpiComexCalendar(); }
+function kpiComexNextMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()+1, 1); renderKpiComexCalendar(); }
+window.kpiComexPrevMonth = kpiComexPrevMonth;
+window.kpiComexNextMonth = kpiComexNextMonth;
+
+window.openAddKpiComex = function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  editStateKpiComex = null;
+  document.getElementById('kpi-comex-modal-title').innerHTML = 'Nouveau RDV COMEX <button class="modal-close" onclick="closeModal(\'modal-kpi-comex\')">✕</button>';
+  const sel = document.getElementById('kcx-client');
+  sel.innerHTML = '<option value="">— Sélectionner un client —</option>' +
+    clients.slice().sort((a,b)=>a.nom.localeCompare(b.nom)).map(c=>`<option value="${c.id}">${c.nom}</option>`).join('');
+  document.getElementById('kcx-title').value = '';
+  document.getElementById('kcx-date').value = '';
+  document.getElementById('kcx-time').value = '';
+  document.getElementById('kcx-status').value = 'Planifié';
+  document.getElementById('kcx-comment').value = '';
+  document.getElementById('modal-kpi-comex').style.display='flex';
+};
+
+window.editKpiComex = function(clientId, idx) {
+  const c = clients.find(x=>x.id===clientId); const r = c && (c.comex||[])[idx]; if (!r) return;
+  editStateKpiComex = { clientId, idx };
+  document.getElementById('kpi-comex-modal-title').innerHTML = 'Modifier le RDV <button class="modal-close" onclick="closeModal(\'modal-kpi-comex\')">✕</button>';
+  const sel = document.getElementById('kcx-client');
+  sel.innerHTML = clients.slice().sort((a,b)=>a.nom.localeCompare(b.nom)).map(x=>`<option value="${x.id}" ${x.id===clientId?'selected':''}>${x.nom}</option>`).join('');
+  document.getElementById('kcx-title').value = r.title || '';
+  document.getElementById('kcx-date').value = r.date || '';
+  document.getElementById('kcx-time').value = r.time || '';
+  document.getElementById('kcx-status').value = r.status || 'Planifié';
+  document.getElementById('kcx-comment').value = r.comment || '';
+  document.getElementById('modal-kpi-comex').style.display='flex';
+};
+
+window.saveKpiComex = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  const clientId = document.getElementById('kcx-client').value;
+  if (!clientId) { toast('⚠️ Sélectionnez un client','error'); return; }
+  const title = document.getElementById('kcx-title').value.trim();
+  if (!title) { toast('⚠️ Le titre est obligatoire','error'); return; }
+  const date = document.getElementById('kcx-date').value;
+  if (!date) { toast('⚠️ La date est obligatoire','error'); document.getElementById('kcx-date').focus(); return; }
+  const obj = {
+    title, date,
+    time: document.getElementById('kcx-time').value,
+    status: document.getElementById('kcx-status').value,
+    comment: document.getElementById('kcx-comment').value.trim()
+  };
+  const c = clients.find(x=>x.id===clientId); if (!c) return;
+  if (!c.comex) c.comex = [];
+
+  try {
+    toast('Enregistrement…');
+    if (editStateKpiComex && editStateKpiComex.clientId !== clientId) {
+      // le RDV a changé de client : on le retire de l'ancien et on l'ajoute au nouveau
+      const oldClient = clients.find(x=>x.id===editStateKpiComex.clientId);
+      if (oldClient && oldClient.comex) {
+        oldClient.comex.splice(editStateKpiComex.idx, 1);
+        await fsSaveClient(oldClient);
+      }
+      c.comex.push(obj);
+    } else if (editStateKpiComex) {
+      c.comex[editStateKpiComex.idx] = obj;
+    } else {
+      c.comex.push(obj);
+    }
+    await fsSaveClient(c);
+    closeModal('modal-kpi-comex');
+    renderKpiComex();
+    toast('RDV enregistré ✓','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+window.confirmKpiComex = async function(clientId, idx) {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  const c = clients.find(x=>x.id===clientId); if (!c || !c.comex || !c.comex[idx]) return;
+  c.comex[idx].status = 'Réalisé';
+  try { await fsSaveClient(c); renderKpiComex(); toast('RDV confirmé réalisé ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+window.deleteKpiComex = async function(clientId, idx) {
+  if(!canDelete()){toast('🔒 Suppression réservée au Super Admin','error');return;}
+  if (!confirm('Supprimer ce RDV COMEX ?')) return;
+  const c = clients.find(x=>x.id===clientId); if (!c || !c.comex) return;
+  c.comex.splice(idx,1);
+  try { await fsSaveClient(c); renderKpiComex(); toast('Supprimé ✓','success'); }
+  catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
 init();
 // ── BILAN — éléments actifs ──
 function renderBilan() {
@@ -1870,6 +2055,7 @@ window.openKpiPerformances = async function() {
   document.getElementById('kpi-role-badge').textContent = APP_ROLE === 'visitor' ? '👁 LECTURE SEULE' : (APP_ROLE === 'admin' ? '🔑 ADMIN' : '👑 SUPER ADMIN');
   document.getElementById('kpi-save-btn').style.display = canWrite() ? 'inline-block' : 'none';
   document.getElementById('modal-kpi').style.display = 'block';
+  renderKpiComex();
   await kpiLoadPeriodsList();
   if (kpiPeriodsList.length) {
     const last = kpiPeriodsList[kpiPeriodsList.length-1];
@@ -3744,6 +3930,70 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
         </div>
       </div>
 
+      <!-- COMEX -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:34px 0 14px;flex-wrap:wrap;gap:10px;">
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">📅 Suivi des COMEX — Réunions mensuelles</span>
+        <button class="btn-add" onclick="openAddKpiComex()">+ Nouveau RDV</button>
+      </div>
+
+      <div class="comex-stats-strip" id="kpi-comex-stats"></div>
+
+      <div class="comex-grid">
+        <div class="comex-cal">
+          <div class="comex-cal-head">
+            <div class="comex-cal-nav" onclick="kpiComexPrevMonth()">‹</div>
+            <div class="comex-cal-month" id="kpi-comex-cal-month"></div>
+            <div class="comex-cal-nav" onclick="kpiComexNextMonth()">›</div>
+          </div>
+          <div class="comex-cal-weekdays">
+            <span>Lun</span><span>Mar</span><span>Mer</span><span>Jeu</span><span>Ven</span><span>Sam</span><span>Dim</span>
+          </div>
+          <div class="comex-cal-grid" id="kpi-comex-cal-grid"></div>
+        </div>
+        <div class="comex-side">
+          <div class="comex-side-title">COMEX non réalisés</div>
+          <div class="search-box">
+            <input type="text" id="kpi-comex-search" placeholder="Rechercher un client ou un RDV…" oninput="renderKpiComexTable()">
+          </div>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr>
+                <th class="tbl-th">Client</th><th class="tbl-th">Titre</th>
+                <th class="tbl-th">Date</th><th class="tbl-th">Statut</th>
+                <th class="tbl-th" style="width:80px"></th>
+              </tr></thead>
+              <tbody id="kpi-comex-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div id="modal-kpi-comex" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-kpi-comex')">
+  <div class="modal">
+    <div class="modal-title" id="kpi-comex-modal-title">Nouveau RDV COMEX <button class="modal-close" onclick="closeModal('modal-kpi-comex')">✕</button></div>
+    <div class="field"><label>Client <span style="color:var(--red)">*</span></label>
+      <select id="kcx-client"></select>
+    </div>
+    <div class="field"><label>Titre <span style="color:var(--red)">*</span></label><input id="kcx-title" placeholder="ex: COMEX Orange CI – Juillet"></div>
+    <div class="grid2">
+      <div class="field"><label>Date <span style="color:var(--red)">*</span></label><input id="kcx-date" type="date"></div>
+      <div class="field"><label>Heure</label><input id="kcx-time" type="time"></div>
+    </div>
+    <div class="field"><label>Statut</label>
+      <select id="kcx-status">
+        <option value="Planifié">Planifié</option>
+        <option value="Réalisé">Réalisé</option>
+        <option value="Non réalisé">Non réalisé</option>
+      </select>
+    </div>
+    <div class="field"><label>Commentaire</label><textarea id="kcx-comment" placeholder="Observations, points abordés…" style="min-height:70px"></textarea></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-kpi-comex')">Annuler</button>
+      <button class="btn-primary" onclick="saveKpiComex()">Enregistrer</button>
     </div>
   </div>
 </div>
