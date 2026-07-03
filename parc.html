@@ -816,10 +816,17 @@ const COLORS = ['#185FA5','#3B6D11','#854F0B','#993C1D','#5B3A9E','#378ADD','#5a
 
 // Plugin maison : affiche la valeur au-dessus (ou en dessous si négative) de chaque barre.
 // Désactivé par défaut ; activé graphique par graphique via options.plugins.valueLabels.enabled = true
+// Config des libellés de valeur, tenue COMPLÈTEMENT EN DEHORS de l'arbre d'options
+// Chart.js (qui auto-invoque toute fonction trouvée dans `options.plugins.*` en la
+// traitant comme une "scriptable option" avec son propre contexte — d'où le bug
+// "can't convert [contexte Chart.js] to number" si on y stocke un formatter/color).
+const valueLabelsConfigs = {};
+function setValueLabels(canvasId, config){ valueLabelsConfigs[canvasId] = config; }
+
 const valueLabelsPlugin = {
   id: 'valueLabels',
   afterDatasetsDraw(chart){
-    const opts = chart.options.plugins && chart.options.plugins.valueLabels;
+    const opts = chart.canvas && valueLabelsConfigs[chart.canvas.id];
     if (!opts || !opts.enabled) return;
     const { ctx } = chart;
     chart.data.datasets.forEach((dataset, i) => {
@@ -1536,10 +1543,10 @@ function renderSynthese(){
         y1:{ type:'linear', position:'right', beginAtZero:true, grid:{drawOnChartArea:false}, title:{display:true,text:'Parc total (lignes)'} }
       },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
-        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex<2 ? Math.abs(numSafe(c.raw)).toLocaleString('fr-FR') : numSafe(c.raw).toLocaleString('fr-FR')) } },
-        valueLabels:{ enabled:true, skipZero:true, color:(ds)=> ds.label.startsWith('Pertes') ? '#993C1D' : '#3B6D11', formatter:v=>Math.abs(numSafe(v)).toLocaleString('fr-FR') } }
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.datasetIndex<2 ? Math.abs(numSafe(c.raw)).toLocaleString('fr-FR') : numSafe(c.raw).toLocaleString('fr-FR')) } } }
     }
   });
+  setValueLabels('chart-synthese', { enabled:true, skipZero:true, color:(ds)=> ds.label.startsWith('Pertes') ? '#993C1D' : '#3B6D11', formatter:v=>Math.abs(numSafe(v)).toLocaleString('fr-FR') });
 }
 
 /* =========================================================
@@ -1595,10 +1602,10 @@ function renderSyntheseProduit(){
     options:{ responsive:true, maintainAspectRatio:false,
       scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'Solde net (lignes)'} } },
       plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
-        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.raw>=0?'+':'') + c.raw.toLocaleString('fr-FR') } },
-        valueLabels:{ enabled:true, skipZero:true, color:'#333', formatter:v=>{ const n=numSafe(v); return (n>=0?'+':'')+n.toLocaleString('fr-FR'); } } }
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.raw>=0?'+':'') + c.raw.toLocaleString('fr-FR') } } }
     }
   });
+  setValueLabels('chart-synthese-produit', { enabled:true, skipZero:true, color:'#333', formatter:v=>{ const n=numSafe(v); return (n>=0?'+':'')+n.toLocaleString('fr-FR'); } });
 
   // Commentaire : identifie le moteur de croissance et le point d'attention
   const totals = {};
