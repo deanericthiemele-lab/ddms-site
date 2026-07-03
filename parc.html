@@ -493,6 +493,10 @@ tbody tr:hover td:first-child { background: var(--surface-2); }
     <div class="dg-subhead">Analyse par type de liaison — LS / LSI (SYT) / Numérique (T0-T2)</div>
     <div class="dg-comment" id="dg-comment-produit">Analyse en cours de génération…</div>
     <div class="dg-chart-wrap" style="height:260px;"><canvas id="chart-synthese-produit"></canvas></div>
+
+    <div class="dg-arpu-title">💵 Solde net de chiffre d'affaires, par catégorie et par année</div>
+    <div class="dg-chart-wrap" style="height:260px;"><canvas id="chart-synthese-produit-ca"></canvas></div>
+
     <div class="dg-arpu-title">💰 CA moyen par ligne active (ARPU), par catégorie et par année — pour repérer une éventuelle perte de valeur</div>
     <div class="dg-arpu-note">Moyenne robuste : les contrats exceptionnellement gros ou les lignes à prix quasi nul (tests, promos) sont exclus du calcul pour ne pas fausser la tendance. Survolez une valeur pour voir le détail.</div>
     <div class="table-scroll"><table id="table-arpu-produit"><thead></thead><tbody></tbody></table></div>
@@ -1619,13 +1623,24 @@ function renderSyntheseProduit(){
         tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + (c.raw>=0?'+':'') + c.raw.toLocaleString('fr-FR') } } }
     }
   });
-  setValueLabels('chart-synthese-produit', { enabled:true, skipZero:true, color:'#333', font:"700 9px 'DM Sans', sans-serif",
-    formatter:(v, dataset, index) => {
-      const n = numSafe(v);
-      const catKey = order.find(cat => PRODUIT_CAT_LABELS[cat] === dataset.label);
-      const caSolde = catKey && data[catKey] && data[catKey].rows[index] ? data[catKey].rows[index].caSolde : 0;
-      return n.toLocaleString('fr-FR') + ' (' + fmtCompact(caSolde) + ')';
+  setValueLabels('chart-synthese-produit', { enabled:true, skipZero:true, color:'#333',
+    formatter:v => numSafe(v).toLocaleString('fr-FR')
+  });
+
+  destroyChart('syntheseProduitCA');
+  charts.syntheseProduitCA = new Chart(document.getElementById('chart-synthese-produit-ca'), {
+    type:'bar',
+    data:{ labels: years, datasets: order.map(cat => ({
+      label: PRODUIT_CAT_LABELS[cat], data: data[cat].rows.map(r=>r.caSolde), backgroundColor: colors[cat]
+    })) },
+    options:{ responsive:true, maintainAspectRatio:false,
+      scales:{ x:{ grid:{display:false} }, y:{ title:{display:true,text:'Solde net de CA (FCFA)'}, ticks:{ callback:v=>fmtCompact(numSafe(v)) } } },
+      plugins:{ legend:{position:'bottom', labels:{boxWidth:11,font:{size:11.5}}},
+        tooltip:{ callbacks:{ label: c => c.dataset.label + ' : ' + fmtCFA(numSafe(c.raw)) } } }
     }
+  });
+  setValueLabels('chart-synthese-produit-ca', { enabled:true, skipZero:true, color:'#333',
+    formatter:v => fmtCompact(numSafe(v))
   });
   const arpuData = computeArpuByCategory(order);
   renderTableArpuProduit(order, arpuData);
