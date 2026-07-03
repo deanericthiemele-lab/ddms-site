@@ -6,6 +6,13 @@
 <title>Dashboard Parc B2B & Chiffre d'Affaires</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+  // Filet de secours : si le CDN principal (cdnjs) est bloqué ou inaccessible
+  // (réseau d'entreprise, bloqueur de publicité, etc.), on recharge immédiatement
+  // les mêmes librairies depuis un CDN de secours (jsdelivr) avant de continuer.
+  if (typeof XLSX === 'undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>');
+  if (typeof Chart === 'undefined') document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"><\/script>');
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&display=swap" rel="stylesheet">
@@ -1106,7 +1113,7 @@ function renderAll(){
     safeRun(renderTableDetail, 'tableau détail');
   } catch(e){ showBanner('⚠️ Erreur lors de l\'affichage des tableaux : ' + e.message); }
 }
-function safeRun(fn, label){ try { fn(); } catch(e){ console.error('Erreur [' + label + ']:', e); } }
+function safeRun(fn, label){ try { fn(); } catch(e){ console.error('Erreur [' + label + ']:', e); showBanner('⚠️ Le bloc « ' + label + ' » n\'a pas pu s\'afficher (' + e.message + '). Rechargez la page ; si le problème persiste, transmettez une capture de la console (F12).'); } }
 
 /* ── KPIs ── */
 function renderKPIs(){
@@ -1157,7 +1164,8 @@ function destroyChart(id){ if (charts[id]){ charts[id].destroy(); delete charts[
 
 function renderCharts(){
   const data = filteredRows;
-  const safe = (fn, label) => { try { fn(data); } catch(e){ console.error('Erreur graphique [' + label + ']:', e); } };
+  let premierEchec = null;
+  const safe = (fn, label) => { try { fn(data); } catch(e){ console.error('Erreur graphique [' + label + ']:', e); if (!premierEchec) premierEchec = label + ' : ' + e.message; } };
   safe(renderChartEtat, 'répartition par état');
   safe(renderChartProduit, 'répartition par produit');
   safe(renderChartCategorie, 'top catégories');
@@ -1165,6 +1173,7 @@ function renderCharts(){
   safe(renderChartEvolution, 'évolution');
   safe(renderChartMouvements, 'mouvements mensuels');
   safe(renderChartTopClients, 'top clients');
+  if (premierEchec) showBanner('⚠️ Au moins un graphique n\'a pas pu s\'afficher (' + premierEchec + '). Rechargez la page ; si le problème persiste, faites une capture de la console (F12) et transmettez-la.');
 }
 
 function renderChartEtat(data){
@@ -2098,7 +2107,18 @@ function exportGlobal(){
 /* =========================================================
    INIT
    ========================================================= */
-chargerAuto();
+(function verifierDependances(){
+  const manquantes = [];
+  if (typeof XLSX === 'undefined') manquantes.push('XLSX (lecture Excel)');
+  if (typeof Chart === 'undefined') manquantes.push('Chart.js (graphiques)');
+  if (manquantes.length){
+    hideLoading();
+    setStatus('err', 'Bibliothèque(s) non chargée(s)');
+    showBanner('🚫 ERREUR CRITIQUE : ' + manquantes.join(' et ') + ' n\'a/ont pas pu être chargée(s) depuis Internet — les graphiques et/ou l\'import Excel ne fonctionneront pas. Causes possibles : bloqueur de publicité (essayez de le désactiver pour ce site), réseau d\'entreprise filtrant les CDN externes, ou pas de connexion Internet au moment du chargement. Essayez de recharger la page (Ctrl+Maj+R) ou un autre réseau/navigateur.');
+    return;
+  }
+  chargerAuto();
+})();
 </script>
 </body>
 </html>
