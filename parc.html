@@ -397,6 +397,8 @@ table td:first-child, table th:first-child {
 table thead th:first-child { z-index: 3; background: var(--surface-2); }
 tbody tr:hover td:first-child { background: var(--surface-2); }
 #table-synthese tr.current-year td:first-child, .dg-table-wrap tr.current-year td:first-child { background: var(--blue-light); }
+.dg-arpu-title { font-size: 12px; font-weight: 700; color: var(--text-2); margin: 14px 0 2px; }
+.dg-arpu-note { font-size: 11px; color: var(--text-3); margin-bottom: 8px; font-style: italic; }
 .dg-subhead {
   font-size: 13.5px; font-weight: 700; color: var(--text);
   margin: 22px 0 10px; padding-top: 18px; border-top: 1px solid var(--border);
@@ -491,6 +493,9 @@ tbody tr:hover td:first-child { background: var(--surface-2); }
     <div class="dg-subhead">Analyse par type de liaison — LS / LSI (SYT) / Numérique (T0-T2)</div>
     <div class="dg-comment" id="dg-comment-produit">Analyse en cours de génération…</div>
     <div class="dg-chart-wrap" style="height:260px;"><canvas id="chart-synthese-produit"></canvas></div>
+    <div class="dg-arpu-title">💰 CA moyen par ligne active (ARPU), par catégorie et par année — pour repérer une éventuelle perte de valeur</div>
+    <div class="dg-arpu-note">Moyenne robuste : les contrats exceptionnellement gros ou les lignes à prix quasi nul (tests, promos) sont exclus du calcul pour ne pas fausser la tendance. Survolez une valeur pour voir le détail.</div>
+    <div class="table-scroll"><table id="table-arpu-produit"><thead></thead><tbody></tbody></table></div>
 
     <div class="dg-subhead">Analyse par client — succès et signaux d'alerte</div>
     <div class="dg-comment" id="dg-comment-client">Analyse en cours de génération…</div>
@@ -1575,16 +1580,21 @@ function computeProduitYearly(){
     });
     let cum = 0; const cumByYear = {};
     for (let y=minY;y<=maxY;y++){ cum += byYear[y].gains - byYear[y].pertes; cumByYear[y] = cum; }
+    let cumCA = 0; const cumCAByYear = {};
+    for (let y=minY;y<=maxY;y++){ cumCA += byYear[y].caGagne - byYear[y].caPerdu; cumCAByYear[y] = Math.max(0, cumCA); }
     const baseline = cumByYear[SCOPE_START_YEAR-1] !== undefined ? Math.max(0,cumByYear[SCOPE_START_YEAR-1]) : 0;
-    const rows = []; let parcDebut = baseline;
+    const caBaseline = cumCAByYear[SCOPE_START_YEAR-1] !== undefined ? cumCAByYear[SCOPE_START_YEAR-1] : 0;
+    const rows = []; let parcDebut = baseline; let caDebut = caBaseline;
     for (let y=SCOPE_START_YEAR; y<=SCOPE_END_YEAR; y++){
       const g = byYear[y] ? byYear[y].gains : 0;
       const p = byYear[y] ? byYear[y].pertes : 0;
       const caSolde = byYear[y] ? (byYear[y].caGagne - byYear[y].caPerdu) : 0;
       const solde = g - p;
       const parcFin = Math.max(0, parcDebut + solde);
-      rows.push({ year:y, gains:g, pertes:p, solde, caSolde, parcFin, isCurrent:y===SCOPE_END_YEAR });
-      parcDebut = parcFin;
+      const caFin = Math.max(0, caDebut + caSolde);
+      const arpu = parcFin ? caFin/parcFin : 0;
+      rows.push({ year:y, gains:g, pertes:p, solde, caSolde, parcFin, caFin, arpu, isCurrent:y===SCOPE_END_YEAR });
+      parcDebut = parcFin; caDebut = caFin;
     }
     result[cat] = { baseline, rows };
   });
@@ -1617,6 +1627,8 @@ function renderSyntheseProduit(){
       return n.toLocaleString('fr-FR') + ' (' + fmtCompact(caSolde) + ')';
     }
   });
+  const arpuData = computeArpuByCategory(order);
+  renderTableArpuProduit(order, arpuData);
 
   // Commentaire : identifie le moteur de croissance et le point d'attention
   const totals = {};
@@ -1647,6 +1659,33 @@ function renderSyntheseProduit(){
   const projTxts = order.filter(cat=>projPerCat[cat]).map(cat => `${PRODUIT_CAT_LABELS[cat]} ≈ ${projPerCat[cat].avg>=0?'+':''}${fmtNum(projPerCat[cat].avg)}`).join(', ');
   const perspectiveProduit = projTxts ? `<br><br><strong>Perspective ${nextYear} :</strong> à tendance inchangée, le solde net par famille pourrait avoisiner ${projTxts} lignes — estimation indicative sur la moyenne des derniers exercices complets. ` +
     `<strong>Actions à prioriser :</strong> concentrer les efforts commerciaux et l'avant-vente technique sur <strong>${PRODUIT_CAT_LABELS[meilleur]}</strong> qui tire la croissance, et engager un plan de reconquête ciblé sur <strong>${PRODUIT_CAT_LABELS[pire]}</strong>${alerte.length ? ' avant que le repli ne s\'aggrave en ' + nextYear : ' pour consolider sa dynamique'}.` : '';
+  // Comparaison volume (lignes) vs valeur (ARPU robuste) : une catégorie peut gagner en
+  // volume tout en perdant en valeur unitaire, ou l'inverse — c'est ce qu'on met en évidence ici.
+  const valeurParCat = {};
+  order.forEach(cat=>{
+    const stats = arpuData.arpuParCat[cat];
+    const debut = stats[0].moyenne, fin = stats[stats.length-1].moyenne;
+    const varPct = debut>0 ? (fin-debut)/debut*100 : null;
+    let sens;
+    if (varPct===null) sens = 'stable';
+    else if (varPct > 5) sens = 'hausse';
+    else if (varPct < -5) sens = 'baisse';
+    else sens = 'stable';
+    valeurParCat[cat] = { debut, fin, varPct, sens };
+  });
+
+  const phrasesComparaison = order.map(cat=>{
+    const vol = totals[cat].totalSolde >= 0 ? 'gagne en volume' : 'perd en volume';
+    const val = valeurParCat[cat];
+    const valTxt = val.sens==='hausse' ? 'gagne aussi en valeur' : (val.sens==='baisse' ? 'perd en valeur' : 'reste stable en valeur');
+    const contraste = ((totals[cat].totalSolde>=0 && val.sens==='baisse') || (totals[cat].totalSolde<0 && val.sens==='hausse'));
+    return `<strong>${PRODUIT_CAT_LABELS[cat]}</strong> ${vol} (${totals[cat].totalSolde>=0?'+':''}${fmtNum(totals[cat].totalSolde)} lignes) et ${valTxt} ` +
+      `(${fmtCFA(val.debut)} → ${fmtCFA(val.fin)}/ligne${val.varPct!==null ? ', ' + (val.varPct>=0?'+':'') + val.varPct.toFixed(0) + '%' : ''})` +
+      (contraste ? ' <span class="down"><strong>⚠ signal contrasté</strong></span>' : '') + '.';
+  });
+  const comparaisonVolumeValeur = `<br><br><strong>Volume vs valeur :</strong> ` + phrasesComparaison.join(' ') +
+    ` (moyennes robustes, valeurs extrêmes exclues — voir tableau ci-dessous).`;
+
 
   document.getElementById('dg-comment-produit').innerHTML =
     `<strong>${PRODUIT_CAT_LABELS[meilleur]}</strong> est le principal moteur de croissance depuis ${SCOPE_START_YEAR} ` +
@@ -1654,7 +1693,71 @@ function renderSyntheseProduit(){
     `${totals[meilleur].croissancePct!==null ? ' (' + (totals[meilleur].croissancePct>=0?'+':'') + totals[meilleur].croissancePct.toFixed(1) + '% vs fin ' + (SCOPE_START_YEAR-1) + ')' : ''}, ` +
     `tandis que <strong>${PRODUIT_CAT_LABELS[pire]}</strong> affiche la progression la plus faible des trois ` +
     `(<span class="${totals[pire].totalSolde>=0?'up':'down'}">${totals[pire].totalSolde>=0?'+':''}${fmtNum(totals[pire].totalSolde)} lignes</span>).` +
-    phraseAlerte + perspectiveProduit;
+    phraseAlerte + comparaisonVolumeValeur + perspectiveProduit;
+}
+
+// Percentile d'un tableau TRIÉ (interpolation linéaire, méthode standard)
+function percentile(sortedArr, p){
+  if (!sortedArr.length) return 0;
+  const idx = (p/100) * (sortedArr.length - 1);
+  const lo = Math.floor(idx), hi = Math.ceil(idx);
+  if (lo === hi) return sortedArr[lo];
+  return sortedArr[lo] + (sortedArr[hi]-sortedArr[lo]) * (idx-lo);
+}
+// Moyenne "robuste" : exclut les valeurs extrêmes (très gros contrats, prix quasi nuls/promos)
+// via la méthode de Tukey (bornes = Q1-1.5×IQR et Q3+1.5×IQR), un standard statistique
+// reconnu pour ce type de nettoyage, plutôt qu'un seuil arbitraire.
+function moyenneRobuste(values){
+  const v = values.filter(x => x > 0).sort((a,b)=>a-b); // on ignore les lignes à 0 (gratuites/tests), pas des "prix bas exceptionnels"
+  if (!v.length) return { moyenne:0, n:0, nExclus:0 };
+  const q1 = percentile(v, 25), q3 = percentile(v, 75);
+  const iqr = q3 - q1;
+  const basse = q1 - 1.5*iqr, haute = q3 + 1.5*iqr;
+  const filtres = v.filter(x => x >= basse && x <= haute);
+  const base = filtres.length ? filtres : v; // si tout est "exclu" (peu de données), on retombe sur l'ensemble
+  return { moyenne: base.reduce((s,x)=>s+x,0)/base.length, n: base.length, nExclus: v.length - base.length };
+}
+
+// Reconstruit, pour chaque catégorie et chaque année, la moyenne robuste du CA des lignes
+// actives à cette date (historique complet, indépendant des filtres).
+function computeArpuByCategory(order){
+  const years = [];
+  for (let y=SCOPE_START_YEAR; y<=SCOPE_END_YEAR; y++) years.push(y);
+  const arpuParCat = {};
+  order.forEach(cat=>{
+    const catRows = rawRows.filter(r=>r.catProduit===cat);
+    arpuParCat[cat] = years.map(y=>{
+      const actives = catRows.filter(r=>{
+        const installee = r.dateMS.getFullYear() <= y;
+        const encoreActive = r.etat !== 'RESILIE' || (r.dateSortie && r.dateSortie.getFullYear() > y);
+        return installee && encoreActive;
+      }).map(r=>r.ca);
+      return moyenneRobuste(actives);
+    });
+  });
+  return { years, arpuParCat };
+}
+
+function renderTableArpuProduit(order, arpuData){
+  const { years, arpuParCat } = arpuData;
+  const thead = document.querySelector('#table-arpu-produit thead');
+  thead.innerHTML = '<tr><th>Catégorie</th>' + years.map(y => `<th class="num">${y}${y===SCOPE_END_YEAR?' <span class="tag">en cours</span>':''}</th>`).join('') + '</tr>';
+
+  const tbody = document.querySelector('#table-arpu-produit tbody');
+  tbody.innerHTML = order.map(cat => {
+    const stats = arpuParCat[cat];
+    const cells = stats.map((s, i) => {
+      let trendIcon = '';
+      if (i>0 && stats[i-1].moyenne>0){
+        const varPct = (s.moyenne-stats[i-1].moyenne)/stats[i-1].moyenne*100;
+        if (varPct < -3) trendIcon = ' <span class="solde-neg">▼</span>';
+        else if (varPct > 3) trendIcon = ' <span class="solde-pos">▲</span>';
+      }
+      const titre = `${s.n} ligne(s) prise(s) en compte${s.nExclus ? ', ' + s.nExclus + ' valeur(s) extrême(s) exclue(s)' : ''}`;
+      return `<td class="num" title="${titre}">${fmtCFA(s.moyenne)}${trendIcon}</td>`;
+    }).join('');
+    return `<tr><td><strong>${escHtml(PRODUIT_CAT_LABELS[cat])}</strong></td>${cells}</tr>`;
+  }).join('');
 }
 
 /* =========================================================
