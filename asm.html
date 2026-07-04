@@ -1507,8 +1507,40 @@ window.deletePda = async function(i) {
 // ── COMEX ──
 let editStateComex = null;
 let comexCalDate = new Date();
-let pendingComexFile = null;
+let pendingComexFiles = [];   // [{file, name, size}] fichiers pas encore uploadés
+let existingComexFiles = [];  // [{fileUrl, fileName, filePath}] fichiers déjà attachés (édition)
 const COMEX_MONTH_NAMES = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+
+function comexAttachmentsList(r) {
+  if (r && r.files && r.files.length) return r.files;
+  if (r && r.fileUrl) return [{ fileUrl: r.fileUrl, fileName: r.fileName }];
+  return [];
+}
+function comexAttachmentsHtml(r) {
+  return comexAttachmentsList(r).map(f =>
+    ` <a href="${f.fileUrl}" target="_blank" style="color:var(--accent);font-size:11px;margin-left:4px;" title="${(f.fileName||'Fichier').replace(/"/g,'&quot;')}">📎</a>`
+  ).join('');
+}
+function renderFileChips(prefix) {
+  const wrap = document.getElementById(prefix+'-file-chip-wrap'); if (!wrap) return;
+  const existing = (prefix==='cx' ? existingComexFiles : existingKpiComexFiles).map((f,i) => `
+    <div class="file-chip">📎 ${f.fileName||'Fichier'} <a href="${f.fileUrl}" target="_blank" style="margin-left:6px;color:var(--accent);font-size:11px">Voir</a>
+      <span onclick="removeExistingComexFile('${prefix}',${i})" style="cursor:pointer;margin-left:6px;color:var(--red);">✕</span>
+    </div>`);
+  const pending = (prefix==='cx' ? pendingComexFiles : pendingKpiComexFiles).map((f,i) => `
+    <div class="file-chip">📎 ${f.name} (${formatSize(f.size)})
+      <span onclick="removePendingComexFile('${prefix}',${i})" style="cursor:pointer;margin-left:6px;color:var(--red);">✕</span>
+    </div>`);
+  wrap.innerHTML = existing.concat(pending).join('') || '';
+}
+window.removeExistingComexFile = function(prefix, i) {
+  if (prefix==='cx') existingComexFiles.splice(i,1); else existingKpiComexFiles.splice(i,1);
+  renderFileChips(prefix);
+};
+window.removePendingComexFile = function(prefix, i) {
+  if (prefix==='cx') pendingComexFiles.splice(i,1); else pendingKpiComexFiles.splice(i,1);
+  renderFileChips(prefix);
+};
 
 function cxPad2(n) { return n < 10 ? '0'+n : ''+n; }
 function cxDstr(y,m,d) { return y+'-'+cxPad2(m+1)+'-'+cxPad2(d); }
@@ -1597,7 +1629,7 @@ function renderComexTable() {
   }
   tbody.innerHTML = rows.map(r => `
     <tr class="tbl-tr">
-      <td class="tbl-td" style="font-size:12px">${r.asm||'—'}${r.fileUrl?` <a href="${r.fileUrl}" target="_blank" style="color:var(--accent);font-size:11px;margin-left:4px;">📎 PDF</a>`:''}</td>
+      <td class="tbl-td" style="font-size:12px">${r.asm||'—'}${comexAttachmentsHtml(r)}</td>
       <td class="tbl-td mono" style="font-size:12px">${r.date?formatDate(r.date):'—'}</td>
       <td class="tbl-td"><span class="tag ${comexTagClass(r)}">${comexStateLabel(r)}</span></td>
       <td class="tbl-td tbl-actions">
@@ -1614,20 +1646,21 @@ window.comexPrevMonth = comexPrevMonth;
 window.comexNextMonth = comexNextMonth;
 
 window.onComexFileSelect = function(e) {
-  const f = e.target.files[0]; if (!f) return;
-  pendingComexFile = { file: f, name: f.name, size: f.size };
-  document.getElementById('cx-file-chip-wrap').innerHTML = `<div class="file-chip">📎 ${f.name} (${formatSize(f.size)})</div>`;
+  Array.from(e.target.files||[]).forEach(f => pendingComexFiles.push({ file: f, name: f.name, size: f.size }));
+  e.target.value = '';
+  renderFileChips('cx');
 };
 
 window.openAddComex = function() {
   if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   editStateComex = null;
-  pendingComexFile = null;
+  pendingComexFiles = [];
+  existingComexFiles = [];
   document.getElementById('comex-modal-title').innerHTML = 'Nouveau RDV COMEX <button class="modal-close" onclick="closeModal(\'modal-comex\')">✕</button>';
   populateComexAsmSelect('cx', '');
   document.getElementById('cx-type').value = 'Réunion physique';
   document.getElementById('cx-date').value = '';
-  document.getElementById('cx-file-chip-wrap').innerHTML = '';
+  renderFileChips('cx');
   document.getElementById('cx-comment').value = '';
   document.getElementById('cx-done').checked = false;
   document.getElementById('modal-comex').style.display='flex';
@@ -1636,12 +1669,13 @@ window.openAddComex = function() {
 window.editComex = function(i) {
   const c = getClient(); const r = (c.comex||[])[i]; if (!r) return;
   editStateComex = i;
-  pendingComexFile = null;
+  pendingComexFiles = [];
+  existingComexFiles = comexAttachmentsList(r).map(f => ({ fileUrl: f.fileUrl, fileName: f.fileName, filePath: f.filePath }));
   document.getElementById('comex-modal-title').innerHTML = 'Modifier le RDV <button class="modal-close" onclick="closeModal(\'modal-comex\')">✕</button>';
   populateComexAsmSelect('cx', r.asm || '');
   document.getElementById('cx-type').value = r.type || 'Réunion physique';
   document.getElementById('cx-date').value = r.date || '';
-  document.getElementById('cx-file-chip-wrap').innerHTML = r.fileName?`<div class="file-chip">📎 ${r.fileName} <a href="${r.fileUrl}" target="_blank" style="margin-left:6px;color:var(--accent);font-size:11px">Voir</a></div>`:'';
+  renderFileChips('cx');
   document.getElementById('cx-comment').value = r.comment || '';
   document.getElementById('cx-done').checked = !!r.done;
   document.getElementById('modal-comex').style.display='flex';
@@ -1656,18 +1690,14 @@ window.saveComex = async function() {
   const date = document.getElementById('cx-date').value;
   if (!date) { toast('⚠️ La date est obligatoire','error'); document.getElementById('cx-date').focus(); return; }
 
-  let fileUrl = null, fileName = null, filePath = null;
-  if (editStateComex !== null) {
-    const existing = c.comex[editStateComex];
-    fileUrl = existing.fileUrl || null;
-    fileName = existing.fileName || null;
-    filePath = existing.filePath || null;
-  }
-  if (pendingComexFile) {
+  let files = existingComexFiles.slice();
+  if (pendingComexFiles.length) {
     try {
-      toast('Upload du fichier…');
-      const res = await uploadFile(pendingComexFile.file, c.id + '_comex');
-      fileUrl = res.url; fileName = pendingComexFile.name; filePath = res.path;
+      for (const pf of pendingComexFiles) {
+        toast(`Upload de ${pf.name}…`);
+        const res = await uploadFile(pf.file, c.id + '_comex');
+        files.push({ fileUrl: res.url, fileName: pf.name, filePath: res.path });
+      }
     } catch(e) { toast('Erreur upload : '+e.message,'error'); return; }
   }
 
@@ -1676,14 +1706,15 @@ window.saveComex = async function() {
     type: document.getElementById('cx-type').value,
     comment: document.getElementById('cx-comment').value.trim(),
     done: document.getElementById('cx-done').checked,
-    ...(fileUrl ? { fileUrl, fileName, filePath } : {}),
+    ...(files.length ? { files, fileUrl: files[0].fileUrl, fileName: files[0].fileName, filePath: files[0].filePath } : {}),
   };
   if (!c.comex) c.comex = [];
   if (editStateComex !== null) c.comex[editStateComex] = obj; else c.comex.push(obj);
   try {
     toast('Enregistrement…');
     await fsSaveClient(c);
-    pendingComexFile = null;
+    pendingComexFiles = [];
+    existingComexFiles = [];
     closeModal('modal-comex');
     renderComex();
     toast('RDV enregistré ✓','success');
@@ -1701,7 +1732,8 @@ window.confirmComex = async function(i) {
 // ── COMEX GLOBAL (page Performances KPI) ──
 let kpiComexCalDate = new Date();
 let editStateKpiComex = null; // { clientId, idx } ou null
-let pendingKpiComexFile = null;
+let pendingKpiComexFiles = [];
+let existingKpiComexFiles = [];
 
 function kpiComexAllItems() {
   const items = [];
@@ -1726,11 +1758,24 @@ function renderKpiComexStats() {
   const done = items.filter(r=>r.done).length;
   const late = items.filter(r=>!r.done && r.date && r.date < comexTodayStr()).length;
   const grey = total - done - late;
+
+  const y = kpiComexCalDate.getFullYear(), m = kpiComexCalDate.getMonth();
+  const monthPrefix = y + '-' + cxPad2(m+1);
+  const itemsThisMonth = items.filter(r => (r.date||'').indexOf(monthPrefix) === 0);
+  const asmCounts = {};
+  itemsThisMonth.forEach(r => { const nom = (r.asm||'').trim(); if (!nom) return; asmCounts[nom] = (asmCounts[nom]||0) + 1; });
+  const asmNames = Object.keys(asmCounts).sort((a,b)=>a.localeCompare(b));
+  const asmBadges = asmNames.length
+    ? asmNames.map(nom => `<span class="comex-stat" style="background:#eef2fb;color:#2f3f5c;"><b>${nom}</b> (${asmCounts[nom]})</span>`).join('')
+    : `<span class="comex-stat" style="color:var(--text3);">Aucun RDV ce mois-ci</span>`;
+
   document.getElementById('kpi-comex-stats').innerHTML = `
     <div class="comex-stat"><b>${total}</b> RDV planifiés</div>
     <div class="comex-stat st-done"><b>${done}</b> Réalisés</div>
     <div class="comex-stat st-ko"><b>${late}</b> En retard</div>
-    <div class="comex-stat st-grey"><b>${grey}</b> En cours</div>`;
+    <div class="comex-stat st-grey"><b>${grey}</b> En cours</div>
+    <span style="width:1px;align-self:stretch;background:#e2e6ef;margin:0 2px;"></span>
+    ${asmBadges}`;
 }
 
 function renderKpiComexCalendar() {
@@ -1789,7 +1834,7 @@ function renderKpiComexTable() {
   tbody.innerHTML = items.map(r => `
     <tr class="tbl-tr">
       <td class="tbl-td" style="font-size:12px;font-weight:600">${r.clientNom||'—'}</td>
-      <td class="tbl-td" style="font-size:12px">${r.asm||'—'}${r.fileUrl?` <a href="${r.fileUrl}" target="_blank" style="color:var(--accent);font-size:11px;margin-left:4px;">📎 PDF</a>`:''}</td>
+      <td class="tbl-td" style="font-size:12px">${r.asm||'—'}${comexAttachmentsHtml(r)}</td>
       <td class="tbl-td mono" style="font-size:12px">${r.date?formatDate(r.date):'—'}</td>
       <td class="tbl-td"><span class="tag ${comexTagClass(r)}">${comexStateLabel(r)}</span></td>
       <td class="tbl-td tbl-actions">
@@ -1800,21 +1845,22 @@ function renderKpiComexTable() {
     </tr>`).join('');
 }
 
-function kpiComexPrevMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()-1, 1); renderKpiComexCalendar(); }
-function kpiComexNextMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()+1, 1); renderKpiComexCalendar(); }
+function kpiComexPrevMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()-1, 1); renderKpiComexCalendar(); renderKpiComexStats(); }
+function kpiComexNextMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()+1, 1); renderKpiComexCalendar(); renderKpiComexStats(); }
 window.kpiComexPrevMonth = kpiComexPrevMonth;
 window.kpiComexNextMonth = kpiComexNextMonth;
 
 window.onKpiComexFileSelect = function(e) {
-  const f = e.target.files[0]; if (!f) return;
-  pendingKpiComexFile = { file: f, name: f.name, size: f.size };
-  document.getElementById('kcx-file-chip-wrap').innerHTML = `<div class="file-chip">📎 ${f.name} (${formatSize(f.size)})</div>`;
+  Array.from(e.target.files||[]).forEach(f => pendingKpiComexFiles.push({ file: f, name: f.name, size: f.size }));
+  e.target.value = '';
+  renderFileChips('kcx');
 };
 
 window.openAddKpiComex = function() {
   if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
   editStateKpiComex = null;
-  pendingKpiComexFile = null;
+  pendingKpiComexFiles = [];
+  existingKpiComexFiles = [];
   document.getElementById('kpi-comex-modal-title').innerHTML = 'Nouveau RDV COMEX <button class="modal-close" onclick="closeModal(\'modal-kpi-comex\')">✕</button>';
   const sel = document.getElementById('kcx-client');
   sel.innerHTML = '<option value="">— Sélectionner un client —</option>' +
@@ -1822,7 +1868,7 @@ window.openAddKpiComex = function() {
   populateComexAsmSelect('kcx', '');
   document.getElementById('kcx-type').value = 'Réunion physique';
   document.getElementById('kcx-date').value = '';
-  document.getElementById('kcx-file-chip-wrap').innerHTML = '';
+  renderFileChips('kcx');
   document.getElementById('kcx-comment').value = '';
   document.getElementById('kcx-done').checked = false;
   document.getElementById('modal-kpi-comex').style.display='flex';
@@ -1831,14 +1877,15 @@ window.openAddKpiComex = function() {
 window.editKpiComex = function(clientId, idx) {
   const c = clients.find(x=>x.id===clientId); const r = c && (c.comex||[])[idx]; if (!r) return;
   editStateKpiComex = { clientId, idx };
-  pendingKpiComexFile = null;
+  pendingKpiComexFiles = [];
+  existingKpiComexFiles = comexAttachmentsList(r).map(f => ({ fileUrl: f.fileUrl, fileName: f.fileName, filePath: f.filePath }));
   document.getElementById('kpi-comex-modal-title').innerHTML = 'Modifier le RDV <button class="modal-close" onclick="closeModal(\'modal-kpi-comex\')">✕</button>';
   const sel = document.getElementById('kcx-client');
   sel.innerHTML = clients.slice().sort((a,b)=>a.nom.localeCompare(b.nom)).map(x=>`<option value="${x.id}" ${x.id===clientId?'selected':''}>${x.nom}</option>`).join('');
   populateComexAsmSelect('kcx', r.asm || '');
   document.getElementById('kcx-type').value = r.type || 'Réunion physique';
   document.getElementById('kcx-date').value = r.date || '';
-  document.getElementById('kcx-file-chip-wrap').innerHTML = r.fileName?`<div class="file-chip">📎 ${r.fileName} <a href="${r.fileUrl}" target="_blank" style="margin-left:6px;color:var(--accent);font-size:11px">Voir</a></div>`:'';
+  renderFileChips('kcx');
   document.getElementById('kcx-comment').value = r.comment || '';
   document.getElementById('kcx-done').checked = !!r.done;
   document.getElementById('modal-kpi-comex').style.display='flex';
@@ -1857,22 +1904,14 @@ window.saveKpiComex = async function() {
   const c = clients.find(x=>x.id===clientId); if (!c) return;
   if (!c.comex) c.comex = [];
 
-  let fileUrl = null, fileName = null, filePath = null;
-  if (editStateKpiComex && editStateKpiComex.clientId === clientId) {
-    const existing = c.comex[editStateKpiComex.idx];
-    fileUrl = existing.fileUrl || null;
-    fileName = existing.fileName || null;
-    filePath = existing.filePath || null;
-  } else if (editStateKpiComex) {
-    const oldClient = clients.find(x=>x.id===editStateKpiComex.clientId);
-    const existing = oldClient && oldClient.comex && oldClient.comex[editStateKpiComex.idx];
-    if (existing) { fileUrl = existing.fileUrl || null; fileName = existing.fileName || null; filePath = existing.filePath || null; }
-  }
-  if (pendingKpiComexFile) {
+  let files = existingKpiComexFiles.slice();
+  if (pendingKpiComexFiles.length) {
     try {
-      toast('Upload du fichier…');
-      const res = await uploadFile(pendingKpiComexFile.file, clientId + '_comex');
-      fileUrl = res.url; fileName = pendingKpiComexFile.name; filePath = res.path;
+      for (const pf of pendingKpiComexFiles) {
+        toast(`Upload de ${pf.name}…`);
+        const res = await uploadFile(pf.file, clientId + '_comex');
+        files.push({ fileUrl: res.url, fileName: pf.name, filePath: res.path });
+      }
     } catch(e) { toast('Erreur upload : '+e.message,'error'); return; }
   }
 
@@ -1881,7 +1920,7 @@ window.saveKpiComex = async function() {
     type: document.getElementById('kcx-type').value,
     comment: document.getElementById('kcx-comment').value.trim(),
     done: document.getElementById('kcx-done').checked,
-    ...(fileUrl ? { fileUrl, fileName, filePath } : {}),
+    ...(files.length ? { files, fileUrl: files[0].fileUrl, fileName: files[0].fileName, filePath: files[0].filePath } : {}),
   };
 
   try {
@@ -1900,7 +1939,8 @@ window.saveKpiComex = async function() {
       c.comex.push(obj);
     }
     await fsSaveClient(c);
-    pendingKpiComexFile = null;
+    pendingKpiComexFiles = [];
+    existingKpiComexFiles = [];
     closeModal('modal-kpi-comex');
     renderKpiComex();
     toast('RDV enregistré ✓','success');
@@ -2420,9 +2460,12 @@ function renderKpiMembers() {
       </div>
       <div style="padding:10px 14px 14px;">
         <input ${readonly?'disabled':''} value="${(m.poste||'').replace(/"/g,'&quot;')}" placeholder="Poste / Client référent" oninput="kpiUpdateField(${i},'poste',this.value)" style="width:100%;box-sizing:border-box;border:none;border-bottom:1px solid #e2e6ef;padding:3px 2px;font-family:'DM Mono',monospace;font-size:11px;color:#546882;margin-bottom:8px;background:transparent;">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-          <span style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;text-transform:uppercase;letter-spacing:.05em;">Note /10</span>
-          <input ${readonly?'disabled':''} type="number" min="0" max="10" step="0.5" value="${m.note||''}" oninput="kpiUpdateField(${i},'note',this.value,true)" onchange="renderKpiMembers()" style="width:60px;border:1px solid #e2e6ef;border-radius:6px;padding:3px 6px;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:#8a6310;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;background:linear-gradient(135deg,#fdf3da,#fff8e8);border:1px solid #e8c873;border-radius:10px;padding:8px 12px;">
+          <span style="font-family:'DM Mono',monospace;font-size:10px;color:#8a6310;text-transform:uppercase;letter-spacing:.06em;font-weight:700;">⭐ Note</span>
+          <div style="display:flex;align-items:baseline;gap:2px;">
+            <input ${readonly?'disabled':''} type="number" min="0" max="10" step="0.5" value="${m.note||''}" oninput="kpiUpdateField(${i},'note',this.value,true)" onchange="renderKpiMembers()" style="width:52px;border:none;background:transparent;text-align:right;font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:#8a6310;padding:0;">
+            <span style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:#c9a54a;">/10</span>
+          </div>
         </div>
         <textarea ${readonly?'disabled':''} oninput="kpiUpdateField(${i},'clientsResume',this.value)" placeholder="Résumé clients gérés / faits marquants…" style="width:100%;box-sizing:border-box;border:1px solid #e2e6ef;border-radius:6px;padding:6px 8px;font-size:11px;color:#4b5368;resize:vertical;min-height:46px;font-family:'Helvetica Neue',sans-serif;">${m.clientsResume||''}</textarea>
       </div>
@@ -3936,10 +3979,10 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
     </div>
     <div class="field"><label>Date RDV <span style="color:var(--red)">*</span></label><input id="cx-date" type="date"></div>
     <div class="field">
-      <label>Pièce jointe (PDF)</label>
+      <label>Pièces jointes (tous types, plusieurs fichiers)</label>
       <button type="button" onclick="document.getElementById('cx-file-input').click()" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 14px;font-size:12px;color:var(--text2);cursor:pointer;font-family:'DM Mono',monospace;">📎 Parcourir…</button>
-      <div id="cx-file-chip-wrap" style="font-size:12px;color:var(--text2);font-family:'DM Mono',monospace;margin-top:6px;"></div>
-      <input type="file" id="cx-file-input" accept="application/pdf" style="display:none" onchange="onComexFileSelect(event)">
+      <div id="cx-file-chip-wrap" style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2);font-family:'DM Mono',monospace;margin-top:6px;"></div>
+      <input type="file" id="cx-file-input" multiple style="display:none" onchange="onComexFileSelect(event)">
     </div>
     <div class="field"><label>Commentaire</label><textarea id="cx-comment" placeholder="Observations, points abordés…" style="min-height:70px"></textarea></div>
     <div class="field" style="display:flex;align-items:center;gap:8px;">
@@ -4125,14 +4168,14 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
 
       <!-- Classement performance -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
-        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">👥 Classement de l'équipe — performances</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">👥 Classement des ASM selon la satisfaction client</span>
         <span id="kpi-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#8a6310;background:#fdf0d0;border:1px solid #e8c873;border-radius:20px;padding:3px 10px;"></span>
       </div>
       <div id="kpi-members-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:30px;"></div>
 
       <!-- Opportunités gagnées -->
       <div style="display:flex;align-items:center;gap:8px;margin:8px 0 14px;">
-        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">💰 Résumé des opportunités gagnées</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">💰 Classement des ASM selon les opportunités gagnées</span>
         <span id="kpi-opp-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#15803d;background:#e6f7ee;border:1px solid #b6e4cb;border-radius:20px;padding:3px 10px;"></span>
       </div>
       <div id="kpi-opp-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px;"></div>
@@ -4260,10 +4303,10 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
     </div>
     <div class="field"><label>Date RDV <span style="color:var(--red)">*</span></label><input id="kcx-date" type="date"></div>
     <div class="field">
-      <label>Pièce jointe (PDF)</label>
+      <label>Pièces jointes (tous types, plusieurs fichiers)</label>
       <button type="button" onclick="document.getElementById('kcx-file-input').click()" style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:6px 14px;font-size:12px;color:var(--text2);cursor:pointer;font-family:'DM Mono',monospace;">📎 Parcourir…</button>
-      <div id="kcx-file-chip-wrap" style="font-size:12px;color:var(--text2);font-family:'DM Mono',monospace;margin-top:6px;"></div>
-      <input type="file" id="kcx-file-input" accept="application/pdf" style="display:none" onchange="onKpiComexFileSelect(event)">
+      <div id="kcx-file-chip-wrap" style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text2);font-family:'DM Mono',monospace;margin-top:6px;"></div>
+      <input type="file" id="kcx-file-input" multiple style="display:none" onchange="onKpiComexFileSelect(event)">
     </div>
     <div class="field"><label>Commentaire</label><textarea id="kcx-comment" placeholder="Observations, points abordés…" style="min-height:70px"></textarea></div>
     <div class="field" style="display:flex;align-items:center;gap:8px;">
