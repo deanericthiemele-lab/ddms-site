@@ -212,6 +212,93 @@ async function resolveComexAsmValue(prefix) {
   return (val || '').trim();
 }
 
+// ── Filtrage des clients par ASM dans le formulaire RDV COMEX (basé sur asmTeams) ──
+function comexFindAsmTeamByName(nom) {
+  const target = (nom||'').trim().toLowerCase();
+  if (!target) return null;
+  return asmTeams.find(t => (t.nom||'').trim().toLowerCase() === target) || null;
+}
+
+async function comexAssignClientToAsmTeam(clientId, asmName) {
+  let team = comexFindAsmTeamByName(asmName);
+  asmTeams.forEach(t => { t.clientIds = (t.clientIds||[]).filter(id => id !== clientId); });
+  if (!team) { team = { id: 'asm_' + Date.now(), nom: asmName, clientIds: [] }; asmTeams.push(team); }
+  team.clientIds = [...(team.clientIds||[]), clientId];
+  await Promise.all(asmTeams.map(t => saveAsmTeam(t)));
+}
+
+// — Modale RDV côté fiche client (client fixe, on affecte le client courant à l'ASM choisi) —
+window.cxUpdateAssignBtn = function() {
+  const btn = document.getElementById('cx-assign-btn'); if (!btn) return;
+  const asmName = (document.getElementById('cx-asm-select').value||'').trim();
+  const c = getClient();
+  if (!asmName || asmName === '__new__' || !c) { btn.style.display = 'none'; return; }
+  const team = comexFindAsmTeamByName(asmName);
+  const already = team && (team.clientIds||[]).includes(c.id);
+  btn.style.display = already ? 'none' : 'inline-block';
+};
+
+window.cxAssignClientToAsm = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  const asmName = (document.getElementById('cx-asm-select').value||'').trim();
+  const c = getClient(); if (!c || !asmName || asmName === '__new__') return;
+  if (!kpiCheckSensitivePassword(`Affectation de ${c.nom} à l'ASM ${asmName}`)) return;
+  try {
+    toast('Affectation…');
+    await comexAssignClientToAsmTeam(c.id, asmName);
+    toast(`Client affecté à ${asmName} ✓`,'success');
+    cxUpdateAssignBtn();
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
+// — Modale RDV globale (page KPI) : filtre le select Client selon l'ASM sélectionné —
+window.kcxFilterClientsByAsm = function(preserveClientId) {
+  const sel = document.getElementById('kcx-client'); if (!sel) return;
+  const asmName = (document.getElementById('kcx-asm-select').value||'').trim();
+  const team = asmName ? comexFindAsmTeamByName(asmName) : null;
+  const asmClientIds = team ? (team.clientIds||[]) : null;
+  let pool = clients.slice().sort((a,b)=>a.nom.localeCompare(b.nom));
+  let filtered = asmClientIds ? pool.filter(c => asmClientIds.includes(c.id)) : pool;
+  if (preserveClientId && !filtered.some(c=>c.id===preserveClientId)) {
+    const extra = clients.find(c=>c.id===preserveClientId);
+    if (extra) filtered = [extra, ...filtered];
+  }
+  sel.innerHTML = '<option value="">— Sélectionner un client —</option>' +
+    filtered.map(c=>`<option value="${c.id}" ${c.id===preserveClientId?'selected':''}>${c.nom}</option>`).join('');
+  const hint = document.getElementById('kcx-client-hint');
+  if (hint) {
+    hint.textContent = (asmName && asmClientIds)
+      ? `${filtered.length} client${filtered.length>1?'s':''} affecté${filtered.length>1?'s':''} à ${asmName}`
+      : '';
+  }
+  kcxUpdateAssignBtn();
+};
+
+window.kcxUpdateAssignBtn = function() {
+  const btn = document.getElementById('kcx-assign-btn'); if (!btn) return;
+  const asmName = (document.getElementById('kcx-asm-select').value||'').trim();
+  const clientId = document.getElementById('kcx-client').value;
+  if (!asmName || asmName === '__new__' || !clientId) { btn.style.display = 'none'; return; }
+  const team = comexFindAsmTeamByName(asmName);
+  const already = team && (team.clientIds||[]).includes(clientId);
+  btn.style.display = already ? 'none' : 'inline-block';
+};
+
+window.kcxAssignClientToAsm = async function() {
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  const asmName = (document.getElementById('kcx-asm-select').value||'').trim();
+  const clientId = document.getElementById('kcx-client').value;
+  if (!asmName || asmName === '__new__' || !clientId) return;
+  const c = clients.find(x=>x.id===clientId);
+  if (!kpiCheckSensitivePassword(`Affectation de ${c?c.nom:'ce client'} à l'ASM ${asmName}`)) return;
+  try {
+    toast('Affectation…');
+    await comexAssignClientToAsmTeam(clientId, asmName);
+    toast(`Client affecté à ${asmName} ✓`,'success');
+    kcxFilterClientsByAsm(clientId);
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
+
 // ── INIT ──
 async function init() {
   const role = sessionStorage.getItem('userRole');
@@ -616,6 +703,7 @@ window.addClient = async function() {
     document.getElementById('c-asm-new').value = '';
     document.getElementById('new-asm-wrap').style.display = 'none';
     renderSidebar(); selectClient(c.id);
+    if (document.getElementById('modal-asm-config').style.display !== 'none') renderAsmConfigList();
     toast('Client créé ✓', 'success');
   } catch(e) { toast('Erreur : '+e.message,'error'); }
 };
@@ -1342,6 +1430,21 @@ window.openModalAsmConfig = function() {
   document.getElementById('modal-asm-config').style.display='flex';
 };
 
+function asmReassignOptionsHtml(excludeTeamId) {
+  return asmTeams.filter(t=>t.id!==excludeTeamId).map(t=>`<option value="${t.id}">→ ${t.nom}</option>`).join('') +
+    (excludeTeamId !== '__none__' ? `<option value="__none__">→ Non affecté</option>` : '');
+}
+
+function asmClientPillHtml(c, currentTeamId) {
+  return `<span class="asm-client-pill">
+    ${c.nom}
+    <select onchange="reassignClientToAsm('${c.id}','${currentTeamId||''}',this.value);this.selectedIndex=0;" style="margin-left:5px;font-size:10px;border:none;background:transparent;cursor:pointer;color:inherit;" title="Réaffecter à un autre ASM">
+      <option value="">⇄</option>
+      ${asmReassignOptionsHtml(currentTeamId)}
+    </select>
+  </span>`;
+}
+
 function renderAsmConfigList() {
   const el = document.getElementById('asm-config-list');
   if (!asmTeams.length) {
@@ -1353,11 +1456,11 @@ function renderAsmConfigList() {
   const nonAffectes = clients.filter(c => !allAffected.includes(c.id));
 
   el.innerHTML = asmTeams.map(t => {
-    const clientNoms = (t.clientIds||[]).map(id => { const c = clients.find(x=>x.id===id); return c?c.nom:''; }).filter(Boolean);
+    const asmClients = (t.clientIds||[]).map(id => clients.find(x=>x.id===id)).filter(Boolean);
     return `<div class="asm-cfg-row">
       <div class="asm-cfg-info">
-        <div class="asm-cfg-nom">👤 ${t.nom}</div>
-        <div class="asm-cfg-clients">${clientNoms.length ? clientNoms.map(n=>`<span class="asm-client-pill">${n}</span>`).join('') : '<span style="color:var(--text3);font-style:italic">Aucun client affecté</span>'}</div>
+        <div class="asm-cfg-nom">👤 ${t.nom} <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:var(--text3);">(${asmClients.length})</span></div>
+        <div class="asm-cfg-clients">${asmClients.length ? asmClients.map(c=>asmClientPillHtml(c, t.id)).join('') : '<span style="color:var(--text3);font-style:italic">Aucun client affecté</span>'}</div>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
         <button class="btn-sm-edit" onclick="editAsmConfig('${t.id}')">✏️ Modifier</button>
@@ -1367,9 +1470,27 @@ function renderAsmConfigList() {
   }).join('') + (nonAffectes.length ? `
     <div style="margin-top:10px;padding:10px 12px;background:rgba(217,119,6,.06);border:1px solid rgba(217,119,6,.2);border-radius:8px">
       <div style="font-family:'DM Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--orange);margin-bottom:6px">⚠️ Clients sans ASM (${nonAffectes.length})</div>
-      <div style="display:flex;flex-wrap:wrap;gap:4px">${nonAffectes.map(c=>`<span class="asm-client-pill" style="background:rgba(217,119,6,.1);color:var(--orange)">${c.nom}</span>`).join('')}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${nonAffectes.map(c=>asmClientPillHtml(c, '__none__').replace('asm-client-pill"','asm-client-pill" style="background:rgba(217,119,6,.1);color:var(--orange)"')).join('')}</div>
     </div>` : '');
 }
+
+window.reassignClientToAsm = async function(clientId, currentTeamId, targetTeamId) {
+  if (!targetTeamId) return;
+  if(!canWrite()){toast('🔒 Accès lecture seule — connexion admin requise','error');return;}
+  const c = clients.find(x=>x.id===clientId);
+  const targetTeam = targetTeamId === '__none__' ? null : asmTeams.find(t=>t.id===targetTeamId);
+  const label = targetTeam ? `Réaffectation de ${c?c.nom:'ce client'} vers ${targetTeam.nom}` : `Retrait de l'affectation ASM de ${c?c.nom:'ce client'}`;
+  if (!kpiCheckSensitivePassword(label)) return;
+  asmTeams.forEach(t => { t.clientIds = (t.clientIds||[]).filter(id=>id!==clientId); });
+  if (targetTeam) { targetTeam.clientIds = [...(targetTeam.clientIds||[]), clientId]; }
+  try {
+    toast('Réaffectation…');
+    await Promise.all(asmTeams.map(t=>saveAsmTeam(t)));
+    renderAsmConfigList();
+    renderSidebar();
+    toast('Client réaffecté ✓','success');
+  } catch(e) { toast('Erreur : '+e.message,'error'); }
+};
 
 window.addNewAsm = function() {
   document.getElementById('asm-cfg-edit').style.display='block';
@@ -1670,6 +1791,7 @@ window.openAddComex = function() {
   renderFileChips('cx');
   document.getElementById('cx-comment').value = '';
   document.getElementById('cx-done').checked = false;
+  cxUpdateAssignBtn();
   document.getElementById('modal-comex').style.display='flex';
 };
 
@@ -1685,6 +1807,7 @@ window.editComex = function(i) {
   renderFileChips('cx');
   document.getElementById('cx-comment').value = r.comment || '';
   document.getElementById('cx-done').checked = !!r.done;
+  cxUpdateAssignBtn();
   document.getElementById('modal-comex').style.display='flex';
 };
 
@@ -1926,10 +2049,8 @@ window.openAddKpiComex = function() {
   pendingKpiComexFiles = [];
   existingKpiComexFiles = [];
   document.getElementById('kpi-comex-modal-title').innerHTML = 'Nouveau RDV COMEX <button class="modal-close" onclick="closeModal(\'modal-kpi-comex\')">✕</button>';
-  const sel = document.getElementById('kcx-client');
-  sel.innerHTML = '<option value="">— Sélectionner un client —</option>' +
-    clients.slice().sort((a,b)=>a.nom.localeCompare(b.nom)).map(c=>`<option value="${c.id}">${c.nom}</option>`).join('');
   populateComexAsmSelect('kcx', '');
+  kcxFilterClientsByAsm(null);
   document.getElementById('kcx-type').value = 'Réunion physique';
   document.getElementById('kcx-date').value = '';
   renderFileChips('kcx');
@@ -1944,9 +2065,8 @@ window.editKpiComex = function(clientId, idx) {
   pendingKpiComexFiles = [];
   existingKpiComexFiles = comexAttachmentsList(r).map(f => ({ fileUrl: f.fileUrl, fileName: f.fileName, filePath: f.filePath }));
   document.getElementById('kpi-comex-modal-title').innerHTML = 'Modifier le RDV <button class="modal-close" onclick="closeModal(\'modal-kpi-comex\')">✕</button>';
-  const sel = document.getElementById('kcx-client');
-  sel.innerHTML = clients.slice().sort((a,b)=>a.nom.localeCompare(b.nom)).map(x=>`<option value="${x.id}" ${x.id===clientId?'selected':''}>${x.nom}</option>`).join('');
   populateComexAsmSelect('kcx', r.asm || '');
+  kcxFilterClientsByAsm(clientId);
   document.getElementById('kcx-type').value = r.type || 'Réunion physique';
   document.getElementById('kcx-date').value = r.date || '';
   renderFileChips('kcx');
@@ -3630,24 +3750,24 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
   .comex-stat.st-ko{background:rgba(220,38,38,.08);color:var(--red);border-color:rgba(220,38,38,.25);}
   .comex-stat.st-plan{background:rgba(37,99,235,.08);color:var(--accent);border-color:rgba(37,99,235,.25);}
   .comex-stat.st-grey{background:rgba(100,110,130,.08);color:#546882;border-color:rgba(100,110,130,.25);}
-  .comex-grid{display:grid;grid-template-columns:1fr 210px;gap:18px;align-items:start;}
+  .comex-grid{display:grid;grid-template-columns:1fr 210px;gap:18px;align-items:stretch;}
   @media(max-width:900px){.comex-grid{grid-template-columns:1fr;}}
-  .comex-cal{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;}
-  .comex-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+  .comex-cal{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;height:100%;}
+  .comex-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-shrink:0;}
   .comex-cal-nav{background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);font-size:14px;transition:all .15s;user-select:none;}
   .comex-cal-nav:hover{border-color:var(--accent);color:var(--accent);}
   .comex-cal-month{font-family:'Syne',sans-serif;font-weight:800;font-size:13px;text-transform:capitalize;}
-  .comex-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px;}
+  .comex-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px;flex-shrink:0;}
   .comex-cal-weekdays span{font-family:'DM Mono',monospace;font-size:9px;font-weight:600;color:var(--text3);text-align:center;letter-spacing:.04em;text-transform:uppercase;}
-  .comex-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
-  .comex-cal-day{min-height:0;border:1px solid var(--border);border-radius:6px;padding:3px 4px;background:#fff;position:relative;display:flex;flex-direction:column;overflow:hidden;}
+  .comex-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:1fr;gap:4px;flex:1;min-height:0;}
+  .comex-cal-day{min-height:0;border:1px solid var(--border);border-radius:6px;padding:3px 4px;background:#fff;position:relative;display:flex;flex-direction:column;overflow-y:auto;}
   .comex-cal-day.other{opacity:.35;}
   .comex-cal-day.today{border-color:var(--accent);background:rgba(37,99,235,.06);}
-  .comex-cal-daynum{font-family:'DM Mono',monospace;font-size:9px;font-weight:600;color:var(--text2);}
+  .comex-cal-daynum{font-family:'DM Mono',monospace;font-size:9px;font-weight:600;color:var(--text2);flex-shrink:0;}
   .comex-cal-day.today .comex-cal-daynum{color:var(--accent);}
-  .comex-pill{display:flex;align-items:center;gap:2px;font-size:8px;font-family:'DM Sans',sans-serif;font-weight:600;padding:1px 3px;border-radius:4px;margin-top:2px;white-space:nowrap;border:none;}
+  .comex-pill{display:flex;align-items:center;gap:2px;font-size:7px;font-family:'DM Sans',sans-serif;font-weight:600;padding:1px 3px;border-radius:4px;margin-top:2px;white-space:nowrap;border:none;flex-shrink:0;}
   .comex-pill-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;flex:1;min-width:0;}
-  .comex-pill-del{flex-shrink:0;cursor:pointer;opacity:.55;font-size:8px;line-height:1;padding:0 2px;border-radius:3px;transition:opacity .15s,background .15s;}
+  .comex-pill-del{flex-shrink:0;cursor:pointer;opacity:.55;font-size:7px;line-height:1;padding:0 2px;border-radius:3px;transition:opacity .15s,background .15s;}
   .comex-pill-del:hover{opacity:1;background:rgba(0,0,0,.14);}
   .comex-pill.st-plan{background:rgba(37,99,235,.14);color:var(--accent);}
   .comex-pill.st-grey{background:rgba(100,110,130,.16);color:#546882;}
@@ -4189,8 +4309,10 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
 <div id="modal-comex" class="modal-overlay" style="display:none" onclick="closeModalOutside(event,'modal-comex')">
   <div class="modal">
     <div class="modal-title" id="comex-modal-title">Nouveau RDV COMEX <button class="modal-close" onclick="closeModal('modal-comex')">✕</button></div>
-    <div class="field"><label>Nom ASM <span style="color:var(--red)">*</span></label>
-      <select id="cx-asm-select" onchange="toggleNewComexAsmInput('cx')"></select>
+    <div class="field"><label>Nom ASM <span style="color:var(--red)">*</span>
+        <button type="button" id="cx-assign-btn" onclick="cxAssignClientToAsm()" title="Affecter ce client à cet ASM" style="display:none;margin-left:6px;background:#eef2fb;border:1px solid #c7d2ee;border-radius:6px;color:#2f3f5c;font-size:10px;font-weight:700;padding:2px 8px;cursor:pointer;vertical-align:middle;">➕ Affecter ce client</button>
+      </label>
+      <select id="cx-asm-select" onchange="toggleNewComexAsmInput('cx');cxUpdateAssignBtn()"></select>
       <div id="cx-new-asm-wrap" style="display:none;margin-top:6px;flex-direction:column;gap:6px;">
         <input id="cx-asm-new" placeholder="Nom du nouvel ASM…" style="width:100%;box-sizing:border-box">
         <input id="cx-asm-new-pwd" type="password" placeholder="Mot de passe pour ajouter un ASM" style="width:100%;box-sizing:border-box">
@@ -4238,7 +4360,10 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
 
     <!-- LISTE ASM -->
     <div id="asm-config-list" style="margin-bottom:12px"></div>
-    <button class="btn-add" style="width:100%;justify-content:center;margin-bottom:16px" onclick="addNewAsm()">+ Nouvel ASM</button>
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <button class="btn-add" style="flex:1;justify-content:center;" onclick="addNewAsm()">+ Nouvel ASM</button>
+      <button class="btn-add-client" style="flex:1;justify-content:center;" onclick="openModal('modal-add-client')">+ Nouveau client</button>
+    </div>
 
     <!-- FORMULAIRE ÉDITION -->
     <div id="asm-cfg-edit" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px">
@@ -4504,14 +4629,17 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
   <div class="modal">
     <div class="modal-title" id="kpi-comex-modal-title">Nouveau RDV COMEX <button class="modal-close" onclick="closeModal('modal-kpi-comex')">✕</button></div>
     <div class="field"><label>Nom ASM <span style="color:var(--red)">*</span></label>
-      <select id="kcx-asm-select" onchange="toggleNewComexAsmInput('kcx')"></select>
+      <select id="kcx-asm-select" onchange="toggleNewComexAsmInput('kcx');kcxFilterClientsByAsm(document.getElementById('kcx-client').value)"></select>
       <div id="kcx-new-asm-wrap" style="display:none;margin-top:6px;flex-direction:column;gap:6px;">
         <input id="kcx-asm-new" placeholder="Nom du nouvel ASM…" style="width:100%;box-sizing:border-box">
         <input id="kcx-asm-new-pwd" type="password" placeholder="Mot de passe pour ajouter un ASM" style="width:100%;box-sizing:border-box">
       </div>
     </div>
-    <div class="field"><label>Client <span style="color:var(--red)">*</span></label>
-      <select id="kcx-client"></select>
+    <div class="field"><label>Client <span style="color:var(--red)">*</span>
+        <button type="button" id="kcx-assign-btn" onclick="kcxAssignClientToAsm()" title="Affecter ce client à l'ASM sélectionné" style="display:none;margin-left:6px;background:#eef2fb;border:1px solid #c7d2ee;border-radius:6px;color:#2f3f5c;font-size:10px;font-weight:700;padding:2px 8px;cursor:pointer;vertical-align:middle;">➕ Affecter</button>
+      </label>
+      <select id="kcx-client" onchange="kcxUpdateAssignBtn()"></select>
+      <div id="kcx-client-hint" style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:4px;"></div>
     </div>
     <div class="field"><label>Type de RDV</label>
       <select id="kcx-type">
