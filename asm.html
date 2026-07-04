@@ -1759,23 +1759,11 @@ function renderKpiComexStats() {
   const late = items.filter(r=>!r.done && r.date && r.date < comexTodayStr()).length;
   const grey = total - done - late;
 
-  const y = kpiComexCalDate.getFullYear(), m = kpiComexCalDate.getMonth();
-  const monthPrefix = y + '-' + cxPad2(m+1);
-  const itemsThisMonth = items.filter(r => (r.date||'').indexOf(monthPrefix) === 0);
-  const asmCounts = {};
-  itemsThisMonth.forEach(r => { const nom = (r.asm||'').trim(); if (!nom) return; asmCounts[nom] = (asmCounts[nom]||0) + 1; });
-  const asmNames = Object.keys(asmCounts).sort((a,b)=>a.localeCompare(b));
-  const asmBadges = asmNames.length
-    ? asmNames.map(nom => `<span class="comex-stat" style="background:#eef2fb;color:#2f3f5c;"><b>${nom}</b> (${asmCounts[nom]})</span>`).join('')
-    : `<span class="comex-stat" style="color:var(--text3);">Aucun RDV ce mois-ci</span>`;
-
   document.getElementById('kpi-comex-stats').innerHTML = `
     <div class="comex-stat"><b>${total}</b> RDV planifiés</div>
     <div class="comex-stat st-done"><b>${done}</b> Réalisés</div>
     <div class="comex-stat st-ko"><b>${late}</b> En retard</div>
-    <div class="comex-stat st-grey"><b>${grey}</b> En cours</div>
-    <span style="width:1px;align-self:stretch;background:#e2e6ef;margin:0 2px;"></span>
-    ${asmBadges}`;
+    <div class="comex-stat st-grey"><b>${grey}</b> En cours</div>`;
 }
 
 function renderKpiComexCalendar() {
@@ -1863,9 +1851,9 @@ function renderKpiComexAsmRanking() {
       ? `<img src="${member.photoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
       : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#cbb074;font-size:26px;border-radius:50%;">👤</div>`;
     return `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid ${idx===0?'#e8c873':'#e2e6ef'};border-radius:12px;padding:10px 16px;">
-      <div style="display:flex;flex-direction:column;align-items:center;gap:5px;flex-shrink:0;">
-        <div style="position:relative;width:64px;height:64px;border-radius:50%;background:#fdf3da;border:2px solid ${idx===0?'#e8c873':'#f0e3c0'};overflow:hidden;">
+    <div style="display:flex;align-items:center;justify-content:flex-start;gap:18px;background:#fff;border:1px solid ${idx===0?'#e8c873':'#e2e6ef'};border-radius:12px;padding:8px 16px;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0;">
+        <div style="position:relative;width:56px;height:56px;border-radius:50%;background:#fdf3da;border:2px solid ${idx===0?'#e8c873':'#f0e3c0'};overflow:hidden;">
           ${photo}
           ${medals[idx]?`<span style="position:absolute;top:-4px;left:-4px;font-size:15px;line-height:1;">${medals[idx]}</span>`:''}
         </div>
@@ -1878,7 +1866,7 @@ function renderKpiComexAsmRanking() {
 
 function kpiRenderComexAnalysis(ranked, itemsThisMonth) {
   const el = document.getElementById('kpi-comex-analysis'); if (!el) return;
-  const OBJ_RATE = 80; // % objectif de réalisation
+  const OBJ_RATE = 100; // % objectif de réalisation
   const totalMonth = itemsThisMonth.length;
   const doneMonth = itemsThisMonth.filter(r=>r.done).length;
 
@@ -2510,7 +2498,7 @@ function kpiAnalysisCardHtml(o) {
 
 async function kpiRenderSatisfactionAnalysis() {
   const el = document.getElementById('kpi-satisfaction-analysis'); if (!el || !kpiData) return;
-  const OBJ = 7.5;
+  const OBJ = 9;
   const filled = kpiData.members.filter(m=>m.nom && m.nom.trim() && m.note!=='' && m.note!=null);
   if (!filled.length) {
     el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#8a6310',lines:['Aucune note renseignée pour cette période — complétez les notes pour générer une analyse.']});
@@ -2724,11 +2712,23 @@ function renderKpiOpportunites() {
 
 async function kpiRenderOpportunitesAnalysis(rows, byAsm) {
   const el = document.getElementById('kpi-opp-analysis'); if (!el) return;
+  const OBJ_PER_ASM_PER_MONTH = 1;
   const total = rows.reduce((s,r)=>s+r.montant,0);
+
+  // Durée de la période en mois (arrondi, min 1) pour ajuster l'objectif
+  let monthsInPeriod = 1;
+  if (kpiCurrentStart && kpiCurrentEnd) {
+    const d1 = new Date(kpiCurrentStart+'T00:00:00'), d2 = new Date(kpiCurrentEnd+'T00:00:00');
+    monthsInPeriod = Math.max(1, Math.round((d2-d1)/(1000*60*60*24*30)));
+  }
+  const activeAsm = (kpiData && kpiData.members) ? kpiData.members.filter(m=>m.nom && m.nom.trim()).map(m=>m.nom.trim()) : [];
+  const objTarget = OBJ_PER_ASM_PER_MONTH * monthsInPeriod;
+  const asmEnDessous = activeAsm.filter(nom => (byAsm[nom] ? byAsm[nom].count : 0) < objTarget);
+  const nbOk = activeAsm.length - asmEnDessous.length;
 
   if (!rows.length) {
     el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#15803d',lines:[
-      'Aucune opportunité gagnée sur cette période.',
+      `Aucune opportunité gagnée sur cette période — objectif (≥ ${objTarget} deal${objTarget>1?'s':''}/ASM) non atteint${activeAsm.length?` pour ${activeAsm.join(', ')}`:''}. ⚠️`,
       `💡 <b>Axe d'amélioration :</b> relancer les opportunités en cours et sécuriser les deals proches de signature.`
     ]});
     return;
@@ -2750,16 +2750,13 @@ async function kpiRenderOpportunitesAnalysis(rows, byAsm) {
       : 'stable vs moyenne historique ➡️')
     : null;
 
-  const asmSansDeal = (kpiData && kpiData.members)
-    ? kpiData.members.filter(m => m.nom && m.nom.trim() && !byAsm[m.nom.trim()]).map(m => m.nom.trim())
-    : [];
-
   const lines = [
     `<b>Ce mois :</b> <b>${rows.length}</b> opportunité${rows.length>1?'s':''} gagnée${rows.length>1?'s':''} pour <b>${kpiFmtMontant(total)}</b>. Top performer : <b>${top[0]}</b> (${kpiFmtMontant(top[1].montant)}, ${top[1].count} deal${top[1].count>1?'s':''}).`,
+    activeAsm.length ? `<b>Objectif (≥${objTarget} deal${objTarget>1?'s':''}/ASM) :</b> ${nbOk}/${activeAsm.length} ASM l'ont atteint${asmEnDessous.length?` — en retard : ${asmEnDessous.join(', ')}`:''} ${asmEnDessous.length?'⚠️':'✅'}.` : null,
     histAvg!=null ? `<b>Globalement :</b> moyenne historique ${kpiFmtMontant(Math.round(histAvg))} / période sur ${histTotals.length} période${histTotals.length>1?'s':''} — ${trend}.` : null,
-    asmSansDeal.length
-      ? `💡 <b>Axe d'amélioration :</b> activer le pipeline chez ${asmSansDeal.join(', ')} (aucun deal gagné ce mois) et dupliquer l'approche de ${top[0]} sur leurs comptes.`
-      : `💡 <b>Axe d'amélioration :</b> capitaliser sur la dynamique actuelle et viser une hausse du montant moyen par deal sur la prochaine période.`
+    asmEnDessous.length
+      ? `💡 <b>Axe d'amélioration :</b> activer le pipeline chez ${asmEnDessous.join(', ')} et dupliquer l'approche de ${top[0]} sur leurs comptes.`
+      : `💡 <b>Axe d'amélioration :</b> objectif atteint par toute l'équipe — capitaliser sur la dynamique et viser une hausse du montant moyen par deal.`
   ].filter(Boolean);
 
   el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#15803d',lines});
@@ -3578,8 +3575,8 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
   .comex-stat.st-grey{background:rgba(100,110,130,.08);color:#546882;border-color:rgba(100,110,130,.25);}
   .comex-grid{display:grid;grid-template-columns:1.7fr 300px;gap:18px;align-items:start;}
   @media(max-width:900px){.comex-grid{grid-template-columns:1fr;}}
-  .comex-cal{background:#fff;border:1px solid var(--border);border-radius:12px;padding:20px;}
-  .comex-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .comex-cal{background:#fff;border:1px solid var(--border);border-radius:12px;padding:20px;max-height:640px;overflow-y:auto;}
+  .comex-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;position:sticky;top:0;background:#fff;z-index:1;padding-bottom:4px;}
   .comex-cal-nav{background:var(--surface2);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);font-size:16px;transition:all .15s;user-select:none;}
   .comex-cal-nav:hover{border-color:var(--accent);color:var(--accent);}
   .comex-cal-month{font-family:'Syne',sans-serif;font-weight:800;font-size:16px;text-transform:capitalize;}
@@ -3601,7 +3598,7 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
   .comex-pill.st-done{background:rgba(22,163,74,.14);color:var(--green);}
   .comex-pill.st-ko{background:rgba(220,38,38,.14);color:var(--red);}
   .comex-side{display:flex;flex-direction:column;}
-  .comex-side-title{font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:8px;}
+  .comex-side-title{font-family:'Syne',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--text3);margin-bottom:8px;overflow-wrap:break-word;word-break:break-word;line-height:1.4;}
   .comex-side .search-box{margin-bottom:10px;background:var(--surface);}
 
   /* ALL PDA MODAL */
@@ -4338,12 +4335,14 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
     <div id="kpi-body" style="padding:22px;flex:1;overflow:auto;background:#fff;max-width:1280px;margin:0 auto;width:100%;box-sizing:border-box;">
 
       <!-- Classement performance -->
+      <div style="background:linear-gradient(135deg,#f7f8fa,#eef0f4);border:1px solid #e2e6ef;border-radius:16px;padding:20px 22px;margin-bottom:22px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">1. 👥 Classement des ASM selon la satisfaction client</span>
         <span id="kpi-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#8a6310;background:#fdf0d0;border:1px solid #e8c873;border-radius:20px;padding:3px 10px;"></span>
       </div>
       <div id="kpi-satisfaction-analysis"></div>
-      <div id="kpi-members-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:30px;"></div>
+      <div id="kpi-members-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;"></div>
+      </div>
 
       <!-- Évolution & comparaisons -->
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 14px;flex-wrap:wrap;">
@@ -4390,7 +4389,8 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
       </div>
 
       <!-- Opportunités gagnées -->
-      <div style="display:flex;align-items:center;gap:8px;margin:34px 0 14px;">
+      <div style="background:linear-gradient(135deg,#f7f8fa,#eef0f4);border:1px solid #e2e6ef;border-radius:16px;padding:20px 22px;margin:34px 0 22px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">2. 💰 Classement des ASM selon les opportunités gagnées</span>
         <span id="kpi-opp-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#15803d;background:#e6f7ee;border:1px solid #b6e4cb;border-radius:20px;padding:3px 10px;"></span>
       </div>
@@ -4418,15 +4418,19 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
           <div id="kpi-asm-ranking" style="padding:14px 16px;"></div>
         </div>
       </div>
+      </div>
 
       <!-- COMEX -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin:34px 0 14px;flex-wrap:wrap;gap:10px;">
+      <div style="background:linear-gradient(135deg,#f7f8fa,#eef0f4);border:1px solid #e2e6ef;border-radius:16px;padding:20px 22px;margin:34px 0 22px;">
+      <div style="display:flex;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">3. 💰 Classement des ASM selon les COMEX réalisés</span>
-        <button class="btn-add" onclick="openAddKpiComex()">+ Nouveau RDV</button>
       </div>
 
       <div id="kpi-comex-analysis"></div>
-      <div class="comex-stats-strip" id="kpi-comex-stats"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
+        <div class="comex-stats-strip" id="kpi-comex-stats" style="margin-bottom:0;"></div>
+        <button class="btn-add" onclick="openAddKpiComex()">+ Nouveau RDV</button>
+      </div>
 
       <div class="comex-grid">
         <div class="comex-cal">
@@ -4442,8 +4446,9 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
         </div>
         <div class="comex-side">
           <div class="comex-side-title">🏆 Classement ASM — COMEX réalisés (mois affiché)</div>
-          <div id="kpi-comex-asm-ranking" style="display:flex;flex-direction:column;gap:10px;overflow:auto;max-height:460px;padding-right:4px;"></div>
+          <div id="kpi-comex-asm-ranking" style="display:flex;flex-direction:column;gap:8px;"></div>
         </div>
+      </div>
       </div>
 
     </div>
