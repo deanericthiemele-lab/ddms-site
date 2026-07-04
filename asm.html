@@ -1844,6 +1844,8 @@ function renderKpiComexAsmRanking() {
   const ranked = Object.entries(byAsm).sort((a,b)=> b[1].done - a[1].done || b[1].total - a[1].total);
   const medals = ['🥇','🥈','🥉'];
 
+  kpiRenderComexAnalysis(ranked, itemsThisMonth);
+
   if (!ranked.length) {
     el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);text-align:center;padding:1rem 0;">Aucun COMEX planifié ce mois-ci</div>`;
     return;
@@ -1869,6 +1871,41 @@ function renderKpiComexAsmRanking() {
       </div>
     </div>`;
   }).join('');
+}
+
+function kpiRenderComexAnalysis(ranked, itemsThisMonth) {
+  const el = document.getElementById('kpi-comex-analysis'); if (!el) return;
+  const OBJ_RATE = 80; // % objectif de réalisation
+  const totalMonth = itemsThisMonth.length;
+  const doneMonth = itemsThisMonth.filter(r=>r.done).length;
+
+  if (!totalMonth) {
+    el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#8a6310',bg:'#fffaf0',border:'#f0e3c0',lines:['Aucun COMEX planifié ce mois-ci.']});
+    return;
+  }
+  const rateMonth = Math.round(doneMonth/totalMonth*100);
+  const top = ranked[0];
+  const worst = ranked.length > 1 ? ranked[ranked.length-1] : null;
+
+  const allItems = kpiComexAllItems();
+  const byMonth = {};
+  allItems.forEach(r => { if (!r.date) return; const mk = r.date.slice(0,7); byMonth[mk] = byMonth[mk] || {done:0,total:0}; byMonth[mk].total++; if (r.done) byMonth[mk].done++; });
+  const monthRates = Object.values(byMonth).map(v=>v.total?v.done/v.total*100:0);
+  const globalRate = monthRates.length ? Math.round(monthRates.reduce((a,b)=>a+b,0)/monthRates.length) : null;
+
+  const vsObj = rateMonth >= OBJ_RATE ? `au-dessus de l'objectif (${OBJ_RATE}%) ✅` : `en-dessous de l'objectif (${OBJ_RATE}%) ⚠️`;
+  const trend = globalRate!=null ? (rateMonth > globalRate+5 ? 'en progression vs historique 📈' : rateMonth < globalRate-5 ? 'en retrait vs historique 📉' : 'stable vs historique ➡️') : null;
+  const priorityName = worst ? worst[0] : top[0];
+
+  const lines = [
+    `<b>Ce mois :</b> <b>${doneMonth}/${totalMonth}</b> COMEX réalisés (<b>${rateMonth}%</b>), ${vsObj}. Meilleur suivi : <b>${top[0]}</b> (${top[1].done}/${top[1].total})${worst ? ` · À relancer : <b>${worst[0]}</b> (${worst[1].done}/${worst[1].total})` : ''}.`,
+    globalRate!=null ? `<b>Globalement :</b> taux de réalisation moyen de ${globalRate}% sur ${monthRates.length} mois — ${trend}.` : null,
+    rateMonth < OBJ_RATE
+      ? `💡 <b>Axe d'amélioration :</b> prioriser la relance des COMEX en retard chez ${priorityName} et fiabiliser la planification en début de mois.`
+      : `💡 <b>Axe d'amélioration :</b> maintenir la cadence et généraliser la méthode de ${top[0]} à toute l'équipe.`
+  ].filter(Boolean);
+
+  el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#8a6310',bg:'#fffaf0',border:'#f0e3c0',lines});
 }
 
 function kpiComexPrevMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()-1, 1); renderKpiComexCalendar(); renderKpiComexStats(); renderKpiComexAsmRanking(); }
@@ -2458,6 +2495,48 @@ function kpiRankedIndexes() {
     .map(x=>x.i);
 }
 
+function kpiAnalysisCardHtml(o) {
+  return `<div style="background:${o.bg};border:1px solid ${o.border};border-radius:12px;padding:12px 16px;margin-bottom:14px;font-family:'Helvetica Neue',sans-serif;font-size:12px;color:#3a4358;line-height:1.55;">
+    <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:11px;color:${o.color};text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px;">${o.icon} Analyse</div>
+    ${o.lines.map(l=>`<div style="margin-bottom:3px;">${l}</div>`).join('')}
+  </div>`;
+}
+
+async function kpiRenderSatisfactionAnalysis() {
+  const el = document.getElementById('kpi-satisfaction-analysis'); if (!el || !kpiData) return;
+  const OBJ = 7.5;
+  const filled = kpiData.members.filter(m=>m.nom && m.nom.trim() && m.note!=='' && m.note!=null);
+  if (!filled.length) {
+    el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#8a6310',bg:'#fffaf0',border:'#f0e3c0',lines:['Aucune note renseignée pour cette période — complétez les notes pour générer une analyse.']});
+    return;
+  }
+  const avg = filled.reduce((s,m)=>s+parseFloat(m.note),0)/filled.length;
+  const sorted = filled.slice().sort((a,b)=>parseFloat(b.note)-parseFloat(a.note));
+  const best = sorted[0], worst = sorted[sorted.length-1];
+
+  await kpiFetchAllDocs();
+  const avgs = [];
+  kpiPeriodsList.forEach(p => {
+    const d = (p.id === kpiCurrentId) ? { members: kpiData.members } : kpiAllDocsCache[p.id];
+    if (!d) return;
+    const f = (d.members||[]).filter(m=>m.nom && m.nom.trim() && m.note!=='' && m.note!=null);
+    if (f.length) avgs.push(f.reduce((s,m)=>s+parseFloat(m.note),0)/f.length);
+  });
+  const globalAvg = avgs.length ? avgs.reduce((a,b)=>a+b,0)/avgs.length : null;
+  const vsObj = avg >= OBJ ? `au-dessus de l'objectif (${OBJ}/10) ✅` : `en-dessous de l'objectif (${OBJ}/10) ⚠️`;
+  const trend = globalAvg!=null ? (avg > globalAvg+0.2 ? 'en progression vs historique 📈' : avg < globalAvg-0.2 ? 'en retrait vs historique 📉' : 'stable vs historique ➡️') : null;
+
+  const lines = [
+    `<b>Ce mois :</b> moyenne équipe <b>${avg.toFixed(1)}/10</b>, ${vsObj}. Top : <b>${best.nom}</b> (${parseFloat(best.note).toFixed(1)}) · À accompagner : <b>${worst.nom}</b> (${parseFloat(worst.note).toFixed(1)}).`,
+    globalAvg!=null ? `<b>Globalement :</b> ${globalAvg.toFixed(1)}/10 de moyenne sur ${avgs.length} période${avgs.length>1?'s':''} — ${trend}.` : null,
+    avg < OBJ
+      ? `💡 <b>Axe d'amélioration :</b> plan d'accompagnement pour ${worst.nom} et partage des bonnes pratiques de ${best.nom} avec le reste de l'équipe.`
+      : `💡 <b>Axe d'amélioration :</b> maintenir le niveau et diffuser les pratiques de ${best.nom} pour sécuriser durablement la satisfaction.`
+  ].filter(Boolean);
+
+  el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#8a6310',bg:'#fffaf0',border:'#f0e3c0',lines});
+}
+
 function renderKpiMembers() {
   const grid = document.getElementById('kpi-members-grid');
   const readonly = !canWrite();
@@ -2497,6 +2576,7 @@ function renderKpiMembers() {
       </div>
     </div>`;
   }).join('');
+  kpiRenderSatisfactionAnalysis();
 }
 
 window.kpiUpdateField = function(i, field, value, skipRerender) {
@@ -2632,6 +2712,51 @@ function renderKpiOpportunites() {
       </div>
       <div style="font-family:'DM Mono',monospace;font-size:10px;color:#8796b0;margin-top:2px;">${d.count} deal${d.count>1?'s':''} gagné${d.count>1?'s':''}</div>
     </div>`).join('') : `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);text-align:center;padding:1rem 0;">Aucune donnée</div>`;
+
+  kpiRenderOpportunitesAnalysis(rows, byAsm);
+}
+
+async function kpiRenderOpportunitesAnalysis(rows, byAsm) {
+  const el = document.getElementById('kpi-opp-analysis'); if (!el) return;
+  const total = rows.reduce((s,r)=>s+r.montant,0);
+
+  if (!rows.length) {
+    el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#15803d',bg:'#f2fbf6',border:'#b6e4cb',lines:[
+      'Aucune opportunité gagnée sur cette période.',
+      `💡 <b>Axe d'amélioration :</b> relancer les opportunités en cours et sécuriser les deals proches de signature.`
+    ]});
+    return;
+  }
+
+  const ranked = Object.entries(byAsm).sort((a,b)=> b[1].montant - a[1].montant);
+  const top = ranked[0];
+
+  await kpiFetchAllDocs();
+  const histTotals = [];
+  kpiPeriodsList.forEach(p => {
+    if (p.id === kpiCurrentId) return;
+    histTotals.push(kpiOpportunitesGagneesPeriode(p.start, p.end).reduce((s,r)=>s+r.montant,0));
+  });
+  const histAvg = histTotals.length ? histTotals.reduce((a,b)=>a+b,0)/histTotals.length : null;
+  const trend = (histAvg!=null && histAvg>0)
+    ? (total > histAvg*1.1 ? `en hausse de ${Math.round((total/histAvg-1)*100)}% vs moyenne historique 📈`
+      : total < histAvg*0.9 ? `en baisse de ${Math.round((1-total/histAvg)*100)}% vs moyenne historique 📉`
+      : 'stable vs moyenne historique ➡️')
+    : null;
+
+  const asmSansDeal = (kpiData && kpiData.members)
+    ? kpiData.members.filter(m => m.nom && m.nom.trim() && !byAsm[m.nom.trim()]).map(m => m.nom.trim())
+    : [];
+
+  const lines = [
+    `<b>Ce mois :</b> <b>${rows.length}</b> opportunité${rows.length>1?'s':''} gagnée${rows.length>1?'s':''} pour <b>${kpiFmtMontant(total)}</b>. Top performer : <b>${top[0]}</b> (${kpiFmtMontant(top[1].montant)}, ${top[1].count} deal${top[1].count>1?'s':''}).`,
+    histAvg!=null ? `<b>Globalement :</b> moyenne historique ${kpiFmtMontant(Math.round(histAvg))} / période sur ${histTotals.length} période${histTotals.length>1?'s':''} — ${trend}.` : null,
+    asmSansDeal.length
+      ? `💡 <b>Axe d'amélioration :</b> activer le pipeline chez ${asmSansDeal.join(', ')} (aucun deal gagné ce mois) et dupliquer l'approche de ${top[0]} sur leurs comptes.`
+      : `💡 <b>Axe d'amélioration :</b> capitaliser sur la dynamique actuelle et viser une hausse du montant moyen par deal sur la prochaine période.`
+  ].filter(Boolean);
+
+  el.innerHTML = kpiAnalysisCardHtml({icon:'🧭',color:'#15803d',bg:'#f2fbf6',border:'#b6e4cb',lines});
 }
 
 // ── ÉVOLUTION & COMPARAISONS (multi-périodes enregistrées) ──
@@ -4208,9 +4333,10 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
 
       <!-- Classement performance -->
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
-        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">👥 Classement des ASM selon la satisfaction client</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">1. 👥 Classement des ASM selon la satisfaction client</span>
         <span id="kpi-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#8a6310;background:#fdf0d0;border:1px solid #e8c873;border-radius:20px;padding:3px 10px;"></span>
       </div>
+      <div id="kpi-satisfaction-analysis"></div>
       <div id="kpi-members-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:30px;"></div>
 
       <!-- Évolution & comparaisons -->
@@ -4259,9 +4385,10 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
 
       <!-- Opportunités gagnées -->
       <div style="display:flex;align-items:center;gap:8px;margin:34px 0 14px;">
-        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">💰 Classement des ASM selon les opportunités gagnées</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">2. 💰 Classement des ASM selon les opportunités gagnées</span>
         <span id="kpi-opp-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#15803d;background:#e6f7ee;border:1px solid #b6e4cb;border-radius:20px;padding:3px 10px;"></span>
       </div>
+      <div id="kpi-opp-analysis"></div>
       <div id="kpi-opp-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px;"></div>
 
       <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:18px;align-items:start;">
@@ -4288,10 +4415,11 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
 
       <!-- COMEX -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin:34px 0 14px;flex-wrap:wrap;gap:10px;">
-        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">💰 Classement des ASM selon les COMEX réalisés</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">3. 💰 Classement des ASM selon les COMEX réalisés</span>
         <button class="btn-add" onclick="openAddKpiComex()">+ Nouveau RDV</button>
       </div>
 
+      <div id="kpi-comex-analysis"></div>
       <div class="comex-stats-strip" id="kpi-comex-stats"></div>
 
       <div class="comex-grid">
