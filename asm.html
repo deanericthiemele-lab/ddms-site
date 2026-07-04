@@ -1749,7 +1749,7 @@ function renderKpiComex() {
   if (!document.getElementById('kpi-comex-stats')) return;
   renderKpiComexStats();
   renderKpiComexCalendar();
-  renderKpiComexTable();
+  renderKpiComexAsmRanking();
 }
 
 function renderKpiComexStats() {
@@ -1820,33 +1820,59 @@ function renderKpiComexCalendar() {
   }).join('');
 }
 
-function renderKpiComexTable() {
-  const search = (document.getElementById('kpi-comex-search').value||'').toLowerCase();
-  const items = kpiComexAllItems()
-    .filter(r => !r.done && (!search || (r.asm||'').toLowerCase().indexOf(search)!==-1 || (r.clientNom||'').toLowerCase().indexOf(search)!==-1))
-    .sort((a,b) => (a.date||'9999') < (b.date||'9999') ? -1 : 1);
-
-  const tbody = document.getElementById('kpi-comex-table-body');
-  if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text3);font-family:'DM Mono',monospace;font-size:12px">Aucun COMEX en attente</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = items.map(r => `
-    <tr class="tbl-tr">
-      <td class="tbl-td" style="font-size:12px;font-weight:600">${r.clientNom||'—'}</td>
-      <td class="tbl-td" style="font-size:12px">${r.asm||'—'}${comexAttachmentsHtml(r)}</td>
-      <td class="tbl-td mono" style="font-size:12px">${r.date?formatDate(r.date):'—'}</td>
-      <td class="tbl-td"><span class="tag ${comexTagClass(r)}">${comexStateLabel(r)}</span></td>
-      <td class="tbl-td tbl-actions">
-        ${canWrite()?`<button class="btn-sm-edit" onclick="confirmKpiComex('${r.clientId}',${r.idx})" title="Confirmer réalisé">✓</button>
-        <button class="btn-sm-edit" onclick="editKpiComex('${r.clientId}',${r.idx})" title="Modifier">✏️</button>
-        <button class="btn-sm" onclick="deleteKpiComex('${r.clientId}',${r.idx})" title="Supprimer">🗑</button>`:''}
-      </td>
-    </tr>`).join('');
+function kpiFindMemberByName(nom) {
+  if (!kpiData || !kpiData.members) return null;
+  const target = (nom||'').trim().toLowerCase();
+  return kpiData.members.find(m => (m.nom||'').trim().toLowerCase() === target) || null;
 }
 
-function kpiComexPrevMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()-1, 1); renderKpiComexCalendar(); renderKpiComexStats(); }
-function kpiComexNextMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()+1, 1); renderKpiComexCalendar(); renderKpiComexStats(); }
+function renderKpiComexAsmRanking() {
+  const el = document.getElementById('kpi-comex-asm-ranking'); if (!el) return;
+  const items = kpiComexAllItems();
+  const y = kpiComexCalDate.getFullYear(), m = kpiComexCalDate.getMonth();
+  const monthPrefix = y + '-' + cxPad2(m+1);
+  const itemsThisMonth = items.filter(r => (r.date||'').indexOf(monthPrefix) === 0);
+
+  const byAsm = {};
+  itemsThisMonth.forEach(r => {
+    const nom = (r.asm||'').trim(); if (!nom) return;
+    byAsm[nom] = byAsm[nom] || { done:0, total:0 };
+    byAsm[nom].total += 1;
+    if (r.done) byAsm[nom].done += 1;
+  });
+
+  const ranked = Object.entries(byAsm).sort((a,b)=> b[1].done - a[1].done || b[1].total - a[1].total);
+  const medals = ['🥇','🥈','🥉'];
+
+  if (!ranked.length) {
+    el.innerHTML = `<div style="font-family:'DM Mono',monospace;font-size:12px;color:var(--text3);text-align:center;padding:1rem 0;">Aucun COMEX planifié ce mois-ci</div>`;
+    return;
+  }
+
+  el.innerHTML = ranked.map(([nom, d], idx) => {
+    const member = kpiFindMemberByName(nom);
+    const photo = member && member.photoUrl
+      ? `<img src="${member.photoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">`
+      : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#cbb074;font-size:16px;border-radius:50%;">👤</div>`;
+    const pct = d.total ? Math.round(d.done/d.total*100) : 0;
+    return `
+    <div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid ${idx===0?'#e8c873':'#e2e6ef'};border-radius:10px;padding:9px 12px;">
+      <div style="position:relative;width:38px;height:38px;flex-shrink:0;border-radius:50%;background:#fdf3da;border:2px solid ${idx===0?'#e8c873':'#f0e3c0'};overflow:hidden;">${photo}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;">
+          <span style="font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${medals[idx]||('#'+(idx+1))} ${nom}</span>
+          <span style="font-family:'DM Mono',monospace;font-size:11px;font-weight:700;color:#8a6310;white-space:nowrap;">${d.done} / ${d.total}</span>
+        </div>
+        <div style="background:#edf1f9;border-radius:20px;height:6px;overflow:hidden;margin-top:4px;">
+          <div style="background:linear-gradient(90deg,#8a6310,#e8c873);height:100%;width:${pct}%;"></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function kpiComexPrevMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()-1, 1); renderKpiComexCalendar(); renderKpiComexStats(); renderKpiComexAsmRanking(); }
+function kpiComexNextMonth() { kpiComexCalDate = new Date(kpiComexCalDate.getFullYear(), kpiComexCalDate.getMonth()+1, 1); renderKpiComexCalendar(); renderKpiComexStats(); renderKpiComexAsmRanking(); }
 window.kpiComexPrevMonth = kpiComexPrevMonth;
 window.kpiComexNextMonth = kpiComexNextMonth;
 
@@ -2667,6 +2693,20 @@ function kpiSvgBarChart(values, {color='#15803d', fmt=(v)=>v} = {}) {
   }).join('');
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block;">${bars}</svg>`;
 }
+
+window.toggleKpiEvoSection = function() {
+  const content = document.getElementById('kpi-evo-content');
+  const chevron = document.getElementById('kpi-evo-chevron');
+  const isOpen = content.style.display !== 'none';
+  if (isOpen) {
+    content.style.display = 'none';
+    chevron.textContent = '▸';
+  } else {
+    content.style.display = 'block';
+    chevron.textContent = '▾';
+    renderKpiEvolution();
+  }
+};
 
 window.renderKpiEvolution = async function() {
   const range = parseInt(document.getElementById('kpi-evo-range').value, 10) || 6;
@@ -4173,8 +4213,52 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
       </div>
       <div id="kpi-members-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:30px;"></div>
 
+      <!-- Évolution & comparaisons -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 14px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">📈 Évolution & comparaisons</span>
+          <select id="kpi-evo-range" onchange="renderKpiEvolution()" style="font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid #e2e6ef;font-family:'DM Mono',monospace;cursor:pointer;background:#fff;color:#546882;">
+            <option value="3">3 dernières périodes</option>
+            <option value="6" selected>6 dernières périodes</option>
+            <option value="12">12 dernières périodes</option>
+            <option value="999">Toutes les périodes</option>
+          </select>
+        </div>
+        <button type="button" onclick="toggleKpiEvoSection()" style="background:#f5f8fd;border:1px solid #e2e6ef;border-radius:20px;color:#2f3f5c;font-family:'DM Mono',monospace;font-size:11px;font-weight:700;padding:6px 14px;cursor:pointer;display:flex;align-items:center;gap:6px;">
+          <span id="kpi-evo-chevron" style="display:inline-block;transition:transform .2s;">▸</span> Détails
+        </button>
+      </div>
+
+      <div id="kpi-evo-content" style="display:none;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;">
+          <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+            <div style="padding:11px 16px;background:#fdf3da;border-bottom:1px solid #e8c873;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#8a6310;">⭐ Évolution de la note moyenne équipe</div>
+            <div id="kpi-chart-note" style="padding:14px 16px;"></div>
+          </div>
+          <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+            <div style="padding:11px 16px;background:#e6f7ee;border-bottom:1px solid #b6e4cb;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#15803d;">💰 Évolution du montant gagné</div>
+            <div id="kpi-chart-montant" style="padding:14px 16px;"></div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:10px;">
+          <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+            <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">👥 Comparaison des notes par collaborateur</div>
+            <div style="overflow:auto;max-height:340px;">
+              <table style="width:100%;border-collapse:collapse;" id="kpi-table-members-evo"></table>
+            </div>
+          </div>
+          <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
+            <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">🏆 Comparaison ASM par montant gagné</div>
+            <div style="overflow:auto;max-height:340px;">
+              <table style="width:100%;border-collapse:collapse;" id="kpi-table-asm-evo"></table>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Opportunités gagnées -->
-      <div style="display:flex;align-items:center;gap:8px;margin:8px 0 14px;">
+      <div style="display:flex;align-items:center;gap:8px;margin:34px 0 14px;">
         <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">💰 Classement des ASM selon les opportunités gagnées</span>
         <span id="kpi-opp-period-label" style="font-family:'DM Mono',monospace;font-size:11px;color:#15803d;background:#e6f7ee;border:1px solid #b6e4cb;border-radius:20px;padding:3px 10px;"></span>
       </div>
@@ -4202,46 +4286,9 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
         </div>
       </div>
 
-      <!-- Évolution & comparaisons -->
-      <div style="display:flex;align-items:center;gap:10px;margin:34px 0 14px;">
-        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">📈 Évolution & comparaisons</span>
-        <select id="kpi-evo-range" onchange="renderKpiEvolution()" style="font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid #e2e6ef;font-family:'DM Mono',monospace;cursor:pointer;background:#fff;color:#546882;">
-          <option value="3">3 dernières périodes</option>
-          <option value="6" selected>6 dernières périodes</option>
-          <option value="12">12 dernières périodes</option>
-          <option value="999">Toutes les périodes</option>
-        </select>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;">
-        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
-          <div style="padding:11px 16px;background:#fdf3da;border-bottom:1px solid #e8c873;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#8a6310;">⭐ Évolution de la note moyenne équipe</div>
-          <div id="kpi-chart-note" style="padding:14px 16px;"></div>
-        </div>
-        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
-          <div style="padding:11px 16px;background:#e6f7ee;border-bottom:1px solid #b6e4cb;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#15803d;">💰 Évolution du montant gagné</div>
-          <div id="kpi-chart-montant" style="padding:14px 16px;"></div>
-        </div>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:10px;">
-        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
-          <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">👥 Comparaison des notes par collaborateur</div>
-          <div style="overflow:auto;max-height:340px;">
-            <table style="width:100%;border-collapse:collapse;" id="kpi-table-members-evo"></table>
-          </div>
-        </div>
-        <div style="background:#fff;border:1px solid #e2e6ef;border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(37,99,235,.05);">
-          <div style="padding:11px 16px;background:#f5f8fd;border-bottom:1px solid #e2e6ef;font-family:'Syne',sans-serif;font-weight:700;font-size:12px;color:#1a2236;">🏆 Comparaison ASM par montant gagné</div>
-          <div style="overflow:auto;max-height:340px;">
-            <table style="width:100%;border-collapse:collapse;" id="kpi-table-asm-evo"></table>
-          </div>
-        </div>
-      </div>
-
       <!-- COMEX -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin:34px 0 14px;flex-wrap:wrap;gap:10px;">
-        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">📅 Suivi des COMEX — Réunions mensuelles</span>
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:15px;color:#1a2236;">💰 Classement des ASM selon les COMEX réalisés</span>
         <button class="btn-add" onclick="openAddKpiComex()">+ Nouveau RDV</button>
       </div>
 
@@ -4260,20 +4307,8 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
           <div class="comex-cal-grid" id="kpi-comex-cal-grid"></div>
         </div>
         <div class="comex-side">
-          <div class="comex-side-title">COMEX non réalisés</div>
-          <div class="search-box">
-            <input type="text" id="kpi-comex-search" placeholder="Rechercher un client ou un ASM…" oninput="renderKpiComexTable()">
-          </div>
-          <div class="tbl-wrap">
-            <table class="tbl">
-              <thead><tr>
-                <th class="tbl-th">Client</th><th class="tbl-th">ASM</th>
-                <th class="tbl-th">Date</th><th class="tbl-th">Statut</th>
-                <th class="tbl-th" style="width:80px"></th>
-              </tr></thead>
-              <tbody id="kpi-comex-table-body"></tbody>
-            </table>
-          </div>
+          <div class="comex-side-title">🏆 Classement ASM — COMEX réalisés (mois affiché)</div>
+          <div id="kpi-comex-asm-ranking" style="display:flex;flex-direction:column;gap:10px;overflow:auto;max-height:420px;padding-right:4px;"></div>
         </div>
       </div>
 
