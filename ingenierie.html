@@ -106,28 +106,6 @@ function parseDate(val) {
     .ph-title{font-family:var(--cond);font-size:24px;font-weight:800;color:var(--n1)}
     .ph-sub{font-size:13px;color:var(--n3);margin-top:1px}
 
-    /* ===== Styles scopés : page Dégradation câble ===== */
-
-#page-degradation h2 { text-align: center; }
-    #page-degradation #searchInput { margin-bottom: 10px; padding: 5px; width: 25%; }
-    #page-degradation table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-    #page-degradation th, #page-degradation td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    #page-degradation th { background-color: #f2f2f2; }
-    #page-degradation #retour { margin-bottom: 20px; padding: 10px 20px; background: #007BFF; color: white; border: none; cursor: pointer; border-radius: 5px; }
-    #page-degradation #retour:hover { background: #0056b3; }
-    #page-degradation .kpi { font-size: 1.2em; text-align: center; margin-top: 10px; }
-
-    #page-degradation #exportExcel, #page-degradation #suivi {
-      margin-left: 10px;
-      padding: 10px 20px;
-      background: #28a745;
-      color: white;
-      border: none;
-      cursor: pointer;
-      border-radius: 5px;
-    }
-    #page-degradation #suivi { background:#6f42c1; }
-  
     /* ===== Styles scopés : page Prévision de coupures ===== */
 
 #page-prevision h3 { margin-top: 25px; }
@@ -871,9 +849,6 @@ document.addEventListener("DOMContentLoaded", function() {
     <div class="sg">Outils</div>
     <div class="si" onclick="exporterPlanning5Onglets()"><span class="si-ico">📅</span>Générez le planning</div>
     <div class="si" data-page="suivi" onclick="switchPage('suivi')"><span class="si-ico">📈</span>Suivi des incidents répétitifs</div>
-    <div class="si" data-page="sroglobal" onclick="ensureSuivi().then(()=>document.getElementById('btnSRO').click())"><span class="si-ico">📊</span>SRO Global</div>
-    <div class="si" data-page="srocorrige" onclick="ensureSuivi().then(()=>document.getElementById('btnSROcorrige').click())"><span class="si-ico">📊</span>SRO corrigé</div>
-    <div class="si" data-page="degradation" onclick="switchPage('degradation')"><span class="si-ico">🔌</span>Dégradation câble</div>
     <div class="si" data-page="prevision" onclick="switchPage('prevision')"><span class="si-ico">📈</span>Prévision de coupures</div>
     <div class="si" data-page="production" onclick="switchPage('production')"><span class="si-ico">🏗️</span>Suivi des productions</div>
     <div class="si" data-page="carte" onclick="ouvrirMapIncident()"><span class="si-ico">🗺️</span>Map Incident</div>
@@ -1125,7 +1100,6 @@ document.addEventListener("DOMContentLoaded", function() {
   const _lazyDone = {};
   const _lazyMap = {
     suivi: '__lazyInitSuivi',
-    degradation: '__lazyInitDegradation',
     prevision: '__lazyInitPrevision',
     production: '__lazyInitProduction',
     carte: '__lazyInitCarte',
@@ -1205,9 +1179,11 @@ document.addEventListener("DOMContentLoaded", function() {
       if (item.nd) clients[r].nds.push(item.nd);
     });
     const top10clients = Object.values(clients).sort((a,b)=>b.total-a.total).slice(0,10);
+    const allClientsSorted = Object.values(clients).sort((a,b)=>b.total-a.total);
 
     // Top 10 liens (ND) les plus impactés
     const top10liens = [...data].sort((a,b) => (b.total||0)-(a.total||0)).slice(0,10);
+    const allLiensSorted = [...data].sort((a,b) => (b.total||0)-(a.total||0));
 
     // Zones les plus impactées
     const zones = {};
@@ -1225,6 +1201,40 @@ document.addEventListener("DOMContentLoaded", function() {
       });
     });
     const top5causes = Object.entries(causes).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const allCausesSorted = Object.entries(causes).sort((a,b)=>b[1]-a[1]);
+
+    // ── KPI complémentaires (repris de l'analyse Carte Incidents) ─
+    const totalIncidentsYTD = data.reduce((s, item) => s + (item.total || 0), 0);
+    const nbClientsDistincts = Object.keys(clients).length;
+
+    function isAbidjanLocal(loc){
+      if(!loc) return false;
+      const s = String(loc).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[-_]/g," ").replace(/\s+/g," ").trim();
+      const keys = ['COCODY','PLATEAU','MARCORY','TREICHVILLE','YOPOUGON','PORT BOUET','ABOBO','BINGERVILLE','ADJAME','ATTECOUBE','KOUMASSI','ANYAMA','SONGON','BASSAM','BONOUA','DABOU','JACQUEVILLE','ALEPE','ABOISSO','ADZOPE','AGBOVILLE','SIKENSI','TIASSALE','RIVIERA','ANGRE','AKOUEDO','GESCO','BIETRY','GONZAGUEVILLE','PALMERAIE','2PLATEAU','ABIDJAN'];
+      return keys.some(k => s.includes(k));
+    }
+    const causesCableSummary = ["BRINS FO MAUVAIS","CABLE FO COUPE","COUPURE FO FTTX","JARRETIERES CENTRAL","PROBLEME TRANSMISSION","DERCO","CUIVRE DEFFECTUEUX","COUPURE FO ROA","FO DEFFECTUEUX"];
+    function normCauseLocal(c){ return String(c||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim(); }
+
+    let zoneAbidjanCount = 0, zoneInterieurCount = 0, cableCount = 0, horsCableCount = 0;
+    data.forEach(item => {
+      const t = item.total || 0;
+      if (isAbidjanLocal(item.localisation)) zoneAbidjanCount += t; else zoneInterieurCount += t;
+      const isCable = (item.causes||[]).some(c => causesCableSummary.includes(normCauseLocal(c)));
+      if (isCable) cableCount += t; else horsCableCount += t;
+    });
+
+    // ── Points clés à retenir (alertes) ───────────────────────────
+    const evolMois = volParMois[moisN1] ? Math.round(((volParMois[moisActuel]-volParMois[moisN1])/volParMois[moisN1])*1000)/10 : null;
+    const alertes = [];
+    alertes.push(`📊 <b>${volParMois[moisActuel]||0}</b> incidents ce mois${evolMois!==null ? ` — ${evolMois>=0?'▲':'▼'} ${Math.abs(evolMois)}% vs ${MN[moisN1]} (${volParMois[moisN1]} incidents)` : ''}`);
+    if (topZones[0]) alertes.push(`📍 Zone la plus impactée : <b>${topZones[0][0]}</b> concentre ${topZones[0][1]} incidents (${totalIncidentsYTD?Math.round(topZones[0][1]/totalIncidentsYTD*1000)/10:0}% du total)`);
+    if (top10clients[0]) alertes.push(`🏢 Client le plus impacté : <b>${top10clients[0].raison}</b> avec ${top10clients[0].total} incidents`);
+    alertes.push(`⚠️ ${ndRepetitifsMoisCourant.length} ND répétitifs ce mois (≥2 incidents) — suivi terrain requis`);
+    alertes.push(`👥 ${nbClientsDistincts} clients impactés au total`);
+    let alertesHtml = `<div style="display:flex;flex-direction:column;gap:8px;">` +
+      alertes.map(a => `<div style="font-size:13px;color:#1A1A1A;padding:8px 10px;background:#FDF5E0;border-left:3px solid #B07700;border-radius:4px;">${a}</div>`).join('') +
+      `</div>`;
 
     // Badge
     document.getElementById("summary-badge").textContent = `${data.length} ND analysés`;
@@ -1244,10 +1254,16 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // ── 1. KPIs résumé (ligne de métriques) ──────────────────────
     const kpis = [
+      { label:"Total incidents (YTD)", val: totalIncidentsYTD, color:"#B84A00", onclick:`afficherDetailSummary('total_incidents')` },
+      { label:"Nbre clients impactés", val: nbClientsDistincts, color:"#B84A00", onclick:`afficherDetailSummary('nb_clients')` },
       { label:"ND tous les mois (YTD)", val: ndReviensTousMois.length, color:"#1A6B3C", onclick:`afficherDetailSummary('ytd')` },
       { label:"ND répétitifs mois courant (≥2)", val: ndRepetitifsMoisCourant.length, color:"#B07700", onclick:`afficherDetailSummary('mois')` },
       { label:"ND répétitifs 2 mois consécutifs", val: ndRepetitifs2Mois.length, color:"#B22222", onclick:`afficherDetailSummary('2mois')` },
       { label:"ND critiques annuels (≥7 inc.)", val: ndAnnuel.length, color:"#5B2C8D", onclick:`afficherDetailSummary('annuel')` },
+      { label:"Zone Abidjan", val: zoneAbidjanCount, color:"#1B4F72", onclick:`afficherDetailSummary('zone_abj')` },
+      { label:"Zone Intérieur", val: zoneInterieurCount, color:"#1B4F72", onclick:`afficherDetailSummary('zone_int')` },
+      { label:"Incidents câble", val: cableCount, color:"#E05A00", onclick:`afficherDetailSummary('cable')` },
+      { label:"Incidents hors câble", val: horsCableCount, color:"#6B6B6B", onclick:`afficherDetailSummary('horscable')` },
     ];
     let kpiHtml = `<div style="display:flex;gap:12px;flex-wrap:wrap;">`;
     kpis.forEach(k => {
@@ -1276,13 +1292,14 @@ document.addEventListener("DOMContentLoaded", function() {
     volHtml += `</div>`;
 
     // ── 3. Top 10 clients ────────────────────────────────────────
-    let clientHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <tr style="background:#F7F7F7;"><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th><th style="padding:6px 8px;text-align:center;">ND</th></tr>`;
-    top10clients.forEach((c, i) => {
+    let clientHtml = `<div style="max-height:360px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="background:#F7F7F7;position:sticky;top:0;"><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th><th style="padding:6px 8px;text-align:center;">ND</th></tr>`;
+    allClientsSorted.forEach((c, i) => {
       const bg = i%2===0?'#fff':'#fafafa';
-      const bar = Math.round((c.total / (top10clients[0].total||1)) * 80);
+      const bar = Math.round((c.total / (allClientsSorted[0].total||1)) * 80);
+      const boldTop = i < 10 ? 'font-weight:700;' : '';
       clientHtml += `<tr style="background:${bg};" onclick="afficherDetailSummary('client_${encodeURIComponent(c.raison)}')" onmouseover="this.style.background='#e3f2fd'" onmouseout="this.style.background='${bg}'" style="cursor:pointer;">
-        <td style="padding:6px 8px;cursor:pointer;color:#1565c0;font-weight:600;">${i+1}. ${c.raison}</td>
+        <td style="padding:6px 8px;cursor:pointer;color:#1565c0;${boldTop}">${i+1}. ${c.raison}</td>
         <td style="padding:6px 8px;text-align:center;">
           <span style="display:inline-block;width:${bar}px;height:8px;background:#B84A00;border-radius:4px;margin-right:6px;"></span>
           <b>${c.total}</b>
@@ -1290,16 +1307,17 @@ document.addEventListener("DOMContentLoaded", function() {
         <td style="padding:6px 8px;text-align:center;color:#E05A00;">${c.nds.length}</td>
       </tr>`;
     });
-    clientHtml += `</table>`;
+    clientHtml += `</table></div>`;
 
     // ── 4. Top 10 liens ──────────────────────────────────────────
-    let lienHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <tr style="background:#F7F7F7;"><th style="padding:6px 8px;text-align:left;">ND</th><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th></tr>`;
-    top10liens.forEach((item, i) => {
+    let lienHtml = `<div style="max-height:360px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="background:#F7F7F7;position:sticky;top:0;"><th style="padding:6px 8px;text-align:left;">ND</th><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th></tr>`;
+    allLiensSorted.forEach((item, i) => {
       const bg = i%2===0?'#fff':'#fafafa';
-      const bar = Math.round(((item.total||0) / (top10liens[0].total||1)) * 80);
+      const bar = Math.round(((item.total||0) / (allLiensSorted[0].total||1)) * 80);
+      const boldTop = i < 10 ? 'font-weight:700;' : '';
       lienHtml += `<tr onclick="afficherDetailSummary('nd_${encodeURIComponent(item.nd||'')}')" onmouseover="this.style.background='#e3f2fd'" onmouseout="this.style.background='${bg}'" style="background:${bg};cursor:pointer;">
-        <td style="padding:6px 8px;color:#1565c0;font-weight:600;">${i+1}. ${item.nd||'—'}</td>
+        <td style="padding:6px 8px;color:#1565c0;${boldTop}">${i+1}. ${item.nd||'—'}</td>
         <td style="padding:6px 8px;color:#E05A00;">${item.raison||'—'}</td>
         <td style="padding:6px 8px;text-align:center;">
           <span style="display:inline-block;width:${bar}px;height:8px;background:#B84A00;border-radius:4px;margin-right:6px;"></span>
@@ -1307,7 +1325,7 @@ document.addEventListener("DOMContentLoaded", function() {
         </td>
       </tr>`;
     });
-    lienHtml += `</table>`;
+    lienHtml += `</table></div>`;
 
     // ── 5. Zones ────────────────────────────────────────────────
     let zoneHtml = `<div style="display:flex;gap:8px;flex-wrap:wrap;">`;
@@ -1323,13 +1341,14 @@ document.addEventListener("DOMContentLoaded", function() {
     zoneHtml += `</div>`;
 
     // ── 6. Top 5 causes ──────────────────────────────────────────
-    let causeHtml = `<div style="display:flex;flex-direction:column;gap:8px;">`;
-    const maxC = top5causes[0] ? top5causes[0][1] : 1;
-    top5causes.forEach(([c, v], i) => {
+    let causeHtml = `<div style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px;">`;
+    const maxC = allCausesSorted[0] ? allCausesSorted[0][1] : 1;
+    allCausesSorted.forEach(([c, v], i) => {
       const pct = Math.round((v/maxC)*100);
+      const boldTop = i < 5 ? 'font-weight:700;' : '';
       causeHtml += `<div onclick="afficherDetailSummary('cause_${encodeURIComponent(c)}')" style="cursor:pointer;">
         <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
-          <span style="color:#1A1A1A;font-weight:600;">${i+1}. ${c}</span>
+          <span style="color:#1A1A1A;${boldTop}">${i+1}. ${c}</span>
           <span style="color:#E05A00;font-weight:bold;">${v} ND</span>
         </div>
         <div style="background:#F7F7F7;border-radius:4px;height:10px;">
@@ -1339,9 +1358,90 @@ document.addEventListener("DOMContentLoaded", function() {
     });
     causeHtml += `</div>`;
 
+    // ── ND à risque / Estimation fin de mois / % ND≥2 & % M-1→M ───
+    // (repris dynamiquement du Tableau de bord, calculé sur les mêmes données)
+    const ndARisque = (typeof calculerPredictionND === 'function') ? calculerPredictionND() : [];
+    const moisAvecVolume = Object.keys(volParMois).filter(m => volParMois[m] > 0).map(Number);
+    const estimationInfo = (typeof calculerEstimationFinMois === 'function')
+      ? calculerEstimationFinMois(moisAvecVolume, volParMois) : null;
+
+    let moy1 = 0, moy2 = 0;
+    {
+      const parMoisND2 = {}, nbND2 = {}, totalMois1 = {};
+      data.forEach(item => {
+        const moisActifs = Object.keys(item.mois).map(Number).sort((a,b)=>a-b);
+        let present2Mois = false;
+        for (let i = 1; i < moisActifs.length; i++) {
+          if (moisActifs[i] === moisActifs[i-1] + 1) { present2Mois = true; break; }
+        }
+        if (present2Mois) return;
+        Object.entries(item.mois).forEach(([mois, nb]) => {
+          totalMois1[mois] = (totalMois1[mois] || 0) + nb;
+          if ((item.mois[mois] || 0) >= 2) {
+            parMoisND2[mois] = (parMoisND2[mois] || 0) + nb;
+            nbND2[mois] = (nbND2[mois] || 0) + 1;
+          }
+        });
+      });
+      const totalSignal = {}, incidentsDeuxMois = {};
+      data.forEach(item => {
+        Object.entries(item.mois).forEach(([mois, nb]) => {
+          const m = parseInt(mois);
+          totalSignal[m] = (totalSignal[m] || 0) + (nb || 0);
+        });
+      });
+      data.forEach(item => {
+        const moisActifs = Object.keys(item.mois).map(Number).sort((a,b)=>a-b);
+        for (let i = 1; i < moisActifs.length; i++) {
+          const mPrev = moisActifs[i-1], mCur = moisActifs[i];
+          if (mCur === mPrev + 1) {
+            const volCur = item.mois[mCur] || 0;
+            if (volCur > 0) incidentsDeuxMois[mCur] = (incidentsDeuxMois[mCur] || 0) + volCur;
+          }
+        }
+      });
+      const allMoisPct = [...new Set([...Object.keys(totalMois1), ...Object.keys(totalSignal).map(String)])].map(Number).sort((a,b)=>a-b);
+      const moisFiltresPct = allMoisPct.filter(m => m !== moisActuel);
+      const num1 = moisFiltresPct.reduce((a,m) => a + ((parMoisND2[m]||0)-(nbND2[m]||0)), 0);
+      const den1 = moisFiltresPct.reduce((a,m) => a + (totalMois1[m]||0), 0);
+      moy1 = den1 > 0 ? Math.round((num1/den1)*100) : 0;
+      const valeursPct2 = allMoisPct.map(m => {
+        const num = incidentsDeuxMois[m] || 0, den = totalSignal[m] || 0;
+        return den > 0 ? Number(((num / den) * 100).toFixed(2)) : null;
+      }).filter(v => v !== null);
+      moy2 = valeursPct2.length ? (valeursPct2.reduce((a,b)=>a+b,0)/valeursPct2.length).toFixed(1) : 0;
+    }
+
+    let ndARisqueHtml = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      ${estimationInfo ? `<div style="background:#fff3e0;border:1px solid #ffb74d;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;color:#B07700;white-space:nowrap;">📈 Estimation ${MN[estimationInfo.moisCourant]} : ${estimationInfo.estimationFinale} incidents</div>` : ''}
+      <div style="background:#EBF3FA;border:1px solid #1B4F72;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;color:#1B4F72;white-space:nowrap;">📈 Moy. ND≥2 : ${moy1}% &nbsp;|&nbsp; Moy. M-1→M : ${moy2}%</div>
+    </div>`;
+    if (!ndARisque.length) {
+      ndARisqueHtml += `<p style="text-align:center;color:#B84A00;padding:20px 0;">Aucun ND n'a eu d'incident le mois dernier : pas de risque identifié pour ${MN[moisActuel]}.</p>`;
+    } else {
+      ndARisqueHtml += `<div style="max-height:320px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr style="background:#F7F7F7;position:sticky;top:0;"><th style="padding:6px 8px;text-align:left;">ND</th><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:left;">Localisation</th><th style="padding:6px 8px;text-align:left;">Cause(s)</th><th style="padding:6px 8px;text-align:center;">Risque</th></tr>`;
+      ndARisque.forEach((r, i) => {
+        const bg = i%2===0?'#fff':'#fafafa';
+        const risqueBadge = r.risque === 'eleve'
+          ? `<span style="background:#FBEAEA;color:#B22222;padding:2px 8px;border-radius:10px;font-weight:700;">Élevé</span>`
+          : `<span style="background:#FDF5E0;color:#B07700;padding:2px 8px;border-radius:10px;font-weight:700;">Modéré</span>`;
+        ndARisqueHtml += `<tr style="background:${bg};">
+          <td style="padding:6px 8px;font-weight:600;">${r.nd}</td>
+          <td style="padding:6px 8px;">${r.raison}</td>
+          <td style="padding:6px 8px;">${r.localisation}</td>
+          <td style="padding:6px 8px;">${r.cause}</td>
+          <td style="padding:6px 8px;text-align:center;">${risqueBadge}</td>
+        </tr>`;
+      });
+      ndARisqueHtml += `</table></div>`;
+    }
+
     // ── Layout 2 colonnes ────────────────────────────────────────
     const html = `
       ${sectionCard('🔢 Indicateurs clés', kpiHtml)}
+      ${sectionCard('🚨 Points clés à retenir', alertesHtml)}
+      ${sectionCard('🔮 ND à risque', ndARisqueHtml)}
       ${sectionCard('📅 Volume d\'incidents par mois', volHtml)}
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         ${sectionCard('🏆 Top 10 clients impactés', clientHtml)}
@@ -1355,7 +1455,7 @@ document.addEventListener("DOMContentLoaded", function() {
     document.getElementById("summary-body").innerHTML = html;
 
     // Store data for detail popups
-    window._summaryData = { data, ndReviensTousMois, ndRepetitifsMoisCourant, ndRepetitifs2Mois, ndAnnuel, volParMois, top10clients, top10liens, topZones, top5causes, MN, MNC, moisActuel };
+    window._summaryData = { data, ndReviensTousMois, ndRepetitifsMoisCourant, ndRepetitifs2Mois, ndAnnuel, volParMois, top10clients, top10liens, topZones, top5causes, MN, MNC, moisActuel, nbClientsDistincts, totalIncidentsYTD, clients, zoneAbidjanCount, zoneInterieurCount, cableCount, horsCableCount, isAbidjanLocal, causesCableSummary, normCauseLocal };
   }
 
   // ── Popup détail depuis Summary ───────────────────────────────
@@ -1366,7 +1466,33 @@ document.addEventListener("DOMContentLoaded", function() {
 
     let titre = '', rows = [], cols = [];
 
-    if (type === 'ytd') {
+    if (type === 'total_incidents') {
+      titre = `Total incidents (YTD) — ${d.totalIncidentsYTD} incidents`;
+      cols = ['ND','Client','Localisation','Total'];
+      rows = [...d.data].sort((a,b)=>(b.total||0)-(a.total||0))
+        .map(i => [i.nd, i.raison||'—', i.localisation||'—', i.total||0]);
+    } else if (type === 'nb_clients') {
+      titre = `Clients impactés — ${d.nbClientsDistincts} clients`;
+      cols = ['Client','Total incidents','Nbre ND'];
+      rows = Object.values(d.clients).sort((a,b)=>b.total-a.total)
+        .map(c => [c.raison, c.total, c.nds.length]);
+    } else if (type === 'zone_abj' || type === 'zone_int') {
+      const wantAbj = type === 'zone_abj';
+      titre = wantAbj ? `Zone Abidjan — ${d.zoneAbidjanCount} incidents` : `Zone Intérieur — ${d.zoneInterieurCount} incidents`;
+      cols = ['ND','Client','Localisation','Total'];
+      rows = d.data.filter(i => d.isAbidjanLocal(i.localisation) === wantAbj)
+        .sort((a,b)=>(b.total||0)-(a.total||0))
+        .map(i => [i.nd, i.raison||'—', i.localisation||'—', i.total||0]);
+    } else if (type === 'cable' || type === 'horscable') {
+      const wantCable = type === 'cable';
+      titre = wantCable ? `Incidents câble — ${d.cableCount} incidents` : `Incidents hors câble — ${d.horsCableCount} incidents`;
+      cols = ['ND','Client','Localisation','Causes','Total'];
+      rows = d.data.filter(i => {
+        const isCable = (i.causes||[]).some(c => d.causesCableSummary.includes(d.normCauseLocal(c)));
+        return isCable === wantCable;
+      }).sort((a,b)=>(b.total||0)-(a.total||0))
+        .map(i => [i.nd, i.raison||'—', i.localisation||'—', (i.causes||[]).join(', '), i.total||0]);
+    } else if (type === 'ytd') {
       titre = 'ND présents tous les mois (YTD)';
       cols = ['ND','Client','Localisation','Total YTD'];
       rows = d.ndReviensTousMois.map(i => [i.nd, i.raison||'—', i.localisation||'—', Object.values(i.mois).reduce((s,v)=>s+v,0)]);
@@ -2077,11 +2203,11 @@ function exportTotalND() {
         }
 
         const headers = Array.from(document.querySelectorAll("#tableTraites thead th"))
-            .map(th => th.innerText);
+            .map(th => th.textContent);
 
         const rows = [];
         allND.forEach(tr => {
-            const cells = Array.from(tr.querySelectorAll("td")).map(td => td.innerText);
+            const cells = Array.from(tr.querySelectorAll("td")).map(td => td.textContent);
             if (cells.length > 0) rows.push(cells);
         });
 
@@ -2458,9 +2584,9 @@ btn.addEventListener("click", function () {
         tables.forEach(id => {
             const table = document.getElementById(id);
             if (!table) return;
-            const headers = [...table.querySelectorAll("thead th")].map(th => th.innerText.trim());
+            const headers = [...table.querySelectorAll("thead th")].map(th => th.textContent.trim());
             table.querySelectorAll("tbody tr").forEach(tr => {
-                const cells = [...tr.querySelectorAll("td")].map(td => td.innerText.trim());
+                const cells = [...tr.querySelectorAll("td")].map(td => td.textContent.trim());
                 const row = Object.fromEntries(headers.map((h,i)=>[h,cells[i]||""]));
                 if (
     targets.includes(row["Sro"])
@@ -2570,7 +2696,7 @@ ${(() => {
 // rendre mois cliquables avec cause réelle
 (function(){
     const monthLabels=["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
-    const headers=[...document.querySelectorAll(".popupSROcorrige table thead th")].map(h=>h.innerText.trim());
+    const headers=[...document.querySelectorAll(".popupSROcorrige table thead th")].map(h=>h.textContent.trim());
     const rows=[...document.querySelectorAll("#sroBody tr")];
     rows.forEach((tr,i)=>{
         const rowObj=rowsAll[i];
@@ -2627,10 +2753,10 @@ document.addEventListener("click", function (e) {
         }
 
         const headers = [...document.querySelectorAll(".popupSROcorrige table thead th")]
-            .map(th => th.innerText.trim());
+            .map(th => th.textContent.trim());
 
         const data = rows.map(tr => {
-            return [...tr.querySelectorAll("td")].map(td => td.innerText.trim());
+            return [...tr.querySelectorAll("td")].map(td => td.textContent.trim());
         });
 
         const wsData = [headers, ...data];
@@ -2645,7 +2771,7 @@ document.addEventListener("click", function (e) {
 function hideDateNormColumn() {
     document.querySelectorAll("#page-suivi table").forEach(tbl => {
         if (tbl.id === "tablePlanifies" || tbl.id === "tableNonTraites") return;
-        const headers = [...tbl.querySelectorAll("th")].map(h => h.innerText.trim());
+        const headers = [...tbl.querySelectorAll("th")].map(h => h.textContent.trim());
         const idx = headers.findIndex(h => h.toLowerCase().includes("date normalisation"));
         if (idx >= 0) {
             tbl.querySelectorAll("th")[idx].style.display = "none";
@@ -2678,7 +2804,7 @@ function colorDateCorrection() {
         if (tbl.id === "tablePlanifies" || tbl.id === "tableNonTraites") return;
         const headers = [...tbl.querySelectorAll("th")];
         const idx = headers.findIndex(th => 
-            th.innerText.trim().toLowerCase().includes("date correction")
+            th.textContent.trim().toLowerCase().includes("date correction")
         );
         if (idx >= 0) {
             headers[idx].style.color = "orange";
@@ -2805,223 +2931,6 @@ window.exportTotalND = exportTotalND;
   </script>
 
   <!-- ===== PAGE SRO GLOBAL ===== -->
-  <div class="page" id="page-sroglobal">
-    <div class="ph">
-      <div><div class="ph-title">📊 SRO Global</div><div class="ph-sub">Regroupement des ND par SRO</div></div>
-    </div>
-    <div id="sroglobal-container"></div>
-  </div>
-
-  <!-- ===== PAGE SRO CORRIGÉ ===== -->
-  <div class="page" id="page-srocorrige">
-    <div class="ph">
-      <div><div class="ph-title">📊 SRO corrigé</div><div class="ph-sub">Suivi des SRO corrigés et récidives</div></div>
-    </div>
-    <div id="srocorrige-container"></div>
-  </div>
-
-  <!-- ===== PAGE DEGRADATION CABLE (ex degradation.html) ===== -->
-  <div class="page" id="page-degradation">
-    <div class="ph">
-      <div><div class="ph-title">🔌 Dégradation câble</div><div class="ph-sub">Suivi de la dégradation des câbles</div></div>
-    </div>
-
-  <button id="retour" onclick="switchPage('suivi')">⬅ Retour</button>
-
-  <!-- Added buttons -->
-  <button id="exportExcel" onclick="exportTableToExcel()">⬇ Export Excel</button>
-  <button id="suivi" onclick="window.location.href='Suivi_corrections.html'">📄 Suivi</button>
-
-  <h2>Suivi de la dégradation des câbles</h2>
-  <div class="kpi" id="kpiVolume">Total ND filtrés : 0</div>
-
-  <input type="text" id="searchInput" onkeyup="searchTable()" placeholder="🔍 Rechercher dans le tableau...">
-
-  <table id="dataTable">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>ND</th>
-        <th>RAISON SOCIALE</th>
-        <th>Total coupures/soudures</th>
-        <th>Dernier incident avant sept</th>
-        <th>Sept</th>
-        <th>Oct</th>
-        <th>Nov</th>
-        <th>Dec</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
-
-  <!-- KEEPING REST OF SCRIPT IDENTICAL EXCEPT EXPORT FUNCTION ADDED -->
-  
-
-  </div>
-  <script>
-(function(){
-
-    const causesCibles = [
-      "Brins FO Mauvais","Câble FO Coupé","Cuivre déffectueux",
-      "Coupure FO ROA","Coupure FO Fttx","Coupure Cuivre",
-      "Câble Cuivre Volé","FO déffectueux","Câble Cuivre défectueux"
-    ];
-
-    let detailsParND = {};
-
-    async function loadExcel() {
-      let response;
-      try {
-        response = await fetch("data.xlsx");
-        if (!response.ok) throw new Error(`Fichier "data.xlsx" introuvable (HTTP ${response.status}).`);
-      } catch (e) {
-        document.getElementById("kpiVolume").innerText = "Erreur de chargement : " + e.message;
-        return;
-      }
-      const arrayBuffer = await response.arrayBuffer();
-      const data = new Uint8Array(arrayBuffer);
-      const workbook = XLSX.read(data, { type: "array" });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      const json = XLSX.utils.sheet_to_json(sheet);
-
-      const filtre = json.filter(row => 
-        row["CAUSE RÉELLE"] && causesCibles.some(c => row["CAUSE RÉELLE"].toString().toLowerCase().includes(c.toLowerCase()))
-      );
-
-      detailsParND = {};
-      filtre.forEach(r => {
-        const nd = r["ND"] || "ND inconnu";
-        const date = r["DATE DE CRÉATION"] || r["DATE_CREATION_DOSSIER"] || r["DATE_MS"] || r["DATE_RS"] || "Date inconnue";
-        const cause = r["CAUSE RÉELLE"];
-        if (!detailsParND[nd]) detailsParND[nd] = [];
-        detailsParND[nd].push({ date, cause });
-      });
-
-      const map = {};
-      filtre.forEach(r => {
-        const nd = r["ND"] || "ND inconnu";
-        const client = r["RAISON SOCIALE"] || "Inconnu";
-        if (!map[nd]) map[nd] = { ND: nd, RAISON: client, VOLUME: 0 };
-        map[nd].VOLUME++;
-      });
-
-      const dataFinale = Object.values(map);
-      remplirTableau(dataFinale);
-    }
-
-    function getDernierIncidentAvantSept(nd) {
-      let incidents = detailsParND[nd] || [];
-      let dernier = null;
-      incidents.forEach(d => {
-        let dateObj;
-        if (!isNaN(d.date)) {
-          dateObj = new Date((d.date - 25569) * 86400 * 1000);
-        } else {
-          dateObj = new Date(d.date);
-        }
-        if (!isNaN(dateObj) && dateObj.getMonth() + 1 < 9) {
-          if (!dernier || dateObj > dernier.dateObj) {
-            dernier = { cause: d.cause, dateObj };
-          }
-        }
-      });
-      return dernier ? dernier.cause : "";
-    }
-
-    function remplirTableau(data) {
-      const tbody = document.querySelector("#dataTable tbody");
-      tbody.innerHTML = "";
-      let filtres = data.filter(row => row.VOLUME >= 6);
-      filtres.sort((a, b) => b.VOLUME - a.VOLUME);
-
-      filtres.forEach((row, i) => {
-        const countsByMonth = {sept:0, oct:0, nov:0, dec:0};
-        (detailsParND[row.ND] || []).forEach(d => {
-          let dateObj = d.date;
-          if (!isNaN(d.date)) {
-            dateObj = new Date((d.date - 25569) * 86400 * 1000);
-          } else {
-            dateObj = new Date(d.date);
-          }
-          if (!isNaN(dateObj)) {
-            const month = dateObj.getMonth() + 1;
-            if(month === 9) countsByMonth.sept++;
-            if(month === 10) countsByMonth.oct++;
-            if(month === 11) countsByMonth.nov++;
-            if(month === 12) countsByMonth.dec++;
-          }
-        });
-
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${i + 1}</td>
-          <td>${row.ND}</td>
-          <td>${row.RAISON}</td>
-          <td style="color:blue; cursor:pointer;" onclick="afficherDetails('${row.ND}')">${row.VOLUME}</td>
-          <td>${getDernierIncidentAvantSept(row.ND)}</td>
-          <td>${countsByMonth.sept}</td>
-          <td>${countsByMonth.oct}</td>
-          <td>${countsByMonth.nov}</td>
-          <td>${countsByMonth.dec}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-
-      document.getElementById("kpiVolume").innerText = "Total ND filtrés : " + filtres.length;
-    }
-
-    function searchTable() {
-      const input = document.getElementById("searchInput").value.toLowerCase();
-      const rows = document.querySelectorAll("#dataTable tbody tr");
-      let visibleCount = 0;
-      rows.forEach(r => {
-        if (r.innerText.toLowerCase().includes(input)) {
-          r.style.display = "";
-          visibleCount++;
-        } else {
-          r.style.display = "none";
-        }
-      });
-      document.getElementById("kpiVolume").innerText = "Total ND filtrés : " + visibleCount;
-    }
-
-    function afficherDetails(nd) {
-      const tbody = document.getElementById("detailsContent");
-      tbody.innerHTML = "";
-      (detailsParND[nd] || []).forEach(d => {
-        let dateAffichee = d.date;
-        if (!isNaN(d.date)) {
-          dateAffichee = new Date((d.date - 25569) * 86400 * 1000).toLocaleDateString();
-        }
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${dateAffichee}</td>
-          <td>${d.cause}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-      document.getElementById("detailsBox").style.display = "flex";
-    }
-
-    function exportTableToExcel() {
-      const table = document.getElementById("dataTable");
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.table_to_sheet(table);
-      XLSX.utils.book_append_sheet(wb, ws, 'Export');
-      XLSX.writeFile(wb, 'degradation_export.xlsx');
-    }
-
-    window.__lazyInitDegradation = loadExcel;
-  
-
-// --- Exposition des fonctions utilisées par les attributs onclick ---
-window.searchTable = searchTable;
-window.exportTableToExcel = exportTableToExcel;
-window.afficherDetails = afficherDetails;
-})();
-  </script>
-
   <!-- ===== PAGE PREVISION DE COUPURES (ex prediction.html) ===== -->
   <div class="page" id="page-prevision">
     <div class="ph">
@@ -5220,7 +5129,7 @@ ND avec ≥2 incidents en juin ET juillet = critique">
    </div>
   </div>
   <div style="display:flex; gap:20px; flex-wrap:wrap;">
-   <div style="margin-top:30px;background-color:#ffffff;border:1px solid #E4E4E4;padding:14px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
+   <div style="margin-top:30px;background-color:#ffffff;border:1px solid #E4E4E4;padding:14px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.07);flex:1;min-width:420px;">
     <!-- Popup graphique % sur 2 Mois -->
      <div id="popup-pourcentage-2mois" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); justify-content:center; align-items:center; z-index:9999;">
       <div style="background:white; padding:20px; border-radius:10px; width:80%; max-width:700px; position:relative;">
@@ -5499,30 +5408,19 @@ function fermerPopupPourcentage2Mois() {
      </button>
     </div>
    </div>
-   <div style="margin-top:30px;background-color:#ffffff;border:1px solid #E4E4E4;padding:14px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
+   <div style="margin-top:30px;background-color:#ffffff;border:1px solid #E4E4E4;padding:14px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.07);flex:1;min-width:420px;">
 
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
      <h4 id="titre-graphique-fusionne" style="margin:0;color:#E05A00;font-size:14px;font-weight:700;">
       📊 Incidents répétitifs par Mois
      </h4>
-     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-      <div id="badge-estimation-mois" style="display:none;background:#fff3e0;border:1px solid #ffb74d;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;color:#B07700;white-space:nowrap;">
-       📈 Estimation fin de mois : —
-      </div>
-      <button onclick="afficherPopupPredictionND()" style="background:#1A1A1A;color:white;border:none;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
-       🔮 ND à risque ce mois
-      </button>
-     </div>
     </div>
     <canvas height="250" id="graphique-fusionne" width="600">
     </canvas>
-    <!-- Boutons en bas : Exporter à gauche, % et % M-1 à droite -->
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+    <!-- Bouton Exporter -->
+    <div style="display:flex; justify-content:flex-start; align-items:center; margin-top:6px;">
      <button onclick="exporterIncidentsParMois()" style="background-color:#E05A00;color:white;border:none;border-radius:4px;padding:6px 10px;cursor:pointer;">
       📤 Exporter (par Mois)
-     </button>
-     <button onclick="afficherPopupPourcentageFusionne()" style="background-color:#E05A00;color:white;border:none;border-radius:4px;padding:4px 12px;cursor:pointer;">
-      % / % M-1
      </button>
     </div>
     <!-- Popup graphique fusionnée % / % M-1 -->
@@ -8128,7 +8026,6 @@ function exporterIncidentsND2ParMois() {
   // plus on fait confiance au rythme réel ; en début de mois, la tendance pèse davantage).
   function calculerEstimationFinMois(moisTriés, signalisations) {
     const badge = document.getElementById('badge-estimation-mois');
-    if (!badge) return;
 
     const maintenant = new Date();
     const moisCourant = maintenant.getMonth() + 1;
@@ -8136,8 +8033,8 @@ function exporterIncidentsND2ParMois() {
 
     // On n'affiche l'estimation que si le mois en cours fait partie des mois affichés
     if (!moisTriés.includes(moisCourant)) {
-      badge.style.display = 'none';
-      return;
+      if (badge) badge.style.display = 'none';
+      return null;
     }
 
     const joursDansMois = new Date(anneeCourante, moisCourant, 0).getDate();
@@ -8181,9 +8078,12 @@ function exporterIncidentsND2ParMois() {
     estimationFinale = Math.max(actuel, Math.round(estimationFinale));
 
     const tendanceTexte = estimationTendance !== null ? `Tendance mois précédents : ${Math.round(estimationTendance)}. ` : '';
-    badge.title = `${actuel} signalisation(s) constatée(s) après ${joursEcoules}/${joursDansMois} jours du mois. ${tendanceTexte}Rythme actuel projeté : ${Math.round(estimationRythme)}.`;
-    badge.style.display = 'inline-block';
-    badge.innerHTML = `📈 Estimation ${moisNoms[moisCourant]} : ${estimationFinale} incidents`;
+    if (badge) {
+      badge.title = `${actuel} signalisation(s) constatée(s) après ${joursEcoules}/${joursDansMois} jours du mois. ${tendanceTexte}Rythme actuel projeté : ${Math.round(estimationRythme)}.`;
+      badge.style.display = 'inline-block';
+      badge.innerHTML = `📈 Estimation ${moisNoms[moisCourant]} : ${estimationFinale} incidents`;
+    }
+    return { estimationFinale, moisCourant, actuel, joursEcoules, joursDansMois, estimationTendance, estimationRythme };
   }
 
   // ===== Prédiction des ND à risque pour le MOIS EN COURS =====
