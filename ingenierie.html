@@ -1133,7 +1133,12 @@ document.addEventListener("DOMContentLoaded", function() {
   function ensureSuivi() {
     if (_lazyDone.suivi) return Promise.resolve();
     _lazyDone.suivi = true;
-    return (typeof window.__lazyInitSuivi === 'function') ? Promise.resolve(window.__lazyInitSuivi()) : Promise.resolve();
+    return new Promise(resolve => {
+      setTimeout(() => {
+        const p = (typeof window.__lazyInitSuivi === 'function') ? window.__lazyInitSuivi() : null;
+        Promise.resolve(p).then(resolve);
+      }, 0);
+    });
   }
 
   function switchPage(pageKey, el) {
@@ -1152,11 +1157,13 @@ document.addEventListener("DOMContentLoaded", function() {
     const initKey = _lazyMap[pageKey];
     if (initKey && !_lazyDone[pageKey]) {
       _lazyDone[pageKey] = true;
-      if (typeof window[initKey] === 'function') window[initKey]();
+      if (typeof window[initKey] === 'function') {
+        setTimeout(() => window[initKey](), 0);
+      }
     }
     if (pageKey === 'carte' && window._leafletMapCarte) {
-      setTimeout(() => window._leafletMapCarte.invalidateSize(), 80);
-      setTimeout(() => window._leafletMapCarte.invalidateSize(), 400);
+      setTimeout(() => { window._leafletMapCarte.invalidateSize(); window._leafletMapCarte.setView([5.34, -4.03], 11); }, 80);
+      setTimeout(() => { window._leafletMapCarte.invalidateSize(); window._leafletMapCarte.setView([5.34, -4.03], 11); }, 400);
     }
   }
 
@@ -1888,16 +1895,27 @@ async function init() {
     const dataSheet = dataWb.Sheets[dataWb.SheetNames[0]];
     DATA_ROWS = XLSX.utils.sheet_to_json(dataSheet);
 
+    // Pré-indexation de DATA_ROWS par ND normalisé (évite de reparcourir
+    // les 4000+ lignes de data.xlsx pour CHAQUE ligne x CHAQUE mois, ce qui
+    // gelait le navigateur lors de l'ouverture de l'onglet)
+    const dataByND = new Map();
+    DATA_ROWS.forEach(r => {
+        const key = String(r.ND || "").trim().toUpperCase();
+        if (!dataByND.has(key)) dataByND.set(key, []);
+        dataByND.get(key).push(r);
+    });
+
     const enrichedData = planningData.map(row => {
         function normalizeND(value) {
     return String(value || "").trim().toUpperCase();
 }
+        const rowsForND = dataByND.get(normalizeND(row.ND)) || [];
 
         function monthVal(m) {
             const dc = parseDate(row["Date correction"]);
-            const val = DATA_ROWS.filter(r => {
+            const val = rowsForND.filter(r => {
                 const d = parseDate(r["DATE DE CRÉATION"]);
-                return normalizeND(r.ND) === normalizeND(row.ND) && d && d.getMonth() === m && (!dc || d > dc);
+                return d && d.getMonth() === m && (!dc || d > dc);
             }).length;
             return val === 0 ? "" : val;
         }
@@ -1906,21 +1924,17 @@ async function init() {
             ...row,
 
             "DATE DE CRÉATION": (() => {
-                const d = DATA_ROWS.find(r =>
-                    String(r.ND || "").trim().toUpperCase() === String(row.ND || "").trim().toUpperCase()
-                );
+                const d = rowsForND[0];
                 return d ? excelDateToFR(d["DATE DE CRÉATION"]) : "";
         })(),
 // CAUSE RÉELLE (dernière avant correction)
         "CAUSE RÉELLE": (() => {
             const dc = parseDate(row["Date correction"]);
-            const ndClean = String(row.ND || "").trim().toUpperCase();
 
-            const historique = DATA_ROWS
+            const historique = rowsForND
                 .filter(r => {
                     const d = parseDate(r["DATE DE CRÉATION"]);
-                    return String(r.ND || "").trim().toUpperCase() === ndClean
-                        && d && (!dc || d <= dc);
+                    return d && (!dc || d <= dc);
                 })
                 .sort((a,b)=> parseDate(b["DATE DE CRÉATION"]) - parseDate(a["DATE DE CRÉATION"]));
 
@@ -3343,8 +3357,18 @@ async function charger(){
  tbodyS.innerHTML=""; tbodyI.innerHTML="";
  let s=1, i=1;
 
+ // Pré-indexation de data par ID (évite de reparcourir tout data.xlsx pour
+ // chaque ligne, et évite d'injecter tout le tableau en JSON dans chaque
+ // cellule du tableau, ce qui gelait le navigateur)
+ __dataById = new Map();
+ data.forEach(x => {
+   const key = x["ID"];
+   if (!__dataById.has(key)) __dataById.set(key, []);
+   __dataById.get(key).push(x);
+ });
+
  planif.forEach(r=>{
-   const incidents=data.filter(x=>x["ID"]==r["ID"]);
+   const incidents=__dataById.get(r["ID"]) || [];
    let mois=Array(12).fill(0);
 
    incidents.forEach(x=>{
@@ -3364,13 +3388,14 @@ async function charger(){
      "<td>"+excelDate(r["Date de création"])+"</td>"+
      "<td>"+excelDate(r["Date de MAD"])+"</td>"+
      "<td>"+excelDate(r["Date MES & MEF"])+"</td>"+
-     mois.map((m,idx)=>`<td onclick="showCause(${JSON.stringify(r)},${idx},${JSON.stringify(data)})">${m}</td>`).join('');
+     mois.map((m,idx)=>`<td onclick="showCause(${JSON.stringify(r["ID"])},${idx})">${m}</td>`).join('');
    tab.appendChild(tr);
  });
 }
 
-function showCause(row,month,data){
- let incidents=data.filter(x=>x["ID"]===row["ID"]);
+let __dataById = new Map();
+function showCause(id,month){
+ let incidents=__dataById.get(id) || [];
  let list=incidents.filter(x=>{
    let d=new Date(x["Date de création"]);
    return !isNaN(d)&&d.getMonth()===month&&d.getFullYear()===2025;
@@ -7407,9 +7432,9 @@ function exporterIncidentsND2ParMois() {
   </script>
   <script>
    document.addEventListener("DOMContentLoaded", function () {
-    const allDivs = document.querySelectorAll("div");
+    const allDivs = document.querySelectorAll("#page-dashboard div");
     allDivs.forEach(div => {
-      if (div.innerText.includes("Incidents répétitifs - Mois en cours")) {
+      if (div.textContent.includes("Incidents répétitifs - Mois en cours")) {
         // Vérifie si le bouton Exporter s’y trouve aussi
         const bouton = div.querySelector("button");
         if (bouton && bouton.textContent.includes("Exporter")) {
