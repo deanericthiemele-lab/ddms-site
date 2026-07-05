@@ -871,8 +871,8 @@ document.addEventListener("DOMContentLoaded", function() {
     <div class="sg">Outils</div>
     <div class="si" onclick="exporterPlanning5Onglets()"><span class="si-ico">📅</span>Générez le planning</div>
     <div class="si" data-page="suivi" onclick="switchPage('suivi')"><span class="si-ico">📈</span>Suivi des incidents répétitifs</div>
-    <div class="si" data-page="sroglobal" onclick="document.getElementById('btnSRO').click()"><span class="si-ico">📊</span>SRO Global</div>
-    <div class="si" data-page="srocorrige" onclick="document.getElementById('btnSROcorrige').click()"><span class="si-ico">📊</span>SRO corrigé</div>
+    <div class="si" data-page="sroglobal" onclick="ensureSuivi().then(()=>document.getElementById('btnSRO').click())"><span class="si-ico">📊</span>SRO Global</div>
+    <div class="si" data-page="srocorrige" onclick="ensureSuivi().then(()=>document.getElementById('btnSROcorrige').click())"><span class="si-ico">📊</span>SRO corrigé</div>
     <div class="si" data-page="degradation" onclick="switchPage('degradation')"><span class="si-ico">🔌</span>Dégradation câble</div>
     <div class="si" data-page="prevision" onclick="switchPage('prevision')"><span class="si-ico">📈</span>Prévision de coupures</div>
     <div class="si" data-page="production" onclick="switchPage('production')"><span class="si-ico">🏗️</span>Suivi des productions</div>
@@ -1121,6 +1121,21 @@ document.addEventListener("DOMContentLoaded", function() {
   });
 
   // ===== Navigation sidebar (pages) =====
+  // ===== Chargement différé des outils fusionnés (une seule fois, au premier clic) =====
+  const _lazyDone = {};
+  const _lazyMap = {
+    suivi: '__lazyInitSuivi',
+    degradation: '__lazyInitDegradation',
+    prevision: '__lazyInitPrevision',
+    production: '__lazyInitProduction',
+    carte: '__lazyInitCarte',
+  };
+  function ensureSuivi() {
+    if (_lazyDone.suivi) return Promise.resolve();
+    _lazyDone.suivi = true;
+    return (typeof window.__lazyInitSuivi === 'function') ? Promise.resolve(window.__lazyInitSuivi()) : Promise.resolve();
+  }
+
   function switchPage(pageKey, el) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('on'));
     document.querySelectorAll('.si').forEach(s => s.classList.remove('on'));
@@ -1134,6 +1149,11 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     const main = document.getElementById('main');
     if (main) main.scrollTop = 0;
+    const initKey = _lazyMap[pageKey];
+    if (initKey && !_lazyDone[pageKey]) {
+      _lazyDone[pageKey] = true;
+      if (typeof window[initKey] === 'function') window[initKey]();
+    }
     if (pageKey === 'carte' && window._leafletMapCarte) {
       setTimeout(() => window._leafletMapCarte.invalidateSize(), 60);
     }
@@ -1926,7 +1946,7 @@ async function init() {
     splitTables(enrichedData);
 }
 
-init();
+window.__lazyInitSuivi = init;
 
 async function loadExcelFile(url) {
     const response = await fetch(url);
@@ -2969,7 +2989,7 @@ window.exportTotalND = exportTotalND;
       XLSX.writeFile(wb, 'degradation_export.xlsx');
     }
 
-    loadExcel();
+    window.__lazyInitDegradation = loadExcel;
   
 
 // --- Exposition des fonctions utilisées par les attributs onclick ---
@@ -3063,9 +3083,9 @@ window.afficherDetails = afficherDetails;
 
 let tableauActuel = [];
 
-// === Chargement auto de data.xlsx ===
-document.addEventListener("DOMContentLoaded", () => {
-  fetch("data.xlsx")
+// === Chargement des données (différé, déclenché à l'ouverture de l'onglet) ===
+function __lazyLoadPrevisionData() {
+  return fetch("data.xlsx")
     .then(res => res.arrayBuffer())
     .then(ab => {
       const wb = XLSX.read(ab, { type: "array" });
@@ -3095,7 +3115,8 @@ document.addEventListener("DOMContentLoaded", () => {
       console.log("✅ Données agrégées :", tableauActuel.length, "ND");
     })
     .catch(err => console.error("Erreur chargement data.xlsx :", err));
-});
+}
+window.__lazyInitPrevision = __lazyLoadPrevisionData;
 
 // === Calcul score ===
 function evaluerRisqueND(item) {
@@ -3341,7 +3362,7 @@ function showCause(row,month,data){
  alert(msg);
 }
 
-charger();
+window.__lazyInitProduction = charger;
 
 
 // --- Exposition des fonctions utilisées par les attributs onclick ---
@@ -4932,7 +4953,7 @@ sorted.forEach(([k,v])=>{
     function pct(a,b){ return b ? ((a/b)*100).toFixed(1) : '0.0'; }
 
     // Auto load
-    window.addEventListener("load", () => { reloadAll(); });
+    window.__lazyInitCarte = reloadAll;
 
   
 
