@@ -118,7 +118,7 @@ function parseDate(val) {
     <div class="page on" id="page-degradation">
 <div class="page" id="page-degradation">
     <div class="ph">
-      <div><div class="ph-title">🔌 Dégradation câble</div><div class="ph-sub">Suivi de la dégradation des câbles</div></div>
+      <div><div class="ph-title">🔌 Maintenance Câble</div><div class="ph-sub">Suivi de la dégradation des câbles</div></div>
     </div>
 
   <button id="retour" onclick="window.location.href='index.html'">⬅ Retour</button>
@@ -306,8 +306,11 @@ function parseDate(val) {
     }
     const main = document.getElementById('main');
     if (main) main.scrollTop = 0;
-    if (pageKey === 'degradation' && !_lazyDone.degradation) {
-      _lazyDone.degradation = true;
+    // Rechargement de Maintenance Câble à chaque ouverture de l'onglet (léger,
+    // et évite de rester bloqué si un premier chargement automatique a échoué)
+    if (pageKey === 'degradation') {
+      const kpi = document.getElementById('kpiVolume');
+      if (kpi) kpi.textContent = '⏳ Chargement...';
       setTimeout(() => { if (typeof window.__lazyInitDegradation === 'function') window.__lazyInitDegradation(); }, 0);
     }
   }
@@ -325,10 +328,7 @@ function parseDate(val) {
 
   // Chargement immédiat de Maintenance Câble (page par défaut)
   document.addEventListener('DOMContentLoaded', () => {
-    if (!_lazyDone.degradation) {
-      _lazyDone.degradation = true;
-      if (typeof window.__lazyInitDegradation === 'function') window.__lazyInitDegradation();
-    }
+    if (typeof window.__lazyInitDegradation === 'function') window.__lazyInitDegradation();
   });
   </script>
 
@@ -877,20 +877,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const clone = globalBtn.cloneNode(true);
     globalBtn.parentNode.replaceChild(clone, globalBtn);
 
-    clone.addEventListener("click", async () => {
-      const mode = prompt("1 = Filtrer par période (DATE DE CRÉATION)\n2 = GLOBAL");
-      if (!mode) return;
-      let d1=null,d2=null;
-      if(mode.trim()==="1"){
-         const deb=prompt("Date début JJ/MM/AAAA");
-         const fin=prompt("Date fin JJ/MM/AAAA");
-         const pf=s=>{const p=s.split("/").map(Number);return new Date(p[2],p[1]-1,p[0]);};
-         d1=pf(deb); d2=pf(fin);
-      }
-
+    function collecterDonneesSRO() {
       const tables = document.querySelectorAll("#tableTraites, #tablePlanifies, #tableNonTraites");
       let allData = [];
-
       tables.forEach(t => {
         const headers = Array.from(t.querySelectorAll("thead th")).map(th => th.textContent.trim());
         const rows = Array.from(t.querySelectorAll("tbody tr")).map(tr => {
@@ -899,17 +888,22 @@ document.addEventListener("DOMContentLoaded", () => {
           return obj;
         });
         allData = allData.concat(rows);
-    });
-
-    if(mode && mode.trim()==="1"){
-        allData = allData.filter(r=>{
-            if(!r["DATE DE CRÉATION"]) return false;
-            const dt=parseDate(r["DATE DE CRÉATION"]);
-            return dt>=d1 && dt<=d2;
-        });
+      });
+      return allData;
     }
 
-const sroMap = {};
+    function rendreTableauSROGlobal(d1, d2) {
+      let allData = collecterDonneesSRO();
+
+      if (d1 && d2) {
+        allData = allData.filter(r => {
+          if (!r["DATE DE CRÉATION"]) return false;
+          const dt = parseDate(r["DATE DE CRÉATION"]);
+          return dt >= d1 && dt <= d2;
+        });
+      }
+
+      const sroMap = {};
       allData.forEach(row => {
         const sro = row["Sro"] || "Non défini";
         if (sro.toLowerCase() === "non défini") return;
@@ -920,11 +914,7 @@ const sroMap = {};
         sroMap[sro].total2Mois += occ;
       });
 
-      const sroCorrigesCount = Object.keys(sroMap)
-        .filter(sro => targets.includes(String(sro).trim().toUpperCase()))
-        .length;
-
-const sorted = Object.entries(sroMap).sort((a, b) => {
+      const sorted = Object.entries(sroMap).sort((a, b) => {
         const isAOrange = targets.includes(a[0]);
         const isBOrange = targets.includes(b[0]);
         if (isAOrange && !isBOrange) return -1;
@@ -932,36 +922,41 @@ const sorted = Object.entries(sroMap).sort((a, b) => {
         return b[1].totalND - a[1].totalND;
       });
       const total = sorted.reduce((s, [, v]) => s + v.rows.length, 0);
+      const totalSRO = Object.keys(sroMap).length;
+      const sroCorriges = Object.keys(sroMap).filter(sro => targets.includes(String(sro).trim().toUpperCase())).length;
+      const percentSRO = totalSRO > 0 ? ((sroCorriges / totalSRO) * 100).toFixed(1) : "0.0";
+      const clientsCorriges = Object.keys(sroMap)
+        .filter(sro => targets.includes(String(sro).trim().toUpperCase()))
+        .reduce((sum, sro) => sum + sroMap[sro].rows.length, 0);
 
+      document.getElementById("sroGlobalTitre").innerHTML =
+        `📊 SRO corrigés : ${sroCorriges}/${totalSRO} (${percentSRO}%) — Total clients : ${clientsCorriges}/${total} (${total > 0 ? ((clientsCorriges / total) * 100).toFixed(1) : '0.0'}%)`;
+
+      document.getElementById("sroGlobalBody").innerHTML = sorted.map(([sro, obj]) => {
+        const isOrange = targets.map(t=>t.toUpperCase()).includes(String(sro).trim().toUpperCase());
+        const style = isOrange ? "style='color:orange;font-weight:bold'" : "";
+        return `<tr><td ${style}>${sro}</td><td>${obj.totalND}</td><td>${obj.total2Mois}</td></tr>`;
+      }).join("");
+
+      window._sroGlobalSorted = sorted;
+    }
+
+    clone.addEventListener("click", () => {
       const popup = document.createElement("div");
       popup.innerHTML = `
         <div style='background:#fff;padding:20px;border-radius:8px;max-width:900px;'>
-          
-<h3>${(() => {
-  const totalSRO = Object.keys(sroMap).length;
-  const sroCorriges = Object.keys(sroMap)
-    .filter(sro => targets.includes(String(sro).trim().toUpperCase()))
-    .length;
-
-  const percentSRO = totalSRO > 0
-    ? ((sroCorriges / totalSRO) * 100).toFixed(1)
-    : "0.0";
-
-  const totalClients = total; // Total ND
-  const clientsCorriges = Object.keys(sroMap)
-    .filter(sro => targets.includes(String(sro).trim().toUpperCase()))
-    .reduce((sum, sro) => sum + sroMap[sro].rows.length, 0);
-
-  return `📊 SRO corrigés : ${sroCorriges}/${totalSRO} (${percentSRO}%) — Total clients : ${clientsCorriges}/${totalClients} (${totalClients > 0 ? ((clientsCorriges / totalClients) * 100).toFixed(1) : '0.0'}%)`;
-})()}</h3>
-
+          <div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px;'>
+            <span style='font-size:12px;font-weight:600;color:#555;'>📅 Période :</span>
+            <span style='font-size:12px;color:#555;'>Du</span>
+            <input type='date' id='sroGlobalDateDebut' style='padding:4px 6px;border:1px solid #ccc;border-radius:4px;'>
+            <span style='font-size:12px;color:#555;'>Au</span>
+            <input type='date' id='sroGlobalDateFin' style='padding:4px 6px;border:1px solid #ccc;border-radius:4px;'>
+            <button id='sroGlobalResetPeriode' style='padding:4px 10px;'>Réinitialiser (Global)</button>
+          </div>
+          <h3 id='sroGlobalTitre'></h3>
           <input id='sroGlobalSearch' placeholder='Rechercher SRO...' style='margin:8px 0;width:200px;'><table style='width:100%;border-collapse:collapse;'>
             <thead><tr><th>SRO</th><th>Total ND</th><th>Total incidents 2 mois</th></tr></thead>
-            <tbody>${sorted.map(([sro, obj]) => {
-            const isOrange = targets.map(t=>t.toUpperCase()).includes(String(sro).trim().toUpperCase());
-            const style = isOrange ? "style='color:orange;font-weight:bold'" : "";
-            return `<tr><td ${style}>${sro}</td><td>${obj.totalND}</td><td>${obj.total2Mois}</td></tr>`;
-        }).join("")}</tbody>
+            <tbody id='sroGlobalBody'></tbody>
           </table>
           <div style='margin-top:10px;text-align:center;'>
             <button id='exportSROGlobal'>Exporter Excel</button>
@@ -972,10 +967,30 @@ const sorted = Object.entries(sroMap).sort((a, b) => {
       document.getElementById("sroglobal-container").appendChild(popup);
       switchPage('sroglobal');
 
-      document.getElementById("closeSROGlobal").onclick = () => switchPage('suivi');
+      // Affichage direct GLOBAL (plus de prompt 1/2)
+      rendreTableauSROGlobal(null, null);
+
+      function onPeriodeChange() {
+        const deb = document.getElementById("sroGlobalDateDebut").value;
+        const fin = document.getElementById("sroGlobalDateFin").value;
+        if (deb && fin) {
+          rendreTableauSROGlobal(new Date(deb + "T00:00:00"), new Date(fin + "T23:59:59"));
+        } else if (!deb && !fin) {
+          rendreTableauSROGlobal(null, null);
+        }
+      }
+      document.getElementById("sroGlobalDateDebut").addEventListener("change", onPeriodeChange);
+      document.getElementById("sroGlobalDateFin").addEventListener("change", onPeriodeChange);
+      document.getElementById("sroGlobalResetPeriode").addEventListener("click", () => {
+        document.getElementById("sroGlobalDateDebut").value = "";
+        document.getElementById("sroGlobalDateFin").value = "";
+        rendreTableauSROGlobal(null, null);
+      });
+
+      document.getElementById("closeSROGlobal").onclick = () => switchPage('degradation');
       document.getElementById("exportSROGlobal").onclick = () => {
         const wb = XLSX.utils.book_new();
-        sorted.forEach(([sro, obj]) => {
+        (window._sroGlobalSorted || []).forEach(([sro, obj]) => {
           const rows = obj.rows.map(r => ({
             ND: r["ND"],
             Client: r["Client"],

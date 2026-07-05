@@ -132,12 +132,6 @@ function parseDate(val) {
     #page-prevision .toolbar button, #page-prevision .toolbar input { margin-right:10px; }
     #page-prevision .no-alert { color: #666; font-style: italic; padding: 5px; }
   
-    /* ===== Styles scopés : page Suivi des productions ===== */
-
-#page-production table { border-collapse: collapse; font-size: 13px; min-width: 1400px; }
- #page-production th, #page-production td { border: 1px solid #ccc; padding: 4px; text-align: center; }
- #page-production th { background: #f0f0f0; }
- #page-production .scroll { max-height: 350px; overflow: auto; border: 1px solid #ccc; margin-bottom:20px; }
 
 
     /* ===== Styles scopés : page Suivi (ex planning.html) ===== */
@@ -850,7 +844,6 @@ document.addEventListener("DOMContentLoaded", function() {
     <div class="si" onclick="exporterPlanning5Onglets()"><span class="si-ico">📅</span>Générez le planning</div>
     <div class="si" data-page="suivi" onclick="switchPage('suivi')"><span class="si-ico">📈</span>Suivi des incidents répétitifs</div>
     <div class="si" data-page="prevision" onclick="switchPage('prevision')"><span class="si-ico">📈</span>Prévision de coupures</div>
-    <div class="si" data-page="production" onclick="switchPage('production')"><span class="si-ico">🏗️</span>Suivi des productions</div>
     <div class="si" data-page="carte" onclick="ouvrirMapIncident()"><span class="si-ico">🗺️</span>Map Incident</div>
    </div>
 
@@ -1101,7 +1094,6 @@ document.addEventListener("DOMContentLoaded", function() {
   const _lazyMap = {
     suivi: '__lazyInitSuivi',
     prevision: '__lazyInitPrevision',
-    production: '__lazyInitProduction',
     carte: '__lazyInitCarte',
   };
   function ensureSuivi() {
@@ -3189,136 +3181,6 @@ function lancerAnalysePrevision() {
 // --- Exposition des fonctions utilisées par les attributs onclick ---
 window.rechercherGlobal = rechercherGlobal;
 window.lancerAnalysePrevision = lancerAnalysePrevision;
-})();
-  </script>
-
-  <!-- ===== PAGE SUIVI DES PRODUCTIONS (ex planification.html) ===== -->
-  <div class="page" id="page-production">
-    <div class="ph">
-      <div><div class="ph-title">🏗️ Suivi des productions</div><div class="ph-sub">Suivi de la QoS des installations</div></div>
-    </div>
-
-
-<h2>Suivi de la QoS des installations</h2>
-<h3>Total Référence: <span id='totalRef'></span></h3>
-
-<div class="scroll">
-<table id="tableStables">
- <thead>
-   <tr>
-     <th>N°</th><th>Client</th><th>Référence</th><th>Date cré.</th><th>Date MAD</th><th>Date MES & MEF</th>
-     <th>Jan</th><th>Fév</th><th>Mar</th><th>Avr</th><th>Mai</th><th>Juin</th>
-     <th>Juil</th><th>Août</th><th>Sept</th><th>Oct</th><th>Nov</th><th>Déc</th>
-   </tr>
- </thead>
- <tbody></tbody>
-</table>
-</div>
-
-<div class="scroll">
-<table id="tableInstables">
- <thead>
-   <tr>
-     <th>N°</th><th>Client</th><th>Référence</th><th>Date cré.</th><th>Date MAD</th><th>Date MES & MEF</th>
-     <th>Jan</th><th>Fév</th><th>Mar</th><th>Avr</th><th>Mai</th><th>Juin</th>
-     <th>Juil</th><th>Août</th><th>Sept</th><th>Oct</th><th>Nov</th><th>Déc</th>
-   </tr>
- </thead>
- <tbody></tbody>
-</table>
-</div>
-
-
-
-  </div>
-  <script>
-(function(){
-
-function excelDate(v){
- if(!v) return "";
- let d=new Date((v-25569)*86400*1000);
- if(isNaN(d)) return v;
- return d.toLocaleDateString("fr-FR");
-}
-
-async function charger(){
- let resp1, resp2;
- try {
-   resp1 = await fetch("planification.xlsx");
-   if (!resp1.ok) throw new Error(`Fichier "planification.xlsx" introuvable (HTTP ${resp1.status}). Vérifiez le nom exact sur le serveur.`);
-   resp2 = await fetch("data.xlsx");
-   if (!resp2.ok) throw new Error(`Fichier "data.xlsx" introuvable (HTTP ${resp2.status}).`);
- } catch (e) {
-   document.getElementById("totalRef").innerText = "Erreur";
-   alert(e.message);
-   return;
- }
- const wb1=XLSX.read(await resp1.arrayBuffer(),{type:"array"});
- const planif=XLSX.utils.sheet_to_json(wb1.Sheets[wb1.SheetNames[0]]);
-
- const wb2=XLSX.read(await resp2.arrayBuffer(),{type:"array"});
- const data=XLSX.utils.sheet_to_json(wb2.Sheets[wb2.SheetNames[0]]);
-
- document.getElementById("totalRef").innerText=planif.length;
-
- let tbodyS=document.querySelector("#tableStables tbody");
- let tbodyI=document.querySelector("#tableInstables tbody");
- tbodyS.innerHTML=""; tbodyI.innerHTML="";
- let s=1, i=1;
-
- // Pré-indexation de data par ID (évite de reparcourir tout data.xlsx pour
- // chaque ligne, et évite d'injecter tout le tableau en JSON dans chaque
- // cellule du tableau, ce qui gelait le navigateur)
- __dataById = new Map();
- data.forEach(x => {
-   const key = x["ID"];
-   if (!__dataById.has(key)) __dataById.set(key, []);
-   __dataById.get(key).push(x);
- });
-
- planif.forEach(r=>{
-   const incidents=__dataById.get(r["ID"]) || [];
-   let mois=Array(12).fill(0);
-
-   incidents.forEach(x=>{
-     let d=new Date(x["Date de création"]);
-     if(!isNaN(d) && d.getFullYear()==2025) mois[d.getMonth()]++;
-   });
-
-   let instable=incidents.length>0;
-   let tab = instable ? tbodyI : tbodyS;
-   let index = instable ? i++ : s++;
-
-   let tr=document.createElement("tr");
-   tr.innerHTML=
-     "<td>"+index+"</td>"+
-     "<td>"+(r["Client"]||"")+"</td>"+
-     "<td>"+(r["Référence"]||"")+"</td>"+
-     "<td>"+excelDate(r["Date de création"])+"</td>"+
-     "<td>"+excelDate(r["Date de MAD"])+"</td>"+
-     "<td>"+excelDate(r["Date MES & MEF"])+"</td>"+
-     mois.map((m,idx)=>`<td onclick="showCause(${JSON.stringify(r["ID"])},${idx})">${m}</td>`).join('');
-   tab.appendChild(tr);
- });
-}
-
-let __dataById = new Map();
-function showCause(id,month){
- let incidents=__dataById.get(id) || [];
- let list=incidents.filter(x=>{
-   let d=new Date(x["Date de création"]);
-   return !isNaN(d)&&d.getMonth()===month&&d.getFullYear()===2025;
- });
- let msg=list.map(x=>x["CAUSE RÉELLE"]||"Cause inconnue").join("\n");
- if(!msg) msg="Aucune cause trouvée";
- alert(msg);
-}
-
-window.__lazyInitProduction = charger;
-
-
-// --- Exposition des fonctions utilisées par les attributs onclick ---
-window.showCause = showCause;
 })();
   </script>
 
