@@ -1155,7 +1155,8 @@ document.addEventListener("DOMContentLoaded", function() {
       if (typeof window[initKey] === 'function') window[initKey]();
     }
     if (pageKey === 'carte' && window._leafletMapCarte) {
-      setTimeout(() => window._leafletMapCarte.invalidateSize(), 60);
+      setTimeout(() => window._leafletMapCarte.invalidateSize(), 80);
+      setTimeout(() => window._leafletMapCarte.invalidateSize(), 400);
     }
   }
 
@@ -2323,7 +2324,7 @@ const targets=[
 "COC106"
 ];
 function applySROOrange(){
-  document.querySelectorAll("table").forEach(tbl=>{
+  document.querySelectorAll("#page-suivi table").forEach(tbl=>{
     const headers=[...tbl.querySelectorAll("th")].map(th=>th.textContent.trim().toUpperCase());
     const idxSRO=headers.findIndex(h=>h.includes("SRO"));
     const idxNorm=headers.findIndex(h=>h.includes("DATE NORMALISATION"));
@@ -2351,7 +2352,7 @@ function applySROOrange(){
 }
 
 const observer=new MutationObserver(()=>applySROOrange());
-observer.observe(document.body,{childList:true,subtree:true});
+if (document.getElementById('page-suivi')) observer.observe(document.getElementById('page-suivi'),{childList:true,subtree:true});
 setTimeout(applySROOrange,1500);
 
 
@@ -2628,7 +2629,7 @@ document.addEventListener("click", function (e) {
 
 
 function hideDateNormColumn() {
-    document.querySelectorAll("table").forEach(tbl => {
+    document.querySelectorAll("#page-suivi table").forEach(tbl => {
         if (tbl.id === "tablePlanifies" || tbl.id === "tableNonTraites") return;
         const headers = [...tbl.querySelectorAll("th")].map(h => h.innerText.trim());
         const idx = headers.findIndex(h => h.toLowerCase().includes("date normalisation"));
@@ -2641,7 +2642,8 @@ function hideDateNormColumn() {
     });
 }
 const observerDateNorm = new MutationObserver(hideDateNormColumn);
-observerDateNorm.observe(document.body, { childList: true, subtree: true });
+const _pageSuiviEl = document.getElementById('page-suivi');
+if (_pageSuiviEl) observerDateNorm.observe(_pageSuiviEl, { childList: true, subtree: true });
 hideDateNormColumn();
 
 
@@ -2658,7 +2660,7 @@ document.addEventListener("input", function(e){
 
 
 function colorDateCorrection() {
-    document.querySelectorAll("table").forEach(tbl => {
+    document.querySelectorAll("#page-suivi table").forEach(tbl => {
         if (tbl.id === "tablePlanifies" || tbl.id === "tableNonTraites") return;
         const headers = [...tbl.querySelectorAll("th")];
         const idx = headers.findIndex(th => 
@@ -2678,7 +2680,7 @@ function colorDateCorrection() {
 }
 
 const observerDateCorrection = new MutationObserver(colorDateCorrection);
-observerDateCorrection.observe(document.body, { childList: true, subtree: true });
+if (_pageSuiviEl) observerDateCorrection.observe(_pageSuiviEl, { childList: true, subtree: true });
 colorDateCorrection();
 
 
@@ -2854,7 +2856,14 @@ window.exportTotalND = exportTotalND;
     let detailsParND = {};
 
     async function loadExcel() {
-      const response = await fetch("data.xlsx");
+      let response;
+      try {
+        response = await fetch("data.xlsx");
+        if (!response.ok) throw new Error(`Fichier "data.xlsx" introuvable (HTTP ${response.status}).`);
+      } catch (e) {
+        document.getElementById("kpiVolume").innerText = "Erreur de chargement : " + e.message;
+        return;
+      }
       const arrayBuffer = await response.arrayBuffer();
       const data = new Uint8Array(arrayBuffer);
       const workbook = XLSX.read(data, { type: "array" });
@@ -3310,11 +3319,20 @@ function excelDate(v){
 }
 
 async function charger(){
- const resp1=await fetch("Planification.xlsx");
+ let resp1, resp2;
+ try {
+   resp1 = await fetch("planification.xlsx");
+   if (!resp1.ok) throw new Error(`Fichier "planification.xlsx" introuvable (HTTP ${resp1.status}). Vérifiez le nom exact sur le serveur.`);
+   resp2 = await fetch("data.xlsx");
+   if (!resp2.ok) throw new Error(`Fichier "data.xlsx" introuvable (HTTP ${resp2.status}).`);
+ } catch (e) {
+   document.getElementById("totalRef").innerText = "Erreur";
+   alert(e.message);
+   return;
+ }
  const wb1=XLSX.read(await resp1.arrayBuffer(),{type:"array"});
  const planif=XLSX.utils.sheet_to_json(wb1.Sheets[wb1.SheetNames[0]]);
 
- const resp2=await fetch("data.xlsx");
  const wb2=XLSX.read(await resp2.arrayBuffer(),{type:"array"});
  const data=XLSX.utils.sheet_to_json(wb2.Sheets[wb2.SheetNames[0]]);
 
@@ -3670,6 +3688,11 @@ window.showCause = showCause;
     async function loadData(){
       if(DATA_JSON) return DATA_JSON;
       const response = await fetch('data.xlsx');
+      if (!response.ok) {
+        alert(`Fichier "data.xlsx" introuvable (HTTP ${response.status}). La carte ne peut pas se charger.`);
+        DATA_JSON = [];
+        return DATA_JSON;
+      }
       const arrayBuffer = await response.arrayBuffer();
       const wb = XLSX.read(arrayBuffer, {type:'array'});
       const sheet = wb.Sheets[wb.SheetNames[0]];
