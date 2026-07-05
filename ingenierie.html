@@ -1846,12 +1846,21 @@ function splitTables(enrichedData) {
 })();
 
 async function init() {
-    const planningWb = await loadExcelFile('Planning.xlsx');
-    const dataWb = await loadExcelFile('data.xlsx');
+    let planningWb, dataWb;
+    try {
+        planningWb = await loadExcelFile('planning.xlsx');
+        dataWb = await loadExcelFile('data.xlsx');
+    } catch (e) {
+        alert(e.message);
+        return;
+    }
 
-    const planningSheet = planningWb.Sheets["Fusion unique"];
+    // Recherche de l'onglet "Fusion unique" tolérante à la casse/espaces
+    const nomCible = "fusion unique";
+    const nomTrouve = planningWb.SheetNames.find(n => n.trim().toLowerCase() === nomCible);
+    const planningSheet = nomTrouve ? planningWb.Sheets[nomTrouve] : null;
     if (!planningSheet) {
-        alert("L'onglet 'Fusion unique' est introuvable dans Planning.xlsx");
+        alert("L'onglet 'Fusion unique' est introuvable dans planning.xlsx.\nOnglets disponibles : " + planningWb.SheetNames.join(", "));
         return;
     }
     const planningData = XLSX.utils.sheet_to_json(planningSheet);
@@ -1921,6 +1930,9 @@ init();
 
 async function loadExcelFile(url) {
     const response = await fetch(url);
+    if (!response.ok) {
+        throw new Error(`Impossible de charger "${url}" (HTTP ${response.status}). Vérifiez le nom exact du fichier sur le serveur (sensible à la casse).`);
+    }
     const arrayBuffer = await response.arrayBuffer();
     const data = new Uint8Array(arrayBuffer);
     return XLSX.read(data, { type: 'array' });
