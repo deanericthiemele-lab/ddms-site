@@ -1062,6 +1062,14 @@ document.addEventListener("DOMContentLoaded", function() {
   <div class="page" id="page-performances">
     <div class="ph">
       <div><div class="ph-title">📋 Analyse globale</div><div class="ph-sub" id="summary-badge">Vue d'ensemble des incidents</div></div>
+      <div class="ph-sp"></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid var(--n5);border-radius:8px;padding:6px 10px;">
+        <span style="font-size:12px;font-weight:600;color:var(--n3);">📅 Période :</span>
+        <select id="summary-mois-debut" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
+        <span style="font-size:12px;color:var(--n3);">→</span>
+        <select id="summary-mois-fin" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
+        <button class="btn btn-v" style="padding:5px 10px;font-size:12px;" onclick="reinitialiserPeriodeSummary()">Année entière</button>
+      </div>
     </div>
     <div id="summary-body">
       <p style="color:var(--n4);text-align:center;">⏳ Chargement...</p>
@@ -1076,8 +1084,54 @@ document.addEventListener("DOMContentLoaded", function() {
       alert("Veuillez d'abord charger les données.");
       return;
     }
+    window._summaryRawData = src;
+    initPeriodeSummarySelectors();
     construireSummary(src);
     switchPage('performances');
+  }
+
+  // ===== Sélecteur de période : filtre et recalcule toute la page =====
+  function initPeriodeSummarySelectors() {
+    const MNfull = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"};
+    const selDebut = document.getElementById("summary-mois-debut");
+    const selFin = document.getElementById("summary-mois-fin");
+    if (!selDebut || !selFin) return;
+    if (!selDebut.options.length) {
+      let opts = "";
+      for (let m = 1; m <= 12; m++) opts += `<option value="${m}">${MNfull[m]}</option>`;
+      selDebut.innerHTML = opts;
+      selFin.innerHTML = opts;
+      selDebut.value = "1";
+      selFin.value = String(new Date().getMonth() + 1);
+      selDebut.addEventListener("change", appliquerPeriodeSummary);
+      selFin.addEventListener("change", appliquerPeriodeSummary);
+    }
+  }
+
+  function filtrerDataParPeriodeSummary(data, moisDebut, moisFin) {
+    return data.map(item => {
+      const moisFiltre = {};
+      let total = 0;
+      for (let m = moisDebut; m <= moisFin; m++) {
+        if (item.mois[m]) { moisFiltre[m] = item.mois[m]; total += item.mois[m]; }
+      }
+      return Object.assign({}, item, { mois: moisFiltre, total });
+    }).filter(item => item.total > 0);
+  }
+
+  function appliquerPeriodeSummary() {
+    const moisDebut = parseInt(document.getElementById("summary-mois-debut").value, 10);
+    const moisFin = parseInt(document.getElementById("summary-mois-fin").value, 10);
+    if (!window._summaryRawData) return;
+    if (moisDebut > moisFin) { alert("Le mois de début doit précéder le mois de fin."); return; }
+    const filtre = filtrerDataParPeriodeSummary(window._summaryRawData, moisDebut, moisFin);
+    construireSummary(filtre);
+  }
+
+  function reinitialiserPeriodeSummary() {
+    document.getElementById("summary-mois-debut").value = "1";
+    document.getElementById("summary-mois-fin").value = "12";
+    if (window._summaryRawData) construireSummary(window._summaryRawData);
   }
 
   function fermerSummary() {
@@ -1216,17 +1270,32 @@ document.addEventListener("DOMContentLoaded", function() {
       if (isCable) cableCount += t; else horsCableCount += t;
     });
 
-    // ── Points clés à retenir (alertes) ───────────────────────────
+    // ── Points clés à retenir : analyse rédigée ───────────────────
     const evolMois = volParMois[moisN1] ? Math.round(((volParMois[moisActuel]-volParMois[moisN1])/volParMois[moisN1])*1000)/10 : null;
-    const alertes = [];
-    alertes.push(`📊 <b>${volParMois[moisActuel]||0}</b> incidents ce mois${evolMois!==null ? ` — ${evolMois>=0?'▲':'▼'} ${Math.abs(evolMois)}% vs ${MN[moisN1]} (${volParMois[moisN1]} incidents)` : ''}`);
-    if (topZones[0]) alertes.push(`📍 Zone la plus impactée : <b>${topZones[0][0]}</b> concentre ${topZones[0][1]} incidents (${totalIncidentsYTD?Math.round(topZones[0][1]/totalIncidentsYTD*1000)/10:0}% du total)`);
-    if (top10clients[0]) alertes.push(`🏢 Client le plus impacté : <b>${top10clients[0].raison}</b> avec ${top10clients[0].total} incidents`);
-    alertes.push(`⚠️ ${ndRepetitifsMoisCourant.length} ND répétitifs ce mois (≥2 incidents) — suivi terrain requis`);
-    alertes.push(`👥 ${nbClientsDistincts} clients impactés au total`);
-    let alertesHtml = `<div style="display:flex;flex-direction:column;gap:8px;">` +
-      alertes.map(a => `<div style="font-size:13px;color:#1A1A1A;padding:8px 10px;background:#FDF5E0;border-left:3px solid #B07700;border-radius:4px;">${a}</div>`).join('') +
-      `</div>`;
+    const evolTexte = evolMois !== null
+      ? `${evolMois >= 0 ? 'en hausse' : 'en baisse'} de ${Math.abs(evolMois)}% par rapport à ${MN[moisN1]} (${volParMois[moisN1]} incidents)`
+      : `sans donnée de comparaison disponible pour ${MN[moisN1]}`;
+    const pctZoneTop = topZones[0] && totalIncidentsYTD ? Math.round(topZones[0][1]/totalIncidentsYTD*1000)/10 : 0;
+    const pctAbj = totalIncidentsYTD ? Math.round(zoneAbidjanCount/totalIncidentsYTD*1000)/10 : 0;
+    const pctInt = totalIncidentsYTD ? Math.round(zoneInterieurCount/totalIncidentsYTD*1000)/10 : 0;
+    const pctCable = totalIncidentsYTD ? Math.round(cableCount/totalIncidentsYTD*1000)/10 : 0;
+    const pctHorsCable = totalIncidentsYTD ? Math.round(horsCableCount/totalIncidentsYTD*1000)/10 : 0;
+
+    let analyseTexte = `<p style="margin:0 0 10px 0;">Sur la période analysée, <b>${totalIncidentsYTD}</b> incidents ont été enregistrés au total, dont <b>${volParMois[moisActuel]||0}</b> pour le seul mois de ${MN[moisActuel]}, ${evolTexte}.</p>`;
+
+    if (topZones[0]) {
+      analyseTexte += `<p style="margin:0 0 10px 0;">La zone la plus impactée est <b>${topZones[0][0]}</b>, qui concentre ${topZones[0][1]} incidents (${pctZoneTop}% du total). Sur le plan géographique, Abidjan représente <b>${zoneAbidjanCount}</b> incidents (${pctAbj}%) contre <b>${zoneInterieurCount}</b> en zone Intérieur (${pctInt}%).</p>`;
+    }
+
+    analyseTexte += `<p style="margin:0 0 10px 0;">Les causes liées au câble (fibre/cuivre coupé, jarretières, transmission…) représentent <b>${cableCount}</b> incidents (${pctCable}%), contre <b>${horsCableCount}</b> incidents hors câble (${pctHorsCable}%)${top5causes[0] ? ` — la cause la plus fréquente reste « ${top5causes[0][0]} » (${top5causes[0][1]} occurrences)` : ''}.</p>`;
+
+    if (top10clients[0]) {
+      analyseTexte += `<p style="margin:0 0 10px 0;">Côté clients, <b>${top10clients[0].raison}</b> est le plus impacté avec ${top10clients[0].total} incidents, sur un total de <b>${nbClientsDistincts}</b> clients touchés.</p>`;
+    }
+
+    analyseTexte += `<p style="margin:0;">Enfin, on dénombre <b>${ndRepetitifsMoisCourant.length}</b> ND répétitifs ce mois-ci (≥2 incidents, suivi terrain requis), <b>${ndAnnuel.length}</b> ND critiques sur l'année (≥7 incidents cumulés), et <b>${ndReviensTousMois.length}</b> ND présents chaque mois depuis janvier.</p>`;
+
+    let alertesHtml = `<div style="background:#F7F7F7;border-radius:8px;padding:16px 18px;font-size:13px;color:#1A1A1A;line-height:1.6;">${analyseTexte}</div>`;
 
     // Badge
     document.getElementById("summary-badge").textContent = `${data.length} ND analysés`;
@@ -1257,14 +1326,15 @@ document.addEventListener("DOMContentLoaded", function() {
       { label:"Incidents câble", val: cableCount, color:"#E05A00", onclick:`afficherDetailSummary('cable')` },
       { label:"Incidents hors câble", val: horsCableCount, color:"#6B6B6B", onclick:`afficherDetailSummary('horscable')` },
     ];
-    let kpiHtml = `<div style="display:flex;gap:12px;flex-wrap:wrap;">`;
+    let kpiHtml = `<div style="display:grid;grid-template-columns:repeat(5, 1fr);gap:12px;">`;
     kpis.forEach(k => {
-      kpiHtml += `<div onclick="${k.onclick}" style="flex:1;min-width:160px;background:#FAFAFA;border-radius:8px;padding:14px;text-align:center;cursor:pointer;border:2px solid #F7F7F7;transition:border-color .15s;" onmouseover="this.style.borderColor='${k.color}'" onmouseout="this.style.borderColor='#F7F7F7'">
+      kpiHtml += `<div onclick="${k.onclick}" style="background:#FAFAFA;border-radius:8px;padding:14px;text-align:center;cursor:pointer;border:2px solid #F7F7F7;transition:border-color .15s;" onmouseover="this.style.borderColor='${k.color}'" onmouseout="this.style.borderColor='#F7F7F7'">
         <div style="font-size:28px;font-weight:bold;color:${k.color};">${k.val}</div>
         <div style="font-size:11px;color:#E05A00;margin-top:4px;">${k.label}</div>
       </div>`;
     });
     kpiHtml += `</div>`;
+
 
     // ── 2. Volume incidents par mois ─────────────────────────────
     let volHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;">`;
@@ -4922,7 +4992,9 @@ window.togglePanel = togglePanel;
   <div class="ph">
     <div><div class="ph-title">📊 Tableau de bord</div><div class="ph-sub">Analyse des incidents — vue d'ensemble</div></div>
   </div>
-  <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 20px;">
+  <div style="display: none; gap: 20px; flex-wrap: wrap; margin-top: 20px;">
+   <!-- Blocs P1/P2/P3 masqués à l'affichage : conservés car exporterNDsDeuxMois(), exporterIncidentsRepetitifs(),
+        afficherNDCompletsMensuels() et exporterNDsDeuxMoisExcel() sont utilisés par la génération du planning. -->
    <div style="background-color:#ffffff;border:1px solid #E4E4E4;padding:14px;border-radius:8px;max-width:400px;box-shadow:0 1px 4px rgba(0,0,0,0.07);">
     <h4 style="margin-top:0;color:#E05A00;font-size:14px;font-weight:700;">
      Incidents répétitifs sur les 2 derniers mois consécutifs -
@@ -8675,8 +8747,11 @@ async function genererRapportPDF(clientNom) {
   let moisAfficher; // liste des mois à inclure dans le graphe
 
   if (!filtreDateOn) {
-    // Pas de filtre : toutes les paires Jan-Fév → Nov-Déc
-    moisAfficher = Array.from({length: 11}, (_, i) => i + 1); // [1..11]
+    // Pas de filtre : paires Jan-Fév → (mois précédent)-(mois en cours), pour la lisibilité.
+    // Se met à jour automatiquement chaque mois (basé sur la date du jour).
+    const moisActuelCourant = new Date().getMonth() + 1;
+    moisAfficher = Array.from({length: 11}, (_, i) => i + 1).filter(m => (m + 1) <= moisActuelCourant);
+    if (moisAfficher.length === 0) moisAfficher = [1]; // sécurité pour janvier (pas de paire encore possible)
   } else {
     // Avec filtre : les mois couverts par la plage
     const m1 = debut ? debut.getMonth() + 1 : 1;
@@ -8746,6 +8821,14 @@ async function genererRapportPDF(clientNom) {
     options: {
       devicePixelRatio: 2,
       responsive: true,
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+        const idx = elements[0].index;
+        const dsIdx = elements[0].datasetIndex;
+        const m1 = moisAfficher[idx];
+        const dsLabels = ['Total Signalisations (2 mois)','ND total','Volume incidents (ND présents 2 mois)','ND distincts présents 2 mois'];
+        afficherPopupDeuxMoisClients(m1, dsIdx, dsLabels[dsIdx]);
+      },
       plugins: {
         legend: { display: true, position: 'top' },
         datalabels: {
@@ -8760,6 +8843,66 @@ async function genererRapportPDF(clientNom) {
     },
     plugins: [ChartDataLabels]
   });
+}
+
+function afficherPopupDeuxMoisClients(m1, dsIdx, dsLabel) {
+  const m2 = m1 + 1;
+  const src = (typeof tableauActuel !== 'undefined' && tableauActuel.length) ? tableauActuel : [];
+  const dsColors = ['orange', '#66bb6a', '#ef5350', '#42a5f5'];
+  const color = dsColors[dsIdx] || 'orange';
+  const label2Mois = (moisNoms[m1] || ('Mois ' + m1)) + ' - ' + (moisNoms[m2] || ('Mois ' + m2));
+
+  let entries;
+  if (dsIdx === 2 || dsIdx === 3) {
+    // Volume incidents (ND présents 2 mois) / ND distincts présents 2 mois : ND avec incident les 2 mois
+    entries = src.filter(item => (item.mois && item.mois[m1] > 0) && (item.mois && item.mois[m2] > 0))
+      .map(item => ({ nd: item.nd, raison: item.raison, count: (item.mois[m1] || 0) + (item.mois[m2] || 0) }));
+  } else {
+    // Total Signalisations (2 mois) / ND total : tout ND avec au moins 1 incident sur les 2 mois
+    entries = src.filter(item => (((item.mois && item.mois[m1]) || 0) + ((item.mois && item.mois[m2]) || 0)) > 0)
+      .map(item => ({ nd: item.nd, raison: item.raison, count: (item.mois[m1] || 0) + (item.mois[m2] || 0) }));
+  }
+  entries.sort((a, b) => b.count - a.count);
+  if (!entries.length) return;
+
+  const totalLabel = dsIdx === 1 ? (entries.length + ' ND')
+    : dsIdx === 3 ? (entries.length + ' ND distincts')
+    : (entries.reduce((s, e) => s + e.count, 0) + ' incidents');
+
+  const exportKey = label2Mois.replace(/[^a-zA-Z0-9]/g, '_') + '_' + dsLabel.replace(/[^a-zA-Z0-9]/g, '_');
+
+  let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <b style="font-size:15px;">📊 ${label2Mois} — <span style="color:${color}">${dsLabel}</span> — ${totalLabel}</b>
+      <button onclick="exportMoisClients('${exportKey}')" style="background:${color};color:white;border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;">📤 Exporter Excel</button>
+    </div>`;
+  html += `<div style="max-height:420px;overflow-y:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#1A1A1A;color:white;">
+          <th style="padding:8px;text-align:left;">RAISON SOCIALE</th>
+          <th style="padding:8px;text-align:left;">ND</th>
+          <th style="padding:8px;text-align:center;">Nb incidents</th>
+        </tr></thead><tbody>`;
+  entries.forEach((e, i) => {
+    const bg = i % 2 === 0 ? '#fff' : '#FAFAFA';
+    html += `<tr style="background:${bg};">
+        <td style="padding:7px 8px;border-bottom:1px solid #eee;">${e.raison || '—'}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #eee;font-weight:600;color:#1565c0;">${e.nd}</td>
+        <td style="padding:7px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:bold;color:${color};">${e.count}</td>
+      </tr>`;
+  });
+  html += `</tbody></table></div>`;
+
+  document.getElementById('popup-sem-clients-body').innerHTML = html;
+  document.getElementById('popup-sem-clients').style.display = 'flex';
+
+  window._popupMoisExportData = entries.map(e => ({
+    'RAISON SOCIALE': e.raison || '',
+    'ND': e.nd,
+    'Nb incidents': e.count,
+    'Période': label2Mois,
+    'Série': dsLabel
+  }));
+  window._popupMoisExportKey = exportKey;
 }
   </script>
   <!-- Modal Top 20 Synthèse -->
