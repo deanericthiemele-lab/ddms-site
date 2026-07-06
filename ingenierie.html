@@ -1220,7 +1220,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const periodePrecLabel = `${fmtDateFr(debutPrec)} → ${fmtDateFr(finPrec)}`;
     const lbl = document.getElementById("summary-period-label");
     if (lbl) lbl.textContent = `Période analysée : ${periodeLabel}  ·  Comparée à : ${periodePrecLabel}`;
-    construireSummary(filtre, { label: periodeLabel, prevLabel: periodePrecLabel, prevData: filtrePrec });
+    construireSummary(filtre, { label: periodeLabel, prevLabel: periodePrecLabel, prevData: filtrePrec, debut, fin, prevDebut: debutPrec, prevFin: finPrec });
   }
 
   function reinitialiserPeriodeSummary() {
@@ -1321,24 +1321,53 @@ document.addEventListener("DOMContentLoaded", function() {
     return { total, nbClients: clientsArr.length, topClient: clientsArr[0] || null, topZone: topZones[0] || null, zoneAbidjan, zoneInterieur, cable, horsCable };
   }
 
+  // Liste des mois calendaires (1-12) couverts par une plage de dates [debut, fin]
+  function calculerMoisPeriodeArray(debut, fin) {
+    const arr = [];
+    if (!(debut instanceof Date) || !(fin instanceof Date) || isNaN(debut) || isNaN(fin)) return arr;
+    let d = new Date(debut.getFullYear(), debut.getMonth(), 1);
+    const limite = new Date(fin.getFullYear(), fin.getMonth(), 1);
+    let guard = 0;
+    while (d <= limite && guard < 240) { arr.push(d.getMonth() + 1); d.setMonth(d.getMonth() + 1); guard++; }
+    return arr;
+  }
+
+  // KPI "ND" (répétitifs / critiques / tous les mois) calculés sur une plage de dates donnée
+  function calculerNDKpisPourPeriode(data, debut, fin) {
+    const moisPeriode = calculerMoisPeriodeArray(debut, fin);
+    const moisCourant = moisPeriode.length ? moisPeriode[moisPeriode.length - 1] : (new Date().getMonth() + 1);
+    const moisN1 = moisCourant === 1 ? 12 : moisCourant - 1;
+    const moisN2 = moisCourant === 1 ? 11 : (moisCourant === 2 ? 12 : moisCourant - 2);
+    const tousMois = moisPeriode.length ? data.filter(item => moisPeriode.every(m => (item.mois[m] || 0) > 0)).length : 0;
+    const repetitifsMoisCourant = data.filter(item => (item.mois[moisCourant] || 0) >= 2).length;
+    const repetitifs2Mois = data.filter(item => (item.mois[moisN1] || 0) > 0 && (item.mois[moisN2] || 0) > 0).length;
+    const critiques = data.filter(item => (item.total || 0) >= 7).length;
+    return { tousMois, repetitifsMoisCourant, repetitifs2Mois, critiques, moisPeriode, moisCourant, moisN1, moisN2 };
+  }
+
   function construireSummary(data, periodeInfo) {
     const today = new Date();
-    const moisActuel = today.getMonth() + 1;
+    const periodeDebut = (periodeInfo && periodeInfo.debut) || new Date(today.getFullYear(), 0, 1);
+    const periodeFin = (periodeInfo && periodeInfo.fin) || today;
+    const moisPeriode = calculerMoisPeriodeArray(periodeDebut, periodeFin);
+    const moisActuel = moisPeriode.length ? moisPeriode[moisPeriode.length - 1] : (today.getMonth() + 1);
     const moisN1 = moisActuel === 1 ? 12 : moisActuel - 1;
     const moisN2 = moisActuel === 1 ? 11 : (moisActuel === 2 ? 12 : moisActuel - 2);
     const MN = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"};
     const MNC = {1:"Jan",2:"Fév",3:"Mar",4:"Avr",5:"Mai",6:"Jun",7:"Jul",8:"Aoû",9:"Sep",10:"Oct",11:"Nov",12:"Déc"};
 
-    // ── KPIs de base ──────────────────────────────────────────────
-    const ndReviensTousMois = data.filter(item => {
-      for (let m = 1; m <= moisActuel; m++) if (!(item.mois[m] > 0)) return false;
-      return true;
-    });
+    // ── KPIs de base (calculés sur la plage réellement sélectionnée) ─
+    const ndReviensTousMois = moisPeriode.length ? data.filter(item => moisPeriode.every(m => (item.mois[m] || 0) > 0)) : [];
     const ndRepetitifsMoisCourant = data.filter(item => (item.mois[moisActuel] || 0) >= 2);
     const ndRepetitifs2Mois = data.filter(item => (item.mois[moisN1]||0) > 0 && (item.mois[moisN2]||0) > 0);
-    const ndAnnuel = data.filter(item => {
-      let t = 0; for (let m = 1; m <= moisActuel; m++) t += item.mois[m]||0; return t >= 7;
-    });
+    const ndAnnuel = data.filter(item => (item.total || 0) >= 7);
+
+    // ── KPI de la période précédente (pour affichage des flèches de tendance) ─
+    let kpiPrecedent = null, ndKpiPrecedent = null;
+    if (periodeInfo && periodeInfo.prevData) {
+      kpiPrecedent = calculerKpisPeriodeGlobal(periodeInfo.prevData);
+      ndKpiPrecedent = calculerNDKpisPourPeriode(periodeInfo.prevData, periodeInfo.prevDebut, periodeInfo.prevFin);
+    }
 
     // Volume par mois
     const volParMois = {};
@@ -1409,8 +1438,8 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // Comparaison avec la période précédente équivalente (même durée, juste avant)
     let comparaisonHtml = '';
-    if (periodeInfo && periodeInfo.prevData) {
-      const kp = calculerKpisPeriodeGlobal(periodeInfo.prevData);
+    if (kpiPrecedent) {
+      const kp = kpiPrecedent;
       const pct = (cur, prev) => (prev > 0) ? Math.round(((cur - prev) / prev) * 1000) / 10 : null;
       const fleche = v => v === null ? '' : (v >= 0 ? ' (▲ +' + v + '%)' : ' (▼ ' + v + '%)');
 
@@ -1443,7 +1472,7 @@ document.addEventListener("DOMContentLoaded", function() {
       analyseTexte += `<p style="margin:0 0 10px 0;">Côté clients, <b>${top10clients[0].raison}</b> est le plus impacté avec ${top10clients[0].total} incidents, sur un total de <b>${nbClientsDistincts}</b> clients touchés.</p>`;
     }
 
-    analyseTexte += `<p style="margin:0;">Enfin, on dénombre <b>${ndRepetitifsMoisCourant.length}</b> ND répétitifs ce mois-ci (≥2 incidents, suivi terrain requis), <b>${ndAnnuel.length}</b> ND critiques sur l'année (≥7 incidents cumulés), et <b>${ndReviensTousMois.length}</b> ND présents chaque mois depuis janvier.</p>`;
+    analyseTexte += `<p style="margin:0;">Enfin, on dénombre <b>${ndRepetitifsMoisCourant.length}</b> ND répétitifs sur le dernier mois de la période (≥2 incidents, suivi terrain requis), <b>${ndAnnuel.length}</b> ND critiques sur la période (≥7 incidents cumulés), et <b>${ndReviensTousMois.length}</b> ND présents chaque mois de la période sélectionnée.</p>`;
 
     let alertesHtml = `<div style="background:#F7F7F7;border-radius:8px;padding:16px 18px;font-size:13px;color:#1A1A1A;line-height:1.6;">${analyseTexte}</div>`;
 
@@ -1465,22 +1494,32 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // ── 1. KPIs résumé (ligne de métriques) ──────────────────────
     const kpis = [
-      { label:"Total incidents (YTD)", val: totalIncidentsYTD, color:"#B84A00", onclick:`afficherDetailSummary('total_incidents')` },
-      { label:"Nbre clients impactés", val: nbClientsDistincts, color:"#B84A00", onclick:`afficherDetailSummary('nb_clients')` },
-      { label:"ND tous les mois (YTD)", val: ndReviensTousMois.length, color:"#1A6B3C", onclick:`afficherDetailSummary('ytd')` },
-      { label:"ND répétitifs mois courant (≥2)", val: ndRepetitifsMoisCourant.length, color:"#B07700", onclick:`afficherDetailSummary('mois')` },
-      { label:"ND répétitifs 2 mois consécutifs", val: ndRepetitifs2Mois.length, color:"#B22222", onclick:`afficherDetailSummary('2mois')` },
-      { label:"ND critiques annuels (≥7 inc.)", val: ndAnnuel.length, color:"#5B2C8D", onclick:`afficherDetailSummary('annuel')` },
-      { label:"Zone Abidjan", val: zoneAbidjanCount, color:"#1B4F72", onclick:`afficherDetailSummary('zone_abj')` },
-      { label:"Zone Intérieur", val: zoneInterieurCount, color:"#1B4F72", onclick:`afficherDetailSummary('zone_int')` },
-      { label:"Incidents câble", val: cableCount, color:"#E05A00", onclick:`afficherDetailSummary('cable')` },
-      { label:"Incidents hors câble", val: horsCableCount, color:"#6B6B6B", onclick:`afficherDetailSummary('horscable')` },
+      { label:"Total incidents (YTD)", val: totalIncidentsYTD, prev: kpiPrecedent ? kpiPrecedent.total : null, color:"#B84A00", onclick:`afficherDetailSummary('total_incidents')` },
+      { label:"Nbre clients impactés", val: nbClientsDistincts, prev: kpiPrecedent ? kpiPrecedent.nbClients : null, color:"#B84A00", onclick:`afficherDetailSummary('nb_clients')` },
+      { label:"ND répétitifs mois courant (≥2)", val: ndRepetitifsMoisCourant.length, prev: ndKpiPrecedent ? ndKpiPrecedent.repetitifsMoisCourant : null, color:"#B07700", onclick:`afficherDetailSummary('mois')` },
+      { label:"ND répétitifs 2 mois consécutifs", val: ndRepetitifs2Mois.length, prev: ndKpiPrecedent ? ndKpiPrecedent.repetitifs2Mois : null, color:"#B22222", onclick:`afficherDetailSummary('2mois')` },
+      { label:"ND tous les mois (YTD)", val: ndReviensTousMois.length, prev: ndKpiPrecedent ? ndKpiPrecedent.tousMois : null, color:"#1A6B3C", onclick:`afficherDetailSummary('ytd')` },
+      { label:"ND critiques annuels (≥7 inc.)", val: ndAnnuel.length, prev: ndKpiPrecedent ? ndKpiPrecedent.critiques : null, color:"#5B2C8D", onclick:`afficherDetailSummary('annuel')` },
+      { label:"Zone Abidjan", val: zoneAbidjanCount, prev: kpiPrecedent ? kpiPrecedent.zoneAbidjan : null, color:"#1B4F72", onclick:`afficherDetailSummary('zone_abj')` },
+      { label:"Zone Intérieur", val: zoneInterieurCount, prev: kpiPrecedent ? kpiPrecedent.zoneInterieur : null, color:"#1B4F72", onclick:`afficherDetailSummary('zone_int')` },
+      { label:"Incidents câble", val: cableCount, prev: kpiPrecedent ? kpiPrecedent.cable : null, color:"#E05A00", onclick:`afficherDetailSummary('cable')` },
+      { label:"Incidents hors câble", val: horsCableCount, prev: kpiPrecedent ? kpiPrecedent.horsCable : null, color:"#6B6B6B", onclick:`afficherDetailSummary('horscable')` },
     ];
+    function tendanceKpiHtml(cur, prev) {
+      if (prev === null || prev === undefined || isNaN(prev)) return '<div style="height:14px;"></div>';
+      const diff = cur - prev;
+      if (diff === 0) return `<div style="font-size:10px;color:#999;margin-top:3px;">= ${prev}</div>`;
+      const up = diff > 0;
+      const color = up ? '#1A6B3C' : '#B22222';
+      const arrow = up ? '▲' : '▼';
+      return `<div style="font-size:10px;color:${color};margin-top:3px;font-weight:700;">${arrow} ${prev}</div>`;
+    }
     let kpiHtml = `<div style="display:grid;grid-template-columns:repeat(5, 1fr);gap:12px;">`;
     kpis.forEach(k => {
       kpiHtml += `<div onclick="${k.onclick}" style="background:#FAFAFA;border-radius:8px;padding:14px;text-align:center;cursor:pointer;border:2px solid #F7F7F7;transition:border-color .15s;" onmouseover="this.style.borderColor='${k.color}'" onmouseout="this.style.borderColor='#F7F7F7'">
         <div style="font-size:28px;font-weight:bold;color:${k.color};">${k.val}</div>
         <div style="font-size:11px;color:#E05A00;margin-top:4px;">${k.label}</div>
+        ${tendanceKpiHtml(k.val, k.prev)}
       </div>`;
     });
     kpiHtml += `</div>`;
@@ -1718,10 +1757,10 @@ document.addEventListener("DOMContentLoaded", function() {
       cols = ['ND','Client','Localisation', MN[n2], MN[n1]];
       rows = d.ndRepetitifs2Mois.map(i => [i.nd, i.raison||'—', i.localisation||'—', i.mois[n2]||0, i.mois[n1]||0]);
     } else if (type === 'annuel') {
-      titre = 'ND critiques annuels (≥7 incidents YTD)';
-      cols = ['ND','Client','Localisation','Total YTD','Évaluation'];
+      titre = 'ND critiques (≥7 incidents sur la période)';
+      cols = ['ND','Client','Localisation','Total période','Évaluation'];
       rows = d.ndAnnuel.map(i => {
-        const t = Object.entries(i.mois).filter(([m])=>parseInt(m)<=moisActuel).reduce((s,[,v])=>s+v,0);
+        const t = i.total || 0;
         return [i.nd, i.raison||'—', i.localisation||'—', t, t>=13?'Critique':'Instable'];
       }).sort((a,b)=>b[3]-a[3]);
     } else if (type.startsWith('vol_')) {
