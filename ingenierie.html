@@ -1071,9 +1071,7 @@ document.addEventListener("DOMContentLoaded", function() {
           <option value="annee">Année entière</option>
         </select>
         <span id="summary-mois-wrap" style="display:flex;align-items:center;gap:6px;">
-          <select id="summary-mois-debut" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
-          <span style="font-size:12px;color:var(--n3);">→</span>
-          <select id="summary-mois-fin" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
+          <select id="summary-mois-unique" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
           <select id="summary-mois-annee" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
         </span>
         <span id="summary-dates-wrap" style="display:none;align-items:center;gap:6px;">
@@ -1085,7 +1083,6 @@ document.addEventListener("DOMContentLoaded", function() {
           <select id="summary-annee-seule" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
         </span>
         <button class="btn btn-v" style="padding:5px 10px;font-size:12px;" onclick="appliquerPeriodeSummary()">Appliquer</button>
-        <button class="btn btn-v" style="padding:5px 10px;font-size:12px;" onclick="reinitialiserPeriodeSummary()">Année entière</button>
       </div>
     </div>
     <div id="summary-period-label" style="padding:0 0 4px 0;font-size:11px;color:var(--n4);"></div>
@@ -1123,22 +1120,18 @@ document.addEventListener("DOMContentLoaded", function() {
   }
 
   function initPeriodeSummarySelectors() {
-    const selDebut = document.getElementById("summary-mois-debut");
-    const selFin = document.getElementById("summary-mois-fin");
+    const selUnique = document.getElementById("summary-mois-unique");
     const selAnneeMois = document.getElementById("summary-mois-annee");
     const selAnneeSeule = document.getElementById("summary-annee-seule");
-    if (!selDebut || !selFin) return;
+    if (!selUnique) return;
     const annees = getAnneesDisponiblesSummary(window._summaryRawData);
     const anneeActuelle = new Date().getFullYear();
-    if (!selDebut.options.length) {
+    if (!selUnique.options.length) {
       let opts = "";
       for (let m = 1; m <= 12; m++) opts += `<option value="${m}">${MNfullSummary[m]}</option>`;
-      selDebut.innerHTML = opts;
-      selFin.innerHTML = opts;
-      selDebut.value = "1";
-      selFin.value = String(new Date().getMonth() + 1);
-      selDebut.addEventListener("change", appliquerPeriodeSummary);
-      selFin.addEventListener("change", appliquerPeriodeSummary);
+      selUnique.innerHTML = opts;
+      selUnique.value = String(new Date().getMonth() + 1);
+      selUnique.addEventListener("change", appliquerPeriodeSummary);
     }
     let optsAnnee = annees.map(a => `<option value="${a}">${a}</option>`).join("");
     if (selAnneeMois) { selAnneeMois.innerHTML = optsAnnee; selAnneeMois.value = String(annees.includes(anneeActuelle) ? anneeActuelle : annees[annees.length-1]); if (!selAnneeMois.dataset.bound) { selAnneeMois.addEventListener("change", appliquerPeriodeSummary); selAnneeMois.dataset.bound = "1"; } }
@@ -1180,13 +1173,11 @@ document.addEventListener("DOMContentLoaded", function() {
       const annee = parseInt(document.getElementById("summary-annee-seule").value, 10);
       return { debut: new Date(annee, 0, 1, 0, 0, 0), fin: new Date(annee, 11, 31, 23, 59, 59) };
     }
-    // mode "mois"
-    const moisDebut = parseInt(document.getElementById("summary-mois-debut").value, 10);
-    const moisFin = parseInt(document.getElementById("summary-mois-fin").value, 10);
+    // mode "mois" (un seul mois)
+    const mois = parseInt(document.getElementById("summary-mois-unique").value, 10);
     const annee = parseInt(document.getElementById("summary-mois-annee").value, 10);
-    if (moisDebut > moisFin) { alert("Le mois de début doit précéder le mois de fin."); return null; }
-    const debut = new Date(annee, moisDebut - 1, 1, 0, 0, 0);
-    const fin = new Date(annee, moisFin, 0, 23, 59, 59);
+    const debut = new Date(annee, mois - 1, 1, 0, 0, 0);
+    const fin = new Date(annee, mois, 0, 23, 59, 59);
     return { debut, fin };
   }
 
@@ -1460,19 +1451,11 @@ document.addEventListener("DOMContentLoaded", function() {
       </p>`;
     }
 
-    let analyseTexte = comparaisonHtml + `<p style="margin:0 0 10px 0;">Sur la période analysée${periodeInfo && periodeInfo.label ? ` (${periodeInfo.label})` : ''}, <b>${totalIncidentsYTD}</b> incidents ont été enregistrés au total.</p>`;
-
-    if (topZones[0]) {
-      analyseTexte += `<p style="margin:0 0 10px 0;">La zone la plus impactée est <b>${topZones[0][0]}</b>, qui concentre ${topZones[0][1]} incidents (${pctZoneTop}% du total). Sur le plan géographique, Abidjan représente <b>${zoneAbidjanCount}</b> incidents (${pctAbj}%) contre <b>${zoneInterieurCount}</b> en zone Intérieur (${pctInt}%).</p>`;
+    let analyseTexte = comparaisonHtml;
+    if (top5causes[0]) {
+      const pctCauseMajeure = totalIncidentsYTD ? Math.round(top5causes[0][1]/totalIncidentsYTD*1000)/10 : 0;
+      analyseTexte += `<p style="margin:0;">🔧 <b>Cause majeure :</b> « ${top5causes[0][0]} » avec ${top5causes[0][1]} occurrences (${pctCauseMajeure}% du total des incidents).</p>`;
     }
-
-    analyseTexte += `<p style="margin:0 0 10px 0;">Les causes liées au câble (fibre/cuivre coupé, jarretières, transmission…) représentent <b>${cableCount}</b> incidents (${pctCable}%), contre <b>${horsCableCount}</b> incidents hors câble (${pctHorsCable}%)${top5causes[0] ? ` — la cause la plus fréquente reste « ${top5causes[0][0]} » (${top5causes[0][1]} occurrences)` : ''}.</p>`;
-
-    if (top10clients[0]) {
-      analyseTexte += `<p style="margin:0 0 10px 0;">Côté clients, <b>${top10clients[0].raison}</b> est le plus impacté avec ${top10clients[0].total} incidents, sur un total de <b>${nbClientsDistincts}</b> clients touchés.</p>`;
-    }
-
-    analyseTexte += `<p style="margin:0;">Enfin, on dénombre <b>${ndRepetitifsMoisCourant.length}</b> ND répétitifs sur le dernier mois de la période (≥2 incidents, suivi terrain requis), <b>${ndAnnuel.length}</b> ND critiques sur la période (≥7 incidents cumulés), et <b>${ndReviensTousMois.length}</b> ND présents chaque mois de la période sélectionnée.</p>`;
 
     let alertesHtml = `<div style="background:#F7F7F7;border-radius:8px;padding:16px 18px;font-size:13px;color:#1A1A1A;line-height:1.6;">${analyseTexte}</div>`;
 
@@ -1543,14 +1526,15 @@ document.addEventListener("DOMContentLoaded", function() {
     volHtml += `</div>`;
 
     // ── 3. Top 10 clients ────────────────────────────────────────
-    let clientHtml = `<div style="max-height:360px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <tr style="background:#F7F7F7;position:sticky;top:0;"><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th><th style="padding:6px 8px;text-align:center;">ND</th></tr>`;
+    let clientHtml = `<div style="max-height:340px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="background:#F7F7F7;position:sticky;top:0;"><th style="padding:6px 8px;text-align:center;width:32px;">#</th><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th><th style="padding:6px 8px;text-align:center;">ND</th></tr>`;
     allClientsSorted.forEach((c, i) => {
       const bg = i%2===0?'#fff':'#fafafa';
       const bar = Math.round((c.total / (allClientsSorted[0].total||1)) * 80);
       const boldTop = i < 10 ? 'font-weight:700;' : '';
       clientHtml += `<tr style="background:${bg};" onclick="afficherDetailSummary('client_${encodeURIComponent(c.raison)}')" onmouseover="this.style.background='#e3f2fd'" onmouseout="this.style.background='${bg}'" style="cursor:pointer;">
-        <td style="padding:6px 8px;cursor:pointer;color:#1565c0;${boldTop}">${i+1}. ${c.raison}</td>
+        <td style="padding:6px 8px;text-align:center;color:#999;font-weight:600;">${i+1}</td>
+        <td style="padding:6px 8px;cursor:pointer;color:#1565c0;${boldTop}">${c.raison}</td>
         <td style="padding:6px 8px;text-align:center;">
           <span style="display:inline-block;width:${bar}px;height:8px;background:#B84A00;border-radius:4px;margin-right:6px;"></span>
           <b>${c.total}</b>
@@ -1561,14 +1545,15 @@ document.addEventListener("DOMContentLoaded", function() {
     clientHtml += `</table></div>`;
 
     // ── 4. Top 10 liens ──────────────────────────────────────────
-    let lienHtml = `<div style="max-height:360px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <tr style="background:#F7F7F7;position:sticky;top:0;"><th style="padding:6px 8px;text-align:left;">ND</th><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th></tr>`;
+    let lienHtml = `<div style="max-height:340px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <tr style="background:#F7F7F7;position:sticky;top:0;"><th style="padding:6px 8px;text-align:center;width:32px;">#</th><th style="padding:6px 8px;text-align:left;">ND</th><th style="padding:6px 8px;text-align:left;">Client</th><th style="padding:6px 8px;text-align:center;">Incidents</th></tr>`;
     allLiensSorted.forEach((item, i) => {
       const bg = i%2===0?'#fff':'#fafafa';
       const bar = Math.round(((item.total||0) / (allLiensSorted[0].total||1)) * 80);
       const boldTop = i < 10 ? 'font-weight:700;' : '';
       lienHtml += `<tr onclick="afficherDetailSummary('nd_${encodeURIComponent(item.nd||'')}')" onmouseover="this.style.background='#e3f2fd'" onmouseout="this.style.background='${bg}'" style="background:${bg};cursor:pointer;">
-        <td style="padding:6px 8px;color:#1565c0;${boldTop}">${i+1}. ${item.nd||'—'}</td>
+        <td style="padding:6px 8px;text-align:center;color:#999;font-weight:600;">${i+1}</td>
+        <td style="padding:6px 8px;color:#1565c0;${boldTop}">${item.nd||'—'}</td>
         <td style="padding:6px 8px;color:#E05A00;">${item.raison||'—'}</td>
         <td style="padding:6px 8px;text-align:center;">
           <span style="display:inline-block;width:${bar}px;height:8px;background:#B84A00;border-radius:4px;margin-right:6px;"></span>
@@ -1591,19 +1576,22 @@ document.addEventListener("DOMContentLoaded", function() {
     });
     zoneHtml += `</div>`;
 
-    // ── 6. Top 5 causes ──────────────────────────────────────────
-    let causeHtml = `<div style="max-height:300px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px;">`;
+    // ── 6. Top 10 causes ──────────────────────────────────────────
+    let causeHtml = `<div style="max-height:380px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px;">`;
     const maxC = allCausesSorted[0] ? allCausesSorted[0][1] : 1;
     allCausesSorted.forEach(([c, v], i) => {
       const pct = Math.round((v/maxC)*100);
-      const boldTop = i < 5 ? 'font-weight:700;' : '';
-      causeHtml += `<div onclick="afficherDetailSummary('cause_${encodeURIComponent(c)}')" style="cursor:pointer;">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
-          <span style="color:#1A1A1A;${boldTop}">${i+1}. ${c}</span>
-          <span style="color:#E05A00;font-weight:bold;">${v} ND</span>
-        </div>
-        <div style="background:#F7F7F7;border-radius:4px;height:10px;">
-          <div style="width:${pct}%;background:#E05A00;border-radius:4px;height:10px;transition:width .3s;"></div>
+      const boldTop = i < 10 ? 'font-weight:700;' : '';
+      causeHtml += `<div onclick="afficherDetailSummary('cause_${encodeURIComponent(c)}')" style="cursor:pointer;display:flex;align-items:center;gap:8px;">
+        <span style="color:#999;font-weight:600;font-size:11px;width:18px;text-align:right;flex-shrink:0;">${i+1}</span>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+            <span style="color:#1A1A1A;${boldTop}">${c}</span>
+            <span style="color:#E05A00;font-weight:bold;">${v} ND</span>
+          </div>
+          <div style="background:#F7F7F7;border-radius:4px;height:10px;">
+            <div style="width:${pct}%;background:#E05A00;border-radius:4px;height:10px;transition:width .3s;"></div>
+          </div>
         </div>
       </div>`;
     });
@@ -1699,7 +1687,7 @@ document.addEventListener("DOMContentLoaded", function() {
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         ${sectionCard('🌍 Zones les plus impactées', zoneHtml)}
-        ${sectionCard('🔧 Top 5 causes', causeHtml)}
+        ${sectionCard('🔧 Top 10 causes', causeHtml)}
       </div>
     `;
     document.getElementById("summary-body").innerHTML = html;
@@ -1805,15 +1793,17 @@ document.addEventListener("DOMContentLoaded", function() {
     if (!rows.length) { alert("Aucune donnée à afficher."); return; }
 
     let tableHtml = `<table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <thead><tr style="background:linear-gradient(135deg,#E05A00,#B84A00);color:white;">`;
+      <thead><tr style="background:linear-gradient(135deg,#E05A00,#B84A00);color:white;">
+        <th style="padding:8px 6px;width:36px;">#</th>`;
     cols.forEach(c => { tableHtml += `<th style="padding:8px 6px;">${c}</th>`; });
     tableHtml += `</tr></thead><tbody>`;
     rows.forEach((row, i) => {
       const bg = i%2===0?'#fff':'#FAFAFA';
       tableHtml += `<tr style="background:${bg};">`;
+      tableHtml += `<td style="padding:6px 8px;border-bottom:1px solid #F7F7F7;text-align:center;color:#999;font-weight:600;">${i+1}</td>`;
       row.forEach((cell, ci) => {
         const isNum = typeof cell === 'number';
-        const color = (ci===3 && isNum && cell>=5) ? '#B22222' : (ci===3 && isNum && cell>=3) ? '#B07700' : '#1A1A1A';
+        const color = (ci===4 && isNum && cell>=5) ? '#B22222' : (ci===4 && isNum && cell>=3) ? '#B07700' : '#1A1A1A';
         tableHtml += `<td style="padding:6px 8px;border-bottom:1px solid #F7F7F7;text-align:${isNum?'center':'left'};color:${color};font-weight:${isNum&&cell>0?'600':'400'};">${cell}</td>`;
       });
       tableHtml += `</tr>`;
