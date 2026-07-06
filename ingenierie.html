@@ -1065,12 +1065,30 @@ document.addEventListener("DOMContentLoaded", function() {
       <div class="ph-sp"></div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid var(--n5);border-radius:8px;padding:6px 10px;">
         <span style="font-size:12px;font-weight:600;color:var(--n3);">📅 Période :</span>
-        <select id="summary-mois-debut" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
-        <span style="font-size:12px;color:var(--n3);">→</span>
-        <select id="summary-mois-fin" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
+        <select id="summary-mode" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;font-weight:600;" onchange="changerModePeriodeSummary()">
+          <option value="mois">Par mois</option>
+          <option value="dates">Entre 2 dates</option>
+          <option value="annee">Année entière</option>
+        </select>
+        <span id="summary-mois-wrap" style="display:flex;align-items:center;gap:6px;">
+          <select id="summary-mois-debut" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
+          <span style="font-size:12px;color:var(--n3);">→</span>
+          <select id="summary-mois-fin" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
+          <select id="summary-mois-annee" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
+        </span>
+        <span id="summary-dates-wrap" style="display:none;align-items:center;gap:6px;">
+          <input type="date" id="summary-date-debut" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;">
+          <span style="font-size:12px;color:var(--n3);">→</span>
+          <input type="date" id="summary-date-fin" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;">
+        </span>
+        <span id="summary-annee-wrap" style="display:none;align-items:center;gap:6px;">
+          <select id="summary-annee-seule" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
+        </span>
+        <button class="btn btn-v" style="padding:5px 10px;font-size:12px;" onclick="appliquerPeriodeSummary()">Appliquer</button>
         <button class="btn btn-v" style="padding:5px 10px;font-size:12px;" onclick="reinitialiserPeriodeSummary()">Année entière</button>
       </div>
     </div>
+    <div id="summary-period-label" style="padding:0 0 4px 0;font-size:11px;color:var(--n4);"></div>
     <div id="summary-body">
       <p style="color:var(--n4);text-align:center;">⏳ Chargement...</p>
     </div>
@@ -1086,19 +1104,35 @@ document.addEventListener("DOMContentLoaded", function() {
     }
     window._summaryRawData = src;
     initPeriodeSummarySelectors();
-    construireSummary(src);
+    document.getElementById("summary-mode").value = "annee";
+    changerModePeriodeSummary();
+    appliquerPeriodeSummary();
     switchPage('performances');
   }
 
   // ===== Sélecteur de période : filtre et recalcule toute la page =====
+  const MNfullSummary = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"};
+
+  function getAnneesDisponiblesSummary(data) {
+    const annees = new Set();
+    (data || []).forEach(item => {
+      (item.datesCreation || []).forEach(d => { if (d instanceof Date && !isNaN(d)) annees.add(d.getFullYear()); });
+    });
+    if (!annees.size) annees.add(new Date().getFullYear());
+    return [...annees].sort((a,b) => a - b);
+  }
+
   function initPeriodeSummarySelectors() {
-    const MNfull = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"};
     const selDebut = document.getElementById("summary-mois-debut");
     const selFin = document.getElementById("summary-mois-fin");
+    const selAnneeMois = document.getElementById("summary-mois-annee");
+    const selAnneeSeule = document.getElementById("summary-annee-seule");
     if (!selDebut || !selFin) return;
+    const annees = getAnneesDisponiblesSummary(window._summaryRawData);
+    const anneeActuelle = new Date().getFullYear();
     if (!selDebut.options.length) {
       let opts = "";
-      for (let m = 1; m <= 12; m++) opts += `<option value="${m}">${MNfull[m]}</option>`;
+      for (let m = 1; m <= 12; m++) opts += `<option value="${m}">${MNfullSummary[m]}</option>`;
       selDebut.innerHTML = opts;
       selFin.innerHTML = opts;
       selDebut.value = "1";
@@ -1106,32 +1140,95 @@ document.addEventListener("DOMContentLoaded", function() {
       selDebut.addEventListener("change", appliquerPeriodeSummary);
       selFin.addEventListener("change", appliquerPeriodeSummary);
     }
+    let optsAnnee = annees.map(a => `<option value="${a}">${a}</option>`).join("");
+    if (selAnneeMois) { selAnneeMois.innerHTML = optsAnnee; selAnneeMois.value = String(annees.includes(anneeActuelle) ? anneeActuelle : annees[annees.length-1]); if (!selAnneeMois.dataset.bound) { selAnneeMois.addEventListener("change", appliquerPeriodeSummary); selAnneeMois.dataset.bound = "1"; } }
+    if (selAnneeSeule) { selAnneeSeule.innerHTML = optsAnnee; selAnneeSeule.value = String(annees.includes(anneeActuelle) ? anneeActuelle : annees[annees.length-1]); if (!selAnneeSeule.dataset.bound) { selAnneeSeule.addEventListener("change", appliquerPeriodeSummary); selAnneeSeule.dataset.bound = "1"; } }
+    const dDebut = document.getElementById("summary-date-debut");
+    const dFin = document.getElementById("summary-date-fin");
+    if (dDebut && !dDebut.value) {
+      const y = annees.includes(anneeActuelle) ? anneeActuelle : annees[annees.length-1];
+      dDebut.value = `${y}-01-01`;
+      dFin.value = new Date().toISOString().slice(0,10);
+    }
   }
 
-  function filtrerDataParPeriodeSummary(data, moisDebut, moisFin) {
-    return data.map(item => {
+  function changerModePeriodeSummary() {
+    const mode = document.getElementById("summary-mode").value;
+    document.getElementById("summary-mois-wrap").style.display = (mode === "mois") ? "flex" : "none";
+    document.getElementById("summary-dates-wrap").style.display = (mode === "dates") ? "flex" : "none";
+    document.getElementById("summary-annee-wrap").style.display = (mode === "annee") ? "flex" : "none";
+  }
+
+  function fmtDateFr(d) {
+    if (!(d instanceof Date) || isNaN(d)) return "-";
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  }
+
+  // Retourne {debut, fin} (objets Date) selon le mode sélectionné, ou null si invalide
+  function getPeriodeSelectionneeSummary() {
+    const mode = document.getElementById("summary-mode").value;
+    if (mode === "dates") {
+      const v1 = document.getElementById("summary-date-debut").value;
+      const v2 = document.getElementById("summary-date-fin").value;
+      if (!v1 || !v2) { alert("Veuillez choisir les deux dates."); return null; }
+      const debut = new Date(v1 + "T00:00:00");
+      const fin = new Date(v2 + "T23:59:59");
+      if (debut > fin) { alert("La date de début doit précéder la date de fin."); return null; }
+      return { debut, fin };
+    }
+    if (mode === "annee") {
+      const annee = parseInt(document.getElementById("summary-annee-seule").value, 10);
+      return { debut: new Date(annee, 0, 1, 0, 0, 0), fin: new Date(annee, 11, 31, 23, 59, 59) };
+    }
+    // mode "mois"
+    const moisDebut = parseInt(document.getElementById("summary-mois-debut").value, 10);
+    const moisFin = parseInt(document.getElementById("summary-mois-fin").value, 10);
+    const annee = parseInt(document.getElementById("summary-mois-annee").value, 10);
+    if (moisDebut > moisFin) { alert("Le mois de début doit précéder le mois de fin."); return null; }
+    const debut = new Date(annee, moisDebut - 1, 1, 0, 0, 0);
+    const fin = new Date(annee, moisFin, 0, 23, 59, 59);
+    return { debut, fin };
+  }
+
+  // Période précédente de même durée, immédiatement avant la période sélectionnée
+  function calculerPeriodePrecedenteSummary(debut, fin) {
+    const duree = fin.getTime() - debut.getTime();
+    const finPrec = new Date(debut.getTime() - 1000);
+    const debutPrec = new Date(finPrec.getTime() - duree);
+    return { debut: debutPrec, fin: finPrec };
+  }
+
+  // Filtre les items sur une plage de dates réelles (basé sur item.datesCreation)
+  function filtrerDataParDatesSummary(data, debut, fin) {
+    return (data || []).map(item => {
+      const dates = (item.datesCreation || []).filter(d => d instanceof Date && !isNaN(d) && d >= debut && d <= fin);
       const moisFiltre = {};
-      let total = 0;
-      for (let m = moisDebut; m <= moisFin; m++) {
-        if (item.mois[m]) { moisFiltre[m] = item.mois[m]; total += item.mois[m]; }
-      }
-      return Object.assign({}, item, { mois: moisFiltre, total });
+      dates.forEach(d => { const m = d.getMonth() + 1; moisFiltre[m] = (moisFiltre[m] || 0) + 1; });
+      return Object.assign({}, item, { mois: moisFiltre, total: dates.length, datesCreation: dates });
     }).filter(item => item.total > 0);
   }
 
   function appliquerPeriodeSummary() {
-    const moisDebut = parseInt(document.getElementById("summary-mois-debut").value, 10);
-    const moisFin = parseInt(document.getElementById("summary-mois-fin").value, 10);
     if (!window._summaryRawData) return;
-    if (moisDebut > moisFin) { alert("Le mois de début doit précéder le mois de fin."); return; }
-    const filtre = filtrerDataParPeriodeSummary(window._summaryRawData, moisDebut, moisFin);
-    construireSummary(filtre);
+    const periode = getPeriodeSelectionneeSummary();
+    if (!periode) return;
+    const { debut, fin } = periode;
+    const filtre = filtrerDataParDatesSummary(window._summaryRawData, debut, fin);
+    const { debut: debutPrec, fin: finPrec } = calculerPeriodePrecedenteSummary(debut, fin);
+    const filtrePrec = filtrerDataParDatesSummary(window._summaryRawData, debutPrec, finPrec);
+    const periodeLabel = `${fmtDateFr(debut)} → ${fmtDateFr(fin)}`;
+    const periodePrecLabel = `${fmtDateFr(debutPrec)} → ${fmtDateFr(finPrec)}`;
+    const lbl = document.getElementById("summary-period-label");
+    if (lbl) lbl.textContent = `Période analysée : ${periodeLabel}  ·  Comparée à : ${periodePrecLabel}`;
+    construireSummary(filtre, { label: periodeLabel, prevLabel: periodePrecLabel, prevData: filtrePrec });
   }
 
   function reinitialiserPeriodeSummary() {
-    document.getElementById("summary-mois-debut").value = "1";
-    document.getElementById("summary-mois-fin").value = "12";
-    if (window._summaryRawData) construireSummary(window._summaryRawData);
+    document.getElementById("summary-mode").value = "annee";
+    changerModePeriodeSummary();
+    const selAnneeSeule = document.getElementById("summary-annee-seule");
+    if (selAnneeSeule) selAnneeSeule.value = String(new Date().getFullYear());
+    appliquerPeriodeSummary();
   }
 
   function fermerSummary() {
@@ -1191,7 +1288,40 @@ document.addEventListener("DOMContentLoaded", function() {
     switchPage('carte');
   }
 
-  function construireSummary(data) {
+  // Calcule les KPI de comparaison (volume, zones, câble, clients) pour un jeu de données de période
+  function calculerKpisPeriodeGlobal(data) {
+    function isAbidjanLocalG(loc){
+      if(!loc) return false;
+      const s = String(loc).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[-_]/g," ").replace(/\s+/g," ").trim();
+      const keys = ['COCODY','PLATEAU','MARCORY','TREICHVILLE','YOPOUGON','PORT BOUET','ABOBO','BINGERVILLE','ADJAME','ATTECOUBE','KOUMASSI','ANYAMA','SONGON','BASSAM','BONOUA','DABOU','JACQUEVILLE','ALEPE','ABOISSO','ADZOPE','AGBOVILLE','SIKENSI','TIASSALE','RIVIERA','ANGRE','AKOUEDO','GESCO','BIETRY','GONZAGUEVILLE','PALMERAIE','2PLATEAU','ABIDJAN'];
+      return keys.some(k => s.includes(k));
+    }
+    const causesCableG = ["BRINS FO MAUVAIS","CABLE FO COUPE","COUPURE FO FTTX","JARRETIERES CENTRAL","PROBLEME TRANSMISSION","DERCO","CUIVRE DEFFECTUEUX","COUPURE FO ROA","FO DEFFECTUEUX"];
+    function normCauseG(c){ return String(c||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim(); }
+
+    const total = data.reduce((s,i)=>s+(i.total||0),0);
+    const clientsMap = {};
+    data.forEach(item => {
+      const r = (item.raison || "Inconnu").trim();
+      if (!clientsMap[r]) clientsMap[r] = { raison: r, total: 0 };
+      clientsMap[r].total += item.total || 0;
+    });
+    const clientsArr = Object.values(clientsMap).sort((a,b)=>b.total-a.total);
+    const zones = {};
+    let zoneAbidjan = 0, zoneInterieur = 0, cable = 0, horsCable = 0;
+    data.forEach(item => {
+      const z = (item.localisation || "Inconnue").trim();
+      const t = item.total || 0;
+      zones[z] = (zones[z] || 0) + t;
+      if (isAbidjanLocalG(item.localisation)) zoneAbidjan += t; else zoneInterieur += t;
+      const isCbl = (item.causes || []).some(c => causesCableG.includes(normCauseG(c)));
+      if (isCbl) cable += t; else horsCable += t;
+    });
+    const topZones = Object.entries(zones).sort((a,b)=>b[1]-a[1]);
+    return { total, nbClients: clientsArr.length, topClient: clientsArr[0] || null, topZone: topZones[0] || null, zoneAbidjan, zoneInterieur, cable, horsCable };
+  }
+
+  function construireSummary(data, periodeInfo) {
     const today = new Date();
     const moisActuel = today.getMonth() + 1;
     const moisN1 = moisActuel === 1 ? 12 : moisActuel - 1;
@@ -1271,17 +1401,37 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 
     // ── Points clés à retenir : analyse rédigée ───────────────────
-    const evolMois = volParMois[moisN1] ? Math.round(((volParMois[moisActuel]-volParMois[moisN1])/volParMois[moisN1])*1000)/10 : null;
-    const evolTexte = evolMois !== null
-      ? `${evolMois >= 0 ? 'en hausse' : 'en baisse'} de ${Math.abs(evolMois)}% par rapport à ${MN[moisN1]} (${volParMois[moisN1]} incidents)`
-      : `sans donnée de comparaison disponible pour ${MN[moisN1]}`;
     const pctZoneTop = topZones[0] && totalIncidentsYTD ? Math.round(topZones[0][1]/totalIncidentsYTD*1000)/10 : 0;
     const pctAbj = totalIncidentsYTD ? Math.round(zoneAbidjanCount/totalIncidentsYTD*1000)/10 : 0;
     const pctInt = totalIncidentsYTD ? Math.round(zoneInterieurCount/totalIncidentsYTD*1000)/10 : 0;
     const pctCable = totalIncidentsYTD ? Math.round(cableCount/totalIncidentsYTD*1000)/10 : 0;
     const pctHorsCable = totalIncidentsYTD ? Math.round(horsCableCount/totalIncidentsYTD*1000)/10 : 0;
 
-    let analyseTexte = `<p style="margin:0 0 10px 0;">Sur la période analysée, <b>${totalIncidentsYTD}</b> incidents ont été enregistrés au total, dont <b>${volParMois[moisActuel]||0}</b> pour le seul mois de ${MN[moisActuel]}, ${evolTexte}.</p>`;
+    // Comparaison avec la période précédente équivalente (même durée, juste avant)
+    let comparaisonHtml = '';
+    if (periodeInfo && periodeInfo.prevData) {
+      const kp = calculerKpisPeriodeGlobal(periodeInfo.prevData);
+      const pct = (cur, prev) => (prev > 0) ? Math.round(((cur - prev) / prev) * 1000) / 10 : null;
+      const fleche = v => v === null ? '' : (v >= 0 ? ' (▲ +' + v + '%)' : ' (▼ ' + v + '%)');
+
+      const dTotal = pct(totalIncidentsYTD, kp.total);
+      const dAbj = pct(zoneAbidjanCount, kp.zoneAbidjan);
+      const dInt = pct(zoneInterieurCount, kp.zoneInterieur);
+      const dCable = pct(cableCount, kp.cable);
+      const dHorsCable = pct(horsCableCount, kp.horsCable);
+      const dClients = pct(nbClientsDistincts, kp.nbClients);
+
+      comparaisonHtml = `<p style="margin:0 0 10px 0;padding:10px 12px;background:#EAF2FB;border-left:3px solid #1B4F72;border-radius:6px;">
+        <b>📊 Comparaison avec la période précédente</b> (${periodeInfo.prevLabel}) :<br>
+        Volume total : <b>${totalIncidentsYTD}</b> incidents${fleche(dTotal)} contre <b>${kp.total}</b> précédemment.<br>
+        Zone Abidjan : <b>${zoneAbidjanCount}</b>${fleche(dAbj)} vs <b>${kp.zoneAbidjan}</b> &nbsp;·&nbsp; Zone Intérieur : <b>${zoneInterieurCount}</b>${fleche(dInt)} vs <b>${kp.zoneInterieur}</b>.<br>
+        Incidents câble : <b>${cableCount}</b>${fleche(dCable)} vs <b>${kp.cable}</b> &nbsp;·&nbsp; Hors câble : <b>${horsCableCount}</b>${fleche(dHorsCable)} vs <b>${kp.horsCable}</b>.<br>
+        Clients touchés : <b>${nbClientsDistincts}</b>${fleche(dClients)} vs <b>${kp.nbClients}</b>${kp.topClient ? ` (client le plus impacté alors : <b>${kp.topClient.raison}</b>, ${kp.topClient.total} incidents)` : ''}.
+        ${(topZones[0] && kp.topZone) ? `<br>Zone la plus touchée : <b>${topZones[0][0]}</b> (${topZones[0][1]}) contre <b>${kp.topZone[0]}</b> (${kp.topZone[1]}) sur la période précédente.` : ''}
+      </p>`;
+    }
+
+    let analyseTexte = comparaisonHtml + `<p style="margin:0 0 10px 0;">Sur la période analysée${periodeInfo && periodeInfo.label ? ` (${periodeInfo.label})` : ''}, <b>${totalIncidentsYTD}</b> incidents ont été enregistrés au total.</p>`;
 
     if (topZones[0]) {
       analyseTexte += `<p style="margin:0 0 10px 0;">La zone la plus impactée est <b>${topZones[0][0]}</b>, qui concentre ${topZones[0][1]} incidents (${pctZoneTop}% du total). Sur le plan géographique, Abidjan représente <b>${zoneAbidjanCount}</b> incidents (${pctAbj}%) contre <b>${zoneInterieurCount}</b> en zone Intérieur (${pctInt}%).</p>`;
@@ -1476,7 +1626,6 @@ document.addEventListener("DOMContentLoaded", function() {
 
     let ndARisqueHtml = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       ${estimationInfo ? `<div style="background:#fff3e0;border:1px solid #ffb74d;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;color:#B07700;white-space:nowrap;">📈 Estimation ${MN[estimationInfo.moisCourant]} : ${estimationInfo.estimationFinale} incidents</div>` : ''}
-      <div style="background:#EBF3FA;border:1px solid #1B4F72;border-radius:20px;padding:5px 12px;font-size:12px;font-weight:700;color:#1B4F72;white-space:nowrap;">📈 Moy. ND≥2 : ${moy1}% &nbsp;|&nbsp; Moy. M-1→M : ${moy2}%</div>
     </div>`;
     if (!ndARisque.length) {
       ndARisqueHtml += `<p style="text-align:center;color:#B84A00;padding:20px 0;">Aucun ND n'a eu d'incident le mois dernier : pas de risque identifié pour ${MN[moisActuel]}.</p>`;
