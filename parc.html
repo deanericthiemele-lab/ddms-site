@@ -500,7 +500,6 @@ tbody tr:hover td:first-child { background: var(--surface-2); }
     </div>
 
     <div class="dg-subhead">Analyse par type de liaison — LS / LSI (SYT) / Numérique (T0-T2)</div>
-    <div class="dg-comment" id="dg-comment-produit">Analyse en cours de génération…</div>
     <div class="dg-arpu-title">🟢 Nouvelles activations, par catégorie et par année</div>
     <div class="dg-chart-wrap" style="height:260px;"><canvas id="chart-synthese-produit"></canvas></div>
 
@@ -1312,7 +1311,6 @@ function exportPDF(){
   y = checkBreak(y, 75, COL.amber, 'Analyse par type de liaison', '(suite)');
   y = addChartImage('chart-synthese-produit-ca', y, 75);
   y = checkBreak(y, 20, COL.amber, 'Analyse par type de liaison', '(suite)');
-  y = writeParagraph(document.getElementById('dg-comment-produit') ? document.getElementById('dg-comment-produit').innerText : '', y, COL.text);
 
   if (typeof doc.autoTable === 'function'){
     const order = ['LS','LSI','NUMERIQUE'];
@@ -2001,76 +1999,6 @@ function renderSyntheseProduit(){
 
   const arpuData = computeArpuByCategory(order);
   renderTableArpuProduit(order, arpuData);
-
-  // Commentaire : identifie le moteur d'activations et le point d'attention
-  const totals = {};
-  order.forEach(cat=>{
-    const rows = data[cat].rows;
-    const totalSolde = rows.reduce((s,r)=>s+r.solde,0);
-    const totalGains = rows.reduce((s,r)=>s+r.gains,0);
-    const totalPertes = rows.reduce((s,r)=>s+r.pertes,0);
-    const croissancePct = data[cat].baseline ? (totalSolde/data[cat].baseline*100) : null;
-    const lastComplete = rows.filter(r=>!r.isCurrent).slice(-1)[0] || rows[rows.length-1];
-    totals[cat] = { totalSolde, totalGains, totalPertes, croissancePct, lastComplete };
-  });
-  const meilleurActiv = order.reduce((a,b)=> totals[b].totalGains > totals[a].totalGains ? b : a);
-  const pireActiv = order.reduce((a,b)=> totals[b].totalGains < totals[a].totalGains ? b : a);
-  const meilleur = order.reduce((a,b)=> totals[b].totalSolde > totals[a].totalSolde ? b : a);
-  const pire = order.reduce((a,b)=> totals[b].totalSolde < totals[a].totalSolde ? b : a);
-  const alerte = order.filter(cat => totals[cat].lastComplete && totals[cat].lastComplete.solde < 0);
-
-  let phraseAlerte = '';
-  if (alerte.length){
-    phraseAlerte = ' À surveiller : ' + alerte.map(cat => `<strong>${PRODUIT_CAT_LABELS[cat]}</strong> a terminé ${totals[cat].lastComplete.year} sur un solde négatif (${totals[cat].lastComplete.solde} lignes) malgré ses activations.`).join(', ') + '.';
-  } else {
-    phraseAlerte = ' Aucune des trois familles de produits n\'a terminé son dernier exercice complet en solde négatif.';
-  }
-
-  const nextYear = SCOPE_END_YEAR + 1;
-  const projPerCat = {};
-  order.forEach(cat=>{
-    const completeRows = data[cat].rows.filter(r=>!r.isCurrent);
-    projPerCat[cat] = projectNext(completeRows.slice(-3).map(r=>r.gains));
-  });
-  const projTxts = order.filter(cat=>projPerCat[cat]).map(cat => `${PRODUIT_CAT_LABELS[cat]} ≈ ${fmtNum(projPerCat[cat].avg)}`).join(', ');
-  const perspectiveProduit = projTxts ? `<br><br><strong>Perspective ${nextYear} :</strong> à rythme inchangé, les nouvelles activations par famille pourraient avoisiner ${projTxts} lignes — estimation indicative sur la moyenne des derniers exercices complets. ` +
-    `<strong>Actions à prioriser :</strong> capitaliser sur <strong>${PRODUIT_CAT_LABELS[meilleurActiv]}</strong> qui attire le plus de nouvelles ventes, et relancer la prospection sur <strong>${PRODUIT_CAT_LABELS[pireActiv]}</strong>${alerte.includes(pireActiv) ? ' avant que le repli ne s\'aggrave en ' + nextYear : ' pour dynamiser son volume d\'activations'}.` : '';
-  // Comparaison volume (lignes) vs valeur (ARPU robuste) : une catégorie peut gagner en
-  // volume tout en perdant en valeur unitaire, ou l'inverse — c'est ce qu'on met en évidence ici.
-  const valeurParCat = {};
-  order.forEach(cat=>{
-    const stats = arpuData.arpuParCat[cat];
-    const debut = stats[0].moyenne, fin = stats[stats.length-1].moyenne;
-    const varPct = debut>0 ? (fin-debut)/debut*100 : null;
-    let sens;
-    if (varPct===null) sens = 'stable';
-    else if (varPct > 5) sens = 'hausse';
-    else if (varPct < -5) sens = 'baisse';
-    else sens = 'stable';
-    valeurParCat[cat] = { debut, fin, varPct, sens };
-  });
-
-  const phrasesComparaison = order.map(cat=>{
-    const vol = totals[cat].totalSolde >= 0 ? 'gagne en volume net' : 'perd en volume net';
-    const val = valeurParCat[cat];
-    const valTxt = val.sens==='hausse' ? 'gagne aussi en valeur' : (val.sens==='baisse' ? 'perd en valeur' : 'reste stable en valeur');
-    const contraste = ((totals[cat].totalSolde>=0 && val.sens==='baisse') || (totals[cat].totalSolde<0 && val.sens==='hausse'));
-    return `<strong>${PRODUIT_CAT_LABELS[cat]}</strong> ${vol} (${totals[cat].totalSolde>=0?'+':''}${fmtNum(totals[cat].totalSolde)} lignes, après résiliations) et ${valTxt} ` +
-      `(${fmtCFA(val.debut)} → ${fmtCFA(val.fin)}/ligne${val.varPct!==null ? ', ' + (val.varPct>=0?'+':'') + val.varPct.toFixed(0) + '%' : ''})` +
-      (contraste ? ' <span class="down"><strong>⚠ signal contrasté</strong></span>' : '') + '.';
-  });
-  const comparaisonVolumeValeur = `<br><br><strong>Volume net vs valeur :</strong> ` + phrasesComparaison.join(' ') +
-    ` (moyennes robustes, valeurs extrêmes exclues — voir tableau ci-dessous).`;
-
-
-  document.getElementById('dg-comment-produit').innerHTML =
-    `<strong>${PRODUIT_CAT_LABELS[meilleurActiv]}</strong> enregistre le plus grand nombre de <strong>nouvelles activations</strong> depuis ${SCOPE_START_YEAR} ` +
-    `avec <span class="up">${fmtNum(totals[meilleurActiv].totalGains)} lignes activées</span> au total (contre ${fmtNum(totals[meilleurActiv].totalPertes)} résiliées sur la même période), ` +
-    `tandis que <strong>${PRODUIT_CAT_LABELS[pireActiv]}</strong> attire le moins de nouvelles ventes des trois ` +
-    `(<span class="down">${fmtNum(totals[pireActiv].totalGains)} lignes activées</span>).` +
-    ` En tenant compte des résiliations, le solde net le plus favorable revient à <strong>${PRODUIT_CAT_LABELS[meilleur]}</strong> ` +
-    `(<span class="up">${totals[meilleur].totalSolde>=0?'+':''}${fmtNum(totals[meilleur].totalSolde)} lignes</span> au final).` +
-    phraseAlerte + comparaisonVolumeValeur + perspectiveProduit;
 }
 
 // Percentile d'un tableau TRIÉ (interpolation linéaire, méthode standard)
