@@ -64,10 +64,22 @@ h1{ font-size:24px; font-weight:600; margin-top:4px; }
 .toolbar .btn-primary{ margin-left:auto; }
 
 /* ── Table ── */
+.section-head{ display:flex; align-items:center; gap:10px; margin:1.6rem 0 10px; }
+.section-title{ font-size:13px; font-weight:700; color:var(--ink); }
+.section-count{
+  font-size:11px; font-weight:600; color:var(--muted);
+  background:#eef1f6; border-radius:20px; padding:2px 9px;
+}
+
 .table-scroll{
   background:var(--card); border:1px solid var(--border); border-radius:12px;
   overflow-x:auto;
 }
+.table-scroll.termine-block{
+  background:#eef0f3; opacity:.85;
+}
+.table-scroll.termine-block thead th{ background:#e6e9ee; }
+.table-scroll.termine-block tbody tr:hover{ background:#e9ebef; }
 table{ width:100%; border-collapse:collapse; min-width:920px; }
 thead th{
   font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;
@@ -171,6 +183,10 @@ th.col-action, td.col-action{ width:44px; }
     <button class="btn btn-primary" onclick="addRow()">+ Nouvelle ligne</button>
   </div>
 
+  <div class="section-head">
+    <span class="section-title">En cours</span>
+    <span class="section-count" id="countEnCours">0</span>
+  </div>
   <div class="table-scroll">
     <table>
       <thead>
@@ -185,7 +201,29 @@ th.col-action, td.col-action{ width:44px; }
           <th class="col-action"></th>
         </tr>
       </thead>
-      <tbody id="tbody"></tbody>
+      <tbody id="tbodyEnCours"></tbody>
+    </table>
+  </div>
+
+  <div class="section-head">
+    <span class="section-title">Terminé</span>
+    <span class="section-count" id="countTermine">0</span>
+  </div>
+  <div class="table-scroll termine-block">
+    <table>
+      <thead>
+        <tr>
+          <th class="col-objet">Objet</th>
+          <th class="col-file">Coval</th>
+          <th class="col-montant">Montant</th>
+          <th class="col-file">Codep</th>
+          <th class="col-file">BC</th>
+          <th class="col-file">PV</th>
+          <th class="col-statut">Statut</th>
+          <th class="col-action"></th>
+        </tr>
+      </thead>
+      <tbody id="tbodyTermine"></tbody>
     </table>
   </div>
 
@@ -211,7 +249,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const storage = firebase.storage();
-const COL = 'comite_depense_v2';
+const COL = 'comite_depense';
 const FILE_FIELDS = ['coval','codep','bc','pv'];
 
 /* ── Accès ── */
@@ -269,12 +307,21 @@ function renderAll(){
   const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
   const filtered = rows.filter(r => !search || (r.objet||'').toLowerCase().includes(search));
 
-  const tbody = document.getElementById('tbody');
-  if(!filtered.length){
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state">Aucune ligne. Cliquez sur « + Nouvelle ligne » pour commencer.</div></td></tr>`;
-    return;
-  }
-  tbody.innerHTML = filtered.map(rowHTML).join('');
+  const enCours = filtered.filter(r => r.statut !== 'termine');
+  const termine = filtered.filter(r => r.statut === 'termine');
+
+  document.getElementById('countEnCours').textContent = enCours.length;
+  document.getElementById('countTermine').textContent = termine.length;
+
+  const tbodyEnCours = document.getElementById('tbodyEnCours');
+  tbodyEnCours.innerHTML = enCours.length
+    ? enCours.map(rowHTML).join('')
+    : `<tr><td colspan="8"><div class="empty-state">Aucune ligne en cours. Cliquez sur « + Nouvelle ligne » pour commencer.</div></td></tr>`;
+
+  const tbodyTermine = document.getElementById('tbodyTermine');
+  tbodyTermine.innerHTML = termine.length
+    ? termine.map(rowHTML).join('')
+    : `<tr><td colspan="8"><div class="empty-state">Aucun dossier terminé pour le moment.</div></td></tr>`;
 }
 
 function fileCellHTML(r, field){
@@ -382,7 +429,7 @@ async function uploadFileToCell(rowId, field, file){
     const r = rows.find(x=>x.id===rowId);
     const oldFile = r && r.files && r.files[field];
 
-    const path = `comite_depense_v2/${rowId}/${field}/${Date.now()}_${file.name}`;
+    const path = `comite_depense/${rowId}/${field}/${Date.now()}_${file.name}`;
     const ref = storage.ref(path);
     await ref.put(file);
     const url = await ref.getDownloadURL();
