@@ -1203,6 +1203,7 @@ document.addEventListener("DOMContentLoaded", function() {
     if (!window._summaryRawData) return;
     const periode = getPeriodeSelectionneeSummary();
     if (!periode) return;
+    const mode = document.getElementById("summary-mode").value;
     const { debut, fin } = periode;
     const filtre = filtrerDataParDatesSummary(window._summaryRawData, debut, fin);
     const { debut: debutPrec, fin: finPrec } = calculerPeriodePrecedenteSummary(debut, fin);
@@ -1211,7 +1212,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const periodePrecLabel = `${fmtDateFr(debutPrec)} → ${fmtDateFr(finPrec)}`;
     const lbl = document.getElementById("summary-period-label");
     if (lbl) lbl.textContent = `Période analysée : ${periodeLabel}  ·  Comparée à : ${periodePrecLabel}`;
-    construireSummary(filtre, { label: periodeLabel, prevLabel: periodePrecLabel, prevData: filtrePrec, debut, fin, prevDebut: debutPrec, prevFin: finPrec });
+    construireSummary(filtre, { label: periodeLabel, prevLabel: periodePrecLabel, prevData: filtrePrec, debut, fin, prevDebut: debutPrec, prevFin: finPrec, mode });
   }
 
   function reinitialiserPeriodeSummary() {
@@ -1328,13 +1329,13 @@ document.addEventListener("DOMContentLoaded", function() {
     const moisPeriode = calculerMoisPeriodeArray(debut, fin);
     const moisCourant = moisPeriode.length ? moisPeriode[moisPeriode.length - 1] : (new Date().getMonth() + 1);
     const moisN1 = moisCourant === 1 ? 12 : moisCourant - 1;
-    const moisN2 = moisCourant === 1 ? 11 : (moisCourant === 2 ? 12 : moisCourant - 2);
     const src2Mois = (rawData && rawData.length) ? rawData : data;
     const tousMois = moisPeriode.length ? data.filter(item => moisPeriode.every(m => (item.mois[m] || 0) > 0)).length : 0;
     const repetitifsMoisCourant = data.filter(item => (item.mois[moisCourant] || 0) >= 2).length;
-    const repetitifs2Mois = src2Mois.filter(item => (item.mois[moisN1] || 0) > 0 && (item.mois[moisN2] || 0) > 0).length;
+    // ND présents le mois précédent ET revenus sur le mois courant de la période
+    const repetitifs2Mois = src2Mois.filter(item => (item.mois[moisN1] || 0) > 0 && (item.mois[moisCourant] || 0) > 0).length;
     const critiques = data.filter(item => (item.total || 0) >= 7).length;
-    return { tousMois, repetitifsMoisCourant, repetitifs2Mois, critiques, moisPeriode, moisCourant, moisN1, moisN2 };
+    return { tousMois, repetitifsMoisCourant, repetitifs2Mois, critiques, moisPeriode, moisCourant, moisN1 };
   }
 
   function construireSummary(data, periodeInfo) {
@@ -1354,7 +1355,7 @@ document.addEventListener("DOMContentLoaded", function() {
     const rawSrc = (window._summaryRawData && window._summaryRawData.length) ? window._summaryRawData : data;
     const ndReviensTousMois = moisPeriode.length ? data.filter(item => moisPeriode.every(m => (item.mois[m] || 0) > 0)) : [];
     const ndRepetitifsMoisCourant = data.filter(item => (item.mois[moisActuel] || 0) >= 2);
-    const ndRepetitifs2Mois = rawSrc.filter(item => (item.mois[moisN1]||0) > 0 && (item.mois[moisN2]||0) > 0);
+    const ndRepetitifs2Mois = rawSrc.filter(item => (item.mois[moisN1]||0) > 0 && (item.mois[moisActuel]||0) > 0);
     const ndAnnuel = data.filter(item => (item.total || 0) >= 7);
 
     // ── KPI de la période précédente (pour affichage des flèches de tendance) ─
@@ -1488,16 +1489,24 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     // ── 1. KPIs résumé (ligne de métriques) ──────────────────────
+    const modeSelectionKpi = periodeInfo && periodeInfo.mode;
+    const afficherNdConsecutif = modeSelectionKpi === 'mois' || modeSelectionKpi === 'annee';
     const kpis = [
       { label:"Total incidents (YTD)", val: totalIncidentsYTD, prev: kpiPrecedent ? kpiPrecedent.total : null, color:"#B84A00", onclick:`afficherDetailSummary('total_incidents')` },
       { label:"Nbre clients impactés", val: nbClientsDistincts, prev: kpiPrecedent ? kpiPrecedent.nbClients : null, color:"#B84A00", onclick:`afficherDetailSummary('nb_clients')` },
-      { label:"ND répétitifs mois courant (≥2)", val: ndRepetitifsMoisCourant.length, prev: ndKpiPrecedent ? ndKpiPrecedent.repetitifsMoisCourant : null, color:"#B07700", onclick:`afficherDetailSummary('mois')` },
-      { label:"ND répétitifs 2 mois consécutifs", val: ndRepetitifs2Mois.length, prev: ndKpiPrecedent ? ndKpiPrecedent.repetitifs2Mois : null, color:"#B22222", onclick:`afficherDetailSummary('2mois')` },
+      { label:"ND répétitif", val: ndRepetitifsMoisCourant.length, prev: ndKpiPrecedent ? ndKpiPrecedent.repetitifsMoisCourant : null, color:"#B07700", onclick:`afficherDetailSummary('mois')` },
+    ];
+    if (afficherNdConsecutif) {
+      kpis.push(
+        { label:"ND consécutif", val: ndRepetitifs2Mois.length, prev: ndKpiPrecedent ? ndKpiPrecedent.repetitifs2Mois : null, color:"#B22222", onclick:`afficherDetailSummary('revenusM1')` }
+      );
+    }
+    kpis.push(
       { label:"Zone Abidjan", val: zoneAbidjanCount, prev: kpiPrecedent ? kpiPrecedent.zoneAbidjan : null, color:"#1B4F72", onclick:`afficherDetailSummary('zone_abj')` },
       { label:"Zone Intérieur", val: zoneInterieurCount, prev: kpiPrecedent ? kpiPrecedent.zoneInterieur : null, color:"#1B4F72", onclick:`afficherDetailSummary('zone_int')` },
       { label:"Incidents câble", val: cableCount, prev: kpiPrecedent ? kpiPrecedent.cable : null, color:"#E05A00", onclick:`afficherDetailSummary('cable')` },
-      { label:"Incidents hors câble", val: horsCableCount, prev: kpiPrecedent ? kpiPrecedent.horsCable : null, color:"#6B6B6B", onclick:`afficherDetailSummary('horscable')` },
-    ];
+      { label:"Incidents hors câble", val: horsCableCount, prev: kpiPrecedent ? kpiPrecedent.horsCable : null, color:"#6B6B6B", onclick:`afficherDetailSummary('horscable')` }
+    );
     function tendanceKpiHtml(cur, prev) {
       if (prev === null || prev === undefined || isNaN(prev)) return '<div style="height:14px;"></div>';
       const diff = cur - prev;
@@ -1749,11 +1758,11 @@ document.addEventListener("DOMContentLoaded", function() {
       cols = ['ND','Client','Localisation',`Incidents ${MN[moisActuel]}`];
       rows = d.ndRepetitifsMoisCourant.sort((a,b)=>(b.mois[moisActuel]||0)-(a.mois[moisActuel]||0))
         .map(i => [i.nd, i.raison||'—', i.localisation||'—', i.mois[moisActuel]||0]);
-    } else if (type === '2mois') {
-      const n1 = moisActuel===1?12:moisActuel-1, n2 = moisActuel===1?11:(moisActuel===2?12:moisActuel-2);
-      titre = `ND répétitifs sur 2 mois (${MN[n2]} & ${MN[n1]})`;
-      cols = ['ND','Client','Localisation', MN[n2], MN[n1]];
-      rows = d.ndRepetitifs2Mois.map(i => [i.nd, i.raison||'—', i.localisation||'—', i.mois[n2]||0, i.mois[n1]||0]);
+    } else if (type === 'revenusM1') {
+      const n1 = moisActuel===1?12:moisActuel-1;
+      titre = `ND en répétition depuis le mois dernier (${MN[n1]} → ${MN[moisActuel]})`;
+      cols = ['ND','Client','Localisation', MN[n1], MN[moisActuel]];
+      rows = d.ndRepetitifs2Mois.map(i => [i.nd, i.raison||'—', i.localisation||'—', i.mois[n1]||0, i.mois[moisActuel]||0]);
     } else if (type === 'annuel') {
       titre = 'ND critiques (≥7 incidents sur la période)';
       cols = ['ND','Client','Localisation','Total période','Évaluation'];
