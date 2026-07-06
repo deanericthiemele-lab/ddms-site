@@ -8,7 +8,7 @@
 
 <style>
 body{font-family:Arial,Helvetica,sans-serif;margin:40px;}
-table{border-collapse:collapse;width:700px;margin:auto;}
+table{border-collapse:collapse;width:850px;margin:auto;}
 th,td{border:1px solid #ccc;padding:12px 16px;text-align:center;}
 th{background:#f2f2f2;}
 tr.total-row td{font-weight:bold;background:#eaeaea;}
@@ -29,6 +29,7 @@ style="margin-bottom:20px;padding:8px 14px;border:none;background:#d3d3d3;border
 <tr>
 <th>Mois</th>
 <th>Nombre de lignes</th>
+<th>LS / LSI / T0 / T2</th>
 <th>Objectif volume</th>
 <th>CA Mensuel</th>
 <th>DMR Technique moyen (j. ouvrés)</th>
@@ -49,6 +50,7 @@ fetch('Input.xlsx')
     let moisData = {};
     let totalGlobal = 0;
     let totalLignes = 0;
+    let catGlobal = { LS: 0, LSI: 0, T0: 0, T2: 0 };
 
     json.forEach(row => {
 
@@ -68,13 +70,31 @@ fetch('Input.xlsx')
             let mois = jsDate.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
 
             if(!moisData[mois]){
-                moisData[mois] = { lignes: 0, total: 0, dmrSomme: 0, dmrCount: 0, dmrMesSomme: 0, dmrMesCount: 0 };
+                moisData[mois] = { lignes: 0, total: 0, dmrSomme: 0, dmrCount: 0, dmrMesSomme: 0, dmrMesCount: 0, cat: { LS: 0, LSI: 0, T0: 0, T2: 0 } };
             }
 
             // Exclure CAT = "Transfert" du nombre de lignes uniquement
             if(row["CAT"] !== "Transfert"){
                 moisData[mois].lignes += 1;
                 totalLignes += 1;
+            }
+
+            // Comptage par catégorie (LS, LSI, T0, T2) — basé sur "Libellé Produit"
+            let libelleKey = Object.keys(row).find(k => k.replace(/\s+/g," ").trim().toLowerCase() === "libellé produit");
+            let libelleValue = (libelleKey ? row[libelleKey] : "").toString().trim().toUpperCase();
+            let catValue = "";
+            if(libelleValue.includes("LSI")){
+                catValue = "LSI";
+            } else if(libelleValue.includes("T0")){
+                catValue = "T0";
+            } else if(libelleValue.includes("T2")){
+                catValue = "T2";
+            } else if(libelleValue.includes("LS")){
+                catValue = "LS";
+            }
+            if(catValue){
+                moisData[mois].cat[catValue] += 1;
+                catGlobal[catValue] += 1;
             }
 
             // Toujours ajouter au total mensuel
@@ -144,6 +164,7 @@ fetch('Input.xlsx')
         tr.innerHTML = `
             <td>${mois}</td>
             <td ${lignesStyle}>${moisData[mois].lignes}</td>
+            <td>LS:${moisData[mois].cat.LS} / LSI:${moisData[mois].cat.LSI} / T0:${moisData[mois].cat.T0} / T2:${moisData[mois].cat.T2}</td>
             <td>${objectif}</td>
             <td>${moisData[mois].total.toLocaleString('fr-FR')}</td>
             <td>${dmrMoyen}</td>
@@ -170,6 +191,7 @@ fetch('Input.xlsx')
     trTotal.innerHTML = `
         <td>TOTAL</td>
         <td ${totalStyle}>${totalLignes}</td>
+        <td>LS:${catGlobal.LS} / LSI:${catGlobal.LSI} / T0:${catGlobal.T0} / T2:${catGlobal.T2}</td>
         <td>${totalObjectif}</td>
         <td>${totalGlobal.toLocaleString('fr-FR')}</td>
         <td>${dmrMoyenGlobal}</td>
