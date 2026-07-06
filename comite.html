@@ -280,16 +280,9 @@ h1{ font-size:24px; font-weight:600; margin-top:4px; }
   </div>
 
   <div class="toolbar">
-    <input type="text" class="search-input" id="searchInput" placeholder="Rechercher un dossier…" oninput="renderAll()">
-    <select class="filter-select" id="filterStatut" onchange="renderAll()">
-      <option value="">Tous les statuts</option>
-      <option value="Preboard">Preboard</option>
-      <option value="Coval">Coval</option>
-      <option value="Saisie">Saisie</option>
-      <option value="Bc ok">Bc ok</option>
-      <option value="Facture déposé">Facture déposé</option>
-    </select>
-    <button class="btn btn-primary" onclick="openDossierModal()">+ Nouveau dossier</button>
+    <input type="text" class="search-input" id="searchInput" placeholder="Rechercher un dossier par nom…" oninput="renderAll()">
+    <button class="btn btn-primary" onclick="document.getElementById('newDossierFile').click()">📎 Parcourir…</button>
+    <input type="file" id="newDossierFile" accept=".ppt,.pptx,.pptm,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" style="display:none;" onchange="onNewDossierFileSelect(event)">
   </div>
 
   <div class="section">
@@ -454,11 +447,9 @@ function esc(s){
 /* ── Rendu ── */
 function renderAll(){
   const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
-  const filterStatut = document.getElementById('filterStatut').value;
 
   let filtered = dossiers.filter(d=>{
     if(search && !(d.designation||'').toLowerCase().includes(search)) return false;
-    if(filterStatut && d.statut !== filterStatut) return false;
     return true;
   });
 
@@ -472,7 +463,7 @@ function renderAll(){
   const listActifs = document.getElementById('listActifs');
   listActifs.innerHTML = actifs.length
     ? actifs.map(d=>rowHTML(d,false)).join('')
-    : `<div class="empty-state">Aucun dossier en cours. Cliquez sur « + Nouveau dossier » pour en créer un.</div>`;
+    : `<div class="empty-state">Aucun dossier en cours. Cliquez sur « 📎 Parcourir… » pour créer un dossier à partir d'un fichier.</div>`;
 
   const listArchives = document.getElementById('listArchives');
   listArchives.style.display = archiveCollapsed ? 'none' : 'flex';
@@ -568,6 +559,40 @@ function openDossierModal(id){
 function closeDossierModal(){
   document.getElementById('dossierOverlay').classList.remove('open');
   editingId = null;
+}
+
+function todayISO(){
+  const d = new Date();
+  return d.toISOString().slice(0,10);
+}
+
+function nameFromFile(file){
+  return file.name.replace(/\.(pptx?|pptm)$/i,'').replace(/[_-]+/g,' ').trim() || file.name;
+}
+
+async function onNewDossierFileSelect(ev){
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if(!file) return;
+  try{
+    const ref = await db.collection(COL).add({
+      designation: nameFromFile(file),
+      montant: 0,
+      dateDepot: todayISO(),
+      statut: 'Preboard',
+      archiveState: 'actif',
+      documents: [],
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    showToast("Envoi du document…");
+    await uploadFileToDossier(ref.id, file);
+    showToast("Dossier créé — complétez le montant et la date");
+    openDossierModal(ref.id);
+  }catch(err){
+    console.error(err);
+    showToast("Erreur lors de la création du dossier");
+  }
 }
 
 async function saveDossier(){
@@ -702,20 +727,25 @@ dropZone.addEventListener('drop', e=>{
   uploadFiles(Array.from(e.dataTransfer.files || []));
 });
 
+async function uploadFileToDossier(dossierId, file){
+  const path = `comite_depense/${dossierId}/${Date.now()}_${file.name}`;
+  const ref = storage.ref(path);
+  await ref.put(file);
+  const url = await ref.getDownloadURL();
+  const meta = { name: file.name, url, path, size: file.size, uploadedAt: new Date().toISOString() };
+  await db.collection(COL).doc(dossierId).update({
+    documents: firebase.firestore.FieldValue.arrayUnion(meta)
+  });
+  return meta;
+}
+
 async function uploadFiles(files){
   if(!files.length || !currentDocsId) return;
   const progressEl = document.getElementById('uploadProgress');
   for(const file of files){
-    const path = `comite_depense/${currentDocsId}/${Date.now()}_${file.name}`;
-    const ref = storage.ref(path);
     progressEl.textContent = `Envoi de "${file.name}"…`;
     try{
-      await ref.put(file);
-      const url = await ref.getDownloadURL();
-      const meta = { name: file.name, url, path, size: file.size, uploadedAt: new Date().toISOString() };
-      await db.collection(COL).doc(currentDocsId).update({
-        documents: firebase.firestore.FieldValue.arrayUnion(meta)
-      });
+      await uploadFileToDossier(currentDocsId, file);
     }catch(err){
       console.error(err);
       showToast(`Échec de l'envoi de "${file.name}"`);
