@@ -725,16 +725,21 @@ const YEARS_CA = [SCOPE_END_YEAR-2, SCOPE_END_YEAR-1, SCOPE_END_YEAR]; // 3 dern
 
 /* =========================================================
    IDENTIFICATION DES PRODUITS (LS / LSI (SYT) / Numérique T0-T2)
-   — basé uniquement sur le format du ND :
-   LSI = ND contient "SYT"
-   LS  = ND contient "BUVPN" ou "VPN"
+   — basé sur le fichier consolidé PARC_CONSOLIDE (fusion GAIA + BSCS LSI) :
+   LSI = ligne importée depuis BSCS (colonne SOURCE = 'BSCS_LSI'),
+         ou à défaut ND contient "SYT" sans suffixe "LS"
+   LS  = ND contient "SYT" ET se termine par le suffixe "LS" (ajouté lors de la fusion),
+         ou ND contient "BUVPN"/"VPN" (ancien format)
    Numérique (T0/T2) = ND est un numéro pur de 8 ou 10 chiffres
    ========================================================= */
 const PRODUIT_CAT_LABELS = { NUMERIQUE:'T0 / T2 (Numérique)', LSI:'LSI (SYT)', LS:'LS' };
 const PRODUIT_CAT_SUB = { NUMERIQUE:'Téléphonie', LSI:'Liaisons spécialisées IP', LS:'Liaisons spécialisées' };
 const PRODUIT_CAT_COLOR = { NUMERIQUE:'green', LSI:'amber', LS:'coral' };
-function classifyProduit(nd, produit){
+function classifyProduit(nd, produit, source){
   const ndStr = String(nd||'').trim().toUpperCase();
+  const src = String(source||'').trim().toUpperCase();
+  if (src === 'BSCS_LSI') return 'LSI';
+  if (ndStr.includes('SYT') && ndStr.endsWith('LS')) return 'LS';
   if (ndStr.includes('SYT')) return 'LSI';
   if (ndStr.includes('BUVPN') || ndStr.includes('VPN')) return 'LS';
   if (/^\d{8}$|^\d{10}$/.test(ndStr)) return 'NUMERIQUE';
@@ -931,10 +936,11 @@ function buildDataset(json){
     const clientKey = canonicalClientKey(nom);
     const nd = r.ND || '';
     const produit = (r.PRODUIT||'').toString().trim() || 'NON RENSEIGNÉ';
-    const catProduit = classifyProduit(nd, produit);
+    const source = (r.SOURCE||'').toString().trim();
+    const catProduit = classifyProduit(nd, produit, source);
     return {
       DV: r.DV || '', ND: nd, NCLI: r.NCLI || '', NOM_PRENOMS: nom,
-      PRODUIT: produit,
+      PRODUIT: produit, SOURCE: source,
       catProduit, catProduitLabel: PRODUIT_CAT_LABELS[catProduit],
       LIBELLE_OFFRE: r.LIBELLE_OFFRE || '', CODE_OFFRE: r.CODE_OFFRE || '',
       COMMUNE: (r.COMMUNE||'').toString().trim() || 'NON RENSEIGNÉ',
