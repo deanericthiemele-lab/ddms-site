@@ -80,7 +80,7 @@ h1{ font-size:24px; font-weight:600; margin-top:4px; }
 }
 .table-scroll.termine-block thead th{ background:#e6e9ee; }
 .table-scroll.termine-block tbody tr:hover{ background:#e9ebef; }
-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
+table{ width:100%; border-collapse:collapse; table-layout:fixed; min-width:1300px; }
 thead th{
   font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;
   text-align:left; padding:10px 8px; border-bottom:1px solid var(--border); white-space:nowrap;
@@ -92,12 +92,13 @@ tbody td{
 tbody tr:last-child td{ border-bottom:none; }
 tbody tr:hover{ background:#fafbfd; }
 
-th.col-date, td.col-date{ width:8.5%; }
+th.col-date, td.col-date{ width:11%; }
 th.col-objet, td.col-objet{ width:19%; }
 th.col-file, td.col-file{ width:11%; overflow:hidden; }
 th.col-montant, td.col-montant{ width:10%; }
+th.col-fournisseur, td.col-fournisseur{ width:120px; }
 th.col-etape, td.col-etape{ width:13%; }
-th.col-statut, td.col-statut{ width:130px; }
+th.col-statut, td.col-statut{ width:90px; }
 th.col-action, td.col-action{ width:36px; }
 
 .cell-input{
@@ -106,6 +107,7 @@ th.col-action, td.col-action{ width:36px; }
 }
 .cell-input:hover{ border-color:var(--border); }
 .cell-input:focus{ outline:none; border-color:var(--navy); background:#fff; }
+td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
 
 /* ── File cell ── */
 .file-cell{ display:flex; flex-direction:column; align-items:stretch; gap:5px; min-width:0; }
@@ -142,6 +144,7 @@ th.col-action, td.col-action{ width:36px; }
 .status-select{
   font-family:inherit; font-size:12px; font-weight:600; color:#fff;
   border:none; border-radius:20px; padding:7px 10px; cursor:pointer; width:100%;
+  background:var(--muted);
 }
 .st-encours{ background:var(--encours); }
 .st-termine{ background:var(--termine); }
@@ -202,10 +205,11 @@ th.col-action, td.col-action{ width:36px; }
     <table>
       <thead>
         <tr>
-          <th class="col-date">Date</th>
+          <th class="col-date">Date COVAL</th>
           <th class="col-file">Coval</th>
           <th class="col-objet">Projet</th>
           <th class="col-montant">Montant</th>
+          <th class="col-fournisseur">Fournisseur</th>
           <th class="col-file">BC</th>
           <th class="col-file">PV</th>
           <th class="col-file">Facture</th>
@@ -226,10 +230,11 @@ th.col-action, td.col-action{ width:36px; }
     <table>
       <thead>
         <tr>
-          <th class="col-date">Date</th>
+          <th class="col-date">Date COVAL</th>
           <th class="col-file">Coval</th>
           <th class="col-objet">Projet</th>
           <th class="col-montant">Montant</th>
+          <th class="col-fournisseur">Fournisseur</th>
           <th class="col-file">BC</th>
           <th class="col-file">PV</th>
           <th class="col-file">Facture</th>
@@ -273,6 +278,7 @@ const ETAPES = [
   { value:'acheteur',            label:'Acheteur' },
   { value:'paiement_tresorerie', label:'Paiement (trésorerie)' }
 ];
+const FOURNISSEURS = ['Maryg','Duons','Sate','Datalink','CIC','Innov','Magal','APM'];
 
 /* ── Accès ── */
 (function gate(){
@@ -349,12 +355,12 @@ function renderAll(){
   const tbodyEnCours = document.getElementById('tbodyEnCours');
   tbodyEnCours.innerHTML = enCours.length
     ? enCours.map(rowHTML).join('')
-    : `<tr><td colspan="10"><div class="empty-state">Aucune ligne en cours. Cliquez sur « + Nouvelle ligne » pour commencer.</div></td></tr>`;
+    : `<tr><td colspan="11"><div class="empty-state">Aucune ligne en cours. Cliquez sur « + Nouvelle ligne » pour commencer.</div></td></tr>`;
 
   const tbodyTermine = document.getElementById('tbodyTermine');
   tbodyTermine.innerHTML = termine.length
     ? termine.map(rowHTML).join('')
-    : `<tr><td colspan="10"><div class="empty-state">Aucun dossier payé pour le moment.</div></td></tr>`;
+    : `<tr><td colspan="11"><div class="empty-state">Aucun dossier payé pour le moment.</div></td></tr>`;
 }
 
 function fileCellHTML(r, field){
@@ -374,8 +380,8 @@ function fileCellHTML(r, field){
 }
 
 function rowHTML(r){
-  const statut = r.statut === 'termine' ? 'termine' : 'en_cours';
-  const etape = r.etape || 'saisie_annick';
+  const statut = r.statut || '';
+  const etape = r.etape || '';
   const etapeOptions = ETAPES.map(e => `<option value="${e.value}" ${etape===e.value?'selected':''}>${e.label}</option>`).join('');
   return `
   <tr data-id="${r.id}">
@@ -393,16 +399,24 @@ function rowHTML(r){
         oninput="formatMontantLive(this)"
         onchange="updateField('${r.id}','montant', parseMontant(this.value))">
     </td>
+    <td class="col-fournisseur">
+      <select class="etape-select" onchange="updateField('${r.id}','fournisseur', this.value)">
+        <option value="" ${!r.fournisseur?'selected':''}></option>
+        ${FOURNISSEURS.map(f => `<option value="${f}" ${r.fournisseur===f?'selected':''}>${f}</option>`).join('')}
+      </select>
+    </td>
     <td class="col-file">${fileCellHTML(r,'bc')}</td>
     <td class="col-file">${fileCellHTML(r,'pv')}</td>
     <td class="col-file">${fileCellHTML(r,'facture')}</td>
     <td class="col-etape">
       <select class="etape-select" onchange="updateField('${r.id}','etape', this.value)">
+        <option value="" ${etape===''?'selected':''}></option>
         ${etapeOptions}
       </select>
     </td>
     <td class="col-statut">
-      <select class="status-select ${statut==='termine'?'st-termine':'st-encours'}" onchange="updateField('${r.id}','statut', this.value)">
+      <select class="status-select ${statut==='termine'?'st-termine':(statut==='en_cours'?'st-encours':'')}" onchange="updateField('${r.id}','statut', this.value)">
+        <option value="" ${statut===''?'selected':''}></option>
         <option value="en_cours" ${statut==='en_cours'?'selected':''}>En cours</option>
         <option value="termine" ${statut==='termine'?'selected':''}>Payé</option>
       </select>
@@ -416,9 +430,8 @@ function rowHTML(r){
 /* ── CRUD ── */
 async function addRow(){
   try{
-    const today = new Date().toISOString().slice(0,10);
     await db.collection(COL).add({
-      date: today, objet: '', montant: 0, statut: 'en_cours', etape: 'saisie_annick', files: {},
+      date: '', objet: '', montant: 0, fournisseur: '', statut: '', etape: '', files: {},
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -455,7 +468,7 @@ async function deleteRow(id){
 /* ── Fichiers ── */
 const hiddenFileInput = document.createElement('input');
 hiddenFileInput.type = 'file';
-hiddenFileInput.multiple = true;
+hiddenFileInput.multiple = false;
 hiddenFileInput.style.display = 'none';
 document.body.appendChild(hiddenFileInput);
 hiddenFileInput.addEventListener('change', async (ev)=>{
