@@ -926,8 +926,18 @@ function processWorkbook(wb, filename){
    ========================================================= */
 function buildDataset(json){
   rawRows = json.map(r => {
-    const etat = (r.ETAT_LIGNE || '').toString().trim().toUpperCase();
-    const etatGroup = etat === 'RESILIE' ? 'RESILIE' : 'ACTIF';
+    const etatRaw = (r.ETAT_LIGNE || '').toString().trim().toUpperCase();
+    // Normalisation des variantes du fichier source vers les 3 états retenus pour l'analyse :
+    //  - "ACTIF" (seul)      -> ACTIF - NON-SUSPENDU
+    //  - "SUSPENDU" (seul)   -> ACTIF - SUSPENDU (reste dans le parc actif)
+    //  - "DESACTIVE"         -> RESILIE (comptée comme perdue, même si DATE_RS absente)
+    //  - "EN ATTENTE"        -> exclue de l'analyse (statut non définitif, non comptée)
+    let etat;
+    if (etatRaw === 'ACTIF') etat = 'ACTIF - NON-SUSPENDU';
+    else if (etatRaw === 'SUSPENDU') etat = 'ACTIF - SUSPENDU';
+    else if (etatRaw === 'DESACTIVE') etat = 'RESILIE';
+    else etat = etatRaw; // ACTIF - NON-SUSPENDU / ACTIF - SUSPENDU / RESILIE / EN ATTENTE tels quels
+    const etatGroup = etat === 'RESILIE' ? 'RESILIE' : (etat === 'EN ATTENTE' ? 'EXCLU' : 'ACTIF');
     const ca = parseFloat(r.RECURRENT_MENSUEL) || 0;
     const dateMS = parseDateFlexible(r.DATE_MS);
     const dateRS = parseDateFlexible(r.DATE_RS);
@@ -951,6 +961,9 @@ function buildDataset(json){
     };
   }).filter(r => !!r.dateMS); // on conserve tout l'historique (nécessaire aux calculs globaux) ; seules les lignes sans date exploitable sont écartées
 
+  const nbEnAttente = rawRows.filter(r => r.etat === 'EN ATTENTE').length;
+  rawRows = rawRows.filter(r => r.etat !== 'EN ATTENTE'); // statut non définitif : exclu de toute l'analyse (parc, CA, résiliations)
+
   // Déduplication : certaines lignes du fichier source sont des doublons exacts
   // (même ND, NCLI, état, date d'installation, CA, produit) — probablement une
   // erreur d'export/saisie en amont. On ne garde qu'un seul exemplaire de chacune.
@@ -969,6 +982,7 @@ function buildDataset(json){
   if (excludedNoDate) bannerParts.push(excludedNoDate.toLocaleString('fr-FR') + " ligne(s) sans date d'installation exploitable ont été écartées de l'analyse");
   if (nbDoublonsExacts) bannerParts.push(nbDoublonsExacts.toLocaleString('fr-FR') + " ligne(s) strictement dupliquée(s) dans le fichier source (même ligne exportée deux fois) ont été dédupliquées");
   if (resilieSansDate) bannerParts.push(resilieSansDate.toLocaleString('fr-FR') + " ligne(s) résiliée(s) sans date de résiliation (DATE_RS) exploitable — non comptabilisée(s) dans l'analyse gains/pertes par année, mais toujours incluses dans le parc résilié total");
+  if (nbEnAttente) bannerParts.push(nbEnAttente.toLocaleString('fr-FR') + " ligne(s) au statut \"EN ATTENTE\" (non définitif) ont été exclues de l'analyse");
   if (bannerParts.length) showBanner(bannerParts.join(' · ') + '.');
 
   // Agrégation client (regroupement intelligent, insensible casse/accents)
