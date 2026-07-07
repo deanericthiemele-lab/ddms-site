@@ -414,23 +414,21 @@ function renderAll(){
     : `<tr><td colspan="12"><div class="empty-state">Aucun dossier payé pour le moment.</div></td></tr>`;
 }
 
-function normalizeFiles(r, field){
-  const f = (r.files || {})[field];
-  if(!f) return [];
-  return Array.isArray(f) ? f : [f]; // compat ancien format (objet unique)
-}
-
 function fileCellHTML(r, field){
-  const files = normalizeFiles(r, field);
-  const chips = files.map((f, idx) => `
+  let f = (r.files || {})[field];
+  if(Array.isArray(f)) f = f[f.length-1] || null; // compat ancien format multi -> on garde le dernier
+  if(f){
+    return `
+    <div class="file-cell">
       <div class="file-chip">
         <a href="${f.url}" target="_blank" title="${esc(f.name)} (${fSize(f.size)})">${esc(f.name)}</a>
-        <button class="x" title="Supprimer" onclick="removeFile('${r.id}','${field}',${idx})">✕</button>
-      </div>`).join('');
+        <button class="x" title="Supprimer" onclick="removeFile('${r.id}','${field}')">✕</button>
+      </div>
+    </div>`;
+  }
   return `
   <div class="file-cell">
-    ${chips}
-    <button class="file-btn" onclick="pickFile('${r.id}','${field}')">📎 ${files.length ? 'Ajouter…' : 'Parcourir…'}</button>
+    <button class="file-btn" onclick="pickFile('${r.id}','${field}')">📎 Parcourir…</button>
   </div>`;
 }
 
@@ -512,7 +510,8 @@ async function deleteRow(id){
     const r = rows.find(x=>x.id===id);
     if(r && r.files){
       for(const field of FILE_FIELDS){
-        const list = normalizeFiles(r, field);
+        let list = r.files[field] || [];
+        if(!Array.isArray(list)) list = [list]; // compat ancien format
         for(const f of list){
           if(f && f.path){ try{ await storage.ref(f.path).delete(); }catch(e){} }
         }
@@ -526,16 +525,16 @@ async function deleteRow(id){
 /* ── Fichiers ── */
 const hiddenFileInput = document.createElement('input');
 hiddenFileInput.type = 'file';
-hiddenFileInput.multiple = true;
+hiddenFileInput.multiple = false;
 hiddenFileInput.style.display = 'none';
 document.body.appendChild(hiddenFileInput);
 hiddenFileInput.addEventListener('change', async (ev)=>{
-  const files = Array.from(ev.target.files);
+  const file = ev.target.files[0];
   ev.target.value = '';
-  if(!files.length || !pendingFileTarget) return;
+  if(!file || !pendingFileTarget) return;
   const { rowId, field } = pendingFileTarget;
   pendingFileTarget = null;
-  await uploadFilesToCell(rowId, field, files);
+  await uploadFileToCell(rowId, field, file);
 });
 
 function pickFile(rowId, field){
@@ -543,51 +542,46 @@ function pickFile(rowId, field){
   hiddenFileInput.click();
 }
 
-async function uploadFilesToCell(rowId, field, files){
-  showToast(files.length > 1 ? `Envoi de ${files.length} fichiers…` : `Envoi de "${files[0].name}"…`);
+async function uploadFileToCell(rowId, field, file){
+  showToast(`Envoi de "${file.name}"…`);
   try{
     const r = rows.find(x=>x.id===rowId);
-    const current = normalizeFiles(r, field);
-    const newMetas = [];
-    for(const file of files){
-      const path = `comite_depense/${rowId}/${field}/${Date.now()}_${Math.random().toString(36).slice(2,7)}_${file.name}`;
-      const ref = storage.ref(path);
-      await ref.put(file);
-      const url = await ref.getDownloadURL();
-      newMetas.push({ name: file.name, url, path, size: file.size, uploadedAt: new Date().toISOString() });
-    }
-    const updated = [...current, ...newMetas];
+    let oldFile = r && r.files && r.files[field];
+    if(Array.isArray(oldFile)) oldFile = oldFile[oldFile.length-1];
+
+    const path = `comite_depense/${rowId}/${field}/${Date.now()}_${file.name}`;
+    const ref = storage.ref(path);
+    await ref.put(file);
+    const url = await ref.getDownloadURL();
+    const meta = { name: file.name, url, path, size: file.size, uploadedAt: new Date().toISOString() };
+
     await db.collection(COL).doc(rowId).update({
-      [`files.${field}`]: updated,
+      [`files.${field}`]: meta,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-    showToast(newMetas.length > 1 ? "Fichiers enregistrés" : "Fichier enregistré");
+
+    if(oldFile && oldFile.path && oldFile.path !== path){
+      try{ await storage.ref(oldFile.path).delete(); }catch(e){}
+    }
+    showToast("Fichier enregistré");
   }catch(err){
     console.error(err);
     showToast(`Échec de l'envoi : ${err.code || err.message || 'erreur inconnue'}`);
   }
 }
 
-async function removeFile(rowId, field, idx){
+async function removeFile(rowId, field){
   if(!confirm("Supprimer ce fichier ?")) return;
   try{
     const r = rows.find(x=>x.id===rowId);
-    const current = normalizeFiles(r, field);
-    const f = current[idx];
+    let f = r && r.files && r.files[field];
+    if(Array.isArray(f)) f = f[f.length-1];
     if(!f) return;
     if(f.path){ try{ await storage.ref(f.path).delete(); }catch(e){} }
-    const updated = current.filter((_,i) => i !== idx);
-    if(updated.length){
-      await db.collection(COL).doc(rowId).update({
-        [`files.${field}`]: updated,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-    } else {
-      await db.collection(COL).doc(rowId).update({
-        [`files.${field}`]: firebase.firestore.FieldValue.delete(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-    }
+    await db.collection(COL).doc(rowId).update({
+      [`files.${field}`]: firebase.firestore.FieldValue.delete(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
     showToast("Fichier supprimé");
   }catch(err){ console.error(err); showToast("Erreur lors de la suppression"); }
 }
@@ -652,8 +646,8 @@ async function envoyerSelection(){
   const selectedRows = rows.filter(r => ids.includes(r.id));
   const allFiles = [];
   selectedRows.forEach(r=>{
-    const files = normalizeFiles(r, 'facture');
-    files.forEach(f => allFiles.push({ ...f, projet: r.objet || 'sans_nom', field: 'facture' }));
+    const f = r.files && r.files['facture'];
+    if(f) allFiles.push({ ...f, projet: r.objet || 'sans_nom', field: 'facture' });
   });
 
   if(allFiles.length === 0){
