@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Fusion Parc GAIA / BSCS LSI — DDMS</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --orange:#FF7900; --orange-dark:#e56a00; --dark:#1a1a2e; --bg:#f4f5f7;
+    --red:#ffd6d6; --red-border:#e63946; --green:#e6f7ec; --border:#dfe3e8;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:var(--bg);margin:0;color:#222;}
+  header{background:var(--dark);color:#fff;padding:18px 28px;display:flex;align-items:center;gap:14px;}
+  header .badge{background:var(--orange);color:#fff;font-weight:700;padding:4px 10px;border-radius:6px;font-size:13px;}
+  header h1{font-size:19px;margin:0;font-weight:600;}
+  header p{margin:2px 0 0;font-size:12.5px;color:#c9cbe0;}
+  header .btn-back{margin-left:auto;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.25);padding:8px 16px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;text-decoration:none;}
+  header .btn-back:hover{background:rgba(255,255,255,.22);}
+  .wrap{max-width:1300px;margin:22px auto;padding:0 20px 60px;}
+  .card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:20px 22px;margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+  .card h2{font-size:15px;margin:0 0 14px;color:var(--dark);display:flex;align-items:center;gap:8px;}
+  .step-num{background:var(--orange);color:#fff;width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;}
+  .row{display:flex;gap:20px;flex-wrap:wrap;}
+  .filebox{flex:1;min-width:280px;border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;}
+  .filebox.ok{border-color:#2a9d5c;background:var(--green);}
+  .filebox label{display:block;font-weight:600;font-size:13px;margin-bottom:8px;color:var(--dark);}
+  .filebox input{font-size:12.5px;}
+  .filebox .info{margin-top:8px;font-size:12px;color:#555;}
+  button{background:var(--orange);color:#fff;border:none;padding:9px 18px;border-radius:6px;font-size:13.5px;font-weight:600;cursor:pointer;transition:.15s;}
+  button:hover{background:var(--orange-dark);}
+  button:disabled{background:#c8c8c8;cursor:not-allowed;}
+  button.secondary{background:#fff;color:var(--dark);border:1px solid var(--border);}
+  button.secondary:hover{background:#f0f0f0;}
+  button.danger{background:#e63946;}
+  button.danger:hover{background:#c8303c;}
+  .stats{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0;}
+  .stat{background:#f7f8fa;border:1px solid var(--border);border-radius:8px;padding:10px 16px;min-width:140px;}
+  .stat .n{font-size:20px;font-weight:700;color:var(--dark);}
+  .stat .l{font-size:11.5px;color:#666;}
+  .stat.alert .n{color:var(--red-border);}
+  table{border-collapse:collapse;width:100%;font-size:12px;}
+  th,td{border:1px solid var(--border);padding:5px 8px;text-align:left;white-space:nowrap;}
+  th{background:var(--dark);color:#fff;position:sticky;top:0;font-size:11px;}
+  tr.dup{background:var(--red) !important;}
+  tr.imported{background:#fff3e0 !important;}
+  .tablewrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:6px;}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+  .toolbar .filters{display:flex;gap:8px;align-items:center;font-size:12.5px;}
+  select,input[type=text]{padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;}
+  .pager{display:flex;gap:6px;align-items:center;margin-top:8px;font-size:12.5px;}
+  .mapping-table td,.mapping-table th{white-space:normal;}
+  .journal{background:#fafafa;border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:12.5px;max-height:220px;overflow:auto;}
+  .journal .entry{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px dashed #eee;}
+  .journal .entry:last-child{border-bottom:none;}
+  .journal .step-badge{flex:none;min-width:74px;text-align:center;font-size:10.5px;font-weight:700;padding:3px 6px;border-radius:5px;color:#fff;letter-spacing:.3px;}
+  .journal .time{flex:none;color:#999;font-size:11px;min-width:64px;}
+  .journal .msg{flex:1;color:#222;}
+  .step-1{background:#6c757d;} .step-2{background:#e63946;} .step-3{background:#0077b6;}
+  .step-4{background:#FF7900;} .step-5{background:#2a9d5c;} .step-0{background:#555;}
+  .legend{display:flex;gap:16px;font-size:12px;margin-top:6px;}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .swatch{width:12px;height:12px;border-radius:3px;display:inline-block;}
+  .hidden{display:none;}
+  .note{font-size:12px;color:#666;margin-top:8px;line-height:1.5;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">DDMS</div>
+  <div>
+    <h1>Fusion Parc GAIA / BSCS LSI</h1>
+    <p>Consolidation en un seul fichier — détection doublons, nettoyage, import des récurrents LSI</p>
+  </div>
+  <a class="btn-back" href="parc.html">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    Retour au Parc
+  </a>
+</header>
+
+<div class="wrap">
+
+  <!-- ETAPE 1 : IMPORT -->
+  <div class="card">
+    <h2><span class="step-num">1</span> Import des deux fichiers</h2>
+    <div class="row">
+      <div class="filebox" id="box-bscs">
+        <label>Fichier BSCS (EXTRACTION_BSCS_PARC_LSI)</label>
+        <input type="file" id="file-bscs" accept=".xlsx,.xls,.csv">
+        <div class="info" id="info-bscs">Aucun fichier chargé</div>
+      </div>
+      <div class="filebox" id="box-gaia">
+        <label>Fichier GAIA (EXTRACT_GAIA_PARC_LS_IPCONNECT...)</label>
+        <input type="file" id="file-gaia" accept=".xlsx,.xls,.csv">
+        <div class="info" id="info-gaia">Aucun fichier chargé</div>
+      </div>
+    </div>
+    <div class="note">Le fichier GAIA est généralement un export texte tabulé renommé en .xls — l'outil le détecte automatiquement.</div>
+  </div>
+
+  <!-- ETAPE 2 : DETECTION DOUBLONS -->
+  <div class="card hidden" id="card-detect">
+    <h2><span class="step-num">2</span> Détection des ND_LS (BSCS) déjà présents dans GAIA</h2>
+    <div class="stats">
+      <div class="stat"><div class="n" id="s-bscs-count">0</div><div class="l">Lignes BSCS (LSI)</div></div>
+      <div class="stat"><div class="n" id="s-gaia-count">0</div><div class="l">Lignes GAIA</div></div>
+      <div class="stat alert"><div class="n" id="s-dup-count">0</div><div class="l">Doublons détectés dans GAIA</div></div>
+    </div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--red)"></span> ND_LS de BSCS trouvé dans GAIA (doublon)</span>
+    </div>
+
+    <div style="margin-top:14px;">
+      <button id="btn-delete-dup" class="danger" disabled>🗑 Supprimer les doublons détectés de GAIA (0)</button>
+      <button id="btn-toggle-mapping" class="secondary">⚙ Voir / modifier le mapping d'import</button>
+    </div>
+
+    <div class="card mapping-table" id="mapping-box" style="display:none;margin-top:16px;background:#fafafa;">
+      <h2 style="font-size:13px;">Mapping colonnes BSCS → GAIA (utilisé à l'étape 3)</h2>
+      <table id="mapping-table"></table>
+      <div class="note">Les champs BSCS sans équivalent direct dans GAIA (DATE_COMMANDE, DATE_CREATION) sont ajoutés en nouvelles colonnes de traçabilité dans le fichier final.</div>
+    </div>
+
+    <div class="toolbar" style="margin-top:16px;">
+      <div class="filters">
+        <label style="font-size:12.5px;">Affichage :</label>
+        <select id="filter-view">
+          <option value="all">Toutes les lignes GAIA</option>
+          <option value="dup">Doublons uniquement</option>
+        </select>
+        <input type="text" id="search-nd" placeholder="Rechercher un ND...">
+      </div>
+    </div>
+    <div class="tablewrap"><table id="gaia-table"><thead></thead><tbody></tbody></table></div>
+    <div class="pager">
+      <button class="secondary" id="prev-page">◀ Précédent</button>
+      <span id="page-info"></span>
+      <button class="secondary" id="next-page">Suivant ▶</button>
+    </div>
+  </div>
+
+  <!-- ETAPE 3 : MARQUAGE LS -->
+  <div class="card hidden" id="card-mark-ls">
+    <h2><span class="step-num">3</span> Marquage des lignes LS (ND commençant par SYT, absents de BSCS)</h2>
+    <p style="font-size:13px;color:#444;">
+      Tous les ND de GAIA commençant par <b>SYT</b> qui ne figurent pas dans le fichier BSCS (donc pas des LSI) sont des <b>LS</b>.
+      Cette action ajoute les lettres <b>LS</b> à la fin de leur référence pour les distinguer.
+    </p>
+    <div class="stats">
+      <div class="stat"><div class="n" id="s-ls-candidates">0</div><div class="l">Lignes éligibles (SYT, non-BSCS, pas encore marquées)</div></div>
+      <div class="stat"><div class="n" id="s-ls-marked">0</div><div class="l">Lignes déjà marquées LS</div></div>
+    </div>
+    <button id="btn-mark-ls" disabled>🏷 Ajouter le suffixe LS (0)</button>
+  </div>
+
+  <!-- ETAPE 4 : IMPORT LSI -->
+  <div class="card hidden" id="card-import">
+    <h2><span class="step-num">4</span> Import des lignes LSI (BSCS) dans GAIA</h2>
+    <p style="font-size:13px;color:#444;">
+      Toutes les lignes BSCS (ND_LS, ETAT_LIGNE, NOM_PRENOMS, RECURRENT, DATE_ACTIVATION, DATE_COMMANDE, DATE_CREATION)
+      seront ajoutées à GAIA selon le mapping ci-dessus. Une colonne <b>SOURCE</b> est ajoutée pour tracer l'origine de chaque ligne.
+    </p>
+    <button id="btn-import-lsi">➕ Importer les lignes LSI dans GAIA</button>
+    <span id="import-status" style="margin-left:12px;font-size:13px;color:#2a9d5c;"></span>
+  </div>
+
+  <!-- ETAPE 4 : EXPORT -->
+  <div class="card hidden" id="card-export">
+    <h2><span class="step-num">5</span> Fichier consolidé final</h2>
+    <div class="stats">
+      <div class="stat"><div class="n" id="s-final-count">0</div><div class="l">Lignes dans le fichier final</div></div>
+      <div class="stat"><div class="n" id="s-final-gaia">0</div><div class="l">dont GAIA d'origine</div></div>
+      <div class="stat"><div class="n" id="s-final-lsi">0</div><div class="l">dont LSI importées (BSCS)</div></div>
+    </div>
+    <button id="btn-export">⬇ Télécharger le fichier consolidé (.xlsx)</button>
+  </div>
+
+  <!-- JOURNAL -->
+  <div class="card hidden" id="card-journal">
+    <h2>Journal des actions</h2>
+    <div class="legend" style="margin-bottom:10px;">
+      <span><span class="swatch step-1" style="border-radius:4px;"></span> 1 · Import</span>
+      <span><span class="swatch step-2" style="border-radius:4px;"></span> 2 · Doublons</span>
+      <span><span class="swatch step-3" style="border-radius:4px;"></span> 3 · Marquage LS</span>
+      <span><span class="swatch step-4" style="border-radius:4px;"></span> 4 · Import LSI</span>
+      <span><span class="swatch step-5" style="border-radius:4px;"></span> 5 · Export</span>
+    </div>
+    <div class="journal" id="journal"></div>
+  </div>
+
+</div>
+
+<script>
+let bscsData = null;   // {headers, rows}
+let gaiaData = null;   // {headers, rows}
+let gaiaFinalCols = []; // final column list for GAIA (with extra traceability cols)
+let dupSet = new Set();
+let currentPage = 0;
+const PAGE_SIZE = 100;
+let importedCount = 0;
+
+const STEP_LABELS = {
+  1: 'ÉTAPE 1 · IMPORT',
+  2: 'ÉTAPE 2 · DOUBLONS',
+  3: 'ÉTAPE 3 · MARQUAGE LS',
+  4: 'ÉTAPE 4 · IMPORT LSI',
+  5: 'ÉTAPE 5 · EXPORT',
+};
+
+function log(msg, step){
+  const j = document.getElementById('journal');
+  document.getElementById('card-journal').classList.remove('hidden');
+  const entry = document.createElement('div');
+  entry.className = 'entry';
+  const stepNum = step || 0;
+  const label = STEP_LABELS[stepNum] || 'INFO';
+  const t = new Date().toLocaleTimeString('fr-FR');
+  entry.innerHTML = `
+    <span class="step-badge step-${stepNum}">${label}</span>
+    <span class="time">${t}</span>
+    <span class="msg">${msg}</span>`;
+  j.prepend(entry);
+}
+
+function norm(v){
+  if(v===null || v===undefined) return '';
+  return String(v).trim().toUpperCase();
+}
+
+// ---------- PARSING ----------
+function parseWorkbookArrayBuffer(buf){
+  const wb = XLSX.read(buf, {type:'array', cellDates:true});
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  const json = XLSX.utils.sheet_to_json(sheet, {header:1, defval:'', raw:false});
+  return jsonRowsToObj(json);
+}
+
+function jsonRowsToObj(json){
+  const headers = json[0].map(h => String(h).trim());
+  const rows = [];
+  for(let i=1;i<json.length;i++){
+    const r = json[i];
+    if(!r || r.every(c => c === '' || c===null || c===undefined)) continue;
+    const obj = {};
+    headers.forEach((h,idx) => obj[h] = r[idx] !== undefined ? r[idx] : '');
+    rows.push(obj);
+  }
+  return {headers, rows};
+}
+
+function parseAsDelimitedText(text){
+  // detect delimiter from first line
+  const firstLineEnd = text.indexOf('\n');
+  const firstLine = text.slice(0, firstLineEnd > -1 ? firstLineEnd : 200);
+  const delim = firstLine.includes('\t') ? '\t' : (firstLine.includes(';') ? ';' : ',');
+  const lines = text.split(/\r\n|\n|\r/).filter(l => l.length>0);
+  const headers = lines[0].split(delim).map(h=>h.trim());
+  const rows = [];
+  for(let i=1;i<lines.length;i++){
+    const cols = lines[i].split(delim);
+    if(cols.every(c=>c==='')) continue;
+    const obj = {};
+    headers.forEach((h,idx) => obj[h] = cols[idx] !== undefined ? cols[idx].trim() : '');
+    rows.push(obj);
+  }
+  return {headers, rows};
+}
+
+function parseFile(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const buf = e.target.result;
+      try{
+        const result = parseWorkbookArrayBuffer(buf);
+        if(result.headers.length <= 1) throw new Error('single column - fallback');
+        resolve(result);
+      }catch(err){
+        // fallback: treat as plain delimited text
+        try{
+          let text;
+          try{
+            text = new TextDecoder('utf-8', {fatal:false}).decode(buf);
+          }catch(e2){
+            text = new TextDecoder('windows-1252').decode(buf);
+          }
+          resolve(parseAsDelimitedText(text));
+        }catch(err2){
+          reject(err2);
+        }
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+// ---------- FILE HANDLERS ----------
+document.getElementById('file-bscs').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if(!f) return;
+  try{
+    bscsData = await parseFile(f);
+    document.getElementById('info-bscs').textContent = `${f.name} — ${bscsData.rows.length} lignes, ${bscsData.headers.length} colonnes`;
+    document.getElementById('box-bscs').classList.add('ok');
+    log(`Fichier BSCS chargé : <b>${bscsData.rows.length} lignes</b> (${bscsData.headers.join(', ')})`, 1);
+    checkBothLoaded();
+  }catch(err){
+    document.getElementById('info-bscs').textContent = 'Erreur de lecture : ' + err.message;
+  }
+});
+
+document.getElementById('file-gaia').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if(!f) return;
+  try{
+    gaiaData = await parseFile(f);
+    document.getElementById('info-gaia').textContent = `${f.name} — ${gaiaData.rows.length} lignes, ${gaiaData.headers.length} colonnes`;
+    document.getElementById('box-gaia').classList.add('ok');
+    log(`Fichier GAIA chargé : <b>${gaiaData.rows.length} lignes</b> (${gaiaData.headers.join(', ')})`, 1);
+    checkBothLoaded();
+  }catch(err){
+    document.getElementById('info-gaia').textContent = 'Erreur de lecture : ' + err.message;
+  }
+});
+
+function checkBothLoaded(){
+  if(bscsData && gaiaData){
+    document.getElementById('card-detect').classList.remove('hidden');
+    initMapping();
+    detectDuplicates();
+  }
+}
+
+// ---------- MAPPING ----------
+const defaultMapping = [
+  {bscs:'ND_LS',           gaia:'ND'},
+  {bscs:'ETAT_LIGNE',      gaia:'ETAT_LIGNE'},
+  {bscs:'NOM_PRENOMS',     gaia:'NOM_PRENOMS'},
+  {bscs:'RECURRENT',       gaia:'RECURRENT_MENSUEL'},
+  {bscs:'DATE_ACTIVATION', gaia:'DATE_MS'},
+  {bscs:'NCLI',            gaia:'NCLI'},
+  {bscs:'COMMUNE',         gaia:'COMMUNE'},
+  {bscs:'CATEGORIE',       gaia:'CATEGORIE_CLIENT'},
+  {bscs:'OFFRE',           gaia:'LIBELLE_OFFRE'},
+  {bscs:'DATE_COMMANDE',   gaia:'DATE_COMMANDE_LSI (nouvelle colonne)'},
+  {bscs:'DATE_CREATION',   gaia:'DATE_CREATION_LSI (nouvelle colonne)'},
+];
+let mapping = [];
+
+function initMapping(){
+  mapping = defaultMapping
+    .filter(m => bscsData.headers.includes(m.bscs))
+    .map(m => ({...m}));
+
+  gaiaFinalCols = [...gaiaData.headers];
+  ['DATE_COMMANDE_LSI','DATE_CREATION_LSI','SOURCE'].forEach(c => {
+    if(!gaiaFinalCols.includes(c)) gaiaFinalCols.push(c);
+  });
+
+  const gaiaOptions = gaiaFinalCols.map(c => `<option value="${c}">${c}</option>`).join('');
+  const table = document.getElementById('mapping-table');
+  table.innerHTML = `<thead><tr><th>Colonne BSCS</th><th>→ Colonne GAIA cible</th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  mapping.forEach((m, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${m.bscs}</td><td>
+      <select data-idx="${idx}" class="map-select">${gaiaOptions}</select>
+    </td>`;
+    tbody.appendChild(tr);
+    // preselect
+    setTimeout(() => {
+      const sel = tr.querySelector('select');
+      const target = m.gaia.includes('nouvelle colonne') ?
+        (m.bscs === 'DATE_COMMANDE' ? 'DATE_COMMANDE_LSI' : 'DATE_CREATION_LSI') : m.gaia;
+      sel.value = target;
+      sel.addEventListener('change', () => mapping[idx].gaia = sel.value);
+      mapping[idx].gaia = target;
+    },0);
+  });
+  table.appendChild(tbody);
+}
+
+document.getElementById('btn-toggle-mapping').addEventListener('click', () => {
+  const box = document.getElementById('mapping-box');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+});
+
+// ---------- DUPLICATE DETECTION ----------
+function findGaiaNDField(){
+  return gaiaData.headers.includes('ND') ? 'ND' : gaiaData.headers[1];
+}
+function findBscsNDField(){
+  return bscsData.headers.includes('ND_LS') ? 'ND_LS' : bscsData.headers[0];
+}
+
+function detectDuplicates(){
+  const bscsNDField = findBscsNDField();
+  const gaiaNDField = findGaiaNDField();
+
+  const bscsNDs = new Set(bscsData.rows.map(r => norm(r[bscsNDField])).filter(v => v!==''));
+  dupSet = new Set();
+  gaiaData.rows.forEach((r, idx) => {
+    if(bscsNDs.has(norm(r[gaiaNDField]))) dupSet.add(idx);
+  });
+
+  document.getElementById('s-bscs-count').textContent = bscsData.rows.length;
+  document.getElementById('s-gaia-count').textContent = gaiaData.rows.length;
+  document.getElementById('s-dup-count').textContent = dupSet.size;
+  document.getElementById('btn-delete-dup').textContent = `🗑 Supprimer les doublons détectés de GAIA (${dupSet.size})`;
+  document.getElementById('btn-delete-dup').disabled = dupSet.size === 0;
+
+  log(`Détection terminée : <b>${dupSet.size} ND_LS</b> de BSCS retrouvés dans la colonne ${gaiaNDField} de GAIA (à supprimer avant import)`, 2);
+  renderTable();
+  document.getElementById('card-mark-ls').classList.remove('hidden');
+  refreshLsStats();
+}
+
+// ---------- MARQUAGE DES LIGNES LS (SYT non présents dans BSCS) ----------
+function getLsEligibleIndices(){
+  const ndField = findGaiaNDField();
+  const eligible = [];
+  gaiaData.rows.forEach((r, idx) => {
+    if(r.SOURCE === 'BSCS_LSI') return;          // lignes importées de BSCS = LSI, pas concernées
+    if(dupSet.has(idx)) return;                  // encore un doublon BSCS non nettoyé = LSI, pas concerné
+    const nd = norm(r[ndField]);
+    if(nd.startsWith('SYT') && !nd.endsWith('LS')){
+      eligible.push(idx);
+    }
+  });
+  return eligible;
+}
+
+function countAlreadyMarked(){
+  const ndField = findGaiaNDField();
+  return gaiaData.rows.filter(r => norm(r[ndField]).startsWith('SYT') && norm(r[ndField]).endsWith('LS')).length;
+}
+
+function refreshLsStats(){
+  const eligible = getLsEligibleIndices();
+  document.getElementById('s-ls-candidates').textContent = eligible.length;
+  document.getElementById('s-ls-marked').textContent = countAlreadyMarked();
+  document.getElementById('btn-mark-ls').textContent = `🏷 Ajouter le suffixe LS (${eligible.length})`;
+  document.getElementById('btn-mark-ls').disabled = eligible.length === 0;
+}
+
+document.getElementById('btn-mark-ls').addEventListener('click', () => {
+  const ndField = findGaiaNDField();
+  const eligible = getLsEligibleIndices();
+  if(eligible.length === 0) return;
+  eligible.forEach(idx => {
+    const row = gaiaData.rows[idx];
+    row[ndField] = String(row[ndField]).trim() + 'LS';
+  });
+  log(`<b>${eligible.length} référence(s)</b> SYT (hors BSCS) suffixées "LS".`, 3);
+  refreshLsStats();
+  currentPage = 0;
+  renderTable();
+  document.getElementById('card-import').classList.remove('hidden');
+});
+
+// ---------- TABLE RENDER ----------
+function renderTable(){
+  const thead = document.querySelector('#gaia-table thead');
+  const tbody = document.querySelector('#gaia-table tbody');
+  const headers = gaiaData.headers;
+  thead.innerHTML = '<tr>' + headers.map(h=>`<th>${h}</th>`).join('') + '</tr>';
+
+  const filterView = document.getElementById('filter-view').value;
+  const search = norm(document.getElementById('search-nd').value);
+  const ndField = findGaiaNDField();
+
+  let indices = gaiaData.rows.map((_,i)=>i);
+  if(filterView === 'dup') indices = indices.filter(i => dupSet.has(i));
+  if(search) indices = indices.filter(i => norm(gaiaData.rows[i][ndField]).includes(search));
+
+  const totalPages = Math.max(1, Math.ceil(indices.length / PAGE_SIZE));
+  if(currentPage >= totalPages) currentPage = totalPages - 1;
+  if(currentPage < 0) currentPage = 0;
+  const pageIndices = indices.slice(currentPage*PAGE_SIZE, (currentPage+1)*PAGE_SIZE);
+
+  tbody.innerHTML = '';
+  pageIndices.forEach(i => {
+    const row = gaiaData.rows[i];
+    const tr = document.createElement('tr');
+    if(dupSet.has(i)) tr.className = 'dup';
+    if(row.__imported) tr.className = 'imported';
+    tr.innerHTML = headers.map(h => `<td>${row[h] !== undefined ? row[h] : ''}</td>`).join('');
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('page-info').textContent =
+    `Page ${currentPage+1} / ${totalPages} — ${indices.length} ligne(s) affichée(s) sur ${gaiaData.rows.length} au total`;
+}
+
+document.getElementById('filter-view').addEventListener('change', () => {currentPage=0; renderTable();});
+document.getElementById('search-nd').addEventListener('input', () => {currentPage=0; renderTable();});
+document.getElementById('prev-page').addEventListener('click', () => {currentPage--; renderTable();});
+document.getElementById('next-page').addEventListener('click', () => {currentPage++; renderTable();});
+
+// ---------- DELETE DUPLICATES ----------
+document.getElementById('btn-delete-dup').addEventListener('click', () => {
+  if(dupSet.size === 0) return;
+  if(!confirm(`Supprimer définitivement ${dupSet.size} ligne(s) de GAIA correspondant aux ND_LS déjà présents ?`)) return;
+  const removed = dupSet.size;
+  gaiaData.rows = gaiaData.rows.filter((_, idx) => !dupSet.has(idx));
+  dupSet = new Set();
+  document.getElementById('s-dup-count').textContent = 0;
+  document.getElementById('s-gaia-count').textContent = gaiaData.rows.length;
+  document.getElementById('btn-delete-dup').textContent = `🗑 Supprimer les doublons détectés de GAIA (0)`;
+  document.getElementById('btn-delete-dup').disabled = true;
+  currentPage = 0;
+  renderTable();
+  log(`<b>${removed} doublon(s) supprimé(s)</b> de GAIA. Nouveau total GAIA : ${gaiaData.rows.length} lignes.`, 2);
+  document.getElementById('card-import').classList.remove('hidden');
+  refreshLsStats();
+});
+
+// also allow proceeding to import even with 0 duplicates found
+function maybeShowImportCard(){
+  document.getElementById('card-import').classList.remove('hidden');
+}
+document.getElementById('btn-toggle-mapping').addEventListener('click', maybeShowImportCard);
+
+// ---------- IMPORT LSI ROWS ----------
+document.getElementById('btn-import-lsi').addEventListener('click', () => {
+  if(!bscsData){ return; }
+  // tag existing gaia rows as source GAIA if not already tagged
+  gaiaData.rows.forEach(r => { if(!r.SOURCE) r.SOURCE = 'GAIA'; });
+
+  const newRows = bscsData.rows.map(bRow => {
+    const obj = {};
+    gaiaFinalCols.forEach(c => obj[c] = '');
+    mapping.forEach(m => { obj[m.gaia] = bRow[m.bscs] !== undefined ? bRow[m.bscs] : ''; });
+    if(!obj.PRODUIT) obj.PRODUIT = 'LIAISON SPECIALISEE (LSI)';
+    obj.SOURCE = 'BSCS_LSI';
+    obj.__imported = true;
+    return obj;
+  });
+
+  // ensure gaiaData.headers includes all final columns for consistent export
+  gaiaFinalCols.forEach(c => { if(!gaiaData.headers.includes(c)) gaiaData.headers.push(c); });
+
+  gaiaData.rows = gaiaData.rows.concat(newRows);
+  importedCount = newRows.length;
+
+  document.getElementById('import-status').textContent = `✔ ${newRows.length} ligne(s) LSI importée(s) avec succès.`;
+  log(`<b>${newRows.length} ligne(s)</b> BSCS (LSI) importées dans GAIA selon le mapping défini.`, 4);
+
+  currentPage = 0;
+  renderTable();
+  refreshLsStats();
+  showExportCard();
+});
+
+function showExportCard(){
+  document.getElementById('card-export').classList.remove('hidden');
+  const gaiaOriginal = gaiaData.rows.filter(r => r.SOURCE !== 'BSCS_LSI').length;
+  const lsi = gaiaData.rows.filter(r => r.SOURCE === 'BSCS_LSI').length;
+  document.getElementById('s-final-count').textContent = gaiaData.rows.length;
+  document.getElementById('s-final-gaia').textContent = gaiaOriginal;
+  document.getElementById('s-final-lsi').textContent = lsi;
+}
+
+// ---------- EXPORT ----------
+document.getElementById('btn-export').addEventListener('click', () => {
+  const cols = gaiaData.headers.filter(c => c !== '__imported');
+  const data = gaiaData.rows.map(r => {
+    const obj = {};
+    cols.forEach(c => obj[c] = r[c] !== undefined ? r[c] : '');
+    return obj;
+  });
+  const ws = XLSX.utils.json_to_sheet(data, {header: cols});
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'PARC_CONSOLIDE');
+  const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  const filename = `PARC_CONSOLIDE_GAIA_LSI_${today}.xlsx`;
+  XLSX.writeFile(wb, filename);
+  log(`Fichier consolidé exporté : <b>${filename}</b> (${data.length} lignes)`, 5);
+});
+</script>
+</body>
+</html>
