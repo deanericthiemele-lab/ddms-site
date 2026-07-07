@@ -221,7 +221,7 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
         <p class="subtitle">Suivi des dossiers : Coval, BC, PV, Facture et statut, en un coup d'œil.</p>
       </div>
     </div>
-    <button class="btn btn-primary" onclick="openEnvoyerModal()">📧 Envoyer</button>
+    <button class="btn btn-primary" onclick="openEnvoyerModal()">📦 Télécharger factures</button>
   </div>
 
   <div class="toolbar">
@@ -287,11 +287,11 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
       <h2>Envoyer par email</h2>
       <button class="modal-close" onclick="closeEnvoyerModal()">✕</button>
     </div>
-    <p class="modal-sub">Sélectionnez les factures à envoyer. Les fichiers joints seront téléchargés, puis Outlook s'ouvrira avec un email pré-rempli — il ne restera qu'à joindre les fichiers téléchargés avant l'envoi.</p>
+    <p class="modal-sub">Sélectionnez les dossiers en cours. Un fichier .zip contenant les factures sélectionnées sera téléchargé.</p>
     <div class="modal-list" id="envoyerList"></div>
     <div class="modal-foot">
       <label class="check-all"><input type="checkbox" id="checkAll" onchange="toggleAllEnvoyer(this.checked)"> Tout sélectionner</label>
-      <button class="btn btn-primary" onclick="envoyerSelection()">Envoyer (<span id="envoyerCount">0</span>)</button>
+      <button class="btn btn-primary" onclick="envoyerSelection()">Télécharger (<span id="envoyerCount">0</span>)</button>
     </div>
   </div>
 </div>
@@ -304,6 +304,7 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
@@ -631,60 +632,56 @@ function updateEnvoyerCount(){
   document.getElementById('envoyerCount').textContent = selectedEnvoyer.size;
 }
 
-async function downloadFile(f){
+async function envoyerSelection(){
+  const ids = Array.from(selectedEnvoyer);
+  if(ids.length === 0){ showToast('Sélectionnez au moins un dossier'); return; }
+
+  const selectedRows = rows.filter(r => ids.includes(r.id));
+  const allFiles = [];
+  selectedRows.forEach(r=>{
+    FILE_FIELDS.forEach(field=>{
+      const f = r.files && r.files[field];
+      if(f) allFiles.push({ ...f, projet: r.objet || 'sans_nom', field });
+    });
+  });
+
+  if(allFiles.length === 0){
+    showToast('Aucun fichier à télécharger pour cette sélection');
+    return;
+  }
+
+  showToast(`Préparation du zip (${allFiles.length} fichier(s))…`);
   try{
-    const res = await fetch(f.url);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
+    const zip = new JSZip();
+    const usedNames = new Set();
+    for(const f of allFiles){
+      try{
+        const res = await fetch(f.url);
+        const blob = await res.blob();
+        const safeProjet = String(f.projet).replace(/[\\/:*?"<>|]/g, '_').slice(0,60);
+        let name = `${safeProjet}_${f.field}_${f.name}`;
+        let unique = name, n = 1;
+        while(usedNames.has(unique)){ unique = `${n}_${name}`; n++; }
+        usedNames.add(unique);
+        zip.file(unique, blob);
+      }catch(e){
+        console.error('Échec ajout au zip:', f.name, e);
+      }
+    }
+    const content = await zip.generateAsync({ type:'blob' });
+    const blobUrl = URL.createObjectURL(content);
     const a = document.createElement('a');
     a.href = blobUrl;
-    a.download = f.name || 'fichier';
+    a.download = `factures_${new Date().toISOString().slice(0,10)}.zip`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(()=> URL.revokeObjectURL(blobUrl), 4000);
-    return true;
-  }catch(e){
-    console.error('Téléchargement échoué pour', f.name, e);
-    window.open(f.url, '_blank');
-    return false;
+    showToast('Zip téléchargé');
+  }catch(err){
+    console.error(err);
+    showToast('Erreur lors de la création du zip');
   }
-}
-
-async function envoyerSelection(){
-  const ids = Array.from(selectedEnvoyer);
-  if(ids.length === 0){ showToast('Sélectionnez au moins une facture'); return; }
-
-  const selectedRows = rows.filter(r => ids.includes(r.id));
-  const allFiles = [];
-  const lines = [];
-  selectedRows.forEach(r=>{
-    const fichiers = FILE_FIELDS.map(field=>{
-      const f = r.files && r.files[field];
-      if(f){ allFiles.push(f); return `${field.toUpperCase()}: ${f.name}`; }
-      return null;
-    }).filter(Boolean);
-    lines.push(`- ${r.objet || '(sans nom)'} | ${r.fournisseur||''} | ${fMontant(r.montant)} FCFA${fichiers.length ? ' | '+fichiers.join(', ') : ' | aucun fichier'}`);
-  });
-
-  if(allFiles.length > 0){
-    showToast(`Téléchargement de ${allFiles.length} fichier(s)…`);
-    for(let i=0;i<allFiles.length;i++){
-      await downloadFile(allFiles[i]);
-      await new Promise(res=>setTimeout(res, 400));
-    }
-  }else{
-    showToast('Aucun fichier à joindre pour cette sélection');
-  }
-
-  const subject = `Factures à traiter (${selectedRows.length})`;
-  const bodyIntro = allFiles.length
-    ? `Les fichiers ont été téléchargés dans votre dossier Téléchargements — merci de les joindre à cet email avant l'envoi.\r\n\r\n`
-    : '';
-  const body = bodyIntro + lines.join('\r\n');
-
-  const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-  window.location.href = mailto;
 
   closeEnvoyerModal();
 }
