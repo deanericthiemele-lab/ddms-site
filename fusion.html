@@ -57,7 +57,7 @@
   .journal .time{flex:none;color:#999;font-size:11px;min-width:64px;}
   .journal .msg{flex:1;color:#222;}
   .step-1{background:#6c757d;} .step-2{background:#e63946;} .step-3{background:#0077b6;}
-  .step-4{background:#FF7900;} .step-5{background:#2a9d5c;} .step-0{background:#555;}
+  .step-4{background:#FF7900;} .step-5{background:#8e44ad;} .step-6{background:#2a9d5c;} .step-0{background:#555;}
   .legend{display:flex;gap:16px;font-size:12px;margin-top:6px;}
   .legend span{display:inline-flex;align-items:center;gap:5px;}
   .swatch{width:12px;height:12px;border-radius:3px;display:inline-block;}
@@ -165,9 +165,25 @@
     <span id="import-status" style="margin-left:12px;font-size:13px;color:#2a9d5c;"></span>
   </div>
 
-  <!-- ETAPE 4 : EXPORT -->
+  <!-- ETAPE 5 : ALLEGEMENT (retrait des colonnes non utilisées par le Dashboard Parc) -->
+  <div class="card hidden" id="card-lighten">
+    <h2><span class="step-num">5</span> Allègement du fichier (colonnes non utilisées par le Dashboard Parc)</h2>
+    <p style="font-size:13px;color:#444;">
+      Ces colonnes ne sont jamais lues par <code>parc.html</code> et pèsent lourd dans le fichier final (le fichier peut être
+      trop volumineux à importer sinon). Décoche celles que tu veux quand même conserver.
+    </p>
+    <div id="lighten-cols" style="display:flex;flex-wrap:wrap;gap:8px 14px;margin:14px 0;"></div>
+    <div class="stats">
+      <div class="stat"><div class="n" id="s-cols-before">0</div><div class="l">Colonnes avant</div></div>
+      <div class="stat"><div class="n" id="s-cols-after">0</div><div class="l">Colonnes après retrait</div></div>
+    </div>
+    <button id="btn-lighten">🪶 Retirer les colonnes cochées</button>
+    <span id="lighten-status" style="margin-left:12px;font-size:13px;color:#2a9d5c;"></span>
+  </div>
+
+  <!-- ETAPE 6 : EXPORT -->
   <div class="card hidden" id="card-export">
-    <h2><span class="step-num">5</span> Fichier consolidé final</h2>
+    <h2><span class="step-num">6</span> Fichier consolidé final</h2>
     <div class="stats">
       <div class="stat"><div class="n" id="s-final-count">0</div><div class="l">Lignes dans le fichier final</div></div>
       <div class="stat"><div class="n" id="s-final-gaia">0</div><div class="l">dont GAIA d'origine</div></div>
@@ -184,7 +200,8 @@
       <span><span class="swatch step-2" style="border-radius:4px;"></span> 2 · Doublons</span>
       <span><span class="swatch step-3" style="border-radius:4px;"></span> 3 · Marquage LS</span>
       <span><span class="swatch step-4" style="border-radius:4px;"></span> 4 · Import LSI</span>
-      <span><span class="swatch step-5" style="border-radius:4px;"></span> 5 · Export</span>
+      <span><span class="swatch step-5" style="border-radius:4px;"></span> 5 · Allègement</span>
+      <span><span class="swatch step-6" style="border-radius:4px;"></span> 6 · Export</span>
     </div>
     <div class="journal" id="journal"></div>
   </div>
@@ -205,7 +222,8 @@ const STEP_LABELS = {
   2: 'ÉTAPE 2 · DOUBLONS',
   3: 'ÉTAPE 3 · MARQUAGE LS',
   4: 'ÉTAPE 4 · IMPORT LSI',
-  5: 'ÉTAPE 5 · EXPORT',
+  5: 'ÉTAPE 5 · ALLÈGEMENT',
+  6: 'ÉTAPE 6 · EXPORT',
 };
 
 function log(msg, step){
@@ -415,6 +433,7 @@ function detectDuplicates(){
   renderTable();
   document.getElementById('card-mark-ls').classList.remove('hidden');
   refreshLsStats();
+  initLightenStep();
 }
 
 // ---------- MARQUAGE DES LIGNES LS (SYT non présents dans BSCS) ----------
@@ -551,7 +570,70 @@ document.getElementById('btn-import-lsi').addEventListener('click', () => {
   currentPage = 0;
   renderTable();
   refreshLsStats();
+  initLightenStep();
   showExportCard();
+});
+
+// ---------- ALLEGEMENT (retrait des colonnes non utilisées par parc.html) ----------
+const REMOVABLE_COLS = [
+  'LIBELLE_OPTION_OFFRE','ABRV_REPARTITEUR','LIBELLE_REPARTITEUR','SR','ADRESS_INSTALL',
+  'VOIE','SEGMENT_ABO','DATE_SCE','DATE_ETAT','RAISON_SUSP','SIREN','NDOS','TYPE_DOSSIER',
+  'DATE_RESIL_TEMP','CONTACT_MOBILE','SECOND_MOBILE','COMMENTAIRE','DATE_COMMANDE_LSI','DATE_CREATION_LSI'
+];
+
+function initLightenStep(){
+  document.getElementById('card-lighten').classList.remove('hidden');
+  const box = document.getElementById('lighten-cols');
+  const present = REMOVABLE_COLS.filter(c => gaiaData.headers.includes(c));
+  const existingIds = new Set(present.map(c => 'chk_'+c));
+
+  // ne pas recréer les cases déjà cochées/décochées par l'utilisateur, seulement ajouter les nouvelles
+  Array.from(box.children).forEach(child => {
+    const inp = child.querySelector('input');
+    if(inp && !existingIds.has(inp.id)) child.remove();
+  });
+  present.forEach(c => {
+    const id = 'chk_'+c;
+    if(document.getElementById(id)) return;
+    const label = document.createElement('label');
+    label.style.cssText = 'display:flex;align-items:center;gap:5px;background:#f7f8fa;border:1px solid var(--border);padding:4px 8px;border-radius:6px;font-size:12.5px;';
+    label.innerHTML = `<input type="checkbox" id="${id}" checked> ${c}`;
+    box.appendChild(label);
+    label.querySelector('input').addEventListener('change', updateColsAfterCount);
+  });
+
+  document.getElementById('s-cols-before').textContent = gaiaData.headers.length;
+  updateColsAfterCount();
+}
+
+function getColsToRemove(){
+  return REMOVABLE_COLS.filter(c => {
+    const el = document.getElementById('chk_'+c);
+    return el && el.checked;
+  });
+}
+
+function updateColsAfterCount(){
+  const toRemove = getColsToRemove();
+  document.getElementById('s-cols-after').textContent = gaiaData.headers.length - toRemove.length;
+}
+
+document.getElementById('btn-lighten').addEventListener('click', () => {
+  const toRemove = getColsToRemove().filter(c => gaiaData.headers.includes(c));
+  if(toRemove.length === 0){
+    document.getElementById('lighten-status').textContent = 'Aucune colonne à retirer.';
+    return;
+  }
+  gaiaData.headers = gaiaData.headers.filter(h => !toRemove.includes(h));
+  gaiaFinalCols = gaiaFinalCols.filter(h => !toRemove.includes(h));
+  gaiaData.rows.forEach(r => toRemove.forEach(c => delete r[c]));
+
+  document.getElementById('s-cols-after').textContent = gaiaData.headers.length;
+  document.getElementById('lighten-status').textContent = `✔ ${toRemove.length} colonne(s) retirée(s).`;
+  toRemove.forEach(c => { const el = document.getElementById('chk_'+c); if(el){ el.checked=false; el.disabled=true; } });
+  log(`<b>${toRemove.length} colonne(s)</b> non utilisées par le Dashboard Parc retirées avant export : ${toRemove.join(', ')}`, 5);
+  currentPage = 0;
+  renderTable();
 });
 
 function showExportCard(){
@@ -577,7 +659,7 @@ document.getElementById('btn-export').addEventListener('click', () => {
   const today = new Date().toISOString().slice(0,10).replace(/-/g,'');
   const filename = `PARC_CONSOLIDE_GAIA_LSI_${today}.xlsx`;
   XLSX.writeFile(wb, filename);
-  log(`Fichier consolidé exporté : <b>${filename}</b> (${data.length} lignes)`, 5);
+  log(`Fichier consolidé exporté : <b>${filename}</b> (${data.length} lignes)`, 6);
 });
 </script>
 </body>
