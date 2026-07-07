@@ -80,7 +80,7 @@ h1{ font-size:24px; font-weight:600; margin-top:4px; }
 }
 .table-scroll.termine-block thead th{ background:#e6e9ee; }
 .table-scroll.termine-block tbody tr:hover{ background:#e9ebef; }
-table{ width:100%; border-collapse:collapse; table-layout:fixed; min-width:1300px; }
+table{ width:100%; border-collapse:collapse; table-layout:fixed; min-width:1400px; }
 thead th{
   font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;
   text-align:left; padding:10px 8px; border-bottom:1px solid var(--border); white-space:nowrap;
@@ -97,6 +97,7 @@ th.col-objet, td.col-objet{ width:19%; }
 th.col-file, td.col-file{ width:11%; overflow:hidden; }
 th.col-montant, td.col-montant{ width:10%; }
 th.col-fournisseur, td.col-fournisseur{ width:120px; }
+th.col-da, td.col-da{ width:100px; }
 th.col-etape, td.col-etape{ width:13%; }
 th.col-statut, td.col-statut{ width:90px; }
 th.col-action, td.col-action{ width:36px; }
@@ -242,6 +243,7 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
           <th class="col-objet">Projet</th>
           <th class="col-montant">Montant</th>
           <th class="col-fournisseur">Fournisseur</th>
+          <th class="col-da">N° DA</th>
           <th class="col-file">BC</th>
           <th class="col-file">PV</th>
           <th class="col-file">Facture</th>
@@ -267,6 +269,7 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
           <th class="col-objet">Projet</th>
           <th class="col-montant">Montant</th>
           <th class="col-fournisseur">Fournisseur</th>
+          <th class="col-da">N° DA</th>
           <th class="col-file">BC</th>
           <th class="col-file">PV</th>
           <th class="col-file">Facture</th>
@@ -403,29 +406,31 @@ function renderAll(){
   const tbodyEnCours = document.getElementById('tbodyEnCours');
   tbodyEnCours.innerHTML = enCours.length
     ? enCours.map(rowHTML).join('')
-    : `<tr><td colspan="11"><div class="empty-state">Aucune ligne en cours. Cliquez sur « + Nouvelle ligne » pour commencer.</div></td></tr>`;
+    : `<tr><td colspan="12"><div class="empty-state">Aucune ligne en cours. Cliquez sur « + Nouvelle ligne » pour commencer.</div></td></tr>`;
 
   const tbodyTermine = document.getElementById('tbodyTermine');
   tbodyTermine.innerHTML = termine.length
     ? termine.map(rowHTML).join('')
-    : `<tr><td colspan="11"><div class="empty-state">Aucun dossier payé pour le moment.</div></td></tr>`;
+    : `<tr><td colspan="12"><div class="empty-state">Aucun dossier payé pour le moment.</div></td></tr>`;
+}
+
+function normalizeFiles(r, field){
+  const f = (r.files || {})[field];
+  if(!f) return [];
+  return Array.isArray(f) ? f : [f]; // compat ancien format (objet unique)
 }
 
 function fileCellHTML(r, field){
-  let f = (r.files || {})[field];
-  if(Array.isArray(f)) f = f[f.length-1] || null; // compat ancien format multi -> on garde le dernier
-  if(f){
-    return `
-    <div class="file-cell">
+  const files = normalizeFiles(r, field);
+  const chips = files.map((f, idx) => `
       <div class="file-chip">
         <a href="${f.url}" target="_blank" title="${esc(f.name)} (${fSize(f.size)})">${esc(f.name)}</a>
-        <button class="x" title="Supprimer" onclick="removeFile('${r.id}','${field}')">✕</button>
-      </div>
-    </div>`;
-  }
+        <button class="x" title="Supprimer" onclick="removeFile('${r.id}','${field}',${idx})">✕</button>
+      </div>`).join('');
   return `
   <div class="file-cell">
-    <button class="file-btn" onclick="pickFile('${r.id}','${field}')">📎 Parcourir…</button>
+    ${chips}
+    <button class="file-btn" onclick="pickFile('${r.id}','${field}')">📎 ${files.length ? 'Ajouter…' : 'Parcourir…'}</button>
   </div>`;
 }
 
@@ -455,6 +460,10 @@ function rowHTML(r){
         ${FOURNISSEURS.map(f => `<option value="${f}" ${r.fournisseur===f?'selected':''}>${f}</option>`).join('')}
       </select>
     </td>
+    <td class="col-da">
+      <input class="cell-input" value="${esc(r.da||'')}" placeholder="N° DA"
+        onchange="updateField('${r.id}','da', this.value)">
+    </td>
     <td class="col-file">${fileCellHTML(r,'bc')}</td>
     <td class="col-file">${fileCellHTML(r,'pv')}</td>
     <td class="col-file">${fileCellHTML(r,'facture')}</td>
@@ -481,7 +490,7 @@ function rowHTML(r){
 async function addRow(){
   try{
     await db.collection(COL).add({
-      date: '', objet: '', montant: 0, fournisseur: '', statut: '', etape: '', files: {},
+      date: '', objet: '', montant: 0, fournisseur: '', da: '', statut: '', etape: '', files: {},
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
@@ -503,8 +512,7 @@ async function deleteRow(id){
     const r = rows.find(x=>x.id===id);
     if(r && r.files){
       for(const field of FILE_FIELDS){
-        let list = r.files[field] || [];
-        if(!Array.isArray(list)) list = [list]; // compat ancien format
+        const list = normalizeFiles(r, field);
         for(const f of list){
           if(f && f.path){ try{ await storage.ref(f.path).delete(); }catch(e){} }
         }
@@ -518,16 +526,16 @@ async function deleteRow(id){
 /* ── Fichiers ── */
 const hiddenFileInput = document.createElement('input');
 hiddenFileInput.type = 'file';
-hiddenFileInput.multiple = false;
+hiddenFileInput.multiple = true;
 hiddenFileInput.style.display = 'none';
 document.body.appendChild(hiddenFileInput);
 hiddenFileInput.addEventListener('change', async (ev)=>{
-  const file = ev.target.files[0];
+  const files = Array.from(ev.target.files);
   ev.target.value = '';
-  if(!file || !pendingFileTarget) return;
+  if(!files.length || !pendingFileTarget) return;
   const { rowId, field } = pendingFileTarget;
   pendingFileTarget = null;
-  await uploadFileToCell(rowId, field, file);
+  await uploadFilesToCell(rowId, field, files);
 });
 
 function pickFile(rowId, field){
@@ -535,46 +543,51 @@ function pickFile(rowId, field){
   hiddenFileInput.click();
 }
 
-async function uploadFileToCell(rowId, field, file){
-  showToast(`Envoi de "${file.name}"…`);
+async function uploadFilesToCell(rowId, field, files){
+  showToast(files.length > 1 ? `Envoi de ${files.length} fichiers…` : `Envoi de "${files[0].name}"…`);
   try{
     const r = rows.find(x=>x.id===rowId);
-    let oldFile = r && r.files && r.files[field];
-    if(Array.isArray(oldFile)) oldFile = oldFile[oldFile.length-1];
-
-    const path = `comite_depense/${rowId}/${field}/${Date.now()}_${file.name}`;
-    const ref = storage.ref(path);
-    await ref.put(file);
-    const url = await ref.getDownloadURL();
-    const meta = { name: file.name, url, path, size: file.size, uploadedAt: new Date().toISOString() };
-
+    const current = normalizeFiles(r, field);
+    const newMetas = [];
+    for(const file of files){
+      const path = `comite_depense/${rowId}/${field}/${Date.now()}_${Math.random().toString(36).slice(2,7)}_${file.name}`;
+      const ref = storage.ref(path);
+      await ref.put(file);
+      const url = await ref.getDownloadURL();
+      newMetas.push({ name: file.name, url, path, size: file.size, uploadedAt: new Date().toISOString() });
+    }
+    const updated = [...current, ...newMetas];
     await db.collection(COL).doc(rowId).update({
-      [`files.${field}`]: meta,
+      [`files.${field}`]: updated,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
-
-    if(oldFile && oldFile.path && oldFile.path !== path){
-      try{ await storage.ref(oldFile.path).delete(); }catch(e){}
-    }
-    showToast("Fichier enregistré");
+    showToast(newMetas.length > 1 ? "Fichiers enregistrés" : "Fichier enregistré");
   }catch(err){
     console.error(err);
     showToast(`Échec de l'envoi : ${err.code || err.message || 'erreur inconnue'}`);
   }
 }
 
-async function removeFile(rowId, field){
+async function removeFile(rowId, field, idx){
   if(!confirm("Supprimer ce fichier ?")) return;
   try{
     const r = rows.find(x=>x.id===rowId);
-    let f = r && r.files && r.files[field];
-    if(Array.isArray(f)) f = f[f.length-1];
+    const current = normalizeFiles(r, field);
+    const f = current[idx];
     if(!f) return;
     if(f.path){ try{ await storage.ref(f.path).delete(); }catch(e){} }
-    await db.collection(COL).doc(rowId).update({
-      [`files.${field}`]: firebase.firestore.FieldValue.delete(),
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-    });
+    const updated = current.filter((_,i) => i !== idx);
+    if(updated.length){
+      await db.collection(COL).doc(rowId).update({
+        [`files.${field}`]: updated,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } else {
+      await db.collection(COL).doc(rowId).update({
+        [`files.${field}`]: firebase.firestore.FieldValue.delete(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    }
     showToast("Fichier supprimé");
   }catch(err){ console.error(err); showToast("Erreur lors de la suppression"); }
 }
@@ -639,8 +652,8 @@ async function envoyerSelection(){
   const selectedRows = rows.filter(r => ids.includes(r.id));
   const allFiles = [];
   selectedRows.forEach(r=>{
-    const f = r.files && r.files['facture'];
-    if(f) allFiles.push({ ...f, projet: r.objet || 'sans_nom', field: 'facture' });
+    const files = normalizeFiles(r, 'facture');
+    files.forEach(f => allFiles.push({ ...f, projet: r.objet || 'sans_nom', field: 'facture' }));
   });
 
   if(allFiles.length === 0){
