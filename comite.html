@@ -57,11 +57,15 @@ h1{ font-size:24px; font-weight:600; margin-top:4px; }
 .btn-primary:hover{ background:#c94f00; }
 
 .toolbar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:1.1rem; }
-.search-input{
-  font-family:inherit; font-size:13px; padding:9px 12px; flex:1; min-width:180px;
-  border:1px solid var(--border); border-radius:9px; background:#fff; color:var(--ink);
-}
 .toolbar .btn-primary{ margin-left:auto; }
+.fournisseur-filters{ display:flex; gap:8px; flex-wrap:wrap; margin-left:auto; }
+.btn-filter{
+  font-family:inherit; font-size:13px; font-weight:600; cursor:pointer;
+  border-radius:9px; border:1px solid var(--border); padding:10px 16px;
+  background:#fff; color:var(--ink); transition:all .15s; white-space:nowrap;
+}
+.btn-filter:hover{ border-color:#b0bac8; }
+.btn-filter.active{ background:var(--orange); border-color:var(--orange); color:#fff; }
 
 /* ── Table ── */
 .section-head{ display:flex; align-items:center; gap:10px; margin:1.6rem 0 10px; }
@@ -100,7 +104,7 @@ th.col-fournisseur, td.col-fournisseur{ width:75px; }
 th.col-da, td.col-da{ width:80px; }
 th.col-etape, td.col-etape{ width:13%; }
 th.col-statut, td.col-statut{ width:90px; }
-th.col-action, td.col-action{ width:36px; }
+th.col-action, td.col-action{ width:60px; }
 
 .cell-input{
   width:100%; font-family:inherit; font-size:13px; padding:8px 9px;
@@ -157,6 +161,28 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
 }
 .row-del:hover{ border-color:#b91c1c; color:#b91c1c; }
 
+.action-cell{ display:flex; align-items:center; gap:6px; justify-content:center; }
+.row-fric{
+  width:16px; height:16px; border-radius:50%; border:1px solid var(--border);
+  background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  color:var(--muted); transition:all .15s; padding:0; font-size:10px; line-height:1;
+}
+.row-fric:hover{ border-color:var(--orange); color:var(--orange); }
+.row-fric.has-value{ background:var(--orange); border-color:var(--orange); }
+
+.fric-popover{
+  position:fixed; z-index:200; background:#fff; border:1px solid var(--border);
+  border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.15); padding:10px; display:none;
+  min-width:160px;
+}
+.fric-popover.show{ display:block; }
+.fric-popover label{ font-size:11px; color:var(--muted); font-weight:600; display:block; margin-bottom:6px; }
+.fric-popover input{
+  font-family:inherit; font-size:13px; padding:7px 9px; width:100%;
+  border:1px solid var(--border); border-radius:7px; background:#fff; color:var(--ink);
+  box-sizing:border-box;
+}
+
 .empty-state{
   text-align:center; color:var(--muted); font-size:12.5px; padding:36px 18px;
 }
@@ -194,13 +220,13 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
   </div>
 
   <div class="toolbar">
-    <input type="text" class="search-input" id="searchInput" placeholder="Rechercher par projet…" oninput="renderAll()">
     <button class="btn btn-primary" onclick="addRow()">+ Nouvelle ligne</button>
   </div>
 
   <div class="section-head">
     <span class="section-title">En cours</span>
     <span class="section-count" id="countEnCours">0</span>
+    <div class="fournisseur-filters" id="fournisseurFilters"></div>
   </div>
   <div class="table-scroll">
     <table>
@@ -248,6 +274,10 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
 <div class="locked-msg" id="lockedMsg" style="display:none;">Accès refusé. Redirection…</div>
 
 <div class="toast" id="toast"></div>
+<div class="fric-popover" id="fricPopover">
+  <label>Montant</label>
+  <input type="text" inputmode="numeric" id="fricInput" placeholder="0">
+</div>
 
 <!-- Firebase compat (fonctionne en local et sur Netlify) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -268,16 +298,16 @@ const storage = firebase.storage();
 const COL = 'comite_depense';
 const FILE_FIELDS = ['coval'];
 const ETAPES = [
-  { value:'prebord',             label:'Prebord' },
-  { value:'coval_ok',            label:'Coval OK' },
-  { value:'saisie_annick',       label:'Saisie (Annick)' },
-  { value:'controleur_gestion',  label:'Contrôleur gestion' },
-  { value:'rolly',               label:'Rolly' },
-  { value:'acheteur',            label:'Acheteur' },
-  { value:'facture_non_depose',  label:'Facture non déposé à la DF' },
-  { value:'facture_depose',      label:'Facture déposé à la DF' },
-  { value:'paiement_tresorerie', label:'Paiement (trésorerie)' },
-  { value:'paye',                label:'Payé' }
+  { value:'prebord',             label:'1. Prebord' },
+  { value:'coval_ok',            label:'2. Coval OK' },
+  { value:'saisie_annick',       label:'3. Saisie (Annick)' },
+  { value:'controleur_gestion',  label:'4. Contrôleur gestion' },
+  { value:'rolly',               label:'5. Rolly' },
+  { value:'acheteur',            label:'6. Acheteur' },
+  { value:'facture_non_depose',  label:'7. Facture non déposé à la DF' },
+  { value:'facture_depose',      label:'8. Facture déposé à la DF' },
+  { value:'paiement_tresorerie', label:'9. Paiement (trésorerie)' },
+  { value:'paye',                label:'10. Payé' }
 ];
 const FOURNISSEURS = ['Maryg','Duons','Sate','Datalink','CIC','Innov','Magal','APM'];
 
@@ -302,6 +332,8 @@ const FOURNISSEURS = ['Maryg','Duons','Sate','Datalink','CIC','Innov','Magal','A
 /* ── Etat ── */
 let rows = [];
 let pendingFileTarget = null; // {rowId, field}
+let activeFournisseur = null;
+let fricPopoverRowId = null;
 
 function initApp(){
   db.collection(COL).orderBy('createdAt','desc').onSnapshot(snap=>{
@@ -347,9 +379,20 @@ function sortByDateDesc(arr){
   });
 }
 
+function renderFournisseurFilters(){
+  const el = document.getElementById('fournisseurFilters');
+  el.innerHTML = FOURNISSEURS.map(f => `
+    <button type="button" class="btn-filter ${activeFournisseur===f?'active':''}" onclick="toggleFournisseurFilter('${f}')">${esc(f)}</button>
+  `).join('');
+}
+function toggleFournisseurFilter(f){
+  activeFournisseur = (activeFournisseur === f) ? null : f;
+  renderAll();
+}
+
 function renderAll(){
-  const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
-  const filtered = rows.filter(r => !search || (r.objet||'').toLowerCase().includes(search));
+  renderFournisseurFilters();
+  const filtered = rows.filter(r => !activeFournisseur || r.fournisseur === activeFournisseur);
 
   const enCours = sortByDateDesc(filtered.filter(r => r.etape !== 'paye'));
   const termine = sortByDateDesc(filtered.filter(r => r.etape === 'paye'));
@@ -422,7 +465,10 @@ function rowHTML(r){
       </select>
     </td>
     <td class="col-action">
-      <button class="row-del" title="Supprimer la ligne" onclick="deleteRow('${r.id}')">🗑</button>
+      <div class="action-cell">
+        <button class="row-fric ${r.montantFric?'has-value':''}" title="Montant" onclick="openFricPopover(event, '${r.id}')">•</button>
+        <button class="row-del" title="Supprimer la ligne" onclick="deleteRow('${r.id}')">🗑</button>
+      </div>
     </td>
   </tr>`;
 }
@@ -528,6 +574,56 @@ async function removeFile(rowId, field){
     showToast("Fichier supprimé");
   }catch(err){ console.error(err); showToast("Erreur lors de la suppression"); }
 }
+
+/* ── Popover Montant (protégé) ── */
+const fricPopover = document.getElementById('fricPopover');
+const fricInput = document.getElementById('fricInput');
+
+function openFricPopover(evt, id){
+  evt.stopPropagation();
+  const pwd = prompt("Mot de passe :");
+  if(pwd === null) return;
+  if(pwd !== 'fric'){ showToast("Mot de passe incorrect"); return; }
+
+  fricPopoverRowId = id;
+  const r = rows.find(x=>x.id===id);
+  fricInput.value = (r && r.montantFric) ? Number(r.montantFric).toLocaleString('fr-FR') : '';
+
+  const btn = evt.currentTarget;
+  const rect = btn.getBoundingClientRect();
+  fricPopover.style.top = (rect.bottom + 6) + 'px';
+  fricPopover.style.left = Math.max(8, rect.right - 170) + 'px';
+  fricPopover.classList.add('show');
+  setTimeout(()=> fricInput.focus(), 0);
+}
+
+function closeFricPopover(){
+  fricPopover.classList.remove('show');
+  fricPopoverRowId = null;
+}
+
+async function saveFricValue(){
+  if(!fricPopoverRowId) return;
+  const value = parseMontant(fricInput.value);
+  try{
+    await db.collection(COL).doc(fricPopoverRowId).update({
+      montantFric: value,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }catch(err){ console.error(err); showToast("Erreur lors de l'enregistrement"); }
+}
+
+fricInput.addEventListener('input', ()=> formatMontantLive(fricInput));
+fricInput.addEventListener('change', saveFricValue);
+fricInput.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter'){ saveFricValue(); closeFricPopover(); }
+});
+document.addEventListener('click', (e)=>{
+  if(!fricPopover.classList.contains('show')) return;
+  if(fricPopover.contains(e.target) || e.target.classList.contains('row-fric')) return;
+  saveFricValue();
+  closeFricPopover();
+});
 </script>
 </body>
 </html>
