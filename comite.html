@@ -45,6 +45,13 @@ body{
 .title-block{ margin-top:6px; }
 .eyebrow{ font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; }
 h1{ font-size:24px; font-weight:600; margin-top:4px; }
+.total-fric-btn{
+  font-family:inherit; font-size:12px; font-weight:600; cursor:pointer;
+  border:1px solid var(--border); border-radius:6px; background:transparent;
+  color:var(--muted); padding:2px 8px; margin-left:8px; vertical-align:middle;
+  transition:all .15s;
+}
+.total-fric-btn:hover{ border-color:#b0bac8; color:var(--ink); }
 .subtitle{ font-size:12.5px; color:var(--muted); margin-top:4px; max-width:520px; line-height:1.4; }
 
 .btn{
@@ -213,7 +220,7 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
       <a class="back-link" href="index.html">← Retour à l'accueil</a>
       <div class="title-block">
         <div class="eyebrow">DDMS · Autres directions</div>
-        <h1>Suivi Paiement Factures</h1>
+        <h1>Suivi Paiement Factures <button class="total-fric-btn" id="totalFricBtn" title="Total">Σ</button></h1>
         <p class="subtitle">Suivi des dossiers : Coval, DA et étape, en un coup d'œil.</p>
       </div>
     </div>
@@ -275,8 +282,24 @@ td.col-date .cell-input{ padding:8px 4px; font-size:12px; }
 
 <div class="toast" id="toast"></div>
 <div class="fric-popover" id="fricPopover">
-  <label>Montant</label>
-  <input type="text" inputmode="numeric" id="fricInput" placeholder="0">
+  <div id="fricPasswordStep">
+    <label>Mot de passe</label>
+    <input type="password" id="fricPasswordInput" placeholder="••••">
+  </div>
+  <div id="fricMontantStep" style="display:none;">
+    <label>Montant</label>
+    <input type="text" inputmode="numeric" id="fricInput" placeholder="0">
+  </div>
+</div>
+<div class="fric-popover" id="totalFricPopover">
+  <div id="totalFricPasswordStep">
+    <label>Mot de passe</label>
+    <input type="password" id="totalFricPasswordInput" placeholder="••••">
+  </div>
+  <div id="totalFricValueStep" style="display:none;">
+    <label>Total renseigné</label>
+    <div id="totalFricValue" style="font-size:15px;font-weight:700;color:var(--ink);"></div>
+  </div>
 </div>
 
 <!-- Firebase compat (fonctionne en local et sur Netlify) -->
@@ -381,9 +404,11 @@ function sortByDateDesc(arr){
 
 function renderFournisseurFilters(){
   const el = document.getElementById('fournisseurFilters');
-  el.innerHTML = FOURNISSEURS.map(f => `
+  el.innerHTML = `
+    <button type="button" class="btn-filter ${activeFournisseur===null?'active':''}" onclick="toggleFournisseurFilter(null)">Tous</button>
+    ${FOURNISSEURS.map(f => `
     <button type="button" class="btn-filter ${activeFournisseur===f?'active':''}" onclick="toggleFournisseurFilter('${f}')">${esc(f)}</button>
-  `).join('');
+  `).join('')}`;
 }
 function toggleFournisseurFilter(f){
   activeFournisseur = (activeFournisseur === f) ? null : f;
@@ -577,23 +602,40 @@ async function removeFile(rowId, field){
 
 /* ── Popover Montant (protégé) ── */
 const fricPopover = document.getElementById('fricPopover');
+const fricPasswordStep = document.getElementById('fricPasswordStep');
+const fricPasswordInput = document.getElementById('fricPasswordInput');
+const fricMontantStep = document.getElementById('fricMontantStep');
 const fricInput = document.getElementById('fricInput');
 
-function openFricPopover(evt, id){
-  evt.stopPropagation();
-  const pwd = prompt("Mot de passe :");
-  if(pwd === null) return;
-  if(pwd !== 'fric'){ showToast("Mot de passe incorrect"); return; }
-
-  fricPopoverRowId = id;
-  const r = rows.find(x=>x.id===id);
-  fricInput.value = (r && r.montantFric) ? Number(r.montantFric).toLocaleString('fr-FR') : '';
-
-  const btn = evt.currentTarget;
+function positionFricPopover(btn){
   const rect = btn.getBoundingClientRect();
   fricPopover.style.top = (rect.bottom + 6) + 'px';
   fricPopover.style.left = Math.max(8, rect.right - 170) + 'px';
+}
+
+function openFricPopover(evt, id){
+  evt.stopPropagation();
+  fricPopoverRowId = id;
+  fricPasswordInput.value = '';
+  fricPasswordStep.style.display = 'block';
+  fricMontantStep.style.display = 'none';
+
+  positionFricPopover(evt.currentTarget);
   fricPopover.classList.add('show');
+  setTimeout(()=> fricPasswordInput.focus(), 0);
+}
+
+function unlockFricMontant(){
+  if(fricPasswordInput.value !== 'fric'){
+    showToast("Mot de passe incorrect");
+    fricPasswordInput.value = '';
+    fricPasswordInput.focus();
+    return;
+  }
+  const r = rows.find(x=>x.id===fricPopoverRowId);
+  fricInput.value = (r && r.montantFric) ? Number(r.montantFric).toLocaleString('fr-FR') : '';
+  fricPasswordStep.style.display = 'none';
+  fricMontantStep.style.display = 'block';
   setTimeout(()=> fricInput.focus(), 0);
 }
 
@@ -613,6 +655,9 @@ async function saveFricValue(){
   }catch(err){ console.error(err); showToast("Erreur lors de l'enregistrement"); }
 }
 
+fricPasswordInput.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') unlockFricMontant();
+});
 fricInput.addEventListener('input', ()=> formatMontantLive(fricInput));
 fricInput.addEventListener('change', saveFricValue);
 fricInput.addEventListener('keydown', (e)=>{
@@ -621,8 +666,55 @@ fricInput.addEventListener('keydown', (e)=>{
 document.addEventListener('click', (e)=>{
   if(!fricPopover.classList.contains('show')) return;
   if(fricPopover.contains(e.target) || e.target.classList.contains('row-fric')) return;
-  saveFricValue();
+  if(fricMontantStep.style.display !== 'none') saveFricValue();
   closeFricPopover();
+});
+
+/* ── Total Montants renseignés ── */
+const totalFricBtn = document.getElementById('totalFricBtn');
+const totalFricPopover = document.getElementById('totalFricPopover');
+const totalFricPasswordStep = document.getElementById('totalFricPasswordStep');
+const totalFricPasswordInput = document.getElementById('totalFricPasswordInput');
+const totalFricValueStep = document.getElementById('totalFricValueStep');
+const totalFricValue = document.getElementById('totalFricValue');
+
+function positionTotalFricPopover(){
+  const rect = totalFricBtn.getBoundingClientRect();
+  totalFricPopover.style.top = (rect.bottom + 6) + 'px';
+  totalFricPopover.style.left = rect.left + 'px';
+}
+
+totalFricBtn.addEventListener('click', (e)=>{
+  e.stopPropagation();
+  totalFricPasswordInput.value = '';
+  totalFricPasswordStep.style.display = 'block';
+  totalFricValueStep.style.display = 'none';
+  positionTotalFricPopover();
+  totalFricPopover.classList.add('show');
+  setTimeout(()=> totalFricPasswordInput.focus(), 0);
+});
+
+function unlockTotalFric(){
+  if(totalFricPasswordInput.value !== 'fric'){
+    showToast("Mot de passe incorrect");
+    totalFricPasswordInput.value = '';
+    totalFricPasswordInput.focus();
+    return;
+  }
+  const total = rows.reduce((sum, r) => sum + (Number(r.montantFric) || 0), 0);
+  totalFricValue.textContent = total.toLocaleString('fr-FR') + ' FCFA';
+  totalFricPasswordStep.style.display = 'none';
+  totalFricValueStep.style.display = 'block';
+}
+
+totalFricPasswordInput.addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter') unlockTotalFric();
+});
+
+document.addEventListener('click', (e)=>{
+  if(!totalFricPopover.classList.contains('show')) return;
+  if(totalFricPopover.contains(e.target) || e.target === totalFricBtn) return;
+  totalFricPopover.classList.remove('show');
 });
 </script>
 </body>
