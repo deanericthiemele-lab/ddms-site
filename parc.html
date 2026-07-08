@@ -670,13 +670,29 @@ const clientMappings = {
   "SOCIETE INDUSTRIELLE PARFUMERIE COSMETIQUE":["SOCIETE INDUSTRIELLE DE PARFUMERIE ET DE COSMETIQUE DE COTE D'IVOIRE","INDUSTRIELLE DE COSMETIQUE ET DE PARFUMERIE"]
 };
 const canonicalCache = {};
+function escRegex(s){ return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
 function canonicalClientKey(raw){
   const n = normalize(raw);
   if (!n) return "NON RENSEIGNE";
   if (canonicalCache[n] !== undefined) return canonicalCache[n];
   let key = n;
+  // 1) correspondance exacte (variante = nom complet du client)
   for (const mapKey in clientMappings){
     if (clientMappings[mapKey].some(v => n === normalize(v))) { key = mapKey; break; }
+  }
+  // 2) sinon, correspondance intelligente : le nom du client COMMENCE par une variante connue,
+  //    suivie d'un mot complet (ex: "CNPS ABIDJAN PLATEAU PREVOYANCE" ou "CNPS CNPS" -> "CNPS")
+  //    on retient la variante la plus longue trouvée pour éviter les faux positifs sur des sigles courts
+  if (key === n){
+    let bestLen = 0;
+    for (const mapKey in clientMappings){
+      for (const v of clientMappings[mapKey]){
+        const nv = normalize(v);
+        if (!nv || nv.length < 3) continue;
+        const re = new RegExp('^' + escRegex(nv) + '(\\s|$)');
+        if (re.test(n) && nv.length > bestLen){ bestLen = nv.length; key = mapKey; }
+      }
+    }
   }
   canonicalCache[n] = key;
   return key;
