@@ -979,10 +979,13 @@ function flapBadge(level){
 }
 
 //  COUPURES CONFIRMÉES — formule unique (harmonisée tableau / digest / mail / PDF)
-// Un site est compté dès que la coupure est jugée réelle (≥2 événements) OU qu'il est encore Down
-// (exclut les faux positifs : 1 seul événement isolé et déjà rétabli)
+// Un site compte comme "coupure confirmée" si :
+//  - il est encore Down au moment du rapport (sans remontée, quelle que soit la durée écoulée), OU
+//  - la coupure a duré ≥ 30 min avant rétablissement (avec remontée)
+// Les coupures répétées de courte durée (oscillations) relèvent du KPI "Sites instables", pas de celui-ci.
+const COUPURE_CONFIRMEE_MIN = 30; // minutes
 function nbCoupConfirmeesCalc(ndData){
-  return ndData.filter(d=>d.nb>=2||d.isDown).length;
+  return ndData.filter(d=>d.isDown||(d.duree.val!==null&&d.duree.val>=COUPURE_CONFIRMEE_MIN)).length;
 }
 
 //  PARSE 
@@ -1242,10 +1245,10 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     </div>
   </div>
   <div class="dg-grid4">
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><div class="dg-kpi-sub">Cible : 99%</div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstables}</div><div class="dg-kpi-sub">flapping détecté</div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div class="dg-kpi-val red">${nbCoupConf}</div><div class="dg-kpi-sub">≥2 évén. ou encore Down</div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div class="dg-kpi-val red">${clientsImp.size}</div><div class="dg-kpi-sub">${[...clientsImp].slice(0,3).join(", ")}${clientsImp.size>3?"…":""}</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><div class="dg-kpi-sub">(sites − down) / sites × 100</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstables}</div><div class="dg-kpi-sub">≥5 évén/j ou cycles &lt;30min</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div class="dg-kpi-val red">${nbCoupConf}</div><div class="dg-kpi-sub">durée ≥30min ou encore Down</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div class="dg-kpi-val red">${clientsImp.size}</div><div class="dg-kpi-sub">sites distincts avec incident</div></div>
   </div>
   <div class="dg-sep"></div>
   <div class="dg-section">Plan d'actions Niveau 2</div>
@@ -2154,13 +2157,13 @@ async function openMailPopup(){
     <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9aa0ae;padding-bottom:5px;border-bottom:1px solid #f0f0f0;margin-bottom:8px">Disponibilité réseau</div>
     <table style="width:100%;border-collapse:collapse">
       <tr>
-        ${kpiCard("Taux de disponibilité", tauxDispo+"%", "Cible : 99%",    tauxColor,"#f7fdf9")}
-        ${kpiCard("Sites instables",     nbInstables, "flapping détecté",    "#b45309","#fffdf5")}
-        ${kpiCard("Coupures confirmées", nbCoupConfirmees, "≥2 évén. ou encore Down", "#c0392b","#fdf7f7")}
-        ${kpiCard("Sites encore Down",   nbDown,      "non rétablis",        "#c0392b","#fdf7f7")}
+        ${kpiCard("Taux de disponibilité", tauxDispo+"%", "(sites − down) / sites × 100",    tauxColor,"#f7fdf9")}
+        ${kpiCard("Sites instables",     nbInstables, "≥5 évén/j ou cycles <30min",    "#b45309","#fffdf5")}
+        ${kpiCard("Coupures confirmées", nbCoupConfirmees, "durée ≥30min ou encore Down", "#c0392b","#fdf7f7")}
+        ${kpiCard("Sites encore Down",   nbDown,      "ND encore isDown à la clôture",        "#c0392b","#fdf7f7")}
       </tr>
       <tr>
-        ${kpiCard("Clients impactés",    nbClients,   "avec incident",       "#c0392b","#fdf7f7")}
+        ${kpiCard("Clients impactés",    nbClients,   "sites distincts avec incident",       "#c0392b","#fdf7f7")}
       </tr>
     </table>
   </div>
@@ -2524,10 +2527,10 @@ async function exportPdf(){
   y += 2;
   sectionBar("KPI DISPONIBILITÉ RÉSEAU");
   kpiBlock([
-    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"cible 99%"},
-    {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:"flapping"},
-    {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"≥2 evenements ou encore Down"},
-    {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"avec incident"},
+    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"(sites-down)/sites x100"},
+    {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:">=5 evt/j ou cycles <30min"},
+    {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"duree >=30min ou encore Down"},
+    {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"sites distincts avec incident"},
   ], 4);
 
   //  KPI NOC — TICKETS N1 / N2 (lecture Firebase directe)
@@ -2554,9 +2557,9 @@ async function exportPdf(){
   } catch(e){ console.warn("PDF tickets Firebase erreur:",e); }
   sectionBar("KPI NOC — OUVERTURE DE TICKETS NIVEAU 1 ET NIVEAU 2");
   kpiBlock([
-    {label:"Tickets ouverts (total)",        value:tkTotal, color:RED_T,   accent:RED_T,   sub:"SAV B2B + Qualité & Performance"},
-    {label:"Tickets SAV B2B — Niveau 1",     value:tkSav,   color:AMBER_T, accent:AMBER_T, sub:"Indisponibilités transmises au SAV B2B"},
-    {label:"Ticket Niveau 2",                value:tkQp,    color:AMBER_T, accent:AMBER_T, sub:"Incidents transmis Qualité & Performance"},
+    {label:"Tickets ouverts (total)",        value:tkTotal, color:RED_T,   accent:RED_T,   sub:""},
+    {label:"Tickets SAV B2B — Niveau 1",     value:tkSav,   color:AMBER_T, accent:AMBER_T, sub:""},
+    {label:"Ticket Niveau 2",                value:tkQp,    color:AMBER_T, accent:AMBER_T, sub:""},
   ], 3);
 
   // ── POINTS CLÉS À RETENIR — même page que les KPIs ──────────────
@@ -2587,7 +2590,7 @@ async function exportPdf(){
   // 3. Coupures — distinguer confirmees vs evenements bruts
   if(nbCoupConfirmees > 0 || nbCoupN1 > 0){
     const top1nd = topCoupures[0];
-    bullets.push({txt: `${nbCoupConfirmees} site(s) en coupure non retablie a ce jour. ${nbCoupN1} evenements de coupure detectes au total sur la periode (inclut les micro-coupures resolues automatiquement). Site le plus impacte : ${shortName(top1nd?.site||"—")} (${top1nd?.nb||0} evenements).`, alert: nbCoupConfirmees > 0});
+    bullets.push({txt: `${nbCoupConfirmees} site(s) en coupure confirmee (encore Down, ou coupure resolue ayant dure 30 min ou plus). ${nbCoupN1} evenements de coupure detectes au total sur la periode (inclut les micro-coupures resolues automatiquement). Site le plus impacte : ${shortName(top1nd?.site||"—")} (${top1nd?.nb||0} evenements).`, alert: nbCoupConfirmees > 0});
   }
 
   // 4. Instabilite liaisons
