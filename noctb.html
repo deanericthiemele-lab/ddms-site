@@ -454,6 +454,7 @@ function applyRole(){
   <div class="si" data-page="plaintes" onclick="nav(this)"><span class="si-ico">📣</span>Plaintes Clients<span class="si-badge" id="b-plaintes">0</span></div>
   <div class="si" onclick="window.location.href='noc_rapport_management.html'"><span class="si-ico">📅</span>Rapport journalier</div>
   <div class="si" data-page="contacts" onclick="nav(this)"><span class="si-ico">📋</span>Contact client</div>
+  <div class="si" data-page="vip" onclick="nav(this)"><span class="si-ico">⭐</span>Site VIP</div>
   <div class="si" data-page="architectures" onclick="nav(this)"><span class="si-ico">🗂️</span>Architecture</div>
 
 
@@ -2117,6 +2118,143 @@ async function deleteContact(id){
   }catch(e){toast("Erreur Firebase: "+e.message,"err");}
 }
 
+</script>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: SITE VIP -->
+<div class="page" id="page-vip">
+<div class="ph">
+  <div><div class="ph-title">⭐ Site VIP</div><div class="ph-sub">Recensement des liens VIP — clients, sites & caractéristiques techniques</div></div>
+  <div class="ph-sp"></div>
+  <input type="text" id="vip-search" placeholder="🔍 Rechercher…"
+    style="border:1px solid var(--n5);border-radius:3px;padding:6px 12px;font-size:15px;width:220px;font-family:var(--body)"
+    oninput="renderVip()">
+  <button class="btn btn-v btn-sm" onclick="openVipModal()">＋ Ajouter</button>
+</div>
+<div class="tbl-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Client</th><th>Type de client</th><th>Site</th><th>Référence</th><th>Localisation</th><th>Adresse IP</th><th>Produit</th><th>Support</th><th>Actions</th></tr></thead>
+    <tbody id="tbl-vip"></tbody>
+  </table>
+</div>
+<div class="overlay" id="mo-vip" style="display:none;align-items:center;justify-content:center">
+  <div class="modal" style="width:560px">
+    <div class="modal-hdr"><span class="modal-title" id="vip-modal-title">Nouveau site VIP</span><button class="modal-close" onclick="closeVipModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="fgrp"><label>Client *</label><input id="vp-client" type="text" placeholder="Ex : ECOBANK…"></div>
+      <div class="fgrp"><label>Type de client</label><input id="vp-type" type="text" placeholder="Ex : Banque, Administration, Industrie…"></div>
+      <div class="fgrp"><label>Site *</label><input id="vp-site" type="text" placeholder="Ex : Agence Plateau…"></div>
+      <div class="fgrp"><label>Référence</label><input id="vp-ref" type="text" placeholder="Ex : LSI-000123"></div>
+      <div class="fgrp"><label>Localisation</label><input id="vp-loc" type="text" placeholder="Ex : Abidjan, Plateau…"></div>
+      <div class="fgrp"><label>Adresse IP</label><input id="vp-ip" type="text" placeholder="Ex : 10.10.10.1" style="font-family:var(--mono)"></div>
+      <div class="fgrp"><label>Produit</label>
+        <select id="vp-produit">
+          <option value="">—</option>
+          <option value="LS">LS</option>
+          <option value="LSI">LSI</option>
+          <option value="T0">T0</option>
+          <option value="T2">T2</option>
+        </select>
+      </div>
+      <div class="fgrp"><label>Support</label>
+        <select id="vp-support">
+          <option value="">—</option>
+          <option value="FTTH">FTTH</option>
+          <option value="FTTo">FTTo</option>
+          <option value="VSAT">VSAT</option>
+          <option value="LTE">LTE</option>
+          <option value="FH">FH</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-out" onclick="closeVipModal()">Annuler</button>
+      <button class="btn btn-v" onclick="saveVip()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+<script>
+const VIP_COL="noc_vip";
+let vipEditingId=null;
+
+window.addEventListener('fbReady',async()=>{
+  try{
+    const snap=await window._gets(window._col(window._db,VIP_COL));
+    DB.vip=snap.docs.map(d=>({id:d.id,...d.data()}));
+    renderVip();
+  }catch(e){console.warn('vip load:',e);}
+});
+function renderVip(){
+  const q=(document.getElementById("vip-search")?.value||"").toLowerCase();
+  let data=(DB.vip||[]);
+  if(q)data=data.filter(v=>[v.client,v.type,v.site,v.ref,v.loc,v.ip,v.produit,v.support].some(x=>(x||"").toLowerCase().includes(q)));
+  const tb=document.getElementById("tbl-vip");if(!tb)return;
+  tb.innerHTML=data.length?data.map((v,i)=>`<tr><td style="font-family:var(--mono);font-size:10px;color:var(--n4)">${i+1}</td><td><b>${v.client||"—"}</b></td><td>${v.type||"—"}</td><td>${v.site||"—"}</td><td style="font-family:var(--mono);font-size:11.5px">${v.ref||"—"}</td><td>${v.loc||"—"}</td><td style="font-family:var(--mono);font-size:11.5px">${v.ip||"—"}</td><td><span class="fiche-tag" style="background:var(--vl);color:var(--v)">${v.produit||"—"}</span></td><td><span class="fiche-tag" style="background:var(--n7);color:var(--n2)">${v.support||"—"}</span></td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-out" onclick="editVip('${v.id}')">✏️</button><button class="btn btn-sm btn-out" onclick="deleteVip('${v.id}')">🗑</button></td></tr>`).join(""):"<tr><td colspan=10 class=empty><div class=empty-ico>⭐</div><div class=empty-txt>Aucun site VIP</div></td></tr>";
+}
+function openVipModal(){if(APP_ROLE==='visitor'){toast('🔒 Accès lecture seule — connexion admin requise','err');return;}
+  vipEditingId=null;
+  document.getElementById("vp-client").value="";
+  document.getElementById("vp-type").value="";
+  document.getElementById("vp-site").value="";
+  document.getElementById("vp-ref").value="";
+  document.getElementById("vp-loc").value="";
+  document.getElementById("vp-ip").value="";
+  document.getElementById("vp-produit").value="";
+  document.getElementById("vp-support").value="";
+  document.getElementById("vip-modal-title").textContent="Nouveau site VIP";
+  document.getElementById("mo-vip").style.display="flex";
+}
+function closeVipModal(){document.getElementById("mo-vip").style.display="none";}
+async function saveVip(){
+  if(APP_ROLE==='visitor'){toast('🔒 Accès lecture seule — connexion admin requise','err');return;}
+  const client=document.getElementById("vp-client").value.trim();
+  const site=document.getElementById("vp-site").value.trim();
+  if(!client||!site){toast("Client et Site requis","err");return;}
+  const payload={
+    client,
+    type:document.getElementById("vp-type").value.trim(),
+    site,
+    ref:document.getElementById("vp-ref").value.trim(),
+    loc:document.getElementById("vp-loc").value.trim(),
+    ip:document.getElementById("vp-ip").value.trim(),
+    produit:document.getElementById("vp-produit").value,
+    support:document.getElementById("vp-support").value
+  };
+  try{
+    if(vipEditingId){
+      await fbUpdate(VIP_COL,vipEditingId,payload);
+      const idx=(DB.vip||[]).findIndex(v=>v.id===vipEditingId);
+      if(idx>=0) DB.vip[idx]={id:vipEditingId,...payload};
+    }else{
+      const r=await fbSave(VIP_COL,payload);
+      (DB.vip=DB.vip||[]).push({id:r.id,...payload});
+    }
+    closeVipModal();renderVip();toast("Site VIP enregistré ✓","ok");
+  }catch(e){toast("Erreur Firebase: "+e.message,"err");}
+}
+function editVip(id){if(APP_ROLE==='visitor'){toast('🔒 Accès lecture seule — connexion admin requise','err');return;}
+  const v=(DB.vip||[]).find(x=>x.id===id);if(!v)return;
+  vipEditingId=id;
+  document.getElementById("vp-client").value=v.client||"";
+  document.getElementById("vp-type").value=v.type||"";
+  document.getElementById("vp-site").value=v.site||"";
+  document.getElementById("vp-ref").value=v.ref||"";
+  document.getElementById("vp-loc").value=v.loc||"";
+  document.getElementById("vp-ip").value=v.ip||"";
+  document.getElementById("vp-produit").value=v.produit||"";
+  document.getElementById("vp-support").value=v.support||"";
+  document.getElementById("vip-modal-title").textContent="Modifier — "+v.client;
+  document.getElementById("mo-vip").style.display="flex";
+}
+async function deleteVip(id){
+  if(APP_ROLE!=='superadmin'){toast('🔒 Suppression réservée au Super Admin','err');return;}
+  if(!confirm("Supprimer ce site VIP ?"))return;
+  try{
+    await fbDelete(VIP_COL,id);
+    DB.vip=(DB.vip||[]).filter(v=>v.id!==id);
+    renderVip();toast("Site VIP supprimé ✓","ok");
+  }catch(e){toast("Erreur Firebase: "+e.message,"err");}
+}
 </script>
 </div>
 
