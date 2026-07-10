@@ -1075,6 +1075,29 @@ function previousWeekKeys(weekKey, n){
 // Recalcule le taux de disponibilité d'une semaine donnée à partir des rapports sauvegardés
 function clientFromSite(s){ const m=s.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:s.substring(0,8); }
 
+// Calcule le MTTR ticket moyen (minutes) pour une semaine donnée (lundi->dimanche), depuis Firestore
+async function computeWeekMttrTickets(weekKey){
+  if(!window._db || !window._col || !window._gets) return null;
+  try{
+    const lun = new Date(weekKey);
+    const dim = new Date(lun); dim.setDate(lun.getDate()+6);
+    const toISO = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    const startISO = toISO(lun), endISO = toISO(dim);
+    const snap = await window._gets(window._col(window._db,"noc_tickets_indispo"));
+    const inWeek = snap.docs.map(d=>d.data()).filter(t=>{
+      if(!t.debut || !t.fin) return false;
+      const dISO = t.debut.substring(0,10);
+      return dISO>=startISO && dISO<=endISO;
+    });
+    if(!inWeek.length) return null;
+    const totalMin = inWeek.reduce((s,t)=>{
+      const diffMin = (new Date(t.fin) - new Date(t.debut)) / 60000;
+      return s + (diffMin>0 ? diffMin : 0);
+    }, 0);
+    return Math.round(totalMin / inWeek.length);
+  } catch(e){ return null; }
+}
+
 async function computeWeekAvailability(weekKey){
   const list = await getSaved();
   const reports = list.filter(r=>mondayKeyOf(parseReportDate(r))===weekKey)
@@ -2585,11 +2608,14 @@ async function exportPdf(){
     y += 10;
   }
 
-  function drawTrendChart(pts, x, y0, w, h){
-    const valid = pts.map(p=>p.taux).filter(v=>v!==null);
+  function drawTrendChartGeneric(pts, x, y0, w, h, valueKey, formatFn, clampMin, clampMax){
+    const valid = pts.map(p=>p[valueKey]).filter(v=>v!==null && v!==undefined);
     if(valid.length<2) return;
-    const minV = Math.max(0, Math.min(...valid)-5);
-    const maxV = Math.min(100, Math.max(...valid)+5);
+    let minV = Math.min(...valid), maxV = Math.max(...valid);
+    const pad = Math.max(1, Math.round((maxV-minV)*0.15)) || Math.max(1, Math.round(maxV*0.15)) || 5;
+    minV = minV - pad; maxV = maxV + pad;
+    if(clampMin!==undefined) minV = Math.max(clampMin, minV);
+    if(clampMax!==undefined) maxV = Math.min(clampMax, maxV);
     const span = (maxV-minV)||1;
     const n = pts.length;
     const stepX = w/(n-1||1);
@@ -2601,15 +2627,20 @@ async function exportPdf(){
       const px = x+i*stepX;
       doc.setFontSize(6); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
       doc.text(p.label, px, y0+h+4.5, {align:"center"});
-      if(p.taux===null){ prevX=null; return; }
-      const py = toY(p.taux);
+      const v = p[valueKey];
+      if(v===null || v===undefined){ prevX=null; return; }
+      const py = toY(v);
       if(prevX!==null){ doc.setDrawColor(...ORANGE); doc.setLineWidth(0.6); doc.line(prevX,prevY,px,py); }
       doc.setFillColor(...ORANGE);
       doc.circle(px,py,1,"F");
       doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
-      doc.text(p.taux+"%", px, py-2.5, {align:"center"});
+      doc.text(formatFn(v), px, py-2.5, {align:"center"});
       prevX=px; prevY=py;
     });
+  }
+
+  function drawTrendChart(pts, x, y0, w, h){
+    drawTrendChartGeneric(pts, x, y0, w, h, "taux", v=>v+"%", 0, 100);
   }
 
   function kpiBlock(items, cols){
@@ -2768,7 +2799,7 @@ async function exportPdf(){
 
   // KPI DISPONIBILITÉ — page 1
   y += 2;
-  sectionBar("KPI DISPONIBILITÉ RÉSEAU");
+  sectionBar("KPI NOC — DISPONIBILITÉ RÉSEAU");
 
   // Évolution vs semaine précédente (uniquement si rapport généré via sélection de semaine)
   // Note : Helvetica standard (jsPDF) ne supporte pas ▲▼→, on utilise ^ / v / = à la place
@@ -2791,10 +2822,9 @@ async function exportPdf(){
 
   kpiBlock([
     {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:""},
-    {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:"", evol:evolInstables.text, evolColor:evolInstables.color},
     {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"", evol:evolCoupures.text, evolColor:evolCoupures.color},
     {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"", evol:evolClients.text, evolColor:evolClients.color},
-  ], 4);
+  ], 3);
 
   if(evolValid){
     checkPage(32);
@@ -2805,7 +2835,7 @@ async function exportPdf(){
     y += 28;
   }
 
-  //  KPI NOC — OUVERTURE DE TICKETS (lecture Firebase directe)
+  //  KPI NOC — OUVERTURE DE TICKETS SAV (lecture Firebase directe)
   y += 4;
   let tkTotal = "—", tkSav = "—", tkQp = "—";
   let filteredTk = [];
@@ -2864,7 +2894,7 @@ async function exportPdf(){
   const tkTotalNum = parseInt(tkTotal)||0;
   const tauxReiteration = tkTotalNum>0 ? Math.round((nbReiteration/tkTotalNum)*100) : 0;
 
-  sectionBar("KPI NOC — OUVERTURE DE TICKETS");
+  sectionBar("KPI NOC — OUVERTURE DE TICKETS SAV");
   const tkTauxSav = (parseInt(tkTotal)>0) ? Math.round((parseInt(tkSav)/parseInt(tkTotal))*100) : 0;
   kpiBlock([
     {label:"Demande d'ouverture de ticket",     value:tkTotal,             color:RED_T,  accent:RED_T,   sub:""},
@@ -2873,6 +2903,37 @@ async function exportPdf(){
     {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)":""},
     {label:"Réitération client",                value:nbReiteration,      color:RED_T,  accent:RED_T,   sub:""},
     {label:"Taux de réitération",               value:tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:""},
+  ], 3);
+
+  // Graphe Évolution du temps de rétablissement moyen — 4 semaines (identique au graphe taux de disponibilité)
+  let mttrEvolPts = null;
+  if(evolValid){
+    mttrEvolPts = [];
+    for(const p of evolPts){
+      const mttrMin = await computeWeekMttrTickets(p.weekKey);
+      mttrEvolPts.push({label:p.label, mttrMin});
+    }
+    // La semaine courante utilise la valeur déjà calculée à partir de filteredTk (plus précise)
+    const curAvgMin = tkResolus.length ? Math.round(tkResolus.reduce((s,t)=>{
+      const d=(new Date(t.fin)-new Date(t.debut))/60000; return s+(d>0?d:0);
+    },0)/tkResolus.length) : null;
+    if(mttrEvolPts.length) mttrEvolPts[mttrEvolPts.length-1].mttrMin = curAvgMin;
+  }
+  const mttrEvolValid = mttrEvolPts && mttrEvolPts.filter(p=>p.mttrMin!==null).length>=2;
+  if(mttrEvolValid){
+    checkPage(32);
+    doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
+    doc.text("Évolution du temps de rétablissement moyen — 4 semaines", ML, y+3);
+    y += 6;
+    drawTrendChartGeneric(mttrEvolPts, ML+4, y, CW-8, 20, "mttrMin", v=>v>=60?(Math.floor(v/60)+"h"+String(v%60).padStart(2,"0")):v+"min");
+    y += 28;
+  }
+
+  //  KPI NOC — SITES INSTABLES
+  y += 4;
+  sectionBar("KPI NOC — SITES INSTABLES");
+  kpiBlock([
+    {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:"", evol:evolInstables.text, evolColor:evolInstables.color},
   ], 3);
 
   // Tableau détail des tickets ouverts — nouvelle page, titre dédié
