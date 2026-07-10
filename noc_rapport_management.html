@@ -1098,6 +1098,51 @@ async function computeWeekMttrTickets(weekKey){
   } catch(e){ return null; }
 }
 
+// Calcule tous les KPI tickets (tkTotal, temps d'ouverture SAV, taux SAV, MTTR, réitération) pour une semaine donnée
+async function computeWeekTicketMetrics(weekKey){
+  if(!window._db || !window._col || !window._gets) return null;
+  try{
+    const lun = new Date(weekKey);
+    const dim = new Date(lun); dim.setDate(lun.getDate()+6);
+    const toISO = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+    const startISO = toISO(lun), endISO = toISO(dim);
+    const snap = await window._gets(window._col(window._db,"noc_tickets_indispo"));
+    const inWeek = snap.docs.map(d=>d.data()).filter(t=>t.debut && t.debut.substring(0,10)>=startISO && t.debut.substring(0,10)<=endISO);
+    if(!inWeek.length) return null;
+
+    const tkTotalWk = inWeek.length;
+    const tkSavWk = inWeek.filter(t=>t.destinataire==="SAV B2B").length;
+    const tkTauxSavWk = tkTotalWk>0 ? Math.round((tkSavWk/tkTotalWk)*100) : null;
+
+    const tkSavAvecOuvertureWk = inWeek.filter(t=>t.destinataire==="SAV B2B" && t.debut && (t.ouverture||t.dateOuverture||t.creation));
+    let tempsOuvertureSavWk = null;
+    if(tkSavAvecOuvertureWk.length){
+      const totalMinOuv = tkSavAvecOuvertureWk.reduce((s,t)=>{
+        const d1 = new Date(t.ouverture||t.dateOuverture||t.creation), d0 = new Date(t.debut);
+        const diffMin = (d1-d0)/60000; return s+(diffMin>0?diffMin:0);
+      },0);
+      tempsOuvertureSavWk = Math.round(totalMinOuv/tkSavAvecOuvertureWk.length);
+    }
+
+    const tkResolusWk = inWeek.filter(t=>t.debut && t.fin);
+    let mttrWk = null;
+    if(tkResolusWk.length){
+      const totalMin = tkResolusWk.reduce((s,t)=>{
+        const diffMin=(new Date(t.fin)-new Date(t.debut))/60000; return s+(diffMin>0?diffMin:0);
+      },0);
+      mttrWk = Math.round(totalMin/tkResolusWk.length);
+    }
+
+    const clientKey = t => t.client || t.reference || t.ref || "";
+    const parClient = {};
+    inWeek.forEach(t=>{ const k=clientKey(t); if(!k) return; parClient[k]=(parClient[k]||0)+1; });
+    const nbReiterationWk = Object.values(parClient).reduce((s,n)=>s+(n>1?n-1:0),0);
+    const tauxReiterationWk = tkTotalWk>0 ? Math.round((nbReiterationWk/tkTotalWk)*100) : null;
+
+    return {tkTotal:tkTotalWk, tkTauxSav:tkTauxSavWk, tempsOuvertureSav:tempsOuvertureSavWk, mttr:mttrWk, nbReiteration:nbReiterationWk, tauxReiteration:tauxReiterationWk};
+  } catch(e){ return null; }
+}
+
 async function computeWeekAvailability(weekKey){
   const list = await getSaved();
   const reports = list.filter(r=>mondayKeyOf(parseReportDate(r))===weekKey)
@@ -1134,11 +1179,15 @@ async function computeWeekAvailability(weekKey){
   }
   const taux           = tauxDispoPondere(ifD, ndD);
   const totalSitesWk   = new Set([...ifD.map(d=>d.site), ...ndD.map(d=>d.site)]).size;
-  const nbInstables    = [...ifD,...ndD].filter(d=>d.isFlapping).length;
+  const instablesAllWk = [...ifD,...ndD].filter(d=>d.isFlapping);
+  const nbInstables    = instablesAllWk.length;
   const tauxInstablesWk = totalSitesWk>0 ? Math.round((nbInstables/totalSitesWk)*100) : null;
+  const nbClientsInstablesWk = new Set(instablesAllWk.map(d=>clientFromSite(d.site))).size;
+  const nbInstablesCorrigesWk = instablesAllWk.filter(d=>!d.isDown).length;
+  const tauxCorrectionWk = instablesAllWk.length>0 ? Math.round((nbInstablesCorrigesWk/instablesAllWk.length)*100) : null;
   const nbCoupConf      = nbCoupConfirmeesCalc(ndD);
   const nbClients       = new Set(ndD.filter(d=>d.isDown).map(d=>clientFromSite(d.site))).size;
-  return {weekKey, taux, nbInstables, tauxInstables:tauxInstablesWk, nbCoupConfirmees:nbCoupConf, nbClients, nbReports:reports.length};
+  return {weekKey, taux, nbInstables, tauxInstables:tauxInstablesWk, nbClientsInstables:nbClientsInstablesWk, tauxCorrection:tauxCorrectionWk, nbCoupConfirmees:nbCoupConf, nbClients, nbReports:reports.length};
 }
 
 // Construit les 4 points (3 semaines précédentes + semaine courante) pour le graphe d'évolution
@@ -1152,6 +1201,8 @@ async function computeEvolutionWeeks(currentWeekKey, currentMetrics){
       taux: r?r.taux:null,
       nbInstables: r?r.nbInstables:null,
       tauxInstables: r?r.tauxInstables:null,
+      nbClientsInstables: r?r.nbClientsInstables:null,
+      tauxCorrection: r?r.tauxCorrection:null,
       nbCoupConfirmees: r?r.nbCoupConfirmees:null,
       nbClients: r?r.nbClients:null
     });
@@ -1161,6 +1212,8 @@ async function computeEvolutionWeeks(currentWeekKey, currentMetrics){
     taux: currentMetrics.taux,
     nbInstables: currentMetrics.nbInstables,
     tauxInstables: currentMetrics.tauxInstables,
+    nbClientsInstables: currentMetrics.nbClientsInstables,
+    tauxCorrection: currentMetrics.tauxCorrection,
     nbCoupConfirmees: currentMetrics.nbCoupConfirmees,
     nbClients: currentMetrics.nbClients
   });
@@ -1462,7 +1515,11 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     window._pendingWeekReports = null;
     const dates = reportsForWeek.map(parseReportDate).sort((a,b)=>a-b);
     const curKey = mondayKeyOf(dates[0]);
-    computeEvolutionWeeks(curKey, {taux:tauxDispo, nbInstables, tauxInstables: nbLiens>0?Math.round((nbInstables/nbLiens)*100):0, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
+    const _instablesAllCur = [...ifData,...ndData].filter(d=>d.isFlapping);
+    const _nbClientsInstablesCur = new Set(_instablesAllCur.map(d=>clientFromSite(d.site))).size;
+    const _nbCorrigesCur = _instablesAllCur.filter(d=>!d.isDown).length;
+    const _tauxCorrectionCur = _instablesAllCur.length>0 ? Math.round((_nbCorrigesCur/_instablesAllCur.length)*100) : 0;
+    computeEvolutionWeeks(curKey, {taux:tauxDispo, nbInstables, tauxInstables: nbLiens>0?Math.round((nbInstables/nbLiens)*100):0, nbClientsInstables:_nbClientsInstablesCur, tauxCorrection:_tauxCorrectionCur, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
   } else {
     renderEvolutionUI(null);
   }
@@ -2807,7 +2864,7 @@ async function exportPdf(){
   y += 5;
 
   // KPI DISPONIBILITÉ — page 1
-  sectionBar("KPI NOC — DISPONIBILITÉ RÉSEAU");
+  sectionBar("DISPONIBILITE (Surveillance et correction des liens secours)");
 
   // Évolution vs semaine précédente (uniquement si rapport généré via sélection de semaine)
   // Note : Helvetica standard (jsPDF) ne supporte pas ▲▼→, on utilise ^ / v / = à la place
@@ -2902,15 +2959,24 @@ async function exportPdf(){
   const tkTotalNum = parseInt(tkTotal)||0;
   const tauxReiteration = tkTotalNum>0 ? Math.round((nbReiteration/tkTotalNum)*100) : 0;
 
-  sectionBar("KPI NOC — OUVERTURE DE TICKETS SAV");
+  // Comparaison vs semaine précédente (uniquement si rapport généré via sélection de semaine)
   const tkTauxSav = (parseInt(tkTotal)>0) ? Math.round((parseInt(tkSav)/parseInt(tkTotal))*100) : 0;
+  const prevTkMetrics = evolValid ? await computeWeekTicketMetrics(evolPrev.weekKey) : null;
+  const evolTkTotal          = prevTkMetrics ? pdfEvolText(tkTotalNum, prevTkMetrics.tkTotal, false) : {text:null};
+  const evolTempsOuvSav      = prevTkMetrics ? pdfEvolText(tkSavAvecOuverture.length?Math.round(tkSavAvecOuverture.reduce((s,t)=>{const d1=new Date(t.ouverture||t.dateOuverture||t.creation),d0=new Date(t.debut);const dm=(d1-d0)/60000;return s+(dm>0?dm:0);},0)/tkSavAvecOuverture.length):null, prevTkMetrics.tempsOuvertureSav, false) : {text:null};
+  const evolTkTauxSav        = prevTkMetrics ? pdfEvolText(tkTauxSav, prevTkMetrics.tkTauxSav, true) : {text:null};
+  const evolMttrTicket       = prevTkMetrics ? pdfEvolText(tkResolus.length?Math.round(tkResolus.reduce((s,t)=>{const dm=(new Date(t.fin)-new Date(t.debut))/60000;return s+(dm>0?dm:0);},0)/tkResolus.length):null, prevTkMetrics.mttr, false) : {text:null};
+  const evolReiteration      = prevTkMetrics ? pdfEvolText(nbReiteration, prevTkMetrics.nbReiteration, false) : {text:null};
+  const evolTauxReiteration  = prevTkMetrics ? pdfEvolText(tauxReiteration, prevTkMetrics.tauxReiteration, false) : {text:null};
+
+  sectionBar("REACTIVITE (Ouverture de tickets et prise en charge SAV)");
   kpiBlock([
-    {label:"Demande d'ouverture de ticket",     value:tkTotal,             color:RED_T,  accent:RED_T,   sub:""},
-    {label:"Temps d'ouverture SAV B2B",         value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)":"—"},
-    {label:"Taux d'ouverture par le SAV B2B",   value:tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:""},
-    {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)":""},
-    {label:"Réitération client",                value:nbReiteration,      color:RED_T,  accent:RED_T,   sub:""},
-    {label:"Taux de réitération",               value:tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:""},
+    {label:"Demande d'ouverture de ticket",     value:tkTotal,             color:RED_T,  accent:RED_T,   sub:"", evol:evolTkTotal.text, evolColor:evolTkTotal.color},
+    {label:"Temps d'ouverture SAV B2B",         value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)":"—", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
+    {label:"Taux d'ouverture par le SAV B2B",   value:tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:"", evol:evolTkTauxSav.text, evolColor:evolTkTauxSav.color},
+    {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)":"", evol:evolMttrTicket.text, evolColor:evolMttrTicket.color},
+    {label:"Réitération client",                value:nbReiteration,      color:RED_T,  accent:RED_T,   sub:"", evol:evolReiteration.text, evolColor:evolReiteration.color},
+    {label:"Taux de réitération",               value:tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:"", evol:evolTauxReiteration.text, evolColor:evolTauxReiteration.color},
   ], 3);
 
   // Graphe Évolution du temps de rétablissement moyen — 4 semaines (identique au graphe taux de disponibilité)
@@ -2939,17 +3005,20 @@ async function exportPdf(){
 
   //  KPI NOC — SITES INSTABLES
   y += 2;
-  sectionBar("KPI NOC — SITES INSTABLES");
+  sectionBar("PROACTIVITE (Detection des anomalies avant incidents)");
   const instablesAll = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping);
   const nbClientsInstables = new Set(instablesAll.map(d=>clientFromSite(d.site))).size;
   const tauxInstables = nbLiens>0 ? Math.round((nbInstables/nbLiens)*100) : 0;
   const nbInstablesCorriges = instablesAll.filter(d=>!d.isDown).length;
   const tauxCorrection = instablesAll.length>0 ? Math.round((nbInstablesCorriges/instablesAll.length)*100) : 0;
+  const evolClientsInstables = evolValid ? pdfEvolText(nbClientsInstables, evolPrev.nbClientsInstables, true) : {text:null};
+  const evolTauxInstables    = evolValid ? pdfEvolText(tauxInstables, evolPrev.tauxInstables, true) : {text:null};
+  const evolTauxCorrection   = evolValid ? pdfEvolText(tauxCorrection, evolPrev.tauxCorrection, false) : {text:null};
   kpiBlock([
     {label:"Sites instables",          value:nbInstables,          color:AMBER_T, accent:AMBER_T, sub:"", evol:evolInstables.text, evolColor:evolInstables.color},
-    {label:"Nombre de clients",        value:nbClientsInstables,   color:AMBER_T, accent:AMBER_T, sub:""},
-    {label:"Taux de sites instables",  value:tauxInstables+"%",    color:AMBER_T, accent:AMBER_T, sub:""},
-    {label:"Taux de correction",       value:tauxCorrection+"%",   color:AMBER_T, accent:AMBER_T, sub:""},
+    {label:"Nombre de clients",        value:nbClientsInstables,   color:AMBER_T, accent:AMBER_T, sub:"", evol:evolClientsInstables.text, evolColor:evolClientsInstables.color},
+    {label:"Taux de sites instables",  value:tauxInstables+"%",    color:AMBER_T, accent:AMBER_T, sub:"", evol:evolTauxInstables.text, evolColor:evolTauxInstables.color},
+    {label:"Taux de correction",       value:tauxCorrection+"%",   color:AMBER_T, accent:AMBER_T, sub:"", evol:evolTauxCorrection.text, evolColor:evolTauxCorrection.color},
   ], 4);
 
   // Graphe Évolution du taux de sites instables — 4 semaines (toujours affiché, placeholder si pas de données)
