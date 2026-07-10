@@ -1386,7 +1386,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     </div>
   </div>
   <div class="dg-grid4">
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub">moy. (24h − coupure cumulée) / 24h</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub">(24h − coupure cumulée) / 24h</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstables}</div><div class="dg-kpi-sub">cycles 5-29min répétés en 30min</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div class="dg-kpi-val red">${nbCoupConf}</div><div class="dg-kpi-sub">durée ≥30min ou encore Down</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div class="dg-kpi-val red">${clientsImp.size}</div><div class="dg-kpi-sub">sites distincts avec incident</div></div>
@@ -2390,7 +2390,7 @@ async function openMailPopup(){
     <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9aa0ae;padding-bottom:5px;border-bottom:1px solid #f0f0f0;margin-bottom:8px">Disponibilité réseau</div>
     <table style="width:100%;border-collapse:collapse">
       <tr>
-        ${kpiCard("Taux de disponibilité", tauxDispo+"%", "moy. (24h - coupure cumulée) / 24h",    tauxColor,"#f7fdf9")}
+        ${kpiCard("Taux de disponibilité", tauxDispo+"%", "(24h - coupure cumulée) / 24h",    tauxColor,"#f7fdf9")}
         ${kpiCard("Sites instables",     nbInstables, "cycles 5-29min répétés en 30min",    "#b45309","#fffdf5")}
         ${kpiCard("Coupures confirmées", nbCoupConfirmees, "durée ≥30min ou encore Down", "#c0392b","#fdf7f7")}
         ${kpiCard("Sites encore Down",   nbDown,      "ND encore isDown à la clôture",        "#c0392b","#fdf7f7")}
@@ -2790,7 +2790,7 @@ async function exportPdf(){
   const evolValid = evolPts && evolPts.filter(p=>p.taux!==null).length>=2;
 
   kpiBlock([
-    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"moy. (24h-coupure cumulee)/24h"},
+    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"(24h-coupure cumulee)/24h"},
     {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:"Cycles <30 min"},
     {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"duree >=30min"},
     {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"sites distincts avec incident"},
@@ -2808,9 +2808,10 @@ async function exportPdf(){
     y += 28;
   }
 
-  //  KPI NOC — TICKETS N1 / N2 (lecture Firebase directe)
+  //  KPI NOC — OUVERTURE DE TICKETS (lecture Firebase directe)
   y += 4;
   let tkTotal = "—", tkSav = "—", tkQp = "—";
+  let filteredTk = [];
   try{
     if(window._db && window._col && window._gets){
       const hdrDateTk = document.getElementById("hdr-date")?.textContent || "";
@@ -2824,18 +2825,65 @@ async function exportPdf(){
         return _r;
       })());
       const snapTk = await window._gets(window._col(window._db,"noc_tickets_indispo"));
-      const filteredTk = snapTk.docs.map(d=>d.data()).filter(t=>t.debut && rapportDatesISOtk.has(t.debut.substring(0,10)));
+      filteredTk = snapTk.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.debut && rapportDatesISOtk.has(t.debut.substring(0,10)));
       tkTotal = String(filteredTk.length||0);
       tkSav   = String(filteredTk.filter(t=>t.destinataire==="SAV B2B").length||0);
       tkQp    = String(filteredTk.filter(t=>t.destinataire==="Qualité & Performance").length||0);
     }
   } catch(e){ console.warn("PDF tickets Firebase erreur:",e); }
-  sectionBar("KPI NOC — OUVERTURE DE TICKETS NIVEAU 1 ET NIVEAU 2");
+
+  // Temps de rétablissement moyen (MTTR tickets) : moyenne (fin - debut) des tickets qui ont les deux champs
+  let mttrTicketTxt = "—";
+  const tkResolus = filteredTk.filter(t=>t.debut && t.fin);
+  if(tkResolus.length){
+    const totalMin = tkResolus.reduce((s,t)=>{
+      const d0 = new Date(t.debut), d1 = new Date(t.fin);
+      const diffMin = (d1 - d0) / 60000;
+      return s + (diffMin>0 ? diffMin : 0);
+    }, 0);
+    const avgMin = Math.round(totalMin / tkResolus.length);
+    mttrTicketTxt = avgMin>=60 ? (Math.floor(avgMin/60)+"h"+String(avgMin%60).padStart(2,"0")) : avgMin+"min";
+  }
+
+  sectionBar("KPI NOC — OUVERTURE DE TICKETS");
   kpiBlock([
-    {label:"Tickets ouverts (total)",        value:tkTotal, color:RED_T,   accent:RED_T,   sub:""},
-    {label:"Tickets SAV B2B — Niveau 1",     value:tkSav,   color:AMBER_T, accent:AMBER_T, sub:""},
-    {label:"Ticket Niveau 2",                value:tkQp,    color:AMBER_T, accent:AMBER_T, sub:""},
-  ], 3);
+    {label:"Demande d'ouverture de ticket",  value:tkTotal,       color:RED_T,  accent:RED_T,  sub:""},
+    {label:"Temps de rétablissement moyen",  value:mttrTicketTxt, color:AMBER_T,accent:AMBER_T,sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)":"aucun ticket resolu"},
+  ], 2);
+
+  // Tableau détail des tickets ouverts
+  y += 2;
+  if(filteredTk.length){
+    doc.autoTable({
+      head:[["Client","Référence","Heure de coupure","Localisation","Date remontée","Durée"]],
+      body: filteredTk.map(t=>{
+        const debutD = t.debut ? new Date(t.debut) : null;
+        const heureC = debutD ? debutD.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}) : "—";
+        const dateR  = debutD ? debutD.toLocaleDateString("fr-FR") : "—";
+        let duree = "—";
+        if(t.debut && t.fin){
+          const diffMin = (new Date(t.fin) - new Date(t.debut)) / 60000;
+          if(diffMin>0) duree = diffMin>=60 ? (Math.floor(diffMin/60)+"h"+String(Math.round(diffMin%60)).padStart(2,"0")) : Math.round(diffMin)+"min";
+        }
+        return [
+          t.client || "—",
+          t.reference || t.ref || t.id || "—",
+          heureC,
+          t.localisation || t.site || t.lien || "—",
+          dateR,
+          duree
+        ];
+      }),
+      startY:y, margin:{left:ML,right:MR}, tableWidth:CW,
+      styles:{fontSize:7.5, cellPadding:2, font:"helvetica", textColor:DARK, lineColor:LGRAY, lineWidth:0.2, overflow:'ellipsize'},
+      headStyles:{fillColor:DARK, textColor:WHITE, fontStyle:"bold", fontSize:7.5},
+      alternateRowStyles:{fillColor:[250,251,253]},
+    });
+    y = doc.lastAutoTable.finalY + 6;
+  } else {
+    checkPage(8); doc.setFontSize(8); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY);
+    doc.text("Aucun ticket ouvert pour cette période.", ML, y+4); y+=8;
+  }
 
   // ── TOP 10 INSTABLES — nouvelle page ─────────────────────────
   doc.addPage(); y = MT; drawFooter();
