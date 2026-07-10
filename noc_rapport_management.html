@@ -2996,6 +2996,60 @@ async function exportPdf(){
     doc.text("Aucun ticket ouvert pour cette période.", ML, y+4); y+=8;
   }
 
+  // ── TOP 10 TICKETS OUVERTS — classés par durée d'attente (priorité aux tickets encore non résolus) ──
+  const nowRef = new Date();
+  const tkAvecDuree = filteredTk.map(t=>{
+    const debutD = t.debut ? new Date(t.debut) : null;
+    let waitMin = null;
+    if(debutD){
+      waitMin = t.fin ? (new Date(t.fin) - debutD)/60000 : (nowRef - debutD)/60000;
+    }
+    return {...t, _waitMin:waitMin, _stillOpen:!t.fin};
+  }).filter(t=>t._waitMin!==null && t._waitMin>0);
+
+  const topTickets = [...tkAvecDuree].sort((a,b)=>{
+    if(a._stillOpen !== b._stillOpen) return a._stillOpen ? -1 : 1;
+    return b._waitMin - a._waitMin;
+  }).slice(0,10);
+
+  sectionBar("TOP 10 TICKETS OUVERTS (duree d'attente)");
+  if(topTickets.length){
+    doc.autoTable({
+      head:[["#","Client","Référence","Localisation","Heure de coupure","Durée d'attente","Statut"]],
+      body: topTickets.map((t,i)=>{
+        const debutD = new Date(t.debut);
+        const heureC = debutD.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+        const dMin = t._waitMin;
+        const dureeTxt = dMin>=60 ? (Math.floor(dMin/60)+"h"+String(Math.round(dMin%60)).padStart(2,"0")) : Math.round(dMin)+"min";
+        return [
+          String(i+1),
+          t.client || "—",
+          t.reference || t.ref || t.id || "—",
+          t.localisation || t.site || t.lien || "—",
+          heureC,
+          dureeTxt,
+          t.statut || (t._stillOpen ? "Ouvert" : "—")
+        ];
+      }),
+      startY:y, margin:{left:ML,right:MR}, tableWidth:CW,
+      styles:{fontSize:7.5, cellPadding:2, font:"helvetica", textColor:DARK, lineColor:LGRAY, lineWidth:0.2, overflow:'ellipsize'},
+      headStyles:{fillColor:DARK, textColor:WHITE, fontStyle:"bold", fontSize:7.5},
+      columnStyles:{ 0:{cellWidth:8,halign:"center"} },
+      alternateRowStyles:{fillColor:[250,251,253]},
+      didParseCell(data){
+        if(data.section!=="body") return;
+        if(data.column.index===6 && data.cell.raw==="Ouvert"){
+          data.cell.styles.textColor=RED_T; data.cell.styles.fontStyle="bold";
+        }
+      },
+      didDrawPage(){ drawFooter(); }
+    });
+    y = doc.lastAutoTable.finalY + 6;
+  } else {
+    checkPage(8); doc.setFontSize(8); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY);
+    doc.text("Aucun ticket avec durée calculable pour cette période.", ML, y+4); y+=8;
+  }
+
   // ── TOP 10 — s'enchaîne directement après le tableau des tickets ──────
   sectionBar("TOP 10 SITES INSTABLES (oscillations)");
   topTable(topInstables, "if");
