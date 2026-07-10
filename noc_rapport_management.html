@@ -2940,13 +2940,17 @@ async function exportPdf(){
   //  KPI NOC — SITES INSTABLES
   y += 2;
   sectionBar("KPI NOC — SITES INSTABLES");
-  const nbClientsInstables = new Set([...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).map(d=>clientFromSite(d.site))).size;
+  const instablesAll = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping);
+  const nbClientsInstables = new Set(instablesAll.map(d=>clientFromSite(d.site))).size;
   const tauxInstables = nbLiens>0 ? Math.round((nbInstables/nbLiens)*100) : 0;
+  const nbInstablesCorriges = instablesAll.filter(d=>!d.isDown).length;
+  const tauxCorrection = instablesAll.length>0 ? Math.round((nbInstablesCorriges/instablesAll.length)*100) : 0;
   kpiBlock([
     {label:"Sites instables",          value:nbInstables,          color:AMBER_T, accent:AMBER_T, sub:"", evol:evolInstables.text, evolColor:evolInstables.color},
     {label:"Nombre de clients",        value:nbClientsInstables,   color:AMBER_T, accent:AMBER_T, sub:""},
     {label:"Taux de sites instables",  value:tauxInstables+"%",    color:AMBER_T, accent:AMBER_T, sub:""},
-  ], 3);
+    {label:"Taux de correction",       value:tauxCorrection+"%",   color:AMBER_T, accent:AMBER_T, sub:""},
+  ], 4);
 
   // Graphe Évolution du taux de sites instables — 4 semaines (toujours affiché, placeholder si pas de données)
   const tauxInstablesEvolPts = evolValid ? evolPts : [{label:"S-3",tauxInstables:null},{label:"S-2",tauxInstables:null},{label:"S-1",tauxInstables:null},{label:"Actuelle",tauxInstables:null}];
@@ -2956,6 +2960,23 @@ async function exportPdf(){
   y += 5;
   drawTrendChartGeneric(tauxInstablesEvolPts, ML+4, y, CW-8, 16, "tauxInstables", v=>v+"%", 0, 100);
   y += 20;
+
+  // Note du NOC — objectifs et démarche (bas de la 1ère page, sans déborder)
+  {
+    const noteTxt = "Note du NOC B2B — Le taux de disponibilite integre les tests de basculement automatique et la surveillance proactive des liens de secours, realises avant qu'un incident ne survienne. La detection systematique des coupures et leur signalement au client renforcent la reactivite du NOC et la prise en charge, ce qui se traduit par un temps de retablissement parfois plus eleve — reflet d'un traitement rigoureux, non d'une degradation du service. Le KPI \"Sites instables\" materialise la demarche proactive du NOC : il permet de detecter et d'analyser les anomalies reseau avant qu'elles ne degenerent en incident confirme.";
+    doc.setFontSize(6.8); doc.setFont("helvetica","normal");
+    const noteLines = doc.splitTextToSize(noteTxt, CW-10);
+    const lineH = 3.1;
+    const boxH = noteLines.length*lineH + 6;
+    if(y + boxH <= PH - 18){
+      doc.setFillColor(248,249,252); doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
+      doc.roundedRect(ML, y, CW, boxH, 1.5, 1.5, "FD");
+      doc.setFillColor(...ORANGE); doc.rect(ML, y, 1.2, boxH, "F");
+      doc.setTextColor(...GRAY);
+      doc.text(noteLines, ML+5, y+4.2);
+      y += boxH + 4;
+    }
+  }
 
   // Nouvelle page pour la suite (Top 10 tickets)
   doc.addPage(); y = MT; drawFooter();
