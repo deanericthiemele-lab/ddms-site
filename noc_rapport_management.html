@@ -1073,6 +1073,8 @@ function previousWeekKeys(weekKey, n){
 }
 
 // Recalcule le taux de disponibilité d'une semaine donnée à partir des rapports sauvegardés
+function clientFromSite(s){ const m=s.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:s.substring(0,8); }
+
 async function computeWeekAvailability(weekKey){
   const list = await getSaved();
   const reports = list.filter(r=>mondayKeyOf(parseReportDate(r))===weekKey)
@@ -1107,19 +1109,34 @@ async function computeWeekAvailability(weekKey){
     ifD = mergeMap("if_data");
     ndD = mergeMap("nd_data");
   }
-  const taux = tauxDispoPondere(ifD, ndD);
-  return {weekKey, taux, nbReports:reports.length};
+  const taux           = tauxDispoPondere(ifD, ndD);
+  const nbInstables    = [...ifD,...ndD].filter(d=>d.isFlapping).length;
+  const nbCoupConf      = nbCoupConfirmeesCalc(ndD);
+  const nbClients       = new Set(ndD.filter(d=>d.isDown).map(d=>clientFromSite(d.site))).size;
+  return {weekKey, taux, nbInstables, nbCoupConfirmees:nbCoupConf, nbClients, nbReports:reports.length};
 }
 
 // Construit les 4 points (3 semaines précédentes + semaine courante) pour le graphe d'évolution
-async function computeEvolutionWeeks(currentWeekKey, currentTaux){
+async function computeEvolutionWeeks(currentWeekKey, currentMetrics){
   const prevKeys = previousWeekKeys(currentWeekKey, 3).reverse(); // plus ancien -> plus récent
   const pts=[];
   for(const k of prevKeys){
     const r = await computeWeekAvailability(k);
-    pts.push({weekKey:k, label:weekLabelOf(k), taux: r?r.taux:null});
+    pts.push({
+      weekKey:k, label:weekLabelOf(k),
+      taux: r?r.taux:null,
+      nbInstables: r?r.nbInstables:null,
+      nbCoupConfirmees: r?r.nbCoupConfirmees:null,
+      nbClients: r?r.nbClients:null
+    });
   }
-  pts.push({weekKey:currentWeekKey, label:weekLabelOf(currentWeekKey), taux:currentTaux});
+  pts.push({
+    weekKey:currentWeekKey, label:weekLabelOf(currentWeekKey),
+    taux: currentMetrics.taux,
+    nbInstables: currentMetrics.nbInstables,
+    nbCoupConfirmees: currentMetrics.nbCoupConfirmees,
+    nbClients: currentMetrics.nbClients
+  });
   window._evolutionWeeks = pts;
   return pts;
 }
@@ -1387,9 +1404,9 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   </div>
   <div class="dg-grid4">
     <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub">(24h − coupure cumulée) / 24h</div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstables}</div><div class="dg-kpi-sub">cycles 5-29min répétés en 30min</div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div class="dg-kpi-val red">${nbCoupConf}</div><div class="dg-kpi-sub">durée ≥30min ou encore Down</div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div class="dg-kpi-val red">${clientsImp.size}</div><div class="dg-kpi-sub">sites distincts avec incident</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val amber">${nbInstables}</div><span id="dg-instables-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub">cycles 5-29min répétés en 30min</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${nbCoupConf}</div><span id="dg-coupures-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub">durée ≥30min ou encore Down</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${clientsImp.size}</div><span id="dg-clients-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub">sites distincts avec incident</div></div>
   </div>
   <div id="dg-evolution" style="display:none;margin-bottom:16px">
     <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">Évolution du taux de disponibilité — 4 semaines <span style="font-weight:500;color:#9aa0ae;font-size:11px">— (24h − coupure cumulée) / 24h × 100, moyenne par site</span></div>
@@ -1418,19 +1435,32 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     window._pendingWeekReports = null;
     const dates = reportsForWeek.map(parseReportDate).sort((a,b)=>a-b);
     const curKey = mondayKeyOf(dates[0]);
-    computeEvolutionWeeks(curKey, tauxDispo).then(renderEvolutionUI);
+    computeEvolutionWeeks(curKey, {taux:tauxDispo, nbInstables, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
   } else {
     renderEvolutionUI(null);
   }
 }
 
 // Affiche la flèche (vs semaine précédente) + le graphe de tendance 4 semaines
+function setEvolBadge(id, curVal, prevVal, goodWhenDown){
+  const el = document.getElementById(id);
+  if(!el) return;
+  if(curVal===null||curVal===undefined||prevVal===null||prevVal===undefined){ el.innerHTML=""; return; }
+  const diff = curVal - prevVal;
+  const arrow = diff>0?"▲":diff<0?"▼":"→";
+  const isGood = diff===0 ? null : (goodWhenDown ? diff<0 : diff>0);
+  const color = diff===0 ? "#3d4250" : (isGood?"#0a4a1e":"#8b0000");
+  el.innerHTML = `<span style="color:${color}">${arrow} ${diff>0?"+":""}${diff}</span> <span style="color:#9aa0ae;font-weight:500">vs ${prevVal} (sem. préc.)</span>`;
+}
+
 function renderEvolutionUI(pts){
   const evolEl = document.getElementById("dg-evolution");
   const arrEl  = document.getElementById("dg-taux-evol");
+  const smallIds = ["dg-instables-evol","dg-coupures-evol","dg-clients-evol"];
   if(!pts || pts.length<2 || pts.filter(p=>p.taux!==null).length<2){
     if(evolEl) evolEl.style.display="none";
     if(arrEl)  arrEl.innerHTML="";
+    smallIds.forEach(id=>{ const el=document.getElementById(id); if(el) el.innerHTML=""; });
     if(window._evolChart){ window._evolChart.destroy(); window._evolChart=null; }
     return;
   }
@@ -1444,6 +1474,10 @@ function renderEvolutionUI(pts){
       arrEl.innerHTML = `<span style="color:${color}">${arrow} ${diff>0?"+":""}${diff}pt</span> <span style="color:#9aa0ae;font-weight:500">vs ${prev.taux}% (sem. préc.)</span>`;
     }
   }
+  // Petites flèches d'évolution — Sites instables / Coupures confirmées / Clients impactés (baisse = positif)
+  setEvolBadge("dg-instables-evol", cur.nbInstables, prev.nbInstables, true);
+  setEvolBadge("dg-coupures-evol",  cur.nbCoupConfirmees, prev.nbCoupConfirmees, true);
+  setEvolBadge("dg-clients-evol",   cur.nbClients, prev.nbClients, true);
   if(evolEl){
     evolEl.style.display="block";
     const canvas=document.getElementById("dg-evol-chart");
