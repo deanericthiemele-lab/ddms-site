@@ -1020,6 +1020,29 @@ function nbCoupConfirmeesCalc(ndData){
   return ndData.filter(d=>d.confirmee).length;
 }
 
+//  TAUX DE DISPONIBILITÉ — formule unique, pondérée par la durée cumulée d'indisponibilité
+// Pour chaque site : dispo% = (24h − durée cumulée de coupure) / 24h × 100
+// La durée cumulée additionne TOUTES les coupures du site, même non contiguës (ex: 3 coupures de
+// courte durée dans la journée totalisant 4h = compté comme 4h, pas juste la plus longue coupure).
+// Un site sans node en coupure (0 min cumulée) est compté à 100%. Le taux global = moyenne sur tous
+// les sites supervisés (union interfaces + nodes).
+// Limite : la référence "24h" suppose une période d'une journée ; pour un rapport fusionné sur
+// plusieurs jours, la durée cumulée peut dépasser 24h et est alors plafonnée à 24h par site.
+const JOUR_MIN = 1440;
+function tauxDispoPondere(ifData, ndData){
+  const allSites = new Set([...ifData.map(d=>d.site), ...ndData.map(d=>d.site)]);
+  if(!allSites.size) return 0;
+  const ndBySite = {};
+  ndData.forEach(d=>{ ndBySite[d.site] = d; });
+  let sumDispo = 0;
+  allSites.forEach(site=>{
+    const row = ndBySite[site];
+    const dureeMin = (row && row.duree.val !== null) ? Math.min(row.duree.val, JOUR_MIN) : 0;
+    sumDispo += Math.max(0, ((JOUR_MIN - dureeMin) / JOUR_MIN) * 100);
+  });
+  return Math.round(sumDispo / allSites.size);
+}
+
 //  ÉVOLUTION HEBDOMADAIRE DU TAUX DE DISPONIBILITÉ 
 // Semaine = lundi→dimanche (même logique que le regroupement de la barre latérale)
 function parseReportDate(r){
@@ -1084,9 +1107,7 @@ async function computeWeekAvailability(weekKey){
     ifD = mergeMap("if_data");
     ndD = mergeMap("nd_data");
   }
-  const totalSites = new Set([...ifD.map(d=>d.site),...ndD.map(d=>d.site)]).size;
-  const nodesDown  = ndD.filter(d=>d.isDown).length;
-  const taux = totalSites>0 ? Math.round((totalSites-nodesDown)/totalSites*100) : null;
+  const taux = tauxDispoPondere(ifD, ndD);
   return {weekKey, taux, nbReports:reports.length};
 }
 
@@ -1286,7 +1307,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   const nbLiens      = allSites.size;
   const nbDown       = ndData.filter(d=>d.isDown).length;
   const nbInstables  = topInstables.length;
-  const tauxDispo    = nbLiens>0 ? Math.round(((nbLiens-nbDown)/nbLiens)*100) : 0;
+  const tauxDispo    = tauxDispoPondere(ifData, ndData);
   const nbCoupuresN1 = ndData.reduce((s,d)=>s+d.nb,0);
   const nbAnomalies  = ifData.reduce((s,d)=>s+d.nb,0);
   const nbReboots    = ndData.filter(d=>d.cause==="Redémarrage").length;
@@ -1365,7 +1386,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     </div>
   </div>
   <div class="dg-grid4">
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub">(sites − down) / sites × 100</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub">moy. (24h − coupure cumulée) / 24h</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstables}</div><div class="dg-kpi-sub">cycles 5-29min répétés en 30min</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div class="dg-kpi-val red">${nbCoupConf}</div><div class="dg-kpi-sub">durée ≥30min ou encore Down</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div class="dg-kpi-val red">${clientsImp.size}</div><div class="dg-kpi-sub">sites distincts avec incident</div></div>
@@ -1513,10 +1534,8 @@ function setKpi(data,p){
 function setGlobalKpis(ifData,ndData){
   const all=[...ifData,...ndData];
 
-  // Taux de dispo basé uniquement sur les nodes Down (ND_DATA)
-  const nodesDown = ndData.filter(d=>d.isDown);
-  const totalSites = new Set([...ifData.map(d=>d.site),...ndData.map(d=>d.site)]).size;
-  const taux = totalSites>0 ? Math.round(((totalSites-nodesDown.length)/totalSites)*100) : null;
+  // Taux de dispo pondéré par la durée cumulée d'indisponibilité (voir tauxDispoPondere)
+  const taux = tauxDispoPondere(ifData, ndData);
 
   const tauxEl=document.getElementById("k-taux-dispo");
   if(tauxEl) tauxEl.innerHTML=taux!==null?taux+'<span>%</span>':"—";
@@ -2267,7 +2286,7 @@ async function openMailPopup(){
   const nbCoupConfirmees = nbCoupConfirmeesCalc(ND_DATA);
   const nbAnomalies = IF_DATA.reduce((s,d)=>s+d.nb,0);
   const nbReboots   = ND_DATA.filter(d=>d.cause==="Redémarrage").length;
-  const tauxDispo   = nbLiens>0 ? Math.round(((nbLiens-nbDown)/nbLiens)*100) : 0;
+  const tauxDispo   = tauxDispoPondere(IF_DATA, ND_DATA);
   function clientFrom(s){ const m=s.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:s.substring(0,8); }
   const clientsSet  = new Set([...ND_DATA.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
   const nbClients   = clientsSet.size;
@@ -2371,7 +2390,7 @@ async function openMailPopup(){
     <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#9aa0ae;padding-bottom:5px;border-bottom:1px solid #f0f0f0;margin-bottom:8px">Disponibilité réseau</div>
     <table style="width:100%;border-collapse:collapse">
       <tr>
-        ${kpiCard("Taux de disponibilité", tauxDispo+"%", "(sites − down) / sites × 100",    tauxColor,"#f7fdf9")}
+        ${kpiCard("Taux de disponibilité", tauxDispo+"%", "moy. (24h - coupure cumulée) / 24h",    tauxColor,"#f7fdf9")}
         ${kpiCard("Sites instables",     nbInstables, "cycles 5-29min répétés en 30min",    "#b45309","#fffdf5")}
         ${kpiCard("Coupures confirmées", nbCoupConfirmees, "durée ≥30min ou encore Down", "#c0392b","#fdf7f7")}
         ${kpiCard("Sites encore Down",   nbDown,      "ND encore isDown à la clôture",        "#c0392b","#fdf7f7")}
@@ -2520,7 +2539,7 @@ async function exportPdf(){
   const nbCoupConfirmees = nbCoupConfirmeesCalc(ND_DATA);
   const nbAnomalies = IF_DATA.reduce((s,d)=>s+d.nb,0);
   const nbReboots   = ND_DATA.filter(d=>d.cause==="Redémarrage").length;
-  const tauxDispo   = nbLiens>0 ? Math.round(((nbLiens-nbDown)/nbLiens)*100) : 0;
+  const tauxDispo   = tauxDispoPondere(IF_DATA, ND_DATA);
 
   function clientFrom(s){ const m=s.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:s.substring(0,8); }
   const clientsSet  = new Set([...ND_DATA.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
@@ -2771,7 +2790,7 @@ async function exportPdf(){
   const evolValid = evolPts && evolPts.filter(p=>p.taux!==null).length>=2;
 
   kpiBlock([
-    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"(sites-down)/sites x100"},
+    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"moy. (24h-coupure cumulee)/24h"},
     {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:"Cycles <30 min"},
     {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"duree >=30min"},
     {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"sites distincts avec incident"},
