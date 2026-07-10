@@ -1133,10 +1133,12 @@ async function computeWeekAvailability(weekKey){
     ndD = mergeMap("nd_data");
   }
   const taux           = tauxDispoPondere(ifD, ndD);
+  const totalSitesWk   = new Set([...ifD.map(d=>d.site), ...ndD.map(d=>d.site)]).size;
   const nbInstables    = [...ifD,...ndD].filter(d=>d.isFlapping).length;
+  const tauxInstablesWk = totalSitesWk>0 ? Math.round((nbInstables/totalSitesWk)*100) : null;
   const nbCoupConf      = nbCoupConfirmeesCalc(ndD);
   const nbClients       = new Set(ndD.filter(d=>d.isDown).map(d=>clientFromSite(d.site))).size;
-  return {weekKey, taux, nbInstables, nbCoupConfirmees:nbCoupConf, nbClients, nbReports:reports.length};
+  return {weekKey, taux, nbInstables, tauxInstables:tauxInstablesWk, nbCoupConfirmees:nbCoupConf, nbClients, nbReports:reports.length};
 }
 
 // Construit les 4 points (3 semaines précédentes + semaine courante) pour le graphe d'évolution
@@ -1149,6 +1151,7 @@ async function computeEvolutionWeeks(currentWeekKey, currentMetrics){
       weekKey:k, label:weekLabelOf(k),
       taux: r?r.taux:null,
       nbInstables: r?r.nbInstables:null,
+      tauxInstables: r?r.tauxInstables:null,
       nbCoupConfirmees: r?r.nbCoupConfirmees:null,
       nbClients: r?r.nbClients:null
     });
@@ -1157,6 +1160,7 @@ async function computeEvolutionWeeks(currentWeekKey, currentMetrics){
     weekKey:currentWeekKey, label:weekLabelOf(currentWeekKey),
     taux: currentMetrics.taux,
     nbInstables: currentMetrics.nbInstables,
+    tauxInstables: currentMetrics.tauxInstables,
     nbCoupConfirmees: currentMetrics.nbCoupConfirmees,
     nbClients: currentMetrics.nbClients
   });
@@ -1458,7 +1462,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     window._pendingWeekReports = null;
     const dates = reportsForWeek.map(parseReportDate).sort((a,b)=>a-b);
     const curKey = mondayKeyOf(dates[0]);
-    computeEvolutionWeeks(curKey, {taux:tauxDispo, nbInstables, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
+    computeEvolutionWeeks(curKey, {taux:tauxDispo, nbInstables, tauxInstables: nbLiens>0?Math.round((nbInstables/nbLiens)*100):0, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
   } else {
     renderEvolutionUI(null);
   }
@@ -2936,9 +2940,22 @@ async function exportPdf(){
   //  KPI NOC — SITES INSTABLES
   y += 2;
   sectionBar("KPI NOC — SITES INSTABLES");
+  const nbClientsInstables = new Set([...IF_DATA,...ND_DATA].filter(d=>d.isFlapping).map(d=>clientFromSite(d.site))).size;
+  const tauxInstables = nbLiens>0 ? Math.round((nbInstables/nbLiens)*100) : 0;
   kpiBlock([
-    {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:"", evol:evolInstables.text, evolColor:evolInstables.color},
+    {label:"Sites instables",          value:nbInstables,          color:AMBER_T, accent:AMBER_T, sub:"", evol:evolInstables.text, evolColor:evolInstables.color},
+    {label:"Nombre de clients",        value:nbClientsInstables,   color:AMBER_T, accent:AMBER_T, sub:""},
+    {label:"Taux de sites instables",  value:tauxInstables+"%",    color:AMBER_T, accent:AMBER_T, sub:""},
   ], 3);
+
+  // Graphe Évolution du taux de sites instables — 4 semaines (toujours affiché, placeholder si pas de données)
+  const tauxInstablesEvolPts = evolValid ? evolPts : [{label:"S-3",tauxInstables:null},{label:"S-2",tauxInstables:null},{label:"S-1",tauxInstables:null},{label:"Actuelle",tauxInstables:null}];
+  checkPage(28);
+  doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
+  doc.text("Évolution du taux de sites instables — 4 semaines", ML, y+3);
+  y += 5;
+  drawTrendChartGeneric(tauxInstablesEvolPts, ML+4, y, CW-8, 16, "tauxInstables", v=>v+"%", 0, 100);
+  y += 20;
 
   // Tableau détail des tickets ouverts — nouvelle page, titre dédié
   doc.addPage(); y = MT; drawFooter();
