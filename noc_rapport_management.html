@@ -940,52 +940,167 @@ function fmtMin(m){
   return {str:m+" min",val:m};
 }
 
-//  FLAPPING — NORME 
-// Niveaux : faible (3-4 evt/j), modéré (5-9 evt/j), critique (≥10 evt/j OU ≥3 transitions rapprochées <30min)
-const FLAP_RAPID_WINDOW_MIN = 30; // fenêtre de rapprochement entre 2 transitions
-const FLAP_RAPID_CYCLES     = 3;  // nb de transitions rapprochées consécutives = critique
-const FLAP_MODERE_MIN       = 5;  // seuil "modéré"
-const FLAP_FAIBLE_MIN       = 3;  // seuil "faible"
-const FLAP_CRITIQUE_NB      = 10; // volume seul = critique
+//  CLASSIFICATION DES ÉVÉNEMENTS — nouvelle norme (basée sur la durée de chaque cycle Down→Up)
+// 1. Cycle < 5 min                         → ignoré (bruit, ne compte pas)
+// 2. Cycle 5-29 min, répété (≥2) dans une fenêtre de 30 min → Instable (flapping)
+// 3. Cycle ≥ 30 min (rétabli) OU Down depuis ≥ 30 min (encore coupé) → Coupure confirmée
+const FLAP_NOISE_MAX_MIN     = 5;   // <5min : ignoré
+const FLAP_WINDOW_MIN        = 30;  // fenêtre de regroupement pour l'instabilité
+const FLAP_MIN_REPEATS       = 2;   // nb de cycles 5-29min rapprochés = instable (modéré)
+const FLAP_CRITIQUE_REPEATS  = 4;   // nb de cycles 5-29min rapprochés = instable (critique)
+const COUPURE_CONFIRMEE_MIN  = 30;  // minutes : cycle rétabli ≥30min OU down depuis ≥30min
 
-// Compte le plus long enchaînement de transitions (down/up confondues) séparées de <30min
-function maxRapidChain(downs, ups){
-  const all=[...downs.map(d=>toMin(d.time)),...ups.map(u=>toMin(u.time))]
-    .filter(t=>t!==null).sort((a,b)=>a-b);
-  let chain=0, best=0;
-  for(let i=1;i<all.length;i++){
-    if(all[i]-all[i-1] < FLAP_RAPID_WINDOW_MIN){ chain++; best=Math.max(best,chain); }
-    else chain=0;
+// Apparie chaque Down avec le premier Up disponible après lui (sans réutiliser un Up déjà consommé)
+function pairCycles(downs, ups){
+  const sd=[...downs].sort((a,b)=>a.time.localeCompare(b.time));
+  const su=[...ups].sort((a,b)=>a.time.localeCompare(b.time));
+  const cycles=[]; let ui=0;
+  for(const d of sd){
+    const dMin=toMin(d.time);
+    while(ui<su.length && toMin(su[ui].time)<=dMin) ui++;
+    if(ui<su.length){
+      const uMin=toMin(su[ui].time);
+      cycles.push({down:d, up:su[ui], dureeMin:uMin-dMin});
+      ui++;
+    } else {
+      cycles.push({down:d, up:null, dureeMin:null}); // encore Down (pas de Up correspondant)
+    }
   }
-  return best; // nombre de "gaps rapides" consécutifs
+  return cycles;
 }
 
-// Détermine le niveau de flapping à partir du nb d'événements et (optionnel) des timestamps bruts
-function computeFlapLevel(nb, downs, ups){
-  const rapidChain = (downs&&ups) ? maxRapidChain(downs,ups) : 0;
-  const isCritique = nb>=FLAP_CRITIQUE_NB || rapidChain>=FLAP_RAPID_CYCLES;
-  if(isCritique) return "critique";
-  if(nb>=FLAP_MODERE_MIN) return "modere";
-  if(nb>=FLAP_FAIBLE_MIN) return "faible";
-  return null;
+// Classe les cycles d'un site selon la norme (instable / confirmée / ignoré)
+// refNowMin = dernier timestamp connu du jeu de données (sert de "maintenant" pour les sites encore Down)
+function classifyCycles(cycles, refNowMin){
+  const confirmedCycles = cycles.filter(c=>c.dureeMin!==null && c.dureeMin>=COUPURE_CONFIRMEE_MIN);
+  const significant      = cycles.filter(c=>c.dureeMin!==null && c.dureeMin>=FLAP_NOISE_MAX_MIN && c.dureeMin<COUPURE_CONFIRMEE_MIN);
+  const stillDown        = cycles.filter(c=>c.dureeMin===null);
+
+  let isDown=false, downConfirmee=false;
+  if(stillDown.length){
+    isDown=true;
+    const lastDownMin=toMin(stillDown[stillDown.length-1].down.time);
+    if(refNowMin!==null && (refNowMin-lastDownMin)>=COUPURE_CONFIRMEE_MIN) downConfirmee=true;
+  }
+  const confirmee = confirmedCycles.length>0 || downConfirmee;
+
+  // Regroupement des cycles "moyens" (5-29min) dans une fenêtre glissante de 30min
+  const downTimes=significant.map(c=>toMin(c.down.time)).sort((a,b)=>a-b);
+  let maxCluster=0;
+  for(let i=0;i<downTimes.length;i++){
+    let cnt=1;
+    for(let j=i+1;j<downTimes.length;j++){
+      if(downTimes[j]-downTimes[i]<=FLAP_WINDOW_MIN) cnt++; else break;
+    }
+    maxCluster=Math.max(maxCluster,cnt);
+  }
+  let flapLevel=null;
+  if(maxCluster>=FLAP_CRITIQUE_REPEATS) flapLevel="critique";
+  else if(maxCluster>=FLAP_MIN_REPEATS) flapLevel="modere";
+
+  // Durée cumulée affichée = somme des cycles réels (≥5min), le bruit (<5min) est exclu
+  const dureeCumulMin = cycles.filter(c=>c.dureeMin!==null && c.dureeMin>=FLAP_NOISE_MAX_MIN)
+    .reduce((s,c)=>s+c.dureeMin,0);
+
+  return { isDown, confirmee, isFlapping: flapLevel!==null, flapLevel, dureeCumulMin: dureeCumulMin>0?dureeCumulMin:null };
 }
+
 function flapLabel(level){
-  return level==="critique"?"Flapping critique":level==="modere"?"Instable (modéré)":level==="faible"?"Instable (léger)":"";
+  return level==="critique"?"Flapping critique":level==="modere"?"Instable":"";
 }
 function flapBadge(level){
   if(!level) return "";
-  const cls = level==="critique"?"badge b-red":level==="modere"?"badge b-amber":"badge b-gray";
+  const cls = level==="critique"?"badge b-red":"badge b-amber";
   return `<span class="${cls}">${flapLabel(level)}</span>`;
 }
 
 //  COUPURES CONFIRMÉES — formule unique (harmonisée tableau / digest / mail / PDF)
-// Un site compte comme "coupure confirmée" si :
-//  - il est encore Down au moment du rapport (sans remontée, quelle que soit la durée écoulée), OU
-//  - la coupure a duré ≥ 30 min avant rétablissement (avec remontée)
-// Les coupures répétées de courte durée (oscillations) relèvent du KPI "Sites instables", pas de celui-ci.
-const COUPURE_CONFIRMEE_MIN = 30; // minutes
+// Cycle ≥30min rétabli, OU encore Down depuis ≥30min. Les répétitions courtes relèvent du KPI "Sites instables".
 function nbCoupConfirmeesCalc(ndData){
-  return ndData.filter(d=>d.isDown||(d.duree.val!==null&&d.duree.val>=COUPURE_CONFIRMEE_MIN)).length;
+  return ndData.filter(d=>d.confirmee).length;
+}
+
+//  ÉVOLUTION HEBDOMADAIRE DU TAUX DE DISPONIBILITÉ 
+// Semaine = lundi→dimanche (même logique que le regroupement de la barre latérale)
+function parseReportDate(r){
+  const src = r.hdrDate || r.label || '';
+  const m = src.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if(m) return new Date(+m[3], +m[2]-1, +m[1]);
+  const t = parseInt((r.id||'').replace('r_',''));
+  return new Date(t||0);
+}
+function mondayKeyOf(d){
+  const dt = new Date(d); dt.setHours(0,0,0,0);
+  const day = dt.getDay();
+  const diff = day===0 ? -6 : 1-day;
+  dt.setDate(dt.getDate()+diff);
+  return dt.toISOString().slice(0,10);
+}
+function weekLabelOf(key){
+  const lun = new Date(key);
+  const dim = new Date(lun); dim.setDate(lun.getDate()+6);
+  const fmt = d => d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit"});
+  return fmt(lun)+"–"+fmt(dim);
+}
+// Renvoie les N clés de semaine précédant weekKey (la plus proche en premier)
+function previousWeekKeys(weekKey, n){
+  const keys=[]; let d=new Date(weekKey);
+  for(let i=0;i<n;i++){ d=new Date(d); d.setDate(d.getDate()-7); keys.push(d.toISOString().slice(0,10)); }
+  return keys;
+}
+
+// Recalcule le taux de disponibilité d'une semaine donnée à partir des rapports sauvegardés
+async function computeWeekAvailability(weekKey){
+  const list = await getSaved();
+  const reports = list.filter(r=>mondayKeyOf(parseReportDate(r))===weekKey)
+                      .sort((a,b)=>parseReportDate(a)-parseReportDate(b));
+  if(!reports.length) return null;
+
+  let ifD, ndD;
+  const allHaveRaw = reports.every(r=>r.rawText && r.rawText.trim());
+  if(allHaveRaw){
+    // Rejoue le pipeline complet de parsing sur les données brutes de la semaine (précis)
+    const merged = reports.map(r=>r.rawText.trim()).join("\n");
+    const events = parseEvents(merged);
+    ifD = buildRows(events,"if");
+    ndD = buildRows(events,"nd");
+  } else {
+    // Anciens rapports sans texte brut : agrégation approximative depuis if_data/nd_data stockés
+    const mergeMap = key => {
+      const map={};
+      reports.forEach(r=>{
+        (r[key]||[]).forEach(d=>{
+          if(!map[d.site]) map[d.site]={...d};
+          else {
+            const s=map[d.site];
+            s.nb += d.nb;
+            if(d.up && d.up!=="—"){ s.up=d.up; s.isDown=false; }
+            else if(d.isDown){ s.isDown=true; }
+          }
+        });
+      });
+      return Object.values(map);
+    };
+    ifD = mergeMap("if_data");
+    ndD = mergeMap("nd_data");
+  }
+  const totalSites = new Set([...ifD.map(d=>d.site),...ndD.map(d=>d.site)]).size;
+  const nodesDown  = ndD.filter(d=>d.isDown).length;
+  const taux = totalSites>0 ? Math.round((totalSites-nodesDown)/totalSites*100) : null;
+  return {weekKey, taux, nbReports:reports.length};
+}
+
+// Construit les 4 points (3 semaines précédentes + semaine courante) pour le graphe d'évolution
+async function computeEvolutionWeeks(currentWeekKey, currentTaux){
+  const prevKeys = previousWeekKeys(currentWeekKey, 3).reverse(); // plus ancien -> plus récent
+  const pts=[];
+  for(const k of prevKeys){
+    const r = await computeWeekAvailability(k);
+    pts.push({weekKey:k, label:weekLabelOf(k), taux: r?r.taux:null});
+  }
+  pts.push({weekKey:currentWeekKey, label:weekLabelOf(currentWeekKey), taux:currentTaux});
+  window._evolutionWeeks = pts;
+  return pts;
 }
 
 //  PARSE 
@@ -1071,26 +1186,30 @@ function buildRows(events, type){
     }
   }
 
+  // Référence temporelle "maintenant" = dernier timestamp du jeu d'événements de ce type
+  // (sert à juger si un site encore Down l'est depuis ≥30min)
+  const allTimes = events.map(e=>toMin(e.time)).filter(t=>t!==null);
+  const refNowMin = allTimes.length ? Math.max(...allTimes) : null;
+
   return Object.values(map).map(s=>{
     const nb=s.downs.length||1;
     const sd=[...s.downs].sort((a,b)=>a.time.localeCompare(b.time));
     const su=[...s.ups].sort((a,b)=>a.time.localeCompare(b.time));
     const firstDown=sd[0]?sd[0].time:"—";
     const lastUp=su.length?su[su.length-1].time:null;
-    let cum=0, paired=0;
-    for(const d of sd){
-      const u=su.find(x=>toMin(x.time)>toMin(d.time));
-      if(u){cum+=toMin(u.time)-toMin(d.time);paired++;}
-    }
-    const totalMin=paired>0?cum:null;
-    const flapLevel=computeFlapLevel(nb, sd, su);
-    const isFlapping=flapLevel==="critique"||flapLevel==="modere";
-    const isDown=!lastUp&&sd.length>0;
+
+    const cycles = pairCycles(sd, su);
+    const cls = classifyCycles(cycles, refNowMin);
+
+    const isFlapping=cls.isFlapping;
+    const flapLevel=cls.flapLevel;
+    const isDown=cls.isDown;
+    const confirmee=cls.confirmee;
     const statut=isFlapping?"Instable":isDown?"Indisponible":"Rétabli";
     const cause=s.reboots.length>0?"Redémarrage":s.fromGroup?"Signalé dans groupe":"Coupure de service";
-    const prio=flapLevel==="critique"||isDown?"Haute":flapLevel==="modere"||nb>=3?"Haute":nb>=2||(totalMin&&totalMin>=60)?"Moyenne":"Faible";
+    const prio=confirmee||flapLevel==="critique"?"Haute":isFlapping?"Moyenne":"Faible";
     const allEvRaw=[...s.downs,...s.ups].sort((a,b)=>a.time.localeCompare(b.time));
-    return {site:s.site,nb,down:firstDown,up:lastUp||"—",duree:fmtMin(totalMin),iface:s.iface,cause,statut,prio,isFlapping,flapLevel,isDown,rawEvents:allEvRaw};
+    return {site:s.site,nb,down:firstDown,up:lastUp||"—",duree:fmtMin(cls.dureeCumulMin),iface:s.iface,cause,statut,prio,isFlapping,flapLevel,isDown,confirmee,rawEvents:allEvRaw};
   }).filter(r=>r.nb>0).sort((a,b)=>b.nb-a.nb);
 }
 
@@ -1245,10 +1364,16 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     </div>
   </div>
   <div class="dg-grid4">
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><div class="dg-kpi-sub">(sites − down) / sites × 100</div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstables}</div><div class="dg-kpi-sub">≥5 évén/j ou cycles &lt;30min</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><div class="dg-kpi-val ${tauxDispo>=95?"green":"red"}">${tauxDispo}%</div><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub">(sites − down) / sites × 100</div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstables}</div><div class="dg-kpi-sub">cycles 5-29min répétés en 30min</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div class="dg-kpi-val red">${nbCoupConf}</div><div class="dg-kpi-sub">durée ≥30min ou encore Down</div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div class="dg-kpi-val red">${clientsImp.size}</div><div class="dg-kpi-sub">sites distincts avec incident</div></div>
+  </div>
+  <div id="dg-evolution" style="display:none;margin-bottom:16px">
+    <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">Évolution du taux de disponibilité — 4 semaines</div>
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+      <canvas id="dg-evol-chart" height="70"></canvas>
+    </div>
   </div>
   <div class="dg-sep"></div>
   <div class="dg-section">Plan d'actions Niveau 2</div>
@@ -1284,6 +1409,64 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   pdaLoadFromFirebase();
   loadKpiTickets();
   window.scrollTo({top:0,behavior:"smooth"});
+
+  // Évolution 4 semaines : uniquement si ce rapport a été généré via une sélection de semaine (fusion)
+  if(window._pendingWeekReports){
+    const reportsForWeek = window._pendingWeekReports;
+    window._pendingWeekReports = null;
+    const dates = reportsForWeek.map(parseReportDate).sort((a,b)=>a-b);
+    const curKey = mondayKeyOf(dates[0]);
+    computeEvolutionWeeks(curKey, tauxDispo).then(renderEvolutionUI);
+  } else {
+    renderEvolutionUI(null);
+  }
+}
+
+// Affiche la flèche (vs semaine précédente) + le graphe de tendance 4 semaines
+function renderEvolutionUI(pts){
+  const evolEl = document.getElementById("dg-evolution");
+  const arrEl  = document.getElementById("dg-taux-evol");
+  if(!pts || pts.length<2 || pts.filter(p=>p.taux!==null).length<2){
+    if(evolEl) evolEl.style.display="none";
+    if(arrEl)  arrEl.innerHTML="";
+    if(window._evolChart){ window._evolChart.destroy(); window._evolChart=null; }
+    return;
+  }
+  const cur=pts[pts.length-1], prev=pts[pts.length-2];
+  if(arrEl){
+    if(cur.taux===null||prev.taux===null){ arrEl.innerHTML=""; }
+    else{
+      const diff=cur.taux-prev.taux;
+      const arrow = diff>0?"▲":diff<0?"▼":"→";
+      const color = diff>0?"#0a4a1e":diff<0?"#8b0000":"#3d4250";
+      arrEl.innerHTML = `<span style="color:${color}">${arrow} ${diff>0?"+":""}${diff}pt</span> <span style="color:#9aa0ae;font-weight:500">vs ${prev.taux}% (sem. préc.)</span>`;
+    }
+  }
+  if(evolEl){
+    evolEl.style.display="block";
+    const canvas=document.getElementById("dg-evol-chart");
+    if(window._evolChart){ window._evolChart.destroy(); window._evolChart=null; }
+    if(canvas && window.Chart){
+      window._evolChart = new Chart(canvas,{
+        type:"line",
+        data:{
+          labels: pts.map(p=>p.label),
+          datasets:[{
+            label:"Taux de disponibilité",
+            data: pts.map(p=>p.taux),
+            borderColor:"#E05A00",
+            backgroundColor:"rgba(224,90,0,0.08)",
+            fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:"#E05A00", spanGaps:true
+          }]
+        },
+        options:{
+          responsive:true,
+          plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw!==null?c.raw+"%":"—"}} },
+          scales:{ y:{ min:0, max:100, ticks:{callback:v=>v+"%"} } }
+        }
+      });
+    }
+  }
 }
 
  // ==
@@ -1847,6 +2030,8 @@ async function sbFusionner(){
     document.getElementById("rapport").style.display="none";
     // Quitter mode sélection
     sbToggleSel();
+    // Marquer le contexte "semaine sélectionnée" pour le calcul d'évolution 4 semaines
+    window._pendingWeekReports = selected;
     // Générer automatiquement
     generate();
     // Mettre à jour le header période
@@ -1872,10 +2057,12 @@ async function sbFusionner(){
           if(d.up&&d.up!=="—"&&d.up>s.up) s.up=d.up;
           if(d.duree.val!==null&&s.duree.val!==null) s.duree=fmtMin(s.duree.val+d.duree.val);
           else if(d.duree.val!==null) s.duree={...d.duree};
-          s.flapLevel=computeFlapLevel(s.nb,null,null);
-          s.isFlapping=s.flapLevel==="critique"||s.flapLevel==="modere"; s.isDown=s.up==="—";
+          // Fusion multi-jours : pas de cycles bruts disponibles -> approximation par volume/durée cumulée
+          s.flapLevel = s.nb>=4?"critique":s.nb>=2?"modere":null;
+          s.isFlapping=s.flapLevel!==null; s.isDown=s.up==="—";
+          s.confirmee = s.isDown || (s.duree.val!==null && s.duree.val>=COUPURE_CONFIRMEE_MIN);
           s.statut=s.isFlapping?"Instable":s.isDown?"Indisponible":"Rétabli";
-          s.prio=s.flapLevel==="critique"||s.isDown?"Haute":s.flapLevel==="modere"||s.nb>=3?"Haute":s.nb>=2||(s.duree.val&&s.duree.val>=60)?"Moyenne":"Faible";
+          s.prio=s.confirmee||s.flapLevel==="critique"?"Haute":s.isFlapping?"Moyenne":"Faible";
         }
       }
       for(const d of (r.nd_data||[])){
@@ -1887,10 +2074,12 @@ async function sbFusionner(){
           if(d.up&&d.up!=="—"&&d.up>s.up) s.up=d.up;
           if(d.duree.val!==null&&s.duree.val!==null) s.duree=fmtMin(s.duree.val+d.duree.val);
           else if(d.duree.val!==null) s.duree={...d.duree};
-          s.flapLevel=computeFlapLevel(s.nb,null,null);
-          s.isFlapping=s.flapLevel==="critique"||s.flapLevel==="modere"; s.isDown=s.up==="—";
+          // Fusion multi-jours : pas de cycles bruts disponibles -> approximation par volume/durée cumulée
+          s.flapLevel = s.nb>=4?"critique":s.nb>=2?"modere":null;
+          s.isFlapping=s.flapLevel!==null; s.isDown=s.up==="—";
+          s.confirmee = s.isDown || (s.duree.val!==null && s.duree.val>=COUPURE_CONFIRMEE_MIN);
           s.statut=s.isFlapping?"Instable":s.isDown?"Indisponible":"Rétabli";
-          s.prio=s.flapLevel==="critique"||s.isDown?"Haute":s.flapLevel==="modere"||s.nb>=3?"Haute":s.nb>=2||(s.duree.val&&s.duree.val>=60)?"Moyenne":"Faible";
+          s.prio=s.confirmee||s.flapLevel==="critique"?"Haute":s.isFlapping?"Moyenne":"Faible";
         }
       }
     }
@@ -1918,6 +2107,7 @@ async function sbFusionner(){
     document.getElementById("hdr-date").textContent   = _fusPeriod;
     document.getElementById("hdr-period").textContent = "Rapport fusionné — "+selected.length+" journée"+(selected.length>1?"s":"");
 
+    window._pendingWeekReports = selected;
     renderDashboard(IF_DATA, ND_DATA, _fusPeriod, _fusHeures, new Date().toLocaleString("fr-FR"));
     sbToggleSel();
   }
@@ -2158,7 +2348,7 @@ async function openMailPopup(){
     <table style="width:100%;border-collapse:collapse">
       <tr>
         ${kpiCard("Taux de disponibilité", tauxDispo+"%", "(sites − down) / sites × 100",    tauxColor,"#f7fdf9")}
-        ${kpiCard("Sites instables",     nbInstables, "≥5 évén/j ou cycles <30min",    "#b45309","#fffdf5")}
+        ${kpiCard("Sites instables",     nbInstables, "cycles 5-29min répétés en 30min",    "#b45309","#fffdf5")}
         ${kpiCard("Coupures confirmées", nbCoupConfirmees, "durée ≥30min ou encore Down", "#c0392b","#fdf7f7")}
         ${kpiCard("Sites encore Down",   nbDown,      "ND encore isDown à la clôture",        "#c0392b","#fdf7f7")}
       </tr>
@@ -2388,6 +2578,33 @@ async function exportPdf(){
     y += 10;
   }
 
+  function drawTrendChart(pts, x, y0, w, h){
+    const valid = pts.map(p=>p.taux).filter(v=>v!==null);
+    if(valid.length<2) return;
+    const minV = Math.max(0, Math.min(...valid)-5);
+    const maxV = Math.min(100, Math.max(...valid)+5);
+    const span = (maxV-minV)||1;
+    const n = pts.length;
+    const stepX = w/(n-1||1);
+    const toY = v => y0+h - ((v-minV)/span)*h;
+    doc.setDrawColor(...LGRAY); doc.setLineWidth(0.2);
+    doc.line(x, y0+h, x+w, y0+h);
+    let prevX=null, prevY=null;
+    pts.forEach((p,i)=>{
+      const px = x+i*stepX;
+      doc.setFontSize(6); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+      doc.text(p.label, px, y0+h+4.5, {align:"center"});
+      if(p.taux===null){ prevX=null; return; }
+      const py = toY(p.taux);
+      if(prevX!==null){ doc.setDrawColor(...ORANGE); doc.setLineWidth(0.6); doc.line(prevX,prevY,px,py); }
+      doc.setFillColor(...ORANGE);
+      doc.circle(px,py,1,"F");
+      doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
+      doc.text(p.taux+"%", px, py-2.5, {align:"center"});
+      prevX=px; prevY=py;
+    });
+  }
+
   function kpiBlock(items, cols){
     checkPage(22);
     const w = CW / cols;
@@ -2412,6 +2629,10 @@ async function exportPdf(){
       if(item.sub){
         doc.setFontSize(6.5); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
         doc.text(item.sub, x+w-2, yy+12.5, {align:"right"});
+      }
+      if(item.evol){
+        doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.setTextColor(...(item.evolColor||GRAY));
+        doc.text(item.evol, x+w-2, yy+4.5, {align:"right"});
       }
     });
     y += rows*(bh+3)+3;
@@ -2458,8 +2679,6 @@ async function exportPdf(){
         if(data.column.index===5){
           const v=data.cell.raw;
           if(v==="Flapping critique"||v==="Instable"){data.cell.styles.textColor=RED_T;data.cell.styles.fontStyle="bold";}
-          else if(v==="Instable (modéré)"){data.cell.styles.textColor=AMBER_T;data.cell.styles.fontStyle="bold";}
-          else if(v==="Instable (léger)"){data.cell.styles.textColor=AMBER_T;data.cell.styles.fontStyle="normal";}
           else if(v==="Indisponible"){data.cell.styles.textColor=AMBER_T;data.cell.styles.fontStyle="bold";}
           else{data.cell.styles.textColor=GREEN_T;data.cell.styles.fontStyle="bold";}
         }
@@ -2526,12 +2745,35 @@ async function exportPdf(){
   // KPI DISPONIBILITÉ — page 1
   y += 2;
   sectionBar("KPI DISPONIBILITÉ RÉSEAU");
+
+  // Évolution vs semaine précédente (uniquement si rapport généré via sélection de semaine)
+  let tauxEvolText=null, tauxEvolColor=GRAY;
+  const evolPts = window._evolutionWeeks;
+  const evolValid = evolPts && evolPts.filter(p=>p.taux!==null).length>=2;
+  if(evolValid){
+    const cur=evolPts[evolPts.length-1], prev=evolPts[evolPts.length-2];
+    if(cur.taux!==null && prev.taux!==null){
+      const diff=cur.taux-prev.taux;
+      tauxEvolText=(diff>0?"+":"")+diff+"pt vs S-1 ("+prev.taux+"%)";
+      tauxEvolColor=diff>0?GREEN_T:diff<0?RED_T:GRAY;
+    }
+  }
+
   kpiBlock([
-    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"(sites-down)/sites x100"},
-    {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:">=5 evt/j ou cycles <30min"},
+    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:"(sites-down)/sites x100", evol:tauxEvolText, evolColor:tauxEvolColor},
+    {label:"Sites instables",          value:nbInstables,        color:AMBER_T, accent:AMBER_T, sub:"cycles 5-29min repetes en 30min"},
     {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"duree >=30min ou encore Down"},
     {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"sites distincts avec incident"},
   ], 4);
+
+  if(evolValid){
+    checkPage(32);
+    doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
+    doc.text("Évolution du taux de disponibilité — 4 semaines", ML, y+3);
+    y += 6;
+    drawTrendChart(evolPts, ML+4, y, CW-8, 20);
+    y += 28;
+  }
 
   //  KPI NOC — TICKETS N1 / N2 (lecture Firebase directe)
   y += 4;
