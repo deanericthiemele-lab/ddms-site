@@ -1043,6 +1043,25 @@ function tauxDispoPondere(ifData, ndData){
   return Math.round(sumDispo / allSites.size);
 }
 
+// Taux de disponibilité des liens signalés : même formule que tauxDispoPondere, mais restreinte
+// aux seuls sites ayant eu au moins un incident/coupure (durée cumulée > 0). Les liens jamais en
+// défaut (100% dispo, aucun événement) sont exclus de la moyenne.
+function tauxDispoLiensSignales(ifData, ndData){
+  const allSites = new Set([...ifData.map(d=>d.site), ...ndData.map(d=>d.site)]);
+  const ndBySite = {};
+  ndData.forEach(d=>{ ndBySite[d.site] = d; });
+  let sumDispo = 0, n = 0;
+  allSites.forEach(site=>{
+    const row = ndBySite[site];
+    const dureeMin = (row && row.duree.val !== null) ? Math.min(row.duree.val, JOUR_MIN) : 0;
+    if(dureeMin > 0){
+      sumDispo += Math.max(0, ((JOUR_MIN - dureeMin) / JOUR_MIN) * 100);
+      n++;
+    }
+  });
+  return n>0 ? Math.round(sumDispo / n) : 100;
+}
+
 //  ÉVOLUTION HEBDOMADAIRE DU TAUX DE DISPONIBILITÉ 
 // Semaine = lundi→dimanche (même logique que le regroupement de la barre latérale)
 function parseReportDate(r){
@@ -2716,7 +2735,7 @@ async function exportPdf(){
     checkPage(22);
     const w = CW / cols;
     const rows = Math.ceil(items.length/cols);
-    const bh = 14;
+    const maxLabelW = w - 7;
     // Réduit la taille de police jusqu'à ce que le texte tienne dans maxWidth
     const fitFontSize = (text, maxWidth, startSize, minSize) => {
       let size = startSize;
@@ -2728,6 +2747,16 @@ async function exportPdf(){
       }
       return minSize;
     };
+    // Libellé : 1 ligne à taille normale si ça tient, sinon repli sur 2 lignes à taille réduite
+    const prepLabel = (text) => {
+      doc.setFont("helvetica","bold"); doc.setFontSize(7);
+      if(doc.getTextWidth(text) <= maxLabelW) return {lines:[text], size:7};
+      const size = 5.5;
+      doc.setFontSize(size);
+      return {lines: doc.splitTextToSize(text, maxLabelW).slice(0,2), size};
+    };
+    const labelInfo = items.map(it=>prepLabel(it.label));
+    const bh = labelInfo.some(l=>l.lines.length>1) ? 17 : 14;
     items.forEach((item,i)=>{
       const col = i % cols;
       const row = Math.floor(i / cols);
@@ -2740,10 +2769,12 @@ async function exportPdf(){
       // accent left
       doc.setFillColor(...(item.accent||ORANGE));
       doc.rect(x+0.5, yy, 2, bh, "F");
-      doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.setTextColor(...GRAY);
-      doc.text(item.label, x+5, yy+4);
+      const li = labelInfo[i];
+      doc.setFontSize(li.size); doc.setFont("helvetica","bold"); doc.setTextColor(...GRAY);
+      li.lines.forEach((ln,ln_i)=> doc.text(ln, x+5, yy+3.4+ln_i*2.6));
+      const valY = yy + (li.lines.length>1 ? 13.5 : 11);
       doc.setFontSize(12); doc.setFont("helvetica","bold"); doc.setTextColor(...(item.color||DARK));
-      doc.text(String(item.value), x+5, yy+11);
+      doc.text(String(item.value), x+5, valY);
       const valW = doc.getTextWidth(String(item.value));
       if(item.sub){
         doc.setFontSize(6.5); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
@@ -2755,7 +2786,7 @@ async function exportPdf(){
         if(availW > 4){
           const fs = fitFontSize(item.evol, availW, 7.5, 4.5);
           doc.setFontSize(fs); doc.setFont("helvetica","bold"); doc.setTextColor(...(item.evolColor||GRAY));
-          doc.text(item.evol, startX, yy+11);
+          doc.text(item.evol, startX, valY);
         }
       }
     });
@@ -2864,7 +2895,7 @@ async function exportPdf(){
   y += 5;
 
   // KPI DISPONIBILITÉ — page 1
-  sectionBar("DISPONIBILITE (Surveillance et correction des liens secours)");
+  sectionBar("DISPONIBILITE DES LIENS");
 
   // Évolution vs semaine précédente (uniquement si rapport généré via sélection de semaine)
   // Note : Helvetica standard (jsPDF) ne supporte pas ▲▼→, on utilise ^ / v / = à la place
@@ -2885,11 +2916,13 @@ async function exportPdf(){
   const evolCoupures   = evolValid ? pdfEvolText(nbCoupConfirmees, evolPrev.nbCoupConfirmees, true) : {text:null};
   const evolClients    = evolValid ? pdfEvolText(nbClients, evolPrev.nbClients, true) : {text:null};
 
+  const tauxDispoSignales = tauxDispoLiensSignales(IF_DATA, ND_DATA);
   kpiBlock([
-    {label:"Taux de disponibilité",    value:tauxDispo+"%",      color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:""},
+    {label:"Disponibilité globale des liens (Primaire & Backup)", value:tauxDispo+"%",         color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:""},
+    {label:"Taux de disponibilité des liens signalés",            value:tauxDispoSignales+"%", color:tauxDispoSignales>=95?GREEN_T:tauxDispoSignales>=90?AMBER_T:RED_T, accent:tauxDispoSignales>=95?GREEN_T:RED_T, sub:""},
     {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"", evol:evolCoupures.text, evolColor:evolCoupures.color},
     {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"", evol:evolClients.text, evolColor:evolClients.color},
-  ], 3);
+  ], 4);
 
   if(evolValid){
     checkPage(28);
