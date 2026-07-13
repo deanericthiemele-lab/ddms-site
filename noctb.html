@@ -2659,9 +2659,21 @@ async function deleteVip(id){
         <span id="tk-count-lbl" style="font-size:10px;color:var(--n4);font-family:var(--mono)">—</span>
       </div>
 
-      <!-- Liste tickets (scrollable) -->
-      <div id="tk-list-panel" style="max-height:calc(100vh - 220px);overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
-        <!-- rempli par ticketRender() -->
+      <!-- Liste tickets + encart Rappels 4h -->
+      <div style="display:grid;grid-template-columns:1fr 230px;gap:0">
+        <div id="tk-list-panel" style="max-height:calc(100vh - 220px);overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:6px;border-right:1px solid var(--n5)">
+          <!-- rempli par ticketRender() -->
+        </div>
+        <div style="display:flex;flex-direction:column;min-width:0">
+          <div style="padding:8px 10px 6px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--n5)">
+            <span style="font-size:12px">🔔</span>
+            <span style="font-family:var(--cond);font-size:11.5px;font-weight:700;color:var(--n1)">Rappels 4h</span>
+            <span id="tk-rappel-count" style="font-family:var(--mono);font-size:9px;background:var(--n6);color:var(--n3);padding:1px 6px;border-radius:8px">0</span>
+          </div>
+          <div id="tk-rappel-panel" style="max-height:calc(100vh - 254px);overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px">
+            <!-- rempli par tkRenderRappelPanel() -->
+          </div>
+        </div>
       </div>
     </div>
 
@@ -6930,12 +6942,12 @@ function tkRappelState(debut, statut){
   const start = new Date(debut).getTime();
   if(isNaN(start)) return null;
   const remain = TK_RAPPEL_SEUIL_MS - (Date.now()-start);
-  if(remain > TK_RAPPEL_PRE_MS) return {show:false};
+  if(remain > TK_RAPPEL_PRE_MS) return {show:false, remain};
   const abs = Math.abs(remain);
   const h = Math.floor(abs/3600000), m = Math.floor((abs%3600000)/60000);
   const hm = h>0 ? h+'h'+String(m).padStart(2,'0') : m+'min';
-  if(remain<=0) return {show:true, overdue:true,  text:`⏰ Délai 4h dépassé (+${hm})`};
-  return              {show:true, overdue:false, text:`⏰ ${hm} avant délai 4h`};
+  if(remain<=0) return {show:true, overdue:true,  remain, text:`⏰ Délai 4h dépassé (+${hm})`};
+  return              {show:true, overdue:false, remain, text:`⏰ ${hm} avant délai 4h`};
 }
 
 function tkRappelSpanHtml(t){
@@ -6961,13 +6973,43 @@ function tkRefreshRappels(){
     el.style.animation  = st.overdue ? 'blink 1.4s infinite' : 'none';
     el.textContent      = st.text;
   });
+  tkRenderRappelPanel();
 }
 setInterval(tkRefreshRappels, 30000);
+
+function tkRenderRappelPanel(){
+  const panel = document.getElementById('tk-rappel-panel');
+  const cnt   = document.getElementById('tk-rappel-count');
+  if(!panel) return;
+
+  const rows = (DB.tickets||[]).map(t=>({t, st:tkRappelState(t.debut, t.statut)}))
+    .filter(x=>x.st && x.st.show)
+    .sort((a,b)=>a.st.remain-b.st.remain);
+
+  if(cnt) cnt.textContent = rows.length;
+
+  if(!rows.length){
+    panel.innerHTML = `<div style="text-align:center;padding:20px 8px;color:var(--n4);font-size:11px">Aucun rappel actif</div>`;
+    return;
+  }
+
+  panel.innerHTML = rows.map(({t,st})=>{
+    const bg     = st.overdue ? '#fdeceb' : '#fff7e6';
+    const color  = st.overdue ? '#c0392b' : '#92400E';
+    const border = st.overdue ? '#f2c4be' : '#fde68a';
+    return `<div onclick="ticketEditInline('${t.id}')" style="cursor:pointer;padding:7px 8px;border-radius:4px;border:1px solid ${border};background:${bg}">
+      <div style="font-weight:700;font-size:11px;color:var(--n1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.client||'—'}</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--n3);margin:1px 0 3px">${t.ref||'—'}</div>
+      <div style="font-size:9.5px;font-weight:700;color:${color}">${st.text}</div>
+    </div>`;
+  }).join('');
+}
 
 function ticketRender(){
   const panel = document.getElementById('tk-list-panel');
   if(!panel) return;
   tkBuildClientList();
+  tkRenderRappelPanel();
 
   const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
   const fStatut = document.getElementById('tk-filter-statut')?.value||'';
