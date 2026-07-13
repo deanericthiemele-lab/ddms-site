@@ -6921,6 +6921,49 @@ function tkRenderVolume(){
   avgBox.innerHTML = `📊 Moyenne : <b>${moy}</b> tickets / ${unit} &nbsp;·&nbsp; Total : <b>${total}</b>`;
 }
 
+// ── Rappel 4h après ouverture de ticket ─────────────────────────────
+const TK_RAPPEL_SEUIL_MS = 4*60*60*1000;   // 4h
+const TK_RAPPEL_PRE_MS   = 30*60*1000;     // affiche l'avertissement 30 min avant le seuil
+
+function tkRappelState(debut, statut){
+  if(!debut || statut==='Résolu' || statut==='Fermé') return null;
+  const start = new Date(debut).getTime();
+  if(isNaN(start)) return null;
+  const remain = TK_RAPPEL_SEUIL_MS - (Date.now()-start);
+  if(remain > TK_RAPPEL_PRE_MS) return {show:false};
+  const abs = Math.abs(remain);
+  const h = Math.floor(abs/3600000), m = Math.floor((abs%3600000)/60000);
+  const hm = h>0 ? h+'h'+String(m).padStart(2,'0') : m+'min';
+  if(remain<=0) return {show:true, overdue:true,  text:`⏰ Délai 4h dépassé (+${hm})`};
+  return              {show:true, overdue:false, text:`⏰ ${hm} avant délai 4h`};
+}
+
+function tkRappelSpanHtml(t){
+  const st = tkRappelState(t.debut, t.statut);
+  const show    = !!(st && st.show);
+  const overdue = !!(st && st.overdue);
+  const bg     = overdue ? '#fdeceb' : '#fff7e6';
+  const color  = overdue ? '#c0392b' : '#92400E';
+  const border = overdue ? '#f2c4be' : '#fde68a';
+  return `<span class="tk-rappel" data-debut="${t.debut||''}" data-statut="${t.statut||''}" style="${show?'display:inline-flex;':'display:none;'}align-items:center;gap:3px;background:${bg};color:${color};border:1px solid ${border};padding:2px 7px;border-radius:3px;font-size:10px;font-weight:700;${overdue?'animation:blink 1.4s infinite':''}">${(st&&st.text)||''}</span>`;
+}
+
+function tkRefreshRappels(){
+  document.querySelectorAll('.tk-rappel[data-debut]').forEach(el=>{
+    const debut  = el.getAttribute('data-debut');
+    const statut = el.getAttribute('data-statut');
+    const st = tkRappelState(debut, statut);
+    if(!st || !st.show){ el.style.display='none'; el.textContent=''; return; }
+    el.style.display    = 'inline-flex';
+    el.style.background = st.overdue ? '#fdeceb' : '#fff7e6';
+    el.style.color      = st.overdue ? '#c0392b' : '#92400E';
+    el.style.borderColor= st.overdue ? '#f2c4be' : '#fde68a';
+    el.style.animation  = st.overdue ? 'blink 1.4s infinite' : 'none';
+    el.textContent      = st.text;
+  });
+}
+setInterval(tkRefreshRappels, 30000);
+
 function ticketRender(){
   const panel = document.getElementById('tk-list-panel');
   if(!panel) return;
@@ -7184,10 +7227,11 @@ function ticketRender(){
         </div>
         <span class="bp ${cls}" style="flex-shrink:0">${t.statut||'—'}</span>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;color:var(--n3);margin-bottom:8px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;color:var(--n3);margin-bottom:8px;align-items:center">
         <span>🕐 ${debut}</span>
         ${t.localisation?`<span>📍 ${t.localisation}</span>`:''}
         ${t.contact_nom?`<span>👤 ${contact}</span>`:''}
+        ${tkRappelSpanHtml(t)}
       </div>
       ${t.notes?`<div style="font-size:11px;color:var(--n2);background:var(--n6);border-radius:3px;padding:5px 8px;margin-bottom:8px;line-height:1.4">${t.notes}</div>`:''}
       <div style="display:flex;align-items:center;justify-content:space-between">
