@@ -744,7 +744,7 @@ function applyRole(){
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// SEUILS ÉDITABLES — localStorage
+// SEUILS ÉDITABLES + CLÉ API — Firestore
 // ═══════════════════════════════════════════════════════════
 const SEUILS_COL = 'noc_seuils';
 let _seuilsDocId = null;
@@ -783,6 +783,39 @@ async function resetSeuils(){
     document.querySelectorAll('.sv[data-key]').forEach(td=>td.textContent=td.getAttribute('data-default')||td.textContent);
     toast('Seuils réinitialisés ✓','ok');
   }catch(e){toast('Erreur: '+e.message,'err');}
+}
+
+// ── Clé API Claude (config, Firestore) ──────────────────────────────
+const TK_CONFIG_COL = 'noc_config';
+let _tkConfigDocId = null;
+window._psiApiKey = '';
+let _tkPsiKeySaveTimer = null;
+
+async function tkLoadPsiApiKey(){
+  try{
+    const snap = await window._gets(window._col(window._db, TK_CONFIG_COL));
+    if(snap.docs.length>0){
+      _tkConfigDocId = snap.docs[0].id;
+      window._psiApiKey = snap.docs[0].data().psiApiKey || '';
+    }
+  }catch(e){ console.warn('tkLoadPsiApiKey:', e); }
+  const inp = document.getElementById('psi-api-key');
+  if(inp && !inp.value) inp.value = window._psiApiKey;
+}
+
+function tkSavePsiApiKey(val){
+  window._psiApiKey = val;
+  clearTimeout(_tkPsiKeySaveTimer);
+  _tkPsiKeySaveTimer = setTimeout(async ()=>{
+    try{
+      if(_tkConfigDocId){
+        await window._upd(window._doc(window._db,TK_CONFIG_COL,_tkConfigDocId),{psiApiKey:val});
+      } else {
+        const r = await window._add(window._col(window._db,TK_CONFIG_COL),{psiApiKey:val});
+        _tkConfigDocId = r.id;
+      }
+    }catch(e){ console.warn('tkSavePsiApiKey:', e); }
+  }, 600);
 }
 
 // Attacher les événements dblclick sur toutes les cellules .sv
@@ -2998,10 +3031,9 @@ async function deleteVip(id){
           <span style="font-size:11px;font-weight:700;color:#1B4F72;white-space:nowrap">Clé API Claude :</span>
           <input type="password" id="psi-api-key" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false"
             style="flex:1;border:none;outline:none;font-family:var(--mono);font-size:11.5px;color:#333;background:transparent;min-width:0"
-            oninput="localStorage.setItem('psi_api_key',this.value)"
-            value="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">
+            oninput="tkSavePsiApiKey(this.value)">
           <button type="button" onclick="var i=document.getElementById('psi-api-key');i.type=i.type==='password'?'text':'password'" style="background:none;border:none;cursor:pointer;font-size:14px;color:#999;padding:0 2px" title="Afficher/masquer">👁</button>
-          <span style="font-size:10px;color:#999;white-space:nowrap">Stockée localement</span>
+          <span style="font-size:10px;color:#999;white-space:nowrap">Stockée dans Firebase</span>
         </div>
       </div>
       <!-- Barre progression IA -->
@@ -3788,8 +3820,8 @@ async function loadAll(){
     ]);
     DB.reunions=r; DB.cr=c; DB.plans=p; DB.incidents=inc;
     DB.changements=chg; DB.agents=ag; DB.docs=docs; DB.crises=crises; DB.psi=psi; DB.kb=kb; DB.tickets=tickets; DB.agentsExtra=agExtra; DB.plaintes=plaintes||[];
-    // Mémoriser tous les clients existants
-    if(DB.tickets) DB.tickets.forEach(t=>{ if(t.client) tkSaveClient(t.client); });
+    tkLoadSavedClients();
+    tkLoadPsiApiKey();
     dot.className='ok';
     renderAll();
     loadN1(); loadN2();
@@ -5327,11 +5359,10 @@ function psiRender() {
 // ── Ouvrir modale création ──
 function psiOpenModal() {
   if (APP_ROLE === 'visitor') { toast('🔒 Accès lecture seule', 'err'); return; }
-  // Pré-remplir la clé API depuis localStorage
+  // Pré-remplir la clé API depuis Firestore (déjà chargée en mémoire)
   setTimeout(function(){
-    var k = localStorage.getItem('psi_api_key');
     var inp = document.getElementById('psi-api-key');
-    if (inp && k) inp.value = k;
+    if (inp && !inp.value && window._psiApiKey) inp.value = window._psiApiKey;
   }, 50);
   _psi_pts = [];
   _psi_liens = [];
@@ -5819,9 +5850,9 @@ null si absent, [] si vide. UNIQUEMENT le JSON.
 ---DOCUMENT---
 ` + texteExtrait.slice(0, 14000);
 
-    // Récupérer la clé API (champ ou localStorage)
+    // Récupérer la clé API (champ ou config Firestore en mémoire)
     const apiKey = (document.getElementById('psi-api-key') && document.getElementById('psi-api-key').value.trim())
-      || localStorage.getItem('psi_api_key') || '';
+      || window._psiApiKey || '';
     if (!apiKey) throw new Error('Clé API manquante — saisissez votre clé sk-ant-… dans le champ 🔑');
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -7307,27 +7338,49 @@ function ticketRender(){
   }).join('');
 }
 
-// ── Clients mémorisés ────────────────────────────────────────────────
-const TK_CLIENTS_KEY = 'noc_tk_clients';
+// ── Clients mémorisés (Firestore) ──────────────────────────────────
+const TK_CLIENTS_COL = 'noc_tk_clients';
+let _tkClientsCache = [];
+let _tkClientsDocId = null;
 
-function tkGetSavedClients(){
-  try { return JSON.parse(localStorage.getItem(TK_CLIENTS_KEY)||'[]'); } catch(e){ return []; }
+async function tkLoadSavedClients(){
+  try{
+    const snap = await window._gets(window._col(window._db, TK_CLIENTS_COL));
+    if(snap.docs.length>0){
+      _tkClientsDocId = snap.docs[0].id;
+      _tkClientsCache = snap.docs[0].data().noms || [];
+    }
+  }catch(e){ console.warn('tkLoadSavedClients:', e); }
+  tkBuildClientList();
 }
 
-function tkSaveClient(nom){
+function tkGetSavedClients(){
+  return _tkClientsCache;
+}
+
+async function tkSaveClient(nom){
   if(!nom || nom.trim().length<2) return;
-  const list = tkGetSavedClients();
   const n = nom.trim().toUpperCase();
-  if(!list.includes(n)){ list.unshift(n); localStorage.setItem(TK_CLIENTS_KEY, JSON.stringify(list.slice(0,200))); }
+  if(_tkClientsCache.includes(n)) return;
+  _tkClientsCache = [n, ..._tkClientsCache].slice(0,200);
+  try{
+    if(_tkClientsDocId){
+      await window._upd(window._doc(window._db, TK_CLIENTS_COL, _tkClientsDocId), {noms:_tkClientsCache});
+    } else {
+      const r = await window._add(window._col(window._db, TK_CLIENTS_COL), {noms:_tkClientsCache});
+      _tkClientsDocId = r.id;
+    }
+  }catch(e){ console.warn('tkSaveClient:', e); }
+  tkBuildClientList();
 }
 
 function tkBuildClientList(){
   const dl = document.getElementById('tk-client-list');
   if(!dl) return;
-  // Fusionner DB.tickets + localStorage, dédoublonner, trier
+  // Fusionner DB.tickets + Firestore (noc_tk_clients), dédoublonner, trier
   const fromDB = (DB.tickets||[]).map(t=>(t.client||'').trim().toUpperCase()).filter(Boolean);
-  const fromLS = tkGetSavedClients();
-  const all = [...new Set([...fromLS, ...fromDB])].sort();
+  const fromFS = tkGetSavedClients();
+  const all = [...new Set([...fromFS, ...fromDB])].sort();
   dl.innerHTML = all.map(n=>`<option value="${n}"></option>`).join('');
 }
 
@@ -7994,16 +8047,5 @@ async function pdaNocbSaveAll(){
   transition:background .4s;
 }
 </style>
-<script>
-// Pré-charger la clé API dans le localStorage et le champ
-(function(){
-  var KEY = "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";
-  try { localStorage.setItem('psi_api_key', KEY); } catch(e) {}
-  window.addEventListener('load', function(){
-    var inp = document.getElementById('psi-api-key');
-    if (inp && !inp.value) inp.value = KEY;
-  });
-})();
-</script>
 </body>
 </html>
