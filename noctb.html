@@ -2527,18 +2527,9 @@ async function deleteVip(id){
             </div>
           </div>
 
-          <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:8px">
-            <div class="fgrp" style="margin:0">
-              <label>Localisation</label>
-              <input type="text" id="tk-localisation" placeholder="Ex: TREICHVILLE…">
-            </div>
-            <div class="fgrp" style="margin:0">
-              <label>Statut</label>
-              <select id="tk-statut">
-                <option value="En cours">En cours</option>
-                <option value="Terminé">Terminé</option>
-              </select>
-            </div>
+          <div class="fgrp" style="margin:0">
+            <label>Localisation</label>
+            <input type="text" id="tk-localisation" placeholder="Ex: TREICHVILLE…">
           </div>
 
           <div class="fgrp" style="margin:0">
@@ -2549,13 +2540,22 @@ async function deleteVip(id){
             </div>
           </div>
 
-          <div class="fgrp" style="margin:0">
-            <label>Ouvert par *</label>
-            <div style="display:flex;gap:6px;align-items:center">
-              <select id="tk-ouvert-par" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:13px;background:#fff">
-                <option value="">— Sélectionner —</option>
+          <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:8px">
+            <div class="fgrp" style="margin:0">
+              <label>Ouvert par *</label>
+              <div style="display:flex;gap:6px;align-items:center">
+                <select id="tk-ouvert-par" style="flex:1;border:1px solid var(--n5);border-radius:3px;padding:6px 8px;font-size:13px;background:#fff">
+                  <option value="">— Sélectionner —</option>
+                </select>
+                <button type="button" onclick="tkAddAgent()" title="Ajouter un agent" style="background:var(--v);color:#fff;border:none;border-radius:3px;width:30px;height:30px;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
+              </div>
+            </div>
+            <div class="fgrp" style="margin:0">
+              <label>Statut</label>
+              <select id="tk-statut">
+                <option value="En cours">En cours</option>
+                <option value="Terminé">Terminé</option>
               </select>
-              <button type="button" onclick="tkAddAgent()" title="Ajouter un agent" style="background:var(--v);color:#fff;border:none;border-radius:3px;width:30px;height:30px;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">+</button>
             </div>
           </div>
 
@@ -2668,21 +2668,9 @@ async function deleteVip(id){
         <span id="tk-count-lbl" style="font-size:10px;color:var(--n4);font-family:var(--mono)">—</span>
       </div>
 
-      <!-- Liste tickets + encart Rappels 4h -->
-      <div style="display:grid;grid-template-columns:1fr 230px;gap:0">
-        <div id="tk-list-panel" style="max-height:calc(100vh - 220px);overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:6px;border-right:1px solid var(--n5)">
-          <!-- rempli par ticketRender() -->
-        </div>
-        <div style="display:flex;flex-direction:column;min-width:0">
-          <div style="padding:8px 10px 6px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--n5)">
-            <span style="font-size:12px">🔔</span>
-            <span style="font-family:var(--cond);font-size:11.5px;font-weight:700;color:var(--n1)">Rappels 4h</span>
-            <span id="tk-rappel-count" style="font-family:var(--mono);font-size:9px;background:var(--n6);color:var(--n3);padding:1px 6px;border-radius:8px">0</span>
-          </div>
-          <div id="tk-rappel-panel" style="max-height:calc(100vh - 254px);overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px">
-            <!-- rempli par tkRenderRappelPanel() -->
-          </div>
-        </div>
+      <!-- Liste tickets (scrollable) -->
+      <div id="tk-list-panel" style="max-height:calc(100vh - 220px);overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+        <!-- rempli par ticketRender() -->
       </div>
     </div>
 
@@ -6966,38 +6954,50 @@ function tkRenderVolume(){
   avgBox.innerHTML = `📊 Moyenne : <b>${moy}</b> tickets / ${unit} &nbsp;·&nbsp; Total : <b>${total}</b>`;
 }
 
-// ── Rappel 4h après ouverture de ticket ─────────────────────────────
+// ── Rappel 4h après ouverture de ticket (récurrent jusqu'à statut Terminé) ──
 const TK_RAPPEL_SEUIL_MS = 4*60*60*1000;   // 4h
-const TK_RAPPEL_PRE_MS   = 30*60*1000;     // affiche l'avertissement 30 min avant le seuil
+const TK_RAPPEL_PRE_MS   = 30*60*1000;     // affiche l'avertissement 30 min avant chaque échéance
 
-function tkRappelState(debut, statut){
+function tkRappelState(debut, statut, ackCk){
   if(!debut || statut==='Terminé' || statut==='Résolu' || statut==='Fermé') return null;
   const start = new Date(debut).getTime();
   if(isNaN(start)) return null;
-  const remain = TK_RAPPEL_SEUIL_MS - (Date.now()-start);
-  if(remain > TK_RAPPEL_PRE_MS) return {show:false, remain};
-  const abs = Math.abs(remain);
-  const h = Math.floor(abs/3600000), m = Math.floor((abs%3600000)/60000);
-  const hm = h>0 ? h+'h'+String(m).padStart(2,'0') : m+'min';
-  if(remain<=0) return {show:true, overdue:true,  remain, text:`⏰ Délai 4h dépassé (+${hm})`};
-  return              {show:true, overdue:false, remain, text:`⏰ ${hm} avant délai 4h`};
+  ackCk = ackCk||0;
+  const elapsed = Date.now()-start;
+  const completed = Math.floor(elapsed/TK_RAPPEL_SEUIL_MS); // nb d'échéances 4h déjà passées
+
+  if(completed>=1 && completed>ackCk){
+    const overdueMs = elapsed - completed*TK_RAPPEL_SEUIL_MS;
+    const h = Math.floor(overdueMs/3600000), m = Math.floor((overdueMs%3600000)/60000);
+    const hm = h>0 ? h+'h'+String(m).padStart(2,'0') : m+'min';
+    return {show:true, overdue:true, checkpoint:completed, text:`⏰ Relance dépassée (+${hm})`};
+  }
+
+  const nextCk = completed+1;
+  const remainToNext = nextCk*TK_RAPPEL_SEUIL_MS - elapsed;
+  if(remainToNext<=TK_RAPPEL_PRE_MS){
+    const m = Math.floor(remainToNext/60000);
+    return {show:true, overdue:false, checkpoint:nextCk, text:`⏰ Relance dans ${m}min`};
+  }
+  return {show:false};
 }
 
 function tkRappelSpanHtml(t){
-  const st = tkRappelState(t.debut, t.statut);
+  const st = tkRappelState(t.debut, t.statut, t.rappelAckCk);
   const show    = !!(st && st.show);
   const overdue = !!(st && st.overdue);
   const bg     = overdue ? '#fdeceb' : '#fff7e6';
   const color  = overdue ? '#c0392b' : '#92400E';
   const border = overdue ? '#f2c4be' : '#fde68a';
-  return `<span class="tk-rappel" data-debut="${t.debut||''}" data-statut="${t.statut||''}" style="${show?'display:inline-flex;':'display:none;'}align-items:center;gap:3px;background:${bg};color:${color};border:1px solid ${border};padding:2px 7px;border-radius:3px;font-size:10px;font-weight:700;${overdue?'animation:blink 1.4s infinite':''}">${(st&&st.text)||''}</span>`;
+  return `<span class="tk-rappel" onclick="event.stopPropagation();tkOpenAckModal('${t.id}')" data-debut="${t.debut||''}" data-statut="${t.statut||''}" data-ackck="${t.rappelAckCk||0}" style="${show?'display:inline-flex;':'display:none;'}align-items:center;gap:3px;cursor:pointer;background:${bg};color:${color};border:1px solid ${border};padding:2px 7px;border-radius:3px;font-size:10px;font-weight:700;${overdue?'animation:blink 1.4s infinite':''}">${(st&&st.text)||''}</span>`;
 }
 
 function tkRefreshRappels(){
   document.querySelectorAll('.tk-rappel[data-debut]').forEach(el=>{
     const debut  = el.getAttribute('data-debut');
     const statut = el.getAttribute('data-statut');
-    const st = tkRappelState(debut, statut);
+    const ackCk  = parseInt(el.getAttribute('data-ackck')||'0',10);
+    const st = tkRappelState(debut, statut, ackCk);
     if(!st || !st.show){ el.style.display='none'; el.textContent=''; return; }
     el.style.display    = 'inline-flex';
     el.style.background = st.overdue ? '#fdeceb' : '#fff7e6';
@@ -7006,37 +7006,8 @@ function tkRefreshRappels(){
     el.style.animation  = st.overdue ? 'blink 1.4s infinite' : 'none';
     el.textContent      = st.text;
   });
-  tkRenderRappelPanel();
 }
 setInterval(tkRefreshRappels, 30000);
-
-function tkRenderRappelPanel(){
-  const panel = document.getElementById('tk-rappel-panel');
-  const cnt   = document.getElementById('tk-rappel-count');
-  if(!panel) return;
-
-  const rows = (DB.tickets||[]).map(t=>({t, st:tkRappelState(t.debut, t.statut)}))
-    .filter(x=>x.st && x.st.show && !x.t.rappelAck)
-    .sort((a,b)=>a.st.remain-b.st.remain);
-
-  if(cnt) cnt.textContent = rows.length;
-
-  if(!rows.length){
-    panel.innerHTML = `<div style="text-align:center;padding:20px 8px;color:var(--n4);font-size:11px">Aucun rappel actif</div>`;
-    return;
-  }
-
-  panel.innerHTML = rows.map(({t,st})=>{
-    const bg     = st.overdue ? '#fdeceb' : '#fff7e6';
-    const color  = st.overdue ? '#c0392b' : '#92400E';
-    const border = st.overdue ? '#f2c4be' : '#fde68a';
-    return `<div onclick="tkOpenAckModal('${t.id}')" style="cursor:pointer;padding:7px 8px;border-radius:4px;border:1px solid ${border};background:${bg}">
-      <div style="font-weight:700;font-size:11px;color:var(--n1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.client||'—'}</div>
-      <div style="font-family:var(--mono);font-size:9px;color:var(--n3);margin:1px 0 3px">${t.ref||'—'}</div>
-      <div style="font-size:9.5px;font-weight:700;color:${color}">${st.text}</div>
-    </div>`;
-  }).join('');
-}
 
 function tkOpenAckModal(id){
   const t = (DB.tickets||[]).find(x=>x.id===id);
@@ -7054,12 +7025,14 @@ async function tkConfirmAck(){
   const id = document.getElementById('tk-ack-id').value;
   const t = (DB.tickets||[]).find(x=>x.id===id);
   if(!t){ closeModal('mo-tk-ack'); return; }
+  const st = tkRappelState(t.debut, t.statut, t.rappelAckCk||0);
+  const ck = (st && st.checkpoint) || ((t.rappelAckCk||0)+1);
   try{
-    await window._upd(window._doc(window._db,'noc_tickets_indispo',id),{rappelAck:true});
-    t.rappelAck = true;
+    await window._upd(window._doc(window._db,'noc_tickets_indispo',id),{rappelAckCk:ck});
+    t.rappelAckCk = ck;
     closeModal('mo-tk-ack');
     ticketRender();
-    toast('Rappel acquitté ✓','ok');
+    toast('Rappel acquitté ✓ — prochaine relance dans 4h','ok');
   }catch(e){ toast('Erreur Firebase: '+e.message,'err'); }
 }
 
@@ -7067,7 +7040,6 @@ function ticketRender(){
   const panel = document.getElementById('tk-list-panel');
   if(!panel) return;
   tkBuildClientList();
-  tkRenderRappelPanel();
 
   const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
   const fStatut = document.getElementById('tk-filter-statut')?.value||'';
@@ -7607,7 +7579,7 @@ async function ticketSave(){
     destinataire: destinat,
     notes       : '',
     fin         : null,
-    rappelAck   : existing ? !!existing.rappelAck : false
+    rappelAckCk : existing ? (existing.rappelAckCk||0) : 0
   };
 
   try{
