@@ -2647,7 +2647,7 @@ async function deleteVip(id){
             <div class="fgrp" style="margin:0">
               <label>Statut</label>
               <select id="tk-statut">
-                <option value="En cours">En cours</option>
+                <option value="Ouvert">Ouvert</option>
                 <option value="Terminé">Terminé</option>
               </select>
             </div>
@@ -7432,7 +7432,7 @@ function ticketRender(){
     const cls   = TK_STATUT_CLS[t.statut]||'bp-prog';
     const debut = t.debut ? new Date(t.debut).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
     const fin   = t.fin ? new Date(t.fin).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-    const dotCol = t.statut==='Terminé' ? 'var(--g)' : 'var(--a)';
+    const dotCol = t.statut==='Terminé' ? 'var(--g)' : 'var(--r)';
     return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);border-radius:4px;transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
       <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
       <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
@@ -7512,6 +7512,33 @@ function tkClientFilter(val){
   tkBuildClientList();
 }
 
+// Verrouille tous les champs du formulaire ticket sauf le Statut (édition = statut seul modifiable)
+const TK_FORM_LOCK_IDS = ['tk-client','tk-ref','tk-type','tk-debut','tk-localisation','tk-heure-conf','tk-contact-nom','tk-contact-tel','tk-contact-mail','tk-ouvert-par'];
+
+function tkLockFieldsForEdit(lock){
+  TK_FORM_LOCK_IDS.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.disabled = lock;
+    el.style.background = lock ? 'var(--n6)' : '';
+    el.style.color      = lock ? 'var(--n4)' : '';
+    el.style.cursor      = lock ? 'not-allowed' : '';
+  });
+  const addAgentBtn = document.querySelector('#page-tickets-indispo button[onclick="tkAddAgent()"]');
+  if(addAgentBtn){
+    addAgentBtn.disabled = lock;
+    addAgentBtn.style.opacity = lock ? '.4' : '';
+    addAgentBtn.style.cursor  = lock ? 'not-allowed' : 'pointer';
+    addAgentBtn.style.pointerEvents = lock ? 'none' : '';
+  }
+  ['tk-dest-sav','tk-dest-qp'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el) return;
+    el.style.pointerEvents = lock ? 'none' : '';
+    el.style.opacity       = lock ? '.55' : '';
+  });
+}
+
 function ticketResetForm(){
   document.getElementById('tk-edit-id').value='';
   ['tk-client','tk-ref','tk-localisation','tk-heure-conf','tk-contact-nom','tk-contact-tel','tk-contact-mail','tk-ouvert-par'].forEach(id=>{
@@ -7522,7 +7549,8 @@ function ticketResetForm(){
   tkSetDest('');
   const now=new Date(); now.setSeconds(0,0);
   document.getElementById('tk-debut').value=now.toISOString().slice(0,16);
-  document.getElementById('tk-statut').value='En cours';
+  document.getElementById('tk-statut').value='Ouvert';
+  tkLockFieldsForEdit(false);
 }
 
 function ticketEditInline(id){
@@ -7534,15 +7562,16 @@ function ticketEditInline(id){
   document.getElementById('tk-debut').value=t.debut?t.debut.slice(0,16):'';
   document.getElementById('tk-localisation').value=t.localisation||'';
   document.getElementById('tk-heure-conf').value=t.heureConfirmation?t.heureConfirmation.slice(0,16):'';
-  document.getElementById('tk-statut').value=t.statut||'En cours';
+  document.getElementById('tk-statut').value=t.statut||'Ouvert';
   document.getElementById('tk-contact-nom').value=t.contact_nom||'';
   document.getElementById('tk-contact-tel').value=t.contact_tel||'';
   document.getElementById('tk-contact-mail').value=t.contact_mail||'';
   document.getElementById('tk-ouvert-par').value=t.ouvert_par||'';
   tkSetDest(t.destinataire||'');
+  tkLockFieldsForEdit(true);
   // Scroll vers le haut du formulaire
   document.getElementById('page-tickets-indispo').scrollIntoView({behavior:'smooth',block:'start'});
-  toast('Ticket chargé — modifiez puis cliquez Enregistrer','info');
+  toast('Ticket chargé — seul le statut est modifiable','info');
 }
 
 // Garder ticketEdit et ticketOpenModal pour compatibilité modale si besoin
@@ -7770,7 +7799,7 @@ async function ticketSave(){
     debut,
     localisation: localisa,
     heureConfirmation: v('tk-heure-conf'),
-    statut      : v('tk-statut')||'En cours',
+    statut      : v('tk-statut')||'Ouvert',
     contact_nom : contNom,
     contact_tel : contTel,
     contact_mail: v('tk-contact-mail'),
@@ -7791,9 +7820,11 @@ async function ticketSave(){
     } else {
       const r = await window._add(window._col(window._db,'noc_tickets_indispo'),{...data,createdAt:new Date().toISOString()});
       DB.tickets.unshift({id:r.id,...data,createdAt:new Date().toISOString()});
+      document.getElementById('tk-edit-id').value = r.id;
       toast('Ticket enregistré ✓','ok');
       tkSaveClient(client);
     }
+    tkLockFieldsForEdit(true);
     closeModal('mo-ticket');
     ticketRender();
     return data;
