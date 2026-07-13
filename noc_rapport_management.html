@@ -1432,6 +1432,14 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   const clientFrom   = s => { const m=s.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:s.substring(0,8); };
   const clientsImp   = new Set([...ndData.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
 
+  // Proactivité — mêmes calculs que la section PDF correspondante (comptage complet, non plafonné à 10)
+  const instablesAllDG      = [...ifData,...ndData].filter(d=>d.isFlapping);
+  const nbInstablesAll      = instablesAllDG.length;
+  const nbClientsInstablesDG= new Set(instablesAllDG.map(d=>clientFrom(d.site))).size;
+  const tauxInstablesDG     = nbLiens>0 ? Math.round((nbInstablesAll/nbLiens)*100) : 0;
+  const nbInstablesCorrDG   = instablesAllDG.filter(d=>!d.isDown).length;
+  const tauxCorrectionDG    = instablesAllDG.length>0 ? Math.round((nbInstablesCorrDG/instablesAllDG.length)*100) : 0;
+
   const topRow = (d, i, fillCls, countCls, arrName) => {
     const arr = arrName==="topInstables" ? topInstables : topCoupures;
     const pct = arr[0]&&arr[0].nb>0 ? Math.round((d.nb/arr[0].nb)*100) : 0;
@@ -1455,6 +1463,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
       ".dg-dot{width:7px;height:7px;border-radius:50%;background:#8b0000}"+
       ".dg-section{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#3d4250;margin:18px 0 10px;padding-left:2px}"+
       ".dg-grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px}"+
+      ".dg-grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px}"+
       ".dg-grid5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:10px}"+
       ".dg-grid4b{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px}"+
       ".dg-kpi{background:#f0f2f5;border-radius:8px;padding:12px 14px;border:1px solid #d8dce4}"+
@@ -1516,6 +1525,26 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
       <canvas id="dg-evol-chart" height="70"></canvas>
     </div>
   </div>
+
+  <div class="dg-section">RÉACTIVITÉ (Ouverture rapide de tickets incidents)</div>
+  <div class="dg-grid3">
+    <div class="dg-kpi"><div class="dg-kpi-label">Demande d'ouverture de ticket</div><div class="dg-kpi-val red" id="kpi-tickets-total">…</div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Temps d'ouverture SAV B2B</div><div class="dg-kpi-val amber" id="dg-tk-ouverture">…</div><div class="dg-kpi-sub" id="dg-tk-ouverture-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux d'ouverture par le SAV B2B</div><div class="dg-kpi-val amber" id="dg-tk-taux-sav">…</div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Temps de rétablissement moyen</div><div class="dg-kpi-val amber" id="dg-tk-mttr">…</div><div class="dg-kpi-sub" id="dg-tk-mttr-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Réitération client</div><div class="dg-kpi-val red" id="dg-tk-reiteration">…</div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux de réitération</div><div class="dg-kpi-val red" id="dg-tk-taux-reiteration">…</div><div class="dg-kpi-sub"></div></div>
+  </div>
+  <div id="kpi-noc-hint" style="font-size:11px;color:#9aa0ae;margin:-4px 0 16px"></div>
+
+  <div class="dg-section">PROACTIVITÉ (Détection des anomalies avant incidents)</div>
+  <div class="dg-grid4">
+    <div class="dg-kpi"><div class="dg-kpi-label">Sites instables</div><div class="dg-kpi-val amber">${nbInstablesAll}</div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Nombre de clients</div><div class="dg-kpi-val amber">${nbClientsInstablesDG}</div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux de sites instables</div><div class="dg-kpi-val amber">${tauxInstablesDG}%</div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux de correction</div><div class="dg-kpi-val amber">${tauxCorrectionDG}%</div><div class="dg-kpi-sub"></div></div>
+  </div>
+
   <div class="dg-sep"></div>
   <div class="dg-sep"></div>`;
 
@@ -3246,9 +3275,9 @@ async function pdaDeleteRow(btn, rowId, site){
 }
 
 
-//  KPI TICKETS depuis Firebase (noctb) 
+//  KPI TICKETS depuis Firebase (noctb) — alimente la section RÉACTIVITÉ du dashboard
 async function loadKpiTickets(){
-  const ids = ["kpi-tickets-total","kpi-tickets-sav","kpi-tickets-qp"];
+  const ids = ["kpi-tickets-total","dg-tk-ouverture","dg-tk-taux-sav","dg-tk-mttr","dg-tk-reiteration","dg-tk-taux-reiteration"];
   ids.forEach(id=>{ const el=document.getElementById(id); if(el) el.textContent="…"; });
   // Attendre Firebase si pas encore prêt (module chargé après le script principal)
   if(!window._db){
@@ -3287,15 +3316,52 @@ async function loadKpiTickets(){
       const ticketDateISO = t.debut.substring(0, 10); // "2026-06-16"
       return rapportDatesISO.has(ticketDateISO);
     });
-    const total   = filtered.length;
-    const srcData = filtered;
-    const sav     = srcData.filter(t=>t.destinataire==="SAV B2B").length;
-    const qp      = srcData.filter(t=>t.destinataire==="Qualité & Performance").length;
+    const total = filtered.length;
+    const sav   = filtered.filter(t=>t.destinataire==="SAV B2B").length;
+    const tauxSav = total>0 ? Math.round((sav/total)*100) : 0;
+
+    // Temps d'ouverture SAV B2B : délai moyen entre la coupure (debut) et l'ouverture du ticket
+    const savAvecOuverture = filtered.filter(t=>t.destinataire==="SAV B2B" && t.debut && (t.ouverture||t.dateOuverture||t.creation));
+    let ouvertureTxt = "—";
+    if(savAvecOuverture.length){
+      const totalMinOuv = savAvecOuverture.reduce((s,t)=>{
+        const d0=new Date(t.debut), d1=new Date(t.ouverture||t.dateOuverture||t.creation);
+        const dm=(d1-d0)/60000; return s+(dm>0?dm:0);
+      },0);
+      const avgMinOuv = Math.round(totalMinOuv/savAvecOuverture.length);
+      ouvertureTxt = avgMinOuv>=60 ? (Math.floor(avgMinOuv/60)+"h"+String(avgMinOuv%60).padStart(2,"0")) : avgMinOuv+"min";
+    }
+
+    // Temps de rétablissement moyen (MTTR) : moyenne (fin - debut) des tickets résolus
+    const resolus = filtered.filter(t=>t.debut && t.fin);
+    let mttrTxt = "—";
+    if(resolus.length){
+      const totalMin = resolus.reduce((s,t)=>{
+        const dm=(new Date(t.fin)-new Date(t.debut))/60000; return s+(dm>0?dm:0);
+      },0);
+      const avgMin = Math.round(totalMin/resolus.length);
+      mttrTxt = avgMin>=60 ? (Math.floor(avgMin/60)+"h"+String(avgMin%60).padStart(2,"0")) : avgMin+"min";
+    }
+
+    // Réitération client : contacts répétés par un même client au-delà du 1er ticket
+    const clientKey = t => t.client || t.reference || t.id || "";
+    const parClient = {};
+    filtered.forEach(t=>{ const k=clientKey(t); if(!k) return; parClient[k]=(parClient[k]||0)+1; });
+    const nbReiteration = Object.values(parClient).reduce((s,n)=> s+(n>1?n-1:0),0);
+    const tauxReiteration = total>0 ? Math.round((nbReiteration/total)*100) : 0;
 
     const set=(id,val)=>{ const el=document.getElementById(id); if(el) el.textContent=val; };
-    set("kpi-tickets-total",  total   || "0");
-    set("kpi-tickets-sav",    sav     || "0");
-    set("kpi-tickets-qp",     qp      || "0");
+    set("kpi-tickets-total",       total || "0");
+    set("dg-tk-ouverture",         ouvertureTxt);
+    set("dg-tk-taux-sav",          tauxSav+"%");
+    set("dg-tk-mttr",              mttrTxt);
+    set("dg-tk-reiteration",       nbReiteration || "0");
+    set("dg-tk-taux-reiteration",  tauxReiteration+"%");
+
+    const subOuv = document.getElementById("dg-tk-ouverture-sub");
+    if(subOuv) subOuv.textContent = savAvecOuverture.length ? savAvecOuverture.length+" ticket(s)" : "—";
+    const subMttr = document.getElementById("dg-tk-mttr-sub");
+    if(subMttr) subMttr.textContent = resolus.length ? resolus.length+" ticket(s) résolu(s)" : "";
 
     const totalEl=document.getElementById("kpi-tickets-total");
     if(totalEl) totalEl.className="dg-kpi-val "+(total>5?"red":total>2?"amber":"green");
