@@ -7284,7 +7284,8 @@ function ticketRender(){
     if(window._tkClientFilter) tags.push('🏢 '+window._tkClientFilter);
     if(search) tags.push('🔍 "'+search+'"');
     const suffix = tags.length ? ' — '+tags.join(' · ') : '';
-    const avgOuvItems = tkAvgMs(items, tkOuvertureMs);
+    const closedItems = items.filter(t=>t.statut==='Terminé');
+    const avgOuvItems = tkAvgMs(closedItems, tkOuvertureMs);
     const avgTxt = avgOuvItems!==null ? ` &nbsp;·&nbsp; ⏱ Durée moy. ouverture: <b>${tkFormatMs(avgOuvItems)}</b>` : '';
     countLbl.innerHTML = `<b style="font-size:12px;color:var(--n1)">${items.length}</b> ticket${items.length!==1?'s':''}${suffix}${avgTxt}`;
   }
@@ -7325,7 +7326,7 @@ function ticketRender(){
     const fin   = t.fin ? new Date(t.fin).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
     const dotCol = t.statut==='Terminé' ? 'var(--g)' : 'var(--r)';
     const ouvMs  = tkOuvertureMs(t);
-    const ouvertureHtml = ouvMs!==null ? `<span style="font-size:10px;color:var(--v);font-family:var(--mono)" title="Durée d'ouverture du ticket (incident → création ticket)">🎫 ${tkFormatMs(ouvMs)}</span>` : '';
+    const ouvertureHtml = (t.statut==='Terminé' && ouvMs!==null) ? `<span style="font-size:10px;color:var(--v);font-family:var(--mono)" title="Durée d'ouverture du ticket (excel: création → début NOC)">🎫 ${tkFormatMs(ouvMs)}</span>` : '';
     return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);border-radius:4px;transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
       <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
       <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
@@ -7563,23 +7564,24 @@ function tkFormatMs(ms){
   return parts.join(' ');
 }
 
-// Durée d'ouverture du ticket = temps entre le début de l'incident et la création du ticket NOC
+// Durée d'ouverture du ticket = date de création EXCEL (colonne P) − date début NOC
+// Nécessite que l'Excel ait été importé (dateCreationExcel renseignée)
 function tkOuvertureMs(t){
-  if(!t.debut || !t.createdAt) return null;
+  if(!t.debut || !t.dateCreationExcel) return null;
   const start   = new Date(t.debut).getTime();
-  const created = new Date(t.createdAt).getTime();
+  const created = new Date(t.dateCreationExcel).getTime();
   if(isNaN(start)||isNaN(created)) return null;
   return created - start;
 }
 
-// Durée de l'incident = temps entre le début et la fin (ou maintenant si toujours en cours)
+// Durée de l'incident = date fin EXCEL − date début NOC
+// Uniquement si le ticket est fermé (date fin excel renseignée) — jamais calculé sur "maintenant"
 function tkIncidentMs(t){
-  if(!t.debut) return null;
+  if(!t.debut || !t.fin) return null;
   const start = new Date(t.debut).getTime();
-  if(isNaN(start)) return null;
-  const endRef = t.fin ? new Date(t.fin).getTime() : Date.now();
-  if(isNaN(endRef)) return null;
-  return endRef - start;
+  const end   = new Date(t.fin).getTime();
+  if(isNaN(start)||isNaN(end)) return null;
+  return end - start;
 }
 
 function tkAvgMs(list, fn){
@@ -7592,14 +7594,15 @@ function tkAvgMs(list, fn){
 function tkRenderDurees(kpiTickets){
   const box = document.getElementById('tk-kpi-durees');
   if(!box) return;
-  if(!kpiTickets || !kpiTickets.length){
-    box.innerHTML = '<div style="font-size:11px;color:var(--n4)">Aucun ticket sur cette période</div>';
+  const closed = (kpiTickets||[]).filter(t=>t.statut==='Terminé');
+  if(!closed.length){
+    box.innerHTML = '<div style="font-size:11px;color:var(--n4)">Aucun ticket fermé sur cette période</div>';
     return;
   }
-  const avgOuverture = tkAvgMs(kpiTickets, tkOuvertureMs);
-  const avgIncident   = tkAvgMs(kpiTickets, tkIncidentMs);
-  const nOuv = kpiTickets.filter(t=>tkOuvertureMs(t)!==null).length;
-  const nInc = kpiTickets.filter(t=>tkIncidentMs(t)!==null).length;
+  const avgOuverture = tkAvgMs(closed, tkOuvertureMs);
+  const avgIncident   = tkAvgMs(closed, tkIncidentMs);
+  const nOuv = closed.filter(t=>tkOuvertureMs(t)!==null).length;
+  const nInc = closed.filter(t=>tkIncidentMs(t)!==null).length;
   box.innerHTML = `
     <div style="background:var(--vl);border-radius:5px;padding:8px 12px;display:flex;align-items:center;gap:8px">
       <span style="font-size:16px">🎫</span>
@@ -7668,6 +7671,7 @@ async function tkImportIncidentsFile(file){
     const headers = rows[0].map(norm);
     const idxRef = headers.findIndex(h=>h.includes('ref'));
     const idxFin = headers.findIndex(h=>h.includes('fin')||h.includes('cloture')||h.includes('resolution'));
+    const IDX_CREATION = 15; // colonne P = date de création (fixe)
 
     if(idxRef<0 || idxFin<0){
       toast('Colonnes Référence / Date fin introuvables dans le fichier','err');
@@ -7680,18 +7684,21 @@ async function tkImportIncidentsFile(file){
       const refVal = String(r[idxRef]||'').trim();
       if(!refVal){ ignore++; continue; }
 
-      const finDate      = tkParseDate(r[idxFin]);
+      const finDate       = tkParseDate(r[idxFin]);
+      const creationDate  = tkParseDate(r[IDX_CREATION]);
       const nouveauStatut = finDate ? 'Terminé' : 'Ouvert';
       const nouveauFin     = finDate ? finDate.toISOString() : '';
+      const nouvelleCreation = creationDate ? creationDate.toISOString() : '';
 
       const t = (DB.tickets||[]).find(x=>norm(x.ref)===norm(refVal));
       if(!t){ introuvable++; continue; }
 
-      if(t.statut!==nouveauStatut || (t.fin||'')!==nouveauFin){
+      if(t.statut!==nouveauStatut || (t.fin||'')!==nouveauFin || (t.dateCreationExcel||'')!==nouvelleCreation){
         try{
-          await fbUpdate('noc_tickets_indispo', t.id, {statut:nouveauStatut, fin:nouveauFin});
+          await fbUpdate('noc_tickets_indispo', t.id, {statut:nouveauStatut, fin:nouveauFin, dateCreationExcel:nouvelleCreation});
           t.statut = nouveauStatut;
           t.fin = nouveauFin;
+          t.dateCreationExcel = nouvelleCreation;
           maj++;
         }catch(e){ console.error('Erreur maj ticket', refVal, e); }
       }
