@@ -7015,23 +7015,40 @@ function tkBuildTrendChart({xLabels, series, isDuration}){
   });
 
   let lines='', legend='';
+  const barW = Math.max(6, (plotW/n)*0.5);
   series.forEach(s=>{
-    const pts = s.values.map((v,i)=> (v===null||v===undefined) ? null : `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`);
-    const validPts = pts.filter(Boolean);
-    if(validPts.length){
-      lines += `<polyline points="${validPts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2"${s.dashed?' stroke-dasharray="5,4"':''}/>`;
-      if(!s.dashed) s.values.forEach((v,i)=>{
+    if(s.dashed){
+      // Ligne de tendance pointillée, toujours en trait (par-dessus les barres)
+      const pts = s.values.map((v,i)=> (v===null||v===undefined) ? null : `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).filter(Boolean);
+      if(pts.length) lines += `<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2" stroke-dasharray="5,4"/>`;
+    } else if(s.type==='bar'){
+      s.values.forEach((v,i)=>{
         if(v===null||v===undefined||isNaN(v)) return;
-        const cx = xAt(i).toFixed(1), cy = yAt(v);
-        lines += `<circle cx="${cx}" cy="${cy.toFixed(1)}" r="3.5" fill="${s.color}"/>`;
-        // Étiquette de valeur au-dessus (ou en dessous si trop proche du haut) de chaque point
-        const labelY = cy<24 ? cy+14 : cy-8;
+        const cx = xAt(i);
+        const y  = yAt(v);
+        const h  = (MT+plotH) - y;
+        lines += `<rect x="${(cx-barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${s.color}" rx="2"/>`;
+        const labelY = y<24 ? y+14 : y-6;
         const valTxt = isDuration ? tkFormatMs(v) : Math.round(v);
-        lines += `<text x="${cx}" y="${labelY.toFixed(1)}" font-size="9" font-weight="700" fill="${s.color}" text-anchor="middle">${valTxt}</text>`;
+        lines += `<text x="${cx.toFixed(1)}" y="${labelY.toFixed(1)}" font-size="9" font-weight="700" fill="${s.color}" text-anchor="middle">${valTxt}</text>`;
       });
+    } else {
+      const pts = s.values.map((v,i)=> (v===null||v===undefined) ? null : `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`);
+      const validPts = pts.filter(Boolean);
+      if(validPts.length){
+        lines += `<polyline points="${validPts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2"/>`;
+        s.values.forEach((v,i)=>{
+          if(v===null||v===undefined||isNaN(v)) return;
+          const cx = xAt(i).toFixed(1), cy = yAt(v);
+          lines += `<circle cx="${cx}" cy="${cy.toFixed(1)}" r="3.5" fill="${s.color}"/>`;
+          const labelY = cy<24 ? cy+14 : cy-8;
+          const valTxt = isDuration ? tkFormatMs(v) : Math.round(v);
+          lines += `<text x="${cx}" y="${labelY.toFixed(1)}" font-size="9" font-weight="700" fill="${s.color}" text-anchor="middle">${valTxt}</text>`;
+        });
+      }
     }
     legend += `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">
-      <span style="width:16px;height:2px;background:${s.dashed?'transparent':s.color};border-top:${s.dashed?`2px dotted ${s.color}`:'none'};display:inline-block"></span>
+      <span style="width:16px;height:${s.dashed?'0':'10px'};background:${s.dashed?'transparent':s.color};border-top:${s.dashed?`2px dotted ${s.color}`:'none'};display:inline-block"></span>
       <span style="font-size:10px;color:var(--n3)">${s.label}</span></span>`;
   });
 
@@ -7091,21 +7108,21 @@ function tkRenderTendances(){
     ]});
   }
 
-  // Chart 2 : Évolution durée ouverture SAV (+ tendance linéaire)
+  // Chart 2 : Évolution durée ouverture SAV (barres + tendance linéaire)
   if(box2){
     const vals = windowKeys.map(k=>avgOf(buckets[k].ouv));
     box2.innerHTML = tkBuildTrendChart({xLabels, isDuration:true, series:[
-      {label:'Durée ouverture', color:'#2563eb', values:vals},
-      {label:'Linéaire (Durée ouverture)', color:'#93c5fd', values:tkLinearTrend(vals), dashed:true}
+      {label:'Durée ouverture', color:'#2563eb', values:vals, type:'bar'},
+      {label:'Linéaire (Durée ouverture)', color:'#1d4ed8', values:tkLinearTrend(vals), dashed:true}
     ]});
   }
 
-  // Chart 3 : Évolution durée de relève (+ tendance linéaire)
+  // Chart 3 : Évolution durée de relève (barres + tendance linéaire)
   if(box3){
     const vals = windowKeys.map(k=>avgOf(buckets[k].rel));
     box3.innerHTML = tkBuildTrendChart({xLabels, isDuration:true, series:[
-      {label:'Durée de relève', color:'#059669', values:vals},
-      {label:'Linéaire (Durée de relève)', color:'#86efac', values:tkLinearTrend(vals), dashed:true}
+      {label:'Durée de relève', color:'#059669', values:vals, type:'bar'},
+      {label:'Linéaire (Durée de relève)', color:'#047857', values:tkLinearTrend(vals), dashed:true}
     ]});
   }
 }
