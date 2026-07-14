@@ -2716,15 +2716,15 @@ async function deleteVip(id){
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
         <div>
           <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:9px">📊 Tickets ouverts NOC vs SAV B2B</div>
-          <div id="tk-trend-nocsav" style="overflow-y:auto;padding-right:4px"></div>
+          <div id="tk-trend-nocsav"></div>
         </div>
         <div>
           <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:9px">📈 Évolution durée ouverture SAV</div>
-          <div id="tk-trend-ouverture" style="overflow-y:auto;padding-right:4px"></div>
+          <div id="tk-trend-ouverture"></div>
         </div>
         <div>
           <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:9px">📈 Évolution durée de relève</div>
-          <div id="tk-trend-relieve" style="overflow-y:auto;padding-right:4px"></div>
+          <div id="tk-trend-relieve"></div>
         </div>
       </div>
     </div>
@@ -6971,6 +6971,67 @@ function tkTrendBucketLabel(key, unit){
   return key.replace(/^\d{4}-/,''); // S01, S02…
 }
 
+// ── Rendu graphique : courbe + tendance linéaire pointillée (style Excel) ──
+function tkLinearTrend(values){
+  const pts = values.map((v,i)=>({i,v})).filter(p=>p.v!==null && p.v!==undefined && !isNaN(p.v));
+  const n = pts.length;
+  if(n<2) return values.map(()=>null);
+  const sumX=pts.reduce((s,p)=>s+p.i,0), sumY=pts.reduce((s,p)=>s+p.v,0);
+  const sumXY=pts.reduce((s,p)=>s+p.i*p.v,0), sumX2=pts.reduce((s,p)=>s+p.i*p.i,0);
+  const denom = n*sumX2 - sumX*sumX;
+  if(denom===0) return values.map(()=>null);
+  const slope = (n*sumXY - sumX*sumY)/denom;
+  const intercept = (sumY - slope*sumX)/n;
+  return values.map((v,i)=> (v===null||v===undefined) ? null : slope*i+intercept);
+}
+
+function tkBuildTrendChart({xLabels, series, isDuration}){
+  const W=560, H=200, ML=46, MR=10, MT=10, MB=26;
+  const plotW=W-ML-MR, plotH=H-MT-MB;
+  const n = xLabels.length;
+  const allVals = series.flatMap(s=>s.values).filter(v=>v!==null && v!==undefined && !isNaN(v));
+  if(!n || !allVals.length){
+    return '<div style="font-size:11px;color:var(--n4);padding:20px 0;text-align:center">Aucune donnée</div>';
+  }
+  const maxVal = Math.max(...allVals, 1) * 1.1;
+  const xAt = i => n>1 ? ML + i*(plotW/(n-1)) : ML+plotW/2;
+  const yAt = v => MT + plotH - (v/maxVal)*plotH;
+
+  let grid='', ylab='';
+  const steps=4;
+  for(let g=0; g<=steps; g++){
+    const val = maxVal*g/steps;
+    const y = yAt(val);
+    grid += `<line x1="${ML}" y1="${y.toFixed(1)}" x2="${W-MR}" y2="${y.toFixed(1)}" stroke="#eee" stroke-width="1"/>`;
+    ylab += `<text x="${ML-6}" y="${(y+3).toFixed(1)}" font-size="9" fill="#999" text-anchor="end">${isDuration?tkFormatMs(val):Math.round(val)}</text>`;
+  }
+
+  const labelEvery = Math.max(1, Math.ceil(n/7));
+  let xlab='';
+  xLabels.forEach((lbl,i)=>{
+    if(i%labelEvery!==0 && i!==n-1) return;
+    xlab += `<text x="${xAt(i).toFixed(1)}" y="${H-8}" font-size="9" fill="#999" text-anchor="middle">${lbl}</text>`;
+  });
+
+  let lines='', legend='';
+  series.forEach(s=>{
+    const pts = s.values.map((v,i)=> (v===null||v===undefined) ? null : `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`);
+    const validPts = pts.filter(Boolean);
+    if(validPts.length){
+      lines += `<polyline points="${validPts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2"${s.dashed?' stroke-dasharray="5,4"':''}/>`;
+      if(!s.dashed) s.values.forEach((v,i)=>{ if(v!==null&&v!==undefined&&!isNaN(v)) lines += `<circle cx="${xAt(i).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="2.5" fill="${s.color}"/>`; });
+    }
+    legend += `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">
+      <span style="width:16px;height:2px;background:${s.dashed?'transparent':s.color};border-top:${s.dashed?`2px dotted ${s.color}`:'none'};display:inline-block"></span>
+      <span style="font-size:10px;color:var(--n3)">${s.label}</span></span>`;
+  });
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    ${grid}${lines}${xlab}${ylab}
+  </svg>
+  <div style="display:flex;flex-wrap:wrap;margin-top:2px">${legend}</div>`;
+}
+
 function tkRenderTendances(){
   const box1 = document.getElementById('tk-trend-nocsav');
   const box2 = document.getElementById('tk-trend-ouverture');
@@ -7005,74 +7066,38 @@ function tkRenderTendances(){
     }
   });
 
-  const sortedKeys = Object.keys(buckets).sort((a,b)=>a<b?1:-1); // plus récent en tête
-  const rowH = 24;
-  const maxH = count*rowH;
-  const noData = '<div style="font-size:11px;color:var(--n4)">Aucune donnée</div>';
+  // Fenêtre par défaut selon la période, du plus ancien au plus récent (gauche → droite)
+  const sortedDesc = Object.keys(buckets).sort((a,b)=>a<b?1:-1); // plus récent en tête
+  const windowKeys = sortedDesc.slice(0, count).reverse(); // fenêtre visible, chronologique
+  const xLabels = windowKeys.map(k=>tkTrendBucketLabel(k,unit));
+  const avgOf = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
 
   // Chart 1 : Tickets NOC vs SAV B2B
   if(box1){
-    box1.style.maxHeight = maxH+'px';
-    if(!sortedKeys.length){ box1.innerHTML = noData; }
-    else{
-      const maxVal = Math.max(...sortedKeys.map(k=>buckets[k].noc))||1;
-      box1.innerHTML = sortedKeys.map(k=>{
-        const b = buckets[k];
-        const barNOC = Math.round(b.noc/maxVal*100);
-        const barSAV = Math.round(b.sav/maxVal*100);
-        return `<div style="padding:3px 0">
-          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--n3);margin-bottom:2px">
-            <span>${tkTrendBucketLabel(k,unit)}</span><span>${b.noc} <span style="color:#E05A00">NOC</span> / ${b.sav} <span style="color:#2563eb">SAV</span></span>
-          </div>
-          <div style="display:flex;gap:2px">
-            <div style="flex:1;height:8px;background:var(--n6);border-radius:2px;overflow:hidden"><div style="height:100%;width:${barNOC}%;background:#E05A00"></div></div>
-            <div style="flex:1;height:8px;background:var(--n6);border-radius:2px;overflow:hidden"><div style="height:100%;width:${barSAV}%;background:#2563eb"></div></div>
-          </div>
-        </div>`;
-      }).join('');
-    }
+    const nocVals = windowKeys.map(k=>buckets[k].noc);
+    const savVals = windowKeys.map(k=>buckets[k].sav);
+    box1.innerHTML = tkBuildTrendChart({xLabels, isDuration:false, series:[
+      {label:'Tickets NOC', color:'#E05A00', values:nocVals},
+      {label:'Confirmés SAV B2B', color:'#2563eb', values:savVals}
+    ]});
   }
 
-  // Chart 2 : Évolution durée ouverture SAV
+  // Chart 2 : Évolution durée ouverture SAV (+ tendance linéaire)
   if(box2){
-    box2.style.maxHeight = maxH+'px';
-    const avgOf = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
-    const avgs = sortedKeys.map(k=>avgOf(buckets[k].ouv));
-    const valid = avgs.filter(v=>v!==null);
-    if(!sortedKeys.length || !valid.length){ box2.innerHTML = noData; }
-    else{
-      const maxVal = Math.max(...valid)||1;
-      box2.innerHTML = sortedKeys.map((k,i)=>{
-        const avg = avgs[i];
-        const bar = avg!==null ? Math.round(avg/maxVal*100) : 0;
-        return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
-          <span style="font-size:10px;color:var(--n3);min-width:52px;flex-shrink:0">${tkTrendBucketLabel(k,unit)}</span>
-          <div style="flex:1;height:10px;background:var(--n6);border-radius:2px;overflow:hidden"><div style="height:100%;width:${bar}%;background:#2563eb"></div></div>
-          <span style="font-size:10px;font-weight:700;color:#2563eb;min-width:52px;text-align:right;flex-shrink:0">${avg!==null?tkFormatMs(avg):'—'}</span>
-        </div>`;
-      }).join('');
-    }
+    const vals = windowKeys.map(k=>avgOf(buckets[k].ouv));
+    box2.innerHTML = tkBuildTrendChart({xLabels, isDuration:true, series:[
+      {label:'Durée ouverture', color:'#2563eb', values:vals},
+      {label:'Linéaire (Durée ouverture)', color:'#93c5fd', values:tkLinearTrend(vals), dashed:true}
+    ]});
   }
 
-  // Chart 3 : Évolution durée de relève
+  // Chart 3 : Évolution durée de relève (+ tendance linéaire)
   if(box3){
-    box3.style.maxHeight = maxH+'px';
-    const avgOf = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
-    const avgs = sortedKeys.map(k=>avgOf(buckets[k].rel));
-    const valid = avgs.filter(v=>v!==null);
-    if(!sortedKeys.length || !valid.length){ box3.innerHTML = noData; }
-    else{
-      const maxVal = Math.max(...valid)||1;
-      box3.innerHTML = sortedKeys.map((k,i)=>{
-        const avg = avgs[i];
-        const bar = avg!==null ? Math.round(avg/maxVal*100) : 0;
-        return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
-          <span style="font-size:10px;color:var(--n3);min-width:52px;flex-shrink:0">${tkTrendBucketLabel(k,unit)}</span>
-          <div style="flex:1;height:10px;background:var(--n6);border-radius:2px;overflow:hidden"><div style="height:100%;width:${bar}%;background:#059669"></div></div>
-          <span style="font-size:10px;font-weight:700;color:#059669;min-width:52px;text-align:right;flex-shrink:0">${avg!==null?tkFormatMs(avg):'—'}</span>
-        </div>`;
-      }).join('');
-    }
+    const vals = windowKeys.map(k=>avgOf(buckets[k].rel));
+    box3.innerHTML = tkBuildTrendChart({xLabels, isDuration:true, series:[
+      {label:'Durée de relève', color:'#059669', values:vals},
+      {label:'Linéaire (Durée de relève)', color:'#86efac', values:tkLinearTrend(vals), dashed:true}
+    ]});
   }
 }
 
