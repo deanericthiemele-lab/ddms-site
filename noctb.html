@@ -2714,16 +2714,31 @@ async function deleteVip(id){
     <!-- Tendances (2 graphes par ligne) -->
     <div style="border-top:1px solid var(--n5);padding-top:14px">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
-        <div>
-          <div style="font-size:13px;font-weight:700;color:#000;margin-bottom:9px">📊 Tickets ouverts NOC vs SAV B2B</div>
+        <div style="background:#fff;border:1px solid var(--n5);border-radius:6px;padding:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+            <div style="font-size:13px;font-weight:700;color:#000">📊 Tickets ouverts NOC vs SAV B2B</div>
+            <div style="flex:1"></div>
+            <button onclick="tkTrendNavigate(1)" style="background:var(--n6);border:1px solid var(--n5);border-radius:3px;width:22px;height:22px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;color:var(--n2);flex-shrink:0" title="Période précédente">‹</button>
+            <button onclick="tkTrendNavigate(-1)" id="tk-trend-nav-next" style="background:var(--n6);border:1px solid var(--n5);border-radius:3px;width:22px;height:22px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;color:var(--n2);flex-shrink:0" title="Période suivante">›</button>
+          </div>
           <div id="tk-trend-nocsav"></div>
         </div>
-        <div>
-          <div style="font-size:13px;font-weight:700;color:#000;margin-bottom:9px">📈 Évolution durée ouverture SAV</div>
+        <div style="background:#fff;border:1px solid var(--n5);border-radius:6px;padding:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+            <div style="font-size:13px;font-weight:700;color:#000">📈 Évolution durée ouverture SAV</div>
+            <div style="flex:1"></div>
+            <button onclick="tkTrendNavigate(1)" style="background:var(--n6);border:1px solid var(--n5);border-radius:3px;width:22px;height:22px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;color:var(--n2);flex-shrink:0" title="Période précédente">‹</button>
+            <button onclick="tkTrendNavigate(-1)" style="background:var(--n6);border:1px solid var(--n5);border-radius:3px;width:22px;height:22px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;color:var(--n2);flex-shrink:0" title="Période suivante">›</button>
+          </div>
           <div id="tk-trend-ouverture"></div>
         </div>
-        <div>
-          <div style="font-size:13px;font-weight:700;color:#000;margin-bottom:9px">📈 Évolution durée de relève</div>
+        <div style="background:#fff;border:1px solid var(--n5);border-radius:6px;padding:14px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+            <div style="font-size:13px;font-weight:700;color:#000">📈 Évolution durée de relève</div>
+            <div style="flex:1"></div>
+            <button onclick="tkTrendNavigate(1)" style="background:var(--n6);border:1px solid var(--n5);border-radius:3px;width:22px;height:22px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;color:var(--n2);flex-shrink:0" title="Période précédente">‹</button>
+            <button onclick="tkTrendNavigate(-1)" style="background:var(--n6);border:1px solid var(--n5);border-radius:3px;width:22px;height:22px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;color:var(--n2);flex-shrink:0" title="Période suivante">›</button>
+          </div>
           <div id="tk-trend-relieve"></div>
         </div>
       </div>
@@ -6841,6 +6856,7 @@ function tkSetListPeriode(p){
   window._tkListPeriode = p;
   window._tkPeriode = p; // KPI agents suit la même période
   window._tkOffset = 0;  // reset navigation
+  window._tkTrendOffset = 0; // reset navigation des graphes de tendance
   // Réinitialise la plage personnalisée si on repasse sur un préréglage
   const df = document.getElementById('tk-date-from');
   const dt = document.getElementById('tk-date-to');
@@ -6862,6 +6878,7 @@ function tkSetCustomRange(){
   window._tkListPeriode = 'custom';
   window._tkPeriode = 'custom';
   window._tkOffset = 0;
+  window._tkTrendOffset = 0;
   ['jour','semaine','mois','tous'].forEach(k=>{
     const btn = document.getElementById('tkl-'+k);
     if(!btn) return;
@@ -7058,6 +7075,13 @@ function tkBuildTrendChart({xLabels, series, isDuration}){
   <div style="display:flex;flex-wrap:wrap;margin-top:2px">${legend}</div>`;
 }
 
+// Navigation temporelle des 3 graphes de tendance : dir=1 recule (période précédente),
+// dir=-1 avance vers la période la plus récente (bloqué à l'offset 0 = présent)
+function tkTrendNavigate(dir){
+  window._tkTrendOffset = Math.max(0, (window._tkTrendOffset||0) + dir);
+  tkRenderTendances();
+}
+
 function tkRenderTendances(){
   const box1 = document.getElementById('tk-trend-nocsav');
   const box2 = document.getElementById('tk-trend-ouverture');
@@ -7093,10 +7117,16 @@ function tkRenderTendances(){
   });
 
   // Fenêtre par défaut selon la période, du plus ancien au plus récent (gauche → droite)
+  // Décalée par window._tkTrendOffset (0 = fenêtre la plus récente, +1 = période précédente, etc.)
   const sortedDesc = Object.keys(buckets).sort((a,b)=>a<b?1:-1); // plus récent en tête
-  const windowKeys = sortedDesc.slice(0, count).reverse(); // fenêtre visible, chronologique
+  const trendOffset = window._tkTrendOffset||0;
+  const windowKeys = sortedDesc.slice(trendOffset, trendOffset+count).reverse(); // fenêtre visible, chronologique
   const xLabels = windowKeys.map(k=>tkTrendBucketLabel(k,unit));
   const avgOf = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
+
+  // Désactive la flèche "période suivante" quand on est déjà sur la fenêtre la plus récente
+  const nextBtn = document.getElementById('tk-trend-nav-next');
+  if(nextBtn) nextBtn.style.opacity = trendOffset<=0 ? '0.35' : '1';
 
   // Chart 1 : Tickets NOC vs SAV B2B
   if(box1){
