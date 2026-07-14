@@ -2711,11 +2711,22 @@ async function deleteVip(id){
     <!-- 6 cartes bilan -->
     <div id="tk-kpi-bilan" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px"></div>
 
-    <!-- Graphe évolution -->
+    <!-- Tendances (2 graphes par ligne) -->
     <div style="border-top:1px solid var(--n5);padding-top:14px">
-      <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:9px">📈 Évolution des tickets NOC par semaine</div>
-      <div id="tk-kpi-evolution" style="display:flex;flex-direction:column;gap:4px"></div>
-      <div id="tk-kpi-evolution-avg" style="margin-top:8px;padding:7px 10px;background:var(--n6);border-radius:5px;font-size:11px;color:var(--n2);font-weight:700;display:none"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:9px">📊 Tickets ouverts NOC vs SAV B2B</div>
+          <div id="tk-trend-nocsav" style="overflow-y:auto;padding-right:4px"></div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:9px">📈 Évolution durée ouverture SAV</div>
+          <div id="tk-trend-ouverture" style="overflow-y:auto;padding-right:4px"></div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:9px">📈 Évolution durée de relève</div>
+          <div id="tk-trend-relieve" style="overflow-y:auto;padding-right:4px"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -6918,52 +6929,150 @@ function tkFilterAgent(nom){
   ticketRender();
 }
 
-// ── Graphe évolution des tickets NOC par semaine (s'adapte aux filtres/période) ──
-function tkRenderEvolution(kpiTicketsDuree){
-  const volBox = document.getElementById('tk-kpi-evolution');
-  const avgBox = document.getElementById('tk-kpi-evolution-avg');
-  if(!volBox) return;
+// ── Tendances : granularité selon la période active (jour→7j, semaine→4sem, mois→3mois) ──
+// Données non bornées par la période (recherche/type/agent/client seulement), scrollables jusqu'au début.
+function tkGetTrendUnit(){
+  const p = window._tkPeriode;
+  if(p==='jour')    return {unit:'jour',    count:7};
+  if(p==='semaine') return {unit:'semaine', count:4};
+  if(p==='mois')    return {unit:'mois',    count:3};
+  return {unit:'semaine', count:8}; // 'tous' / 'custom' : repli raisonnable
+}
 
-  const all = kpiTicketsDuree||[];
+function tkTrendBucketKey(d, unit){
+  if(unit==='jour'){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  if(unit==='mois'){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  }
+  // semaine ISO
+  const tmp = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+  const day = tmp.getUTCDay()||7;
+  tmp.setUTCDate(tmp.getUTCDate()+4-day);
+  const yr = tmp.getUTCFullYear();
+  const jan1 = new Date(Date.UTC(yr,0,1));
+  const wk = Math.ceil(((tmp-jan1)/86400000+1)/7);
+  return `${yr}-S${String(wk).padStart(2,'0')}`;
+}
 
-  // Grouper par semaine ISO
-  const buckets = {};
-  all.forEach(t=>{
+function tkTrendBucketLabel(key, unit){
+  if(unit==='jour'){
+    const [y,m,d] = key.split('-').map(Number);
+    const JOURS = ['dim','lun','mar','mer','jeu','ven','sam'];
+    const dt = new Date(y, m-1, d);
+    return `${JOURS[dt.getDay()]} ${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}`;
+  }
+  if(unit==='mois'){
+    const [yr,mo] = key.split('-');
+    const MOIS_NOM = ['','Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+    return `${MOIS_NOM[parseInt(mo)]} ${yr}`;
+  }
+  return key.replace(/^\d{4}-/,''); // S01, S02…
+}
+
+function tkRenderTendances(){
+  const box1 = document.getElementById('tk-trend-nocsav');
+  const box2 = document.getElementById('tk-trend-ouverture');
+  const box3 = document.getElementById('tk-trend-relieve');
+  if(!box1 && !box2 && !box3) return;
+
+  // Filtres qualitatifs uniquement (pas de borne de période — c'est une tendance dans le temps)
+  const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
+  const fType   = document.getElementById('tk-filter-type')?.value||'';
+  const trendAll = (DB.tickets||[]).filter(t=>{
+    const txt = ((t.client||'')+(t.ref||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
+    const okSearch = (!search||txt.includes(search));
+    const okType   = (!fType||t.type===fType);
+    const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
+    const okClient = !window._tkClientFilter || (t.client||'').trim() === window._tkClientFilter;
+    return okSearch&&okType&&okAgent&&okClient;
+  });
+
+  const {unit, count} = tkGetTrendUnit();
+  const buckets = {}; // key -> {noc, sav, ouv:[], rel:[]}
+  trendAll.forEach(t=>{
     if(!t.debut) return;
     const d = new Date(t.debut);
     if(isNaN(d)) return;
-    const tmp = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
-    const day = tmp.getUTCDay()||7;
-    tmp.setUTCDate(tmp.getUTCDate()+4-day);
-    const yr = tmp.getUTCFullYear();
-    const jan1 = new Date(Date.UTC(yr,0,1));
-    const wk = Math.ceil(((tmp-jan1)/86400000+1)/7);
-    const key = `${yr}-S${String(wk).padStart(2,'0')}`;
-    buckets[key] = (buckets[key]||0)+1;
+    const key = tkTrendBucketKey(d, unit);
+    if(!buckets[key]) buckets[key] = {noc:0, sav:0, ouv:[], rel:[]};
+    buckets[key].noc++;
+    if(t.dateCreationExcel) buckets[key].sav++;
+    if(t.statut==='Terminé'){
+      const om = tkOuvertureMs(t); if(om!==null) buckets[key].ouv.push(om);
+      const rm = tkIncidentMs(t);  if(rm!==null) buckets[key].rel.push(rm);
+    }
   });
 
-  const sorted = Object.entries(buckets).sort((a,b)=>a[0]<b[0]?1:-1); // plus récent en tête
-  if(!sorted.length){ volBox.innerHTML='<div style="font-size:11px;color:var(--n4)">Aucun ticket sur cette période</div>'; if(avgBox) avgBox.style.display='none'; return; }
+  const sortedKeys = Object.keys(buckets).sort((a,b)=>a<b?1:-1); // plus récent en tête
+  const rowH = 24;
+  const maxH = count*rowH;
+  const noData = '<div style="font-size:11px;color:var(--n4)">Aucune donnée</div>';
 
-  const maxVal = Math.max(...sorted.map(s=>s[1]))||1;
+  // Chart 1 : Tickets NOC vs SAV B2B
+  if(box1){
+    box1.style.maxHeight = maxH+'px';
+    if(!sortedKeys.length){ box1.innerHTML = noData; }
+    else{
+      const maxVal = Math.max(...sortedKeys.map(k=>buckets[k].noc))||1;
+      box1.innerHTML = sortedKeys.map(k=>{
+        const b = buckets[k];
+        const barNOC = Math.round(b.noc/maxVal*100);
+        const barSAV = Math.round(b.sav/maxVal*100);
+        return `<div style="padding:3px 0">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--n3);margin-bottom:2px">
+            <span>${tkTrendBucketLabel(k,unit)}</span><span>${b.noc} <span style="color:#E05A00">NOC</span> / ${b.sav} <span style="color:#2563eb">SAV</span></span>
+          </div>
+          <div style="display:flex;gap:2px">
+            <div style="flex:1;height:8px;background:var(--n6);border-radius:2px;overflow:hidden"><div style="height:100%;width:${barNOC}%;background:#E05A00"></div></div>
+            <div style="flex:1;height:8px;background:var(--n6);border-radius:2px;overflow:hidden"><div style="height:100%;width:${barSAV}%;background:#2563eb"></div></div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
 
-  volBox.innerHTML = sorted.map(([key,cnt])=>{
-    const bar = Math.round(cnt/maxVal*100);
-    const label = key.replace(/^\d{4}-/,''); // S01, S02…
-    return `<div style="display:flex;align-items:center;gap:7px;padding:3px 0">
-      <span style="font-size:10px;font-weight:700;color:var(--n2);min-width:40px;flex-shrink:0">${label}</span>
-      <div style="flex:1;height:14px;background:var(--n6);border-radius:3px;overflow:hidden">
-        <div style="height:100%;width:${bar}%;background:#E05A00;border-radius:3px;transition:width .3s"></div>
-      </div>
-      <span style="font-size:11px;font-weight:800;color:#E05A00;min-width:22px;text-align:right;flex-shrink:0">${cnt}</span>
-    </div>`;
-  }).join('');
+  // Chart 2 : Évolution durée ouverture SAV
+  if(box2){
+    box2.style.maxHeight = maxH+'px';
+    const avgOf = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
+    const avgs = sortedKeys.map(k=>avgOf(buckets[k].ouv));
+    const valid = avgs.filter(v=>v!==null);
+    if(!sortedKeys.length || !valid.length){ box2.innerHTML = noData; }
+    else{
+      const maxVal = Math.max(...valid)||1;
+      box2.innerHTML = sortedKeys.map((k,i)=>{
+        const avg = avgs[i];
+        const bar = avg!==null ? Math.round(avg/maxVal*100) : 0;
+        return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
+          <span style="font-size:10px;color:var(--n3);min-width:52px;flex-shrink:0">${tkTrendBucketLabel(k,unit)}</span>
+          <div style="flex:1;height:10px;background:var(--n6);border-radius:2px;overflow:hidden"><div style="height:100%;width:${bar}%;background:#2563eb"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#2563eb;min-width:52px;text-align:right;flex-shrink:0">${avg!==null?tkFormatMs(avg):'—'}</span>
+        </div>`;
+      }).join('');
+    }
+  }
 
-  const total = sorted.reduce((s,[,v])=>s+v,0);
-  const moy = (total/sorted.length).toFixed(1);
-  if(avgBox){
-    avgBox.style.display='block';
-    avgBox.innerHTML = `📊 Moyenne : <b>${moy}</b> tickets / semaine &nbsp;·&nbsp; Total : <b>${total}</b>`;
+  // Chart 3 : Évolution durée de relève
+  if(box3){
+    box3.style.maxHeight = maxH+'px';
+    const avgOf = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
+    const avgs = sortedKeys.map(k=>avgOf(buckets[k].rel));
+    const valid = avgs.filter(v=>v!==null);
+    if(!sortedKeys.length || !valid.length){ box3.innerHTML = noData; }
+    else{
+      const maxVal = Math.max(...valid)||1;
+      box3.innerHTML = sortedKeys.map((k,i)=>{
+        const avg = avgs[i];
+        const bar = avg!==null ? Math.round(avg/maxVal*100) : 0;
+        return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0">
+          <span style="font-size:10px;color:var(--n3);min-width:52px;flex-shrink:0">${tkTrendBucketLabel(k,unit)}</span>
+          <div style="flex:1;height:10px;background:var(--n6);border-radius:2px;overflow:hidden"><div style="height:100%;width:${bar}%;background:#059669"></div></div>
+          <span style="font-size:10px;font-weight:700;color:#059669;min-width:52px;text-align:right;flex-shrink:0">${avg!==null?tkFormatMs(avg):'—'}</span>
+        </div>`;
+      }).join('');
+    }
   }
 }
 
@@ -7125,7 +7234,7 @@ function ticketRender(){
   }
 
   // Graphe évolution des tickets NOC par semaine
-  tkRenderEvolution(kpiTicketsDuree);
+  tkRenderTendances();
 
   // Badge agent actif + bouton reset
   const agentBadgeId = 'tk-agent-filter-badge';
