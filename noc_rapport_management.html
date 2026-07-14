@@ -3563,13 +3563,23 @@ function computeReactiviteFromExcel(filtered){
   }
   const dansLaPeriode = d => !periodStart || !periodEnd || (d>=periodStart && d<=periodEnd);
 
+  // Chaque ticket NOC est traité de façon totalement indépendante : il cherche, parmi TOUTES les
+  // lignes Excel de sa référence tombant dans la période, celle la plus proche de son heure
+  // d'ouverture — sans tenir compte de ce qu'un autre ticket (même référence) a pu utiliser.
+  // Déduplication : si 2 lignes ou plus (même référence, période) n'ont PAS de date de fin, c'est
+  // probablement un signalement répété par erreur -> on n'en garde qu'une seule (la première),
+  // en plus des lignes ayant une date de fin (vrais incidents résolus séparément).
+  // Si une seule ligne n'a pas de fin, ou si toutes ont une fin distincte, on garde tout.
   const matched = filtered.map(t=>{
-    const arr = map[normRef(t.ref || t.reference)];
+    const ref = normRef(t.ref || t.reference);
+    const arr = map[ref];
     if(!arr || !arr.length) return null;
-    // Ne garder que les dossiers Excel de la période du rapport
-    const candidats = arr.filter(e=> e.creation && dansLaPeriode(e.creation));
+    const candidatsPeriode = arr.filter(e=> e.creation && dansLaPeriode(e.creation));
+    if(!candidatsPeriode.length) return null;
+    const sansFin = candidatsPeriode.filter(e=>!e.fin);
+    const avecFin = candidatsPeriode.filter(e=>e.fin);
+    const candidats = sansFin.length>=2 ? [sansFin[0], ...avecFin] : candidatsPeriode;
     if(!candidats.length) return null;
-    // Un seul dossier retenu par ticket : le plus proche de l'ouverture NOC
     let best = candidats[0];
     if(candidats.length>1 && t.debut){
       const debutDate = new Date(t.debut);
