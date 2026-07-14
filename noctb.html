@@ -7113,6 +7113,20 @@ function ticketRender(){
     return okSearch&&okStatut&&okType&&okPeriode&&okAgent&&okClient;
   });
 
+  // Ensemble pour "Durée moyenne" : mêmes filtres SAUF le statut (sinon avec le filtre
+  // "Ouvert" par défaut, aucun ticket fermé n'apparaîtrait jamais dans ce KPI)
+  const kpiTicketsDuree = all.filter(t=>{
+    const txt = ((t.client||'')+(t.ref||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
+    const okSearch = (!search||txt.includes(search));
+    const okType   = (!fType||t.type===fType);
+    let okPeriode;
+    if(window._tkPeriode==='tous'){ okPeriode = true; }
+    else{ const d = t.debut ? new Date(t.debut) : null; okPeriode = !!d && d>=range.start && d<=range.end; }
+    const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
+    const okClient = !window._tkClientFilter || (t.client||'').trim() === window._tkClientFilter;
+    return okSearch&&okType&&okPeriode&&okAgent&&okClient;
+  });
+
   // libellé période
   const lbl = document.getElementById('tk-period-label');
   if(lbl) lbl.textContent = tkFormatLabel(range);
@@ -7307,7 +7321,7 @@ function ticketRender(){
     if(window._tkClientFilter) tags.push('🏢 '+window._tkClientFilter);
     if(search) tags.push('🔍 "'+search+'"');
     const suffix = tags.length ? ' — '+tags.join(' · ') : '';
-    const closedItems = items.filter(t=>t.statut==='Terminé');
+    const closedItems = kpiTicketsDuree.filter(t=>t.statut==='Terminé');
     const avgOuvItems = tkAvgMs(closedItems, tkOuvertureMs);
     const avgTxt = avgOuvItems!==null ? ` &nbsp;·&nbsp; ⏱ Durée moy. ouverture: ${tkFormatMs(avgOuvItems)}` : '';
     countLbl.innerHTML = `<b style="font-size:13px;color:#000;font-weight:800">${items.length}</b> <b style="font-size:13px;color:#000;font-weight:800">ticket${items.length!==1?'s':''}${suffix}${avgTxt}</b>`;
@@ -7316,7 +7330,7 @@ function ticketRender(){
   // Render volume chart
   tkRenderVolume();
   // Render durées (ouverture ticket + incident) sur la période sélectionnée
-  tkRenderDurees(kpiTickets);
+  tkRenderDurees(kpiTicketsDuree);
 
   // Badge agent actif + bouton reset
   const agentBadgeId = 'tk-agent-filter-badge';
@@ -7357,8 +7371,8 @@ function ticketRender(){
         <span style="font-family:var(--mono);font-size:10.5px;color:var(--n3)">${t.ref||'—'}${t.type?' · '+t.type:''}</span>
         <span style="font-size:11px;color:var(--n3)">🕐 ${debut}</span>
         <span class="bp ${cls}" style="flex-shrink:0">${t.statut||'—'}</span>
-        ${(t.statut==='Terminé' && t.fin) ? `<span style="font-size:10px;color:var(--n3);font-family:var(--mono)" title="Durée d'indisponibilité">⏱ ${tkDureeEntre(t.debut,t.fin)}</span>` : ''}
         ${ouvertureHtml}
+        ${(t.statut==='Terminé' && t.fin) ? `<span style="font-size:10px;color:var(--n3);font-family:var(--mono)" title="Durée d'indisponibilité">⏱ ${tkDureeEntre(t.debut,t.fin)}</span>` : ''}
         ${tkRappelSpanHtml(t)}
       </div>
       <div style="display:flex;gap:3px;flex-shrink:0">
