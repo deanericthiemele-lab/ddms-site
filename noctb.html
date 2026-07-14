@@ -2523,6 +2523,14 @@ async function deleteVip(id){
     </div>
     <div class="t-sp"></div>
     <input type="file" id="tk-import-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="tkImportIncidentsFile(this.files[0])">
+    <!-- Journal des actions d'import -->
+    <div id="tk-import-log" style="display:none;position:fixed;bottom:16px;right:16px;width:360px;max-height:320px;background:#1a1a1a;border:1px solid #333;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.35);z-index:9999;overflow:hidden;font-family:var(--mono)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#111;border-bottom:1px solid #333">
+        <span style="font-size:11px;font-weight:700;color:#fff">📥 Import — journal</span>
+        <button onclick="document.getElementById('tk-import-log').style.display='none'" style="background:none;border:none;color:#999;font-size:14px;cursor:pointer;line-height:1">✕</button>
+      </div>
+      <div id="tk-import-log-body" style="padding:8px 12px;max-height:270px;overflow-y:auto;display:flex;flex-direction:column;gap:3px;font-size:10.5px;color:#ddd"></div>
+    </div>
     <button id="tk-import-btn" class="btn btn-out btn-sm" onclick="document.getElementById('tk-import-input').click()" style="gap:5px">📥 Importer</button>
     <button class="btn btn-out btn-sm" onclick="ticketExportCSV()" style="gap:5px">📊 Exporter CSV</button>
   </div>
@@ -7301,8 +7309,8 @@ function ticketRender(){
     const suffix = tags.length ? ' — '+tags.join(' · ') : '';
     const closedItems = items.filter(t=>t.statut==='Terminé');
     const avgOuvItems = tkAvgMs(closedItems, tkOuvertureMs);
-    const avgTxt = avgOuvItems!==null ? ` &nbsp;·&nbsp; ⏱ Durée moy. ouverture: <b>${tkFormatMs(avgOuvItems)}</b>` : '';
-    countLbl.innerHTML = `<b style="font-size:12px;color:var(--n1)">${items.length}</b> ticket${items.length!==1?'s':''}${suffix}${avgTxt}`;
+    const avgTxt = avgOuvItems!==null ? ` &nbsp;·&nbsp; ⏱ Durée moy. ouverture: ${tkFormatMs(avgOuvItems)}` : '';
+    countLbl.innerHTML = `<b style="font-size:13px;color:#000;font-weight:800">${items.length}</b> <b style="font-size:13px;color:#000;font-weight:800">ticket${items.length!==1?'s':''}${suffix}${avgTxt}</b>`;
   }
 
   // Render volume chart
@@ -7661,6 +7669,25 @@ function tkParseDate(val){
   return null;
 }
 
+// ── Journal visible des actions d'import ──
+function tkLog(msg, type='info'){
+  const panel = document.getElementById('tk-import-log');
+  const body  = document.getElementById('tk-import-log-body');
+  if(!panel || !body) return;
+  panel.style.display = 'block';
+  const col = type==='err' ? '#ff6b6b' : type==='ok' ? '#51cf66' : type==='warn' ? '#ffd43b' : '#ddd';
+  const time = new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const line = document.createElement('div');
+  line.style.color = col;
+  line.textContent = `[${time}] ${msg}`;
+  body.appendChild(line);
+  body.scrollTop = body.scrollHeight;
+}
+function tkLogClear(){
+  const body = document.getElementById('tk-import-log-body');
+  if(body) body.innerHTML='';
+}
+
 // ── Import fichier incidents : met à jour le statut (+ durée) des tickets NOC existants ──
 // Règle : même référence trouvée -> Ouvert si date fin vide, Terminé si date fin renseignée.
 async function tkImportIncidentsFile(file){
@@ -7669,11 +7696,13 @@ async function tkImportIncidentsFile(file){
   const btn   = document.getElementById('tk-import-btn');
   const btnOrig = btn ? btn.textContent : null;
   if(btn){ btn.textContent='⏳ Import en cours…'; btn.disabled=true; }
+  tkLogClear();
+  tkLog(`Import démarré : ${file.name} (${Math.round(file.size/1024)} Ko)`);
   toast('📥 Lecture du fichier…','ok');
-  console.log('[tkImport] démarrage import', file.name, file.size, 'octets');
 
   try{
     if(!window.XLSX){
+      tkLog('Chargement de la librairie Excel…');
       await new Promise((res,rej)=>{
         const s=document.createElement('script');
         s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
@@ -7682,74 +7711,109 @@ async function tkImportIncidentsFile(file){
         setTimeout(()=>rej(new Error('Chargement librairie Excel trop long (timeout)')), 15000);
       });
     }
-    console.log('[tkImport] XLSX chargé, lecture du fichier…');
+    tkLog('Librairie Excel prête, lecture du fichier…');
 
     const buf  = await file.arrayBuffer();
     const wb   = window.XLSX.read(buf, {type:'array'});
     const ws   = wb.Sheets[wb.SheetNames[0]];
     const rows = window.XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
-    console.log('[tkImport] lignes lues:', rows.length);
-    if(!rows.length){ toast('Fichier vide','err'); return; }
+    tkLog(`Fichier lu : ${rows.length} ligne(s)`);
+    if(!rows.length){ tkLog('Fichier vide','err'); toast('Fichier vide','err'); return; }
 
     const norm = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
     const headers = rows[0].map(norm);
     const idxRef = headers.findIndex(h=>h==='nd'||h.includes('reference')||h.includes('ref'));
     const idxFin = headers.findIndex(h=>h.includes('fin')||h.includes('cloture')||h.includes('resolution'));
     const IDX_CREATION = 15; // colonne P = date de création (fixe)
-    console.log('[tkImport] idxRef=',idxRef,'idxFin=',idxFin,'DB.tickets=',(DB.tickets||[]).length);
+    tkLog(`Colonne référence détectée : "${rows[0][idxRef]||'?'}" (index ${idxRef})`);
+    tkLog(`Colonne date fin détectée : "${rows[0][idxFin]||'?'}" (index ${idxFin})`);
+    tkLog(`Colonne date création (fixe, col. P) : "${rows[0][IDX_CREATION]||'?'}"`);
 
     if(idxRef<0 || idxFin<0){
+      tkLog('Colonnes référence / date fin introuvables — import annulé','err');
       toast('Colonnes Référence / Date fin introuvables dans le fichier','err');
       return;
     }
     if(!(DB.tickets||[]).length){
+      tkLog('Aucun ticket NOC chargé — vérifier Firebase','err');
       toast('Aucun ticket chargé — vérifier la connexion Firebase','err');
       return;
     }
 
-    // Index des tickets par référence normalisée (évite un .find() coûteux à chaque ligne)
+    // Index des tickets par référence normalisée
     const ticketMap = new Map();
     (DB.tickets||[]).forEach(t=>{ const key=norm(t.ref); if(key) ticketMap.set(key, t); });
+    tkLog(`${ticketMap.size} ticket(s) NOC indexé(s) pour le rapprochement`);
 
-    let maj=0, introuvable=0, ignore=0;
-    const totalRows = rows.length - 1;
+    // Regrouper les lignes Excel par référence (une même référence peut apparaître
+    // plusieurs fois = plusieurs incidents historiques sur le même lien)
+    const rowsByRef = new Map();
     for(let i=1;i<rows.length;i++){
-      const r = rows[i];
-      const refVal = String(r[idxRef]||'').trim();
-      if(!refVal){ ignore++; }
-      else {
-        const finDate       = tkParseDate(r[idxFin]);
-        const creationDate  = tkParseDate(r[IDX_CREATION]);
+      const refVal = String(rows[i][idxRef]||'').trim();
+      if(!refVal) continue;
+      const key = norm(refVal);
+      if(!rowsByRef.has(key)) rowsByRef.set(key, []);
+      rowsByRef.get(key).push(rows[i]);
+    }
+    tkLog(`${rowsByRef.size} référence(s) distincte(s) trouvée(s) dans le fichier`);
+    tkLog('Rapprochement par ticket (ligne la plus proche de la date NOC)…');
+
+    let maj=0, majTermine=0, majOuvert=0, introuvable=0;
+    const ticketsList = [...ticketMap.values()];
+    const totalTickets = ticketsList.length;
+    let processed = 0;
+    for(const t of ticketsList){
+      processed++;
+      const refRows = rowsByRef.get(norm(t.ref));
+      if(!refRows || !refRows.length){ introuvable++; }
+      else{
+        // Choisir la ligne dont la date de création (col. P) est la plus proche du début NOC.
+        // Si plusieurs incidents historiques partagent la même référence, on prend le bon.
+        const debutMs = t.debut ? new Date(t.debut).getTime() : null;
+        let best = null, bestDiff = Infinity;
+        for(const r of refRows){
+          const creationDate = tkParseDate(r[IDX_CREATION]);
+          let diff;
+          if(debutMs!==null && creationDate) diff = Math.abs(creationDate.getTime()-debutMs);
+          else diff = Infinity; // pas de date pour comparer -> dernier recours
+          if(diff < bestDiff){ bestDiff = diff; best = r; }
+        }
+        if(!best) best = refRows[refRows.length-1]; // repli : dernière ligne du fichier
+
+        const finDate       = tkParseDate(best[idxFin]);
+        const creationDate  = tkParseDate(best[IDX_CREATION]);
         const nouveauStatut = finDate ? 'Terminé' : 'Ouvert';
         const nouveauFin     = finDate ? finDate.toISOString() : '';
         const nouvelleCreation = creationDate ? creationDate.toISOString() : '';
 
-        const t = ticketMap.get(norm(refVal));
-        if(!t){ introuvable++; }
-        else if(t.statut!==nouveauStatut || (t.fin||'')!==nouveauFin || (t.dateCreationExcel||'')!==nouvelleCreation){
+        if(t.statut!==nouveauStatut || (t.fin||'')!==nouveauFin || (t.dateCreationExcel||'')!==nouvelleCreation){
           try{
+            const ancienStatut = t.statut||'—';
             await fbUpdate('noc_tickets_indispo', t.id, {statut:nouveauStatut, fin:nouveauFin, dateCreationExcel:nouvelleCreation});
             t.statut = nouveauStatut;
             t.fin = nouveauFin;
             t.dateCreationExcel = nouvelleCreation;
             maj++;
-          }catch(e){ console.error('Erreur maj ticket', refVal, e); }
+            if(nouveauStatut==='Terminé') majTermine++; else majOuvert++;
+            tkLog(`${t.ref} : ${ancienStatut} → ${nouveauStatut}${refRows.length>1?` (${refRows.length} occurrences, la plus proche retenue)`:''}`, 'ok');
+          }catch(e){ tkLog(`${t.ref} : erreur mise à jour (${e.message})`, 'err'); console.error('Erreur maj ticket', t.ref, e); }
         }
       }
 
-      // Progression + on laisse respirer l'UI toutes les 200 lignes
-      if(i % 200===0 || i===totalRows){
-        const pct = Math.round((i/totalRows)*100);
+      // Progression + on laisse respirer l'UI toutes les 20 tickets
+      if(processed % 20===0 || processed===totalTickets){
+        const pct = Math.round((processed/totalTickets)*100);
         if(btn) btn.textContent = `⏳ Import… ${pct}%`;
         await new Promise(r=>setTimeout(r,0));
       }
     }
 
-    console.log('[tkImport] terminé: maj=',maj,'introuvable=',introuvable,'ignore=',ignore);
+    tkLog(`Terminé : ${maj} mis à jour (${majTermine} → Terminé, ${majOuvert} → Ouvert) · ${introuvable} ticket(s) sans correspondance dans le fichier`, maj>0?'ok':'warn');
     ticketRender();
-    const suffix = introuvable ? ` · ${introuvable} référence(s) non trouvée(s)` : '';
-    toast(`✓ ${maj} ticket(s) mis à jour${suffix}`, maj>0?'ok':'warn');
+    const suffix = introuvable ? ` · ${introuvable} ticket(s) sans correspondance` : '';
+    toast(`✓ ${maj} mis à jour (${majTermine} Terminé · ${majOuvert} Ouvert)${suffix}`, maj>0?'ok':'warn');
   }catch(e){
+    tkLog('Erreur : '+(e.message||'inconnue'), 'err');
     console.error('[tkImport] erreur', e);
     toast('Erreur import : '+(e.message||'inconnue'),'err');
   }finally{
