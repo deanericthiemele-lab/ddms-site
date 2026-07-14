@@ -2522,6 +2522,8 @@ async function deleteVip(id){
       <div class="ph-sub">Indisponibilités liens B2B — Saisie · Firebase · Notification AT</div>
     </div>
     <div class="t-sp"></div>
+    <input type="file" id="tk-import-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="tkImportIncidentsFile(this.files[0])">
+    <button class="btn btn-out btn-sm" onclick="document.getElementById('tk-import-input').click()" style="gap:5px">📥 Importer</button>
     <button class="btn btn-out btn-sm" onclick="ticketExportCSV()" style="gap:5px">📊 Exporter CSV</button>
   </div>
 
@@ -2685,6 +2687,11 @@ async function deleteVip(id){
           </div>
           <div id="tk-kpi-volume" style="display:flex;flex-direction:column;gap:3px;max-height:220px;overflow-y:auto;padding-right:2px"></div>
           <div id="tk-kpi-volume-avg" style="margin-top:8px;padding:7px 10px;background:var(--bl);border-radius:5px;font-size:11px;color:var(--b);font-weight:700;display:none"></div>
+        </div>
+        <!-- ligne 9 : KPI durées (ouverture ticket + incident) -->
+        <div style="border-top:1px solid var(--n5);padding-top:9px;margin-top:9px">
+          <div style="font-family:var(--mono);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--n4);margin-bottom:7px">Durée</div>
+          <div id="tk-kpi-durees" style="display:flex;flex-direction:column;gap:6px"></div>
         </div>
       </div>
 
@@ -7277,11 +7284,15 @@ function ticketRender(){
     if(window._tkClientFilter) tags.push('🏢 '+window._tkClientFilter);
     if(search) tags.push('🔍 "'+search+'"');
     const suffix = tags.length ? ' — '+tags.join(' · ') : '';
-    countLbl.innerHTML = `<b style="font-size:12px;color:var(--n1)">${items.length}</b> ticket${items.length!==1?'s':''}${suffix}`;
+    const avgOuvItems = tkAvgMs(items, tkOuvertureMs);
+    const avgTxt = avgOuvItems!==null ? ` &nbsp;·&nbsp; ⏱ Durée moy. ouverture: <b>${tkFormatMs(avgOuvItems)}</b>` : '';
+    countLbl.innerHTML = `<b style="font-size:12px;color:var(--n1)">${items.length}</b> ticket${items.length!==1?'s':''}${suffix}${avgTxt}`;
   }
 
   // Render volume chart
   tkRenderVolume();
+  // Render durées (ouverture ticket + incident) sur la période sélectionnée
+  tkRenderDurees(kpiTickets);
 
   // Badge agent actif + bouton reset
   const agentBadgeId = 'tk-agent-filter-badge';
@@ -7313,6 +7324,8 @@ function ticketRender(){
     const debut = t.debut ? new Date(t.debut).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
     const fin   = t.fin ? new Date(t.fin).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
     const dotCol = t.statut==='Terminé' ? 'var(--g)' : 'var(--r)';
+    const ouvMs  = tkOuvertureMs(t);
+    const ouvertureHtml = ouvMs!==null ? `<span style="font-size:10px;color:var(--v);font-family:var(--mono)" title="Durée d'ouverture du ticket (incident → création ticket)">🎫 ${tkFormatMs(ouvMs)}</span>` : '';
     return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);border-radius:4px;transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
       <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
       <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
@@ -7320,6 +7333,8 @@ function ticketRender(){
         <span style="font-family:var(--mono);font-size:10.5px;color:var(--n3)">${t.ref||'—'}${t.type?' · '+t.type:''}</span>
         <span style="font-size:11px;color:var(--n3)">🕐 ${debut}</span>
         <span class="bp ${cls}" style="flex-shrink:0">${t.statut||'—'}</span>
+        ${(t.statut==='Terminé' && t.fin) ? `<span style="font-size:10px;color:var(--n3);font-family:var(--mono)" title="Durée d'indisponibilité">⏱ ${tkDureeEntre(t.debut,t.fin)}</span>` : ''}
+        ${ouvertureHtml}
         ${tkRappelSpanHtml(t)}
       </div>
       <div style="display:flex;gap:3px;flex-shrink:0">
@@ -7515,6 +7530,182 @@ function tkDureeDepuis(debut){
   if(h>0||j>0) parts.push(h+'h');
   parts.push(String(m).padStart(2,'0')+'min');
   return parts.join(' ');
+}
+
+function tkDureeEntre(debut, fin){
+  if(!debut||!fin) return '—';
+  const start = new Date(debut).getTime();
+  const end   = new Date(fin).getTime();
+  if(isNaN(start)||isNaN(end)||end<start) return '—';
+  const totalMin = Math.floor((end-start)/60000);
+  const j = Math.floor(totalMin/1440);
+  const h = Math.floor((totalMin%1440)/60);
+  const m = totalMin%60;
+  const parts=[];
+  if(j>0) parts.push(j+'j');
+  if(h>0||j>0) parts.push(String(h).padStart(2,'0')+'h');
+  parts.push(String(m).padStart(2,'0')+'min');
+  return parts.join(' ');
+}
+
+// ── Formatage générique d'une durée en ms ──
+function tkFormatMs(ms){
+  if(ms===null||ms===undefined||isNaN(ms)) return '—';
+  if(ms<0) ms=0;
+  const totalMin = Math.floor(ms/60000);
+  const j = Math.floor(totalMin/1440);
+  const h = Math.floor((totalMin%1440)/60);
+  const m = totalMin%60;
+  const parts=[];
+  if(j>0) parts.push(j+'j');
+  if(h>0||j>0) parts.push(String(h).padStart(2,'0')+'h');
+  parts.push(String(m).padStart(2,'0')+'min');
+  return parts.join(' ');
+}
+
+// Durée d'ouverture du ticket = temps entre le début de l'incident et la création du ticket NOC
+function tkOuvertureMs(t){
+  if(!t.debut || !t.createdAt) return null;
+  const start   = new Date(t.debut).getTime();
+  const created = new Date(t.createdAt).getTime();
+  if(isNaN(start)||isNaN(created)) return null;
+  return created - start;
+}
+
+// Durée de l'incident = temps entre le début et la fin (ou maintenant si toujours en cours)
+function tkIncidentMs(t){
+  if(!t.debut) return null;
+  const start = new Date(t.debut).getTime();
+  if(isNaN(start)) return null;
+  const endRef = t.fin ? new Date(t.fin).getTime() : Date.now();
+  if(isNaN(endRef)) return null;
+  return endRef - start;
+}
+
+function tkAvgMs(list, fn){
+  const vals = (list||[]).map(fn).filter(v=>v!==null && v!==undefined && !isNaN(v) && v>=0);
+  if(!vals.length) return null;
+  return vals.reduce((a,b)=>a+b,0)/vals.length;
+}
+
+// KPI "Durée" : durée moyenne d'ouverture de ticket + durée moyenne de l'incident, sur la période sélectionnée
+function tkRenderDurees(kpiTickets){
+  const box = document.getElementById('tk-kpi-durees');
+  if(!box) return;
+  if(!kpiTickets || !kpiTickets.length){
+    box.innerHTML = '<div style="font-size:11px;color:var(--n4)">Aucun ticket sur cette période</div>';
+    return;
+  }
+  const avgOuverture = tkAvgMs(kpiTickets, tkOuvertureMs);
+  const avgIncident   = tkAvgMs(kpiTickets, tkIncidentMs);
+  const nOuv = kpiTickets.filter(t=>tkOuvertureMs(t)!==null).length;
+  const nInc = kpiTickets.filter(t=>tkIncidentMs(t)!==null).length;
+  box.innerHTML = `
+    <div style="background:var(--vl);border-radius:5px;padding:8px 12px;display:flex;align-items:center;gap:8px">
+      <span style="font-size:16px">🎫</span>
+      <div>
+        <div style="font-family:var(--cond);font-size:16px;font-weight:800;color:var(--v);line-height:1.1">${avgOuverture!==null?tkFormatMs(avgOuverture):'—'}</div>
+        <div style="font-size:9px;font-weight:700;color:var(--v);text-transform:uppercase;letter-spacing:.4px">Durée moy. ouverture ticket</div>
+        <div style="font-size:9px;color:var(--n3);margin-top:1px">${nOuv} ticket${nOuv!==1?'s':''}</div>
+      </div>
+    </div>
+    <div style="background:var(--rl);border-radius:5px;padding:8px 12px;display:flex;align-items:center;gap:8px">
+      <span style="font-size:16px">⏱</span>
+      <div>
+        <div style="font-family:var(--cond);font-size:16px;font-weight:800;color:var(--r);line-height:1.1">${avgIncident!==null?tkFormatMs(avgIncident):'—'}</div>
+        <div style="font-size:9px;font-weight:700;color:var(--r);text-transform:uppercase;letter-spacing:.4px">Durée moy. incident</div>
+        <div style="font-size:9px;color:var(--n3);margin-top:1px">${nInc} ticket${nInc!==1?'s':''}</div>
+      </div>
+    </div>`;
+}
+
+// ── Parsing dates Excel : sérial Excel, texte JJ/MM/AAAA [HH:MM[:SS]], ou ISO ──
+function tkParseDate(val){
+  if(val===undefined||val===null||val==='') return null;
+  if(val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if(typeof val==='number'){
+    const d = (window.XLSX && window.XLSX.SSF) ? window.XLSX.SSF.parse_date_code(val) : null;
+    if(!d) return null;
+    return new Date(d.y, d.m-1, d.d, d.H||0, d.M||0, Math.floor(d.S||0));
+  }
+  if(typeof val==='string'){
+    const s = val.trim();
+    if(!s) return null;
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if(m){
+      const [,d,mo,y,h,mi,se] = m;
+      const dt = new Date(+y, +mo-1, +d, +(h||0), +(mi||0), +(se||0));
+      return isNaN(dt.getTime()) ? null : dt;
+    }
+    const dt2 = new Date(s);
+    return isNaN(dt2.getTime()) ? null : dt2;
+  }
+  return null;
+}
+
+// ── Import fichier incidents : met à jour le statut (+ durée) des tickets NOC existants ──
+// Règle : même référence trouvée -> Ouvert si date fin vide, Terminé si date fin renseignée.
+async function tkImportIncidentsFile(file){
+  if(!file) return;
+  const input = document.getElementById('tk-import-input');
+  try{
+    if(!window.XLSX){
+      await new Promise((res,rej)=>{
+        const s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload=res; s.onerror=rej;
+        document.head.appendChild(s);
+      });
+    }
+
+    const buf  = await file.arrayBuffer();
+    const wb   = window.XLSX.read(buf, {type:'array'});
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = window.XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+    if(!rows.length){ toast('Fichier vide','err'); return; }
+
+    const norm = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+    const headers = rows[0].map(norm);
+    const idxRef = headers.findIndex(h=>h.includes('ref'));
+    const idxFin = headers.findIndex(h=>h.includes('fin')||h.includes('cloture')||h.includes('resolution'));
+
+    if(idxRef<0 || idxFin<0){
+      toast('Colonnes Référence / Date fin introuvables dans le fichier','err');
+      return;
+    }
+
+    let maj=0, introuvable=0, ignore=0;
+    for(let i=1;i<rows.length;i++){
+      const r = rows[i];
+      const refVal = String(r[idxRef]||'').trim();
+      if(!refVal){ ignore++; continue; }
+
+      const finDate      = tkParseDate(r[idxFin]);
+      const nouveauStatut = finDate ? 'Terminé' : 'Ouvert';
+      const nouveauFin     = finDate ? finDate.toISOString() : '';
+
+      const t = (DB.tickets||[]).find(x=>norm(x.ref)===norm(refVal));
+      if(!t){ introuvable++; continue; }
+
+      if(t.statut!==nouveauStatut || (t.fin||'')!==nouveauFin){
+        try{
+          await fbUpdate('noc_tickets_indispo', t.id, {statut:nouveauStatut, fin:nouveauFin});
+          t.statut = nouveauStatut;
+          t.fin = nouveauFin;
+          maj++;
+        }catch(e){ console.error('Erreur maj ticket', refVal, e); }
+      }
+    }
+
+    ticketRender();
+    const suffix = introuvable ? ` · ${introuvable} référence(s) non trouvée(s)` : '';
+    toast(`✓ ${maj} ticket(s) mis à jour${suffix}`, maj>0?'ok':'warn');
+  }catch(e){
+    console.error(e);
+    toast('Erreur lecture fichier import','err');
+  }finally{
+    if(input) input.value='';
+  }
 }
 
 function ticketOutlookById(id){
