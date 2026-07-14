@@ -3517,38 +3517,64 @@ function fmtDureeMin(min){
   return min+"min";
 }
 
-// Calcule les KPI réactivité (ouverture SAV / taux / MTTR) à partir du fichier Excel SAV importé.
-// Pour chaque ticket, si plusieurs lignes Excel partagent la même référence, on retient celle dont
-// la date de création est la plus proche de l'ouverture du ticket NOC (t.debut).
+// Calcule les KPI réactivité de l'équipe terrain (SAV B2B) : temps d'ouverture de leur ticket
+// après celui du NOC, et délai de relève. Logique simple :
+// 1) on ne regarde, dans le fichier Excel, que les dossiers dont la date de création tombe dans
+//    la période du rapport affiché (même fenêtre que les tickets NOC) — on ignore l'historique
+//    d'autres semaines pour ne pas fausser les moyennes.
+// 2) un seul dossier Excel est associé à chaque ticket NOC : celui de la même référence dont la
+//    date de création est la plus proche de l'ouverture du ticket NOC.
 function computeReactiviteFromExcel(filtered){
   const map = window._savExcelMap;
   if(!map){
     return null; // pas de fichier chargé -> l'appelant affiche "—"
   }
-  // Chaque ligne Excel partageant la même référence est comptée séparément (pas de sélection/association)
-  const matched = [];
-  filtered.forEach(t=>{
+
+  // Période du rapport actuellement affiché (identique au filtre utilisé pour les tickets NOC)
+  const hdrDate = document.getElementById("hdr-date")?.textContent || "";
+  const dateMatches = hdrDate.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+  let periodStart = null, periodEnd = null;
+  if(dateMatches.length){
+    const toDate = s => { const [d,m,y]=s.split("/"); return new Date(+y,+m-1,+d); };
+    const ds = dateMatches.map(toDate).sort((a,b)=>a-b);
+    periodStart = ds[0];
+    periodEnd   = new Date(ds[ds.length-1]); periodEnd.setHours(23,59,59,999);
+  }
+  const dansLaPeriode = d => !periodStart || !periodEnd || (d>=periodStart && d<=periodEnd);
+
+  const matched = filtered.map(t=>{
     const arr = map[normRef(t.ref || t.reference)];
-    if(!arr || !arr.length) return;
-    arr.forEach(m=> matched.push({t, m}));
-  });
+    if(!arr || !arr.length) return null;
+    // Ne garder que les dossiers Excel de la période du rapport
+    const candidats = arr.filter(e=> e.creation && dansLaPeriode(e.creation));
+    if(!candidats.length) return null;
+    // Un seul dossier retenu par ticket : le plus proche de l'ouverture NOC
+    let best = candidats[0];
+    if(candidats.length>1 && t.debut){
+      const debutDate = new Date(t.debut);
+      let bestDiff = Infinity;
+      candidats.forEach(e=>{
+        const diff = Math.abs(e.creation - debutDate);
+        if(diff<bestDiff){ bestDiff=diff; best=e; }
+      });
+    }
+    return {t, m:best};
+  }).filter(Boolean);
 
   // Temps moyen d'ouverture de ticket par le SAV B2B : (date création SAV) - (t.debut, ouverture NOC)
-  const withCreation = matched.filter(x=>x.t.debut && x.m.creation);
   let ouvertureTxt = "—", avgMinOuv = null;
-  if(withCreation.length){
-    const totalMin = withCreation.reduce((s,x)=>{
+  if(matched.length){
+    const totalMin = matched.reduce((s,x)=>{
       const dm = (x.m.creation - new Date(x.t.debut))/60000; return s+(dm>0?dm:0);
     },0);
-    avgMinOuv = Math.round(totalMin/withCreation.length);
+    avgMinOuv = Math.round(totalMin/matched.length);
     ouvertureTxt = fmtDureeMin(avgMinOuv);
   }
 
-  const matchedTicketsSet = new Set(matched.map(x=>x.t.id || x.t.ref || x.t.reference));
-  const tauxSav = filtered.length>0 ? Math.round((matchedTicketsSet.size/filtered.length)*100) : 0;
+  const tauxSav = filtered.length>0 ? Math.round((matched.length/filtered.length)*100) : 0;
 
   // Temps de rétablissement moyen : (date de fin SAV) - (t.debut, ouverture NOC)
-  const withFin = matched.filter(x=>x.t.debut && x.m.fin);
+  const withFin = matched.filter(x=>x.m.fin);
   let mttrTxt = "—", avgMinMttr = null;
   if(withFin.length){
     const totalMin = withFin.reduce((s,x)=>{
@@ -3559,8 +3585,8 @@ function computeReactiviteFromExcel(filtered){
   }
 
   return {
-    ouvertureTxt, avgMinOuv, nbOuverture: withCreation.length,
-    tauxSav, nbMatched: matchedTicketsSet.size,
+    ouvertureTxt, avgMinOuv, nbOuverture: matched.length,
+    tauxSav, nbMatched: matched.length,
     mttrTxt, avgMinMttr, nbMttr: withFin.length
   };
 }
