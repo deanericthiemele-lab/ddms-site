@@ -1153,7 +1153,7 @@ async function computeWeekTicketMetrics(weekKey){
       mttrWk = Math.round(totalMin/tkResolusWk.length);
     }
 
-    const clientKey = t => t.client || t.reference || t.ref || "";
+    const clientKey = t => t.client || t.ref || t.reference || "";
     const parClient = {};
     inWeek.forEach(t=>{ const k=clientKey(t); if(!k) return; parClient[k]=(parClient[k]||0)+1; });
     const nbReiterationWk = Object.values(parClient).reduce((s,n)=>s+(n>1?n-1:0),0);
@@ -1385,6 +1385,18 @@ function generate(){
   renderDashboard(IF_DATA, ND_DATA, periodLabel, heureDebut+" – "+heureFin, new Date().toLocaleString("fr-FR"));
 }
 
+// Demande le nombre total de sites supervisés (dénominateur du Taux de sites instables),
+// pré-rempli avec la dernière valeur saisie (ou le nb de sites présents dans les logs à défaut)
+function getTotalSitesSupervises(defaultVal){
+  const saved = localStorage.getItem("noc_total_sites_supervises");
+  const def = saved ? parseInt(saved) : defaultVal;
+  const val = prompt("Nombre total de sites supervisés (pour le calcul du Taux de sites instables) :", def);
+  if(val===null || val.trim()==="" || isNaN(parseInt(val))) return def || defaultVal;
+  const n = parseInt(val);
+  localStorage.setItem("noc_total_sites_supervises", n);
+  return n;
+}
+
 //  RENDER DASHBOARD — met à jour le DOM existant (ne l'écrase pas) 
 function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   // Mettre à jour hdr-date si pas déjà fait
@@ -1427,6 +1439,8 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   }
 
   const nbLiens      = allSites.size;
+  const totalSitesSupervises = getTotalSitesSupervises(nbLiens);
+  window._totalSitesSupervises = totalSitesSupervises;
   const nbDown       = ndData.filter(d=>d.isDown).length;
   const nbInstables  = topInstables.length;
   const tauxDispo    = tauxDispoPondere(ifData, ndData);
@@ -1442,7 +1456,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   const instablesAllDG      = [...ifData,...ndData].filter(d=>d.isFlapping);
   const nbInstablesAll      = instablesAllDG.length;
   const nbClientsInstablesDG= new Set(instablesAllDG.map(d=>clientFrom(d.site))).size;
-  const tauxInstablesDG     = nbLiens>0 ? Math.round((nbInstablesAll/nbLiens)*100) : 0;
+  const tauxInstablesDG     = totalSitesSupervises>0 ? Math.round((nbInstablesAll/totalSitesSupervises)*100) : 0;
   const nbInstablesCorrDG   = instablesAllDG.filter(d=>!d.isDown).length;
   const tauxCorrectionDG    = instablesAllDG.length>0 ? Math.round((nbInstablesCorrDG/instablesAllDG.length)*100) : 0;
 
@@ -1597,7 +1611,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     const _nbClientsInstablesCur = new Set(_instablesAllCur.map(d=>clientFromSite(d.site))).size;
     const _nbCorrigesCur = _instablesAllCur.filter(d=>!d.isDown).length;
     const _tauxCorrectionCur = _instablesAllCur.length>0 ? Math.round((_nbCorrigesCur/_instablesAllCur.length)*100) : 0;
-    evolutionPromise = computeEvolutionWeeks(curKey, {taux:tauxDispo, tauxSignales:tauxDispoSignales, nbInstables, tauxInstables: nbLiens>0?Math.round((nbInstables/nbLiens)*100):0, nbClientsInstables:_nbClientsInstablesCur, tauxCorrection:_tauxCorrectionCur, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
+    evolutionPromise = computeEvolutionWeeks(curKey, {taux:tauxDispo, tauxSignales:tauxDispoSignales, nbInstables, tauxInstables: totalSitesSupervises>0?Math.round((nbInstables/totalSitesSupervises)*100):0, nbClientsInstables:_nbClientsInstablesCur, tauxCorrection:_tauxCorrectionCur, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
   } else {
     renderEvolutionUI(null);
     evolutionPromise = Promise.resolve(null);
@@ -3168,41 +3182,24 @@ async function exportPdf(){
 
   const fromExcelPdf = computeReactiviteFromExcel(filteredTk);
 
-  // Temps de rétablissement moyen (MTTR tickets) : moyenne (fin - debut) des tickets qui ont les deux champs
+  // Temps de rétablissement moyen (MTTR tickets) : uniquement calculable via le fichier Excel SAV
   let mttrTicketTxt = "—";
-  let tkResolus = filteredTk.filter(t=>t.debut && t.fin);
+  let tkResolus = {length: 0};
   if(fromExcelPdf){
     mttrTicketTxt = fromExcelPdf.mttrTxt;
     tkResolus = {length: fromExcelPdf.nbMttr};
-  } else if(tkResolus.length){
-    const totalMin = tkResolus.reduce((s,t)=>{
-      const d0 = new Date(t.debut), d1 = new Date(t.fin);
-      const diffMin = (d1 - d0) / 60000;
-      return s + (diffMin>0 ? diffMin : 0);
-    }, 0);
-    const avgMin = Math.round(totalMin / tkResolus.length);
-    mttrTicketTxt = avgMin>=60 ? (Math.floor(avgMin/60)+"h"+String(avgMin%60).padStart(2,"0")) : avgMin+"min";
   }
 
-  // Temps d'ouverture SAV B2B : délai moyen entre la coupure (debut) et l'ouverture du ticket — tickets SAV B2B uniquement
+  // Temps d'ouverture SAV B2B : uniquement calculable via le fichier Excel SAV
   let tempsOuvertureSavTxt = "—";
-  let tkSavAvecOuverture = filteredTk.filter(t=>t.destinataire==="SAV B2B" && t.debut && (t.ouverture||t.dateOuverture||t.creation));
+  let tkSavAvecOuverture = {length: 0};
   if(fromExcelPdf){
     tempsOuvertureSavTxt = fromExcelPdf.ouvertureTxt;
     tkSavAvecOuverture = {length: fromExcelPdf.nbOuverture};
-  } else if(tkSavAvecOuverture.length){
-    const totalMinOuv = tkSavAvecOuverture.reduce((s,t)=>{
-      const d0 = new Date(t.debut);
-      const d1 = new Date(t.ouverture||t.dateOuverture||t.creation);
-      const diffMin = (d1 - d0) / 60000;
-      return s + (diffMin>0 ? diffMin : 0);
-    }, 0);
-    const avgMinOuv = Math.round(totalMinOuv / tkSavAvecOuverture.length);
-    tempsOuvertureSavTxt = avgMinOuv>=60 ? (Math.floor(avgMinOuv/60)+"h"+String(avgMinOuv%60).padStart(2,"0")) : avgMinOuv+"min";
   }
 
   // Réitération client : nombre de contacts répétés par un même client (au-delà du 1er ticket) sur la période
-  const _clientKey = t => t.client || t.reference || t.id || "";
+  const _clientKey = t => t.client || t.ref || t.reference || t.id || "";
   const _tkParClient = {};
   filteredTk.forEach(t=>{ const k=_clientKey(t); if(!k) return; _tkParClient[k]=(_tkParClient[k]||0)+1; });
   const nbReiteration = Object.values(_tkParClient).reduce((s,n)=> s + (n>1 ? n-1 : 0), 0);
@@ -3210,11 +3207,11 @@ async function exportPdf(){
   const tauxReiteration = tkTotalNum>0 ? Math.round((nbReiteration/tkTotalNum)*100) : 0;
 
   // Comparaison vs semaine précédente (uniquement si rapport généré via sélection de semaine)
-  const tkTauxSav = fromExcelPdf ? fromExcelPdf.tauxSav : ((parseInt(tkTotal)>0) ? Math.round((parseInt(tkSav)/parseInt(tkTotal))*100) : 0);
+  const tkTauxSav = fromExcelPdf ? fromExcelPdf.tauxSav : null;
   const prevTkMetrics = evolValid ? await computeWeekTicketMetrics(evolPrev.weekKey) : null;
   const evolTkTotal          = prevTkMetrics ? pdfEvolText(tkTotalNum, prevTkMetrics.tkTotal, false) : {text:null};
-  const _curOuvMin = fromExcelPdf ? fromExcelPdf.avgMinOuv : (tkSavAvecOuverture.length?Math.round(tkSavAvecOuverture.reduce((s,t)=>{const d1=new Date(t.ouverture||t.dateOuverture||t.creation),d0=new Date(t.debut);const dm=(d1-d0)/60000;return s+(dm>0?dm:0);},0)/tkSavAvecOuverture.length):null);
-  const _curMttrMin = fromExcelPdf ? fromExcelPdf.avgMinMttr : (tkResolus.length?Math.round(tkResolus.reduce((s,t)=>{const dm=(new Date(t.fin)-new Date(t.debut))/60000;return s+(dm>0?dm:0);},0)/tkResolus.length):null);
+  const _curOuvMin = fromExcelPdf ? fromExcelPdf.avgMinOuv : null;
+  const _curMttrMin = fromExcelPdf ? fromExcelPdf.avgMinMttr : null;
   const evolTempsOuvSav      = prevTkMetrics ? pdfEvolText(_curOuvMin, prevTkMetrics.tempsOuvertureSav, false) : {text:null};
   const evolTkTauxSav        = prevTkMetrics ? pdfEvolText(tkTauxSav, prevTkMetrics.tkTauxSav, true) : {text:null};
   const evolMttrTicket       = prevTkMetrics ? pdfEvolText(_curMttrMin, prevTkMetrics.mttr, false) : {text:null};
@@ -3225,7 +3222,7 @@ async function exportPdf(){
   kpiBlock([
     {label:"Demande d'ouverture de ticket",     value:tkTotal,             color:RED_T,  accent:RED_T,   sub:"", evol:evolTkTotal.text, evolColor:evolTkTotal.color},
     {label:"Temps moyen d'ouverture de ticket par le SAV B2B", value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)":"—", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
-    {label:"Taux moyen d'ouverture de ticket par le SAV B2B",  value:tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:"", evol:evolTkTauxSav.text, evolColor:evolTkTauxSav.color},
+    {label:"Taux moyen d'ouverture de ticket par le SAV B2B",  value:tkTauxSav===null?"—":tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:"", evol:evolTkTauxSav.text, evolColor:evolTkTauxSav.color},
     {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)":"", evol:evolMttrTicket.text, evolColor:evolMttrTicket.color},
     {label:"Réitération (référence qui reviennent)", value:nbReiteration, color:RED_T,  accent:RED_T,   sub:"", evol:evolReiteration.text, evolColor:evolReiteration.color},
     {label:"Taux de réitération",               value:tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:"", evol:evolTauxReiteration.text, evolColor:evolTauxReiteration.color},
@@ -3260,7 +3257,7 @@ async function exportPdf(){
   sectionBar("PROACTIVITE (Detection des anomalies avant incidents)");
   const instablesAll = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping);
   const nbClientsInstables = new Set(instablesAll.map(d=>clientFromSite(d.site))).size;
-  const tauxInstables = nbLiens>0 ? Math.round((nbInstables/nbLiens)*100) : 0;
+  const tauxInstables = (window._totalSitesSupervises>0) ? Math.round((nbInstables/window._totalSitesSupervises)*100) : (nbLiens>0 ? Math.round((nbInstables/nbLiens)*100) : 0);
   const nbInstablesCorriges = instablesAll.filter(d=>!d.isDown).length;
   const tauxCorrection = instablesAll.length>0 ? Math.round((nbInstablesCorriges/instablesAll.length)*100) : 0;
   const evolClientsInstables = evolValid ? pdfEvolText(nbClientsInstables, evolPrev.nbClientsInstables, true) : {text:null};
@@ -3350,7 +3347,7 @@ async function exportPdf(){
         return [
           String(i+1),
           t.client || "—",
-          t.reference || t.ref || t.id || "—",
+          t.ref || t.reference || t.id || "—",
           t.localisation || t.site || t.lien || "—",
           heureC,
           dureeTxt,
@@ -3514,7 +3511,7 @@ function computeReactiviteFromExcel(filtered){
   if(!map){
     return null; // pas de fichier chargé -> l'appelant utilise l'ancienne logique
   }
-  const matched = filtered.map(t=>({t, m:map[normRef(t.reference)]})).filter(x=>x.m);
+  const matched = filtered.map(t=>({t, m:map[normRef(t.ref || t.reference)]})).filter(x=>x.m);
 
   const withCreation = matched.filter(x=>x.t.debut && x.m.creation);
   let ouvertureTxt = "—", avgMinOuv = null;
@@ -3598,38 +3595,16 @@ async function loadKpiTickets(){
       resolus = {length: fromExcel.nbMttr};
       window._currentMttrMin = fromExcel.avgMinMttr;
     } else {
-      const sav = filtered.filter(t=>t.destinataire==="SAV B2B").length;
-      tauxSav = total>0 ? Math.round((sav/total)*100) : 0;
-
-      // Temps d'ouverture SAV B2B : délai moyen entre la coupure (debut) et l'ouverture du ticket
-      savAvecOuverture = filtered.filter(t=>t.destinataire==="SAV B2B" && t.debut && (t.ouverture||t.dateOuverture||t.creation));
+      tauxSav = null;
       ouvertureTxt = "—";
-      if(savAvecOuverture.length){
-        const totalMinOuv = savAvecOuverture.reduce((s,t)=>{
-          const d0=new Date(t.debut), d1=new Date(t.ouverture||t.dateOuverture||t.creation);
-          const dm=(d1-d0)/60000; return s+(dm>0?dm:0);
-        },0);
-        const avgMinOuv = Math.round(totalMinOuv/savAvecOuverture.length);
-        ouvertureTxt = avgMinOuv>=60 ? (Math.floor(avgMinOuv/60)+"h"+String(avgMinOuv%60).padStart(2,"0")) : avgMinOuv+"min";
-      }
-
-      // Temps de rétablissement moyen (MTTR) : moyenne (fin - debut) des tickets résolus
-      resolus = filtered.filter(t=>t.debut && t.fin);
       mttrTxt = "—";
-      if(resolus.length){
-        const totalMin = resolus.reduce((s,t)=>{
-          const dm=(new Date(t.fin)-new Date(t.debut))/60000; return s+(dm>0?dm:0);
-        },0);
-        const avgMin = Math.round(totalMin/resolus.length);
-        mttrTxt = avgMin>=60 ? (Math.floor(avgMin/60)+"h"+String(avgMin%60).padStart(2,"0")) : avgMin+"min";
-        window._currentMttrMin = avgMin;
-      } else {
-        window._currentMttrMin = null;
-      }
+      savAvecOuverture = {length: 0};
+      resolus = {length: 0};
+      window._currentMttrMin = null;
     }
 
     // Réitération client : contacts répétés par un même client au-delà du 1er ticket
-    const clientKey = t => t.client || t.reference || t.id || "";
+    const clientKey = t => t.client || t.ref || t.reference || t.id || "";
     const parClient = {};
     filtered.forEach(t=>{ const k=clientKey(t); if(!k) return; parClient[k]=(parClient[k]||0)+1; });
     const nbReiteration = Object.values(parClient).reduce((s,n)=> s+(n>1?n-1:0),0);
@@ -3638,7 +3613,7 @@ async function loadKpiTickets(){
     const set=(id,val)=>{ const el=document.getElementById(id); if(el) el.textContent=val; };
     set("kpi-tickets-total",       total || "0");
     set("dg-tk-ouverture",         ouvertureTxt);
-    set("dg-tk-taux-sav",          tauxSav+"%");
+    set("dg-tk-taux-sav",          tauxSav===null ? "—" : tauxSav+"%");
     set("dg-tk-mttr",              mttrTxt);
     set("dg-tk-reiteration",       nbReiteration || "0");
     set("dg-tk-taux-reiteration",  tauxReiteration+"%");
