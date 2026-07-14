@@ -3199,13 +3199,11 @@ async function exportPdf(){
     tkSavAvecOuverture = {length: fromExcelPdf.nbOuverture};
   }
 
-  // Réitération client : nombre de contacts répétés par un même client (au-delà du 1er ticket) sur la période
-  const _clientKey = t => t.client || t.ref || t.reference || t.id || "";
-  const _tkParClient = {};
-  filteredTk.forEach(t=>{ const k=_clientKey(t); if(!k) return; _tkParClient[k]=(_tkParClient[k]||0)+1; });
-  const nbReiteration = Object.values(_tkParClient).reduce((s,n)=> s + (n>1 ? n-1 : 0), 0);
+  // Réitération : calculée uniquement depuis le fichier Excel SAV. Sans fichier chargé -> "—"
   const tkTotalNum = parseInt(tkTotal)||0;
-  const tauxReiteration = tkTotalNum>0 ? Math.round((nbReiteration/tkTotalNum)*100) : 0;
+  const _reiterationExcelPdf = computeReiterationFromExcel();
+  const nbReiteration   = _reiterationExcelPdf ? _reiterationExcelPdf.nbReiteration : null;
+  const tauxReiteration = _reiterationExcelPdf ? _reiterationExcelPdf.tauxReiteration : null;
 
   // Comparaison vs semaine précédente (uniquement si rapport généré via sélection de semaine)
   const tkTauxSav = fromExcelPdf ? fromExcelPdf.tauxSav : null;
@@ -3225,8 +3223,8 @@ async function exportPdf(){
     {label:"Temps moyen d'ouverture de ticket par le SAV B2B", value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)":"—", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
     {label:"Taux moyen d'ouverture de ticket par le SAV B2B",  value:tkTauxSav===null?"—":tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:fromExcelPdf?`${fromExcelPdf.nbMatched}/${tkTotalNum} ticket(s)`:"", evol:evolTkTauxSav.text, evolColor:evolTkTauxSav.color},
     {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)":"", evol:evolMttrTicket.text, evolColor:evolMttrTicket.color},
-    {label:"Réitération (référence qui reviennent)", value:nbReiteration, color:RED_T,  accent:RED_T,   sub:"", evol:evolReiteration.text, evolColor:evolReiteration.color},
-    {label:"Taux de réitération",               value:tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:"", evol:evolTauxReiteration.text, evolColor:evolTauxReiteration.color},
+    {label:"Réitération (référence qui reviennent)", value:nbReiteration===null?"—":nbReiteration, color:RED_T,  accent:RED_T,   sub:"", evol:evolReiteration.text, evolColor:evolReiteration.color},
+    {label:"Taux de réitération",               value:tauxReiteration===null?"—":tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:"", evol:evolTauxReiteration.text, evolColor:evolTauxReiteration.color},
   ], 3);
 
   // Graphe Évolution du temps de rétablissement moyen — 4 semaines (identique au graphe taux de disponibilité)
@@ -3538,6 +3536,34 @@ function fmtDureeMin(min){
   return min+"min";
 }
 
+// Réitération calculée depuis le fichier Excel SAV : pour chaque référence apparaissant plusieurs
+// fois dans l'Excel sur la période du rapport, on compte (occurrences - 1). Ex: 2 lignes pour la
+// même référence sur la période = 1 réitération.
+function computeReiterationFromExcel(){
+  const map = window._savExcelMap;
+  if(!map) return null;
+  const hdrDate = document.getElementById("hdr-date")?.textContent || "";
+  const dateMatches = hdrDate.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+  let periodStart = null, periodEnd = null;
+  if(dateMatches.length){
+    const toDate = s => { const [d,m,y]=s.split("/"); return new Date(+y,+m-1,+d); };
+    const ds = dateMatches.map(toDate).sort((a,b)=>a-b);
+    periodStart = ds[0];
+    periodEnd   = new Date(ds[ds.length-1]); periodEnd.setHours(23,59,59,999);
+  }
+  const dansLaPeriode = d => !periodStart || !periodEnd || (d>=periodStart && d<=periodEnd);
+
+  let total = 0, nbReiteration = 0;
+  Object.keys(map).forEach(ref=>{
+    const rows = map[ref].filter(e=> e.creation && dansLaPeriode(e.creation));
+    if(!rows.length) return;
+    total += rows.length;
+    if(rows.length>1) nbReiteration += rows.length-1;
+  });
+  const tauxReiteration = total>0 ? Math.round((nbReiteration/total)*100) : 0;
+  return {nbReiteration, tauxReiteration, total};
+}
+
 // Calcule les KPI réactivité de l'équipe terrain (SAV B2B) : temps d'ouverture de leur ticket
 // après celui du NOC, et délai de relève. Logique simple :
 // 1) on ne regarde, dans le fichier Excel, que les dossiers dont la date de création tombe dans
@@ -3683,20 +3709,20 @@ async function loadKpiTickets(){
       window._currentMttrMin = null;
     }
 
-    // Réitération client : contacts répétés par un même client au-delà du 1er ticket
-    const clientKey = t => t.client || t.ref || t.reference || t.id || "";
-    const parClient = {};
-    filtered.forEach(t=>{ const k=clientKey(t); if(!k) return; parClient[k]=(parClient[k]||0)+1; });
-    const nbReiteration = Object.values(parClient).reduce((s,n)=> s+(n>1?n-1:0),0);
-    const tauxReiteration = total>0 ? Math.round((nbReiteration/total)*100) : 0;
+    // Réitération : calculée uniquement depuis le fichier Excel SAV (référence qui revient
+    // plusieurs fois sur la période, rapporté au nombre total de signalisations Excel). Sans
+    // fichier chargé, aucune valeur affichée.
+    const reiterationExcel = computeReiterationFromExcel();
+    const nbReiteration   = reiterationExcel ? reiterationExcel.nbReiteration : null;
+    const tauxReiteration = reiterationExcel ? reiterationExcel.tauxReiteration : null;
 
     const set=(id,val)=>{ const el=document.getElementById(id); if(el) el.textContent=val; };
     set("kpi-tickets-total",       total || "0");
     set("dg-tk-ouverture",         ouvertureTxt);
     set("dg-tk-taux-sav",          tauxSav===null ? "—" : tauxSav+"%");
     set("dg-tk-mttr",              mttrTxt);
-    set("dg-tk-reiteration",       nbReiteration || "0");
-    set("dg-tk-taux-reiteration",  tauxReiteration+"%");
+    set("dg-tk-reiteration",       nbReiteration===null ? "—" : nbReiteration);
+    set("dg-tk-taux-reiteration",  tauxReiteration===null ? "—" : tauxReiteration+"%");
 
     const subOuv = document.getElementById("dg-tk-ouverture-sub");
     if(subOuv) subOuv.textContent = savAvecOuverture.length ? savAvecOuverture.length+" ticket(s)" : "—";
