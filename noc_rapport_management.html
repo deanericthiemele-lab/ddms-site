@@ -3463,6 +3463,26 @@ async function pdaDeleteRow(btn, rowId, site){
 // Normalise une référence pour le matching (majuscules, sans espaces/points superflus)
 function normRef(s){ return String(s||"").trim().toUpperCase().replace(/\.+$/,""); }
 
+// Parse une valeur de cellule Excel en Date, que ce soit une vraie date (objet Date via cellDates)
+// ou du texte au format "JJ/MM/AAAA[ HH:MM[:SS]]" (que new Date() interprète mal en JS)
+function parseExcelDate(val){
+  if(val===null || val===undefined || val==="") return null;
+  if(val instanceof Date) return isNaN(val) ? null : val;
+  const s = String(val).trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if(m){
+    const d = new Date(+m[3], +m[2]-1, +m[1], +m[4], +m[5], m[6]?+m[6]:0);
+    return isNaN(d) ? null : d;
+  }
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m){
+    const d = new Date(+m[3], +m[2]-1, +m[1]);
+    return isNaN(d) ? null : d;
+  }
+  const d2 = new Date(s);
+  return isNaN(d2) ? null : d2;
+}
+
 // Import du fichier Excel SAV B2B (colonnes ND / DATE DE CRÉATION+++ / DATE DE FIN)
 // et matching avec les tickets NOC (noc_tickets_indispo) par référence (t.reference <-> ND)
 async function handleSavExcelUpload(event){
@@ -3488,8 +3508,8 @@ async function handleSavExcelUpload(event){
       if(!ref) continue;
       const creationRaw = row[idxCreationCol];
       const finRaw      = idxFin>=0 ? row[idxFin] : "";
-      const creation = creationRaw ? new Date(creationRaw) : null;
-      const fin      = finRaw ? new Date(finRaw) : null;
+      const creation = parseExcelDate(creationRaw);
+      const fin      = parseExcelDate(finRaw);
       if(!map[ref]) map[ref] = [];
       map[ref].push({
         creation: (creation && !isNaN(creation)) ? creation : null,
