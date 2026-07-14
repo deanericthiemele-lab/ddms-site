@@ -2523,7 +2523,7 @@ async function deleteVip(id){
     </div>
     <div class="t-sp"></div>
     <input type="file" id="tk-import-input" accept=".xlsx,.xls,.csv" style="display:none" onchange="tkImportIncidentsFile(this.files[0])">
-    <button class="btn btn-out btn-sm" onclick="document.getElementById('tk-import-input').click()" style="gap:5px">📥 Importer</button>
+    <button id="tk-import-btn" class="btn btn-out btn-sm" onclick="document.getElementById('tk-import-input').click()" style="gap:5px">📥 Importer</button>
     <button class="btn btn-out btn-sm" onclick="ticketExportCSV()" style="gap:5px">📊 Exporter CSV</button>
   </div>
 
@@ -7657,20 +7657,29 @@ function tkParseDate(val){
 async function tkImportIncidentsFile(file){
   if(!file) return;
   const input = document.getElementById('tk-import-input');
+  const btn   = document.getElementById('tk-import-btn');
+  const btnOrig = btn ? btn.textContent : null;
+  if(btn){ btn.textContent='⏳ Import en cours…'; btn.disabled=true; }
+  toast('📥 Lecture du fichier…','ok');
+  console.log('[tkImport] démarrage import', file.name, file.size, 'octets');
+
   try{
     if(!window.XLSX){
       await new Promise((res,rej)=>{
         const s=document.createElement('script');
         s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-        s.onload=res; s.onerror=rej;
+        s.onload=res; s.onerror=()=>rej(new Error('Impossible de charger la librairie Excel (réseau/CDN bloqué)'));
         document.head.appendChild(s);
+        setTimeout(()=>rej(new Error('Chargement librairie Excel trop long (timeout)')), 15000);
       });
     }
+    console.log('[tkImport] XLSX chargé, lecture du fichier…');
 
     const buf  = await file.arrayBuffer();
     const wb   = window.XLSX.read(buf, {type:'array'});
     const ws   = wb.Sheets[wb.SheetNames[0]];
     const rows = window.XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+    console.log('[tkImport] lignes lues:', rows.length);
     if(!rows.length){ toast('Fichier vide','err'); return; }
 
     const norm = s => String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
@@ -7678,9 +7687,14 @@ async function tkImportIncidentsFile(file){
     const idxRef = headers.findIndex(h=>h==='nd'||h.includes('reference')||h.includes('ref'));
     const idxFin = headers.findIndex(h=>h.includes('fin')||h.includes('cloture')||h.includes('resolution'));
     const IDX_CREATION = 15; // colonne P = date de création (fixe)
+    console.log('[tkImport] idxRef=',idxRef,'idxFin=',idxFin,'DB.tickets=',(DB.tickets||[]).length);
 
     if(idxRef<0 || idxFin<0){
       toast('Colonnes Référence / Date fin introuvables dans le fichier','err');
+      return;
+    }
+    if(!(DB.tickets||[]).length){
+      toast('Aucun ticket chargé — vérifier la connexion Firebase','err');
       return;
     }
 
@@ -7710,14 +7724,16 @@ async function tkImportIncidentsFile(file){
       }
     }
 
+    console.log('[tkImport] terminé: maj=',maj,'introuvable=',introuvable,'ignore=',ignore);
     ticketRender();
     const suffix = introuvable ? ` · ${introuvable} référence(s) non trouvée(s)` : '';
     toast(`✓ ${maj} ticket(s) mis à jour${suffix}`, maj>0?'ok':'warn');
   }catch(e){
-    console.error(e);
-    toast('Erreur lecture fichier import','err');
+    console.error('[tkImport] erreur', e);
+    toast('Erreur import : '+(e.message||'inconnue'),'err');
   }finally{
     if(input) input.value='';
+    if(btn){ btn.textContent=btnOrig||'📥 Importer'; btn.disabled=false; }
   }
 }
 
