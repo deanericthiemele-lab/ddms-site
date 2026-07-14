@@ -3489,10 +3489,11 @@ async function handleSavExcelUpload(event){
       const finRaw      = idxFin>=0 ? row[idxFin] : "";
       const creation = creationRaw ? new Date(creationRaw) : null;
       const fin      = finRaw ? new Date(finRaw) : null;
-      map[ref] = {
+      if(!map[ref]) map[ref] = [];
+      map[ref].push({
         creation: (creation && !isNaN(creation)) ? creation : null,
         fin: (fin && !isNaN(fin)) ? fin : null
-      };
+      });
     }
     window._savExcelMap = map;
     window._savExcelFileName = file.name;
@@ -3504,15 +3505,35 @@ async function handleSavExcelUpload(event){
   }
 }
 
-// Calcule les KPI réactivité (ouverture SAV / taux / MTTR) à partir du fichier Excel SAV importé,
-// avec repli sur les champs du ticket (ouverture/dateOuverture/creation, fin) si aucun fichier n'est chargé
+// Formate une durée en minutes -> "Xj HHh" si >= 24h, sinon "Xh MM" ou "Xmin"
+function fmtDureeMin(min){
+  if(min===null || min===undefined || isNaN(min)) return "—";
+  if(min>=1440){
+    const j = Math.floor(min/1440);
+    const h = Math.floor((min%1440)/60);
+    return j+"j "+String(h).padStart(2,"0")+"h";
+  }
+  if(min>=60) return Math.floor(min/60)+"h"+String(min%60).padStart(2,"0");
+  return min+"min";
+}
+
+// Calcule les KPI réactivité (ouverture SAV / taux / MTTR) à partir du fichier Excel SAV importé.
+// Pour chaque ticket, si plusieurs lignes Excel partagent la même référence, on retient celle dont
+// la date de création est la plus proche de l'ouverture du ticket NOC (t.debut).
 function computeReactiviteFromExcel(filtered){
   const map = window._savExcelMap;
   if(!map){
-    return null; // pas de fichier chargé -> l'appelant utilise l'ancienne logique
+    return null; // pas de fichier chargé -> l'appelant affiche "—"
   }
-  const matched = filtered.map(t=>({t, m:map[normRef(t.ref || t.reference)]})).filter(x=>x.m);
+  // Chaque ligne Excel partageant la même référence est comptée séparément (pas de sélection/association)
+  const matched = [];
+  filtered.forEach(t=>{
+    const arr = map[normRef(t.ref || t.reference)];
+    if(!arr || !arr.length) return;
+    arr.forEach(m=> matched.push({t, m}));
+  });
 
+  // Temps moyen d'ouverture de ticket par le SAV B2B : (date création SAV) - (t.debut, ouverture NOC)
   const withCreation = matched.filter(x=>x.t.debut && x.m.creation);
   let ouvertureTxt = "—", avgMinOuv = null;
   if(withCreation.length){
@@ -3520,25 +3541,27 @@ function computeReactiviteFromExcel(filtered){
       const dm = (x.m.creation - new Date(x.t.debut))/60000; return s+(dm>0?dm:0);
     },0);
     avgMinOuv = Math.round(totalMin/withCreation.length);
-    ouvertureTxt = avgMinOuv>=60 ? (Math.floor(avgMinOuv/60)+"h"+String(avgMinOuv%60).padStart(2,"0")) : avgMinOuv+"min";
+    ouvertureTxt = fmtDureeMin(avgMinOuv);
   }
 
-  const tauxSav = filtered.length>0 ? Math.round((matched.length/filtered.length)*100) : 0;
+  const matchedTicketsSet = new Set(matched.map(x=>x.t.id || x.t.ref || x.t.reference));
+  const tauxSav = filtered.length>0 ? Math.round((matchedTicketsSet.size/filtered.length)*100) : 0;
 
-  const withBoth = matched.filter(x=>x.m.creation && x.m.fin);
+  // Temps de rétablissement moyen : (date de fin SAV) - (t.debut, ouverture NOC)
+  const withFin = matched.filter(x=>x.t.debut && x.m.fin);
   let mttrTxt = "—", avgMinMttr = null;
-  if(withBoth.length){
-    const totalMin = withBoth.reduce((s,x)=>{
-      const dm = (x.m.fin - x.m.creation)/60000; return s+(dm>0?dm:0);
+  if(withFin.length){
+    const totalMin = withFin.reduce((s,x)=>{
+      const dm = (x.m.fin - new Date(x.t.debut))/60000; return s+(dm>0?dm:0);
     },0);
-    avgMinMttr = Math.round(totalMin/withBoth.length);
-    mttrTxt = avgMinMttr>=60 ? (Math.floor(avgMinMttr/60)+"h"+String(avgMinMttr%60).padStart(2,"0")) : avgMinMttr+"min";
+    avgMinMttr = Math.round(totalMin/withFin.length);
+    mttrTxt = fmtDureeMin(avgMinMttr);
   }
 
   return {
     ouvertureTxt, avgMinOuv, nbOuverture: withCreation.length,
-    tauxSav, nbMatched: matched.length,
-    mttrTxt, avgMinMttr, nbMttr: withBoth.length
+    tauxSav, nbMatched: matchedTicketsSet.size,
+    mttrTxt, avgMinMttr, nbMttr: withFin.length
   };
 }
 
