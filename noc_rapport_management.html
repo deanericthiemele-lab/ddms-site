@@ -1110,11 +1110,9 @@ async function computeWeekMttrTickets(weekKey){
       return dISO>=startISO && dISO<=endISO;
     });
     if(!inWeek.length) return null;
-    const totalMin = inWeek.reduce((s,t)=>{
-      const diffMin = (new Date(t.fin) - new Date(t.debut)) / 60000;
-      return s + (diffMin>0 ? diffMin : 0);
-    }, 0);
-    return Math.round(totalMin / inWeek.length);
+    const vals = inWeek.map(t=>(new Date(t.fin) - new Date(t.debut))/60000).filter(v=>!isNaN(v)&&v>=0);
+    if(!vals.length) return null;
+    return Math.round(vals.reduce((a,b)=>a+b,0)/vals.length);
   } catch(e){ return null; }
 }
 
@@ -1135,22 +1133,17 @@ async function computeWeekTicketMetrics(weekKey){
     const tkTauxSavWk = tkTotalWk>0 ? Math.round((tkSavWk/tkTotalWk)*100) : null;
 
     const tkSavAvecOuvertureWk = inWeek.filter(t=>t.debut && t.dateCreationExcel);
+    const ouvValsWk = tkSavAvecOuvertureWk.map(t=>(new Date(t.dateCreationExcel)-new Date(t.debut))/60000).filter(v=>!isNaN(v)&&v>=0);
     let tempsOuvertureSavWk = null;
-    if(tkSavAvecOuvertureWk.length){
-      const totalMinOuv = tkSavAvecOuvertureWk.reduce((s,t)=>{
-        const d1 = new Date(t.dateCreationExcel), d0 = new Date(t.debut);
-        const diffMin = (d1-d0)/60000; return s+(diffMin>0?diffMin:0);
-      },0);
-      tempsOuvertureSavWk = Math.round(totalMinOuv/tkSavAvecOuvertureWk.length);
+    if(ouvValsWk.length){
+      tempsOuvertureSavWk = Math.round(ouvValsWk.reduce((a,b)=>a+b,0)/ouvValsWk.length);
     }
 
     const tkResolusWk = inWeek.filter(t=>t.debut && t.fin);
+    const mttrValsWk = tkResolusWk.map(t=>(new Date(t.fin)-new Date(t.debut))/60000).filter(v=>!isNaN(v)&&v>=0);
     let mttrWk = null;
-    if(tkResolusWk.length){
-      const totalMin = tkResolusWk.reduce((s,t)=>{
-        const diffMin=(new Date(t.fin)-new Date(t.debut))/60000; return s+(diffMin>0?diffMin:0);
-      },0);
-      mttrWk = Math.round(totalMin/tkResolusWk.length);
+    if(mttrValsWk.length){
+      mttrWk = Math.round(mttrValsWk.reduce((a,b)=>a+b,0)/mttrValsWk.length);
     }
 
     const refKey = t => normRef(t.ref || t.reference);
@@ -3180,18 +3173,18 @@ async function exportPdf(){
 
   // Temps de rétablissement moyen (MTTR tickets) : uniquement calculable via le fichier Excel SAV
   let mttrTicketTxt = "—";
-  let tkResolus = {length: 0};
+  let tkResolus = {length: 0, exclus: 0};
   if(fromExcelPdf){
     mttrTicketTxt = fromExcelPdf.mttrTxt;
-    tkResolus = {length: fromExcelPdf.nbMttr};
+    tkResolus = {length: fromExcelPdf.nbMttr, exclus: fromExcelPdf.nbMttrExclus||0};
   }
 
   // Temps d'ouverture SAV B2B : uniquement calculable via le fichier Excel SAV
   let tempsOuvertureSavTxt = "—";
-  let tkSavAvecOuverture = {length: 0};
+  let tkSavAvecOuverture = {length: 0, exclus: 0};
   if(fromExcelPdf){
     tempsOuvertureSavTxt = fromExcelPdf.ouvertureTxt;
-    tkSavAvecOuverture = {length: fromExcelPdf.nbOuverture};
+    tkSavAvecOuverture = {length: fromExcelPdf.nbOuverture, exclus: fromExcelPdf.nbOuvertureExclus||0};
   }
 
   // Réitération : calculée uniquement depuis le fichier Excel SAV. Sans fichier chargé -> "—"
@@ -3216,8 +3209,8 @@ async function exportPdf(){
   kpiBlock([
     {label:"Demande d'ouverture de ticket",     value:tkTotal,             color:RED_T,  accent:RED_T,   sub:"", evol:evolTkTotal.text, evolColor:evolTkTotal.color},
     {label:"Taux moyen d'ouverture de ticket par le SAV B2B",  value:tkTauxSav===null?"—":tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:fromExcelPdf?`${fromExcelPdf.nbMatched}/${tkTotalNum} ticket(s)`:"", evol:evolTkTauxSav.text, evolColor:evolTkTauxSav.color},
-    {label:"Temps moyen d'ouverture de ticket par le SAV B2B", value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)":"—", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
-    {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)":"", evol:evolMttrTicket.text, evolColor:evolMttrTicket.color},
+    {label:"Temps moyen d'ouverture de ticket par le SAV B2B", value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)"+(tkSavAvecOuverture.exclus>0?` (${tkSavAvecOuverture.exclus} exclu(s))`:""):"—", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
+    {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)"+(tkResolus.exclus>0?` (${tkResolus.exclus} exclu(s))`:""):"", evol:evolMttrTicket.text, evolColor:evolMttrTicket.color},
     {label:"Réitération (référence qui reviennent)", value:nbReiteration===null?"—":nbReiteration, color:RED_T,  accent:RED_T,   sub:"", evol:evolReiteration.text, evolColor:evolReiteration.color},
     {label:"Taux de réitération",               value:tauxReiteration===null?"—":tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:"", evol:evolTauxReiteration.text, evolColor:evolTauxReiteration.color},
   ], 3);
@@ -3553,32 +3546,34 @@ function fmtDureeMin(min){
 function computeReactiviteFromTicketFields(filtered){
   if(!filtered || !filtered.length) return null;
 
+  // Durées négatives (date création/fin antérieure au début du ticket) = anomalie de données,
+  // exclues du calcul (et non comptées comme 0min) — comme dans noctb.html (tkAvgMs).
   const withCreation = filtered.filter(t=>t.dateCreationExcel && t.debut);
+  const ouvVals = withCreation
+    .map(t=>(new Date(t.dateCreationExcel) - new Date(t.debut))/60000)
+    .filter(v=>!isNaN(v) && v>=0);
   let ouvertureTxt = "—", avgMinOuv = null;
-  if(withCreation.length){
-    const totalMin = withCreation.reduce((s,t)=>{
-      const dm = (new Date(t.dateCreationExcel) - new Date(t.debut))/60000; return s+(dm>0?dm:0);
-    },0);
-    avgMinOuv = Math.round(totalMin/withCreation.length);
+  if(ouvVals.length){
+    avgMinOuv = Math.round(ouvVals.reduce((a,b)=>a+b,0)/ouvVals.length);
     ouvertureTxt = fmtDureeMin(avgMinOuv);
   }
 
   const tauxSav = filtered.length>0 ? Math.round((withCreation.length/filtered.length)*100) : 0;
 
   const withFin = filtered.filter(t=>t.fin && t.debut);
+  const mttrVals = withFin
+    .map(t=>(new Date(t.fin) - new Date(t.debut))/60000)
+    .filter(v=>!isNaN(v) && v>=0);
   let mttrTxt = "—", avgMinMttr = null;
-  if(withFin.length){
-    const totalMin = withFin.reduce((s,t)=>{
-      const dm = (new Date(t.fin) - new Date(t.debut))/60000; return s+(dm>0?dm:0);
-    },0);
-    avgMinMttr = Math.round(totalMin/withFin.length);
+  if(mttrVals.length){
+    avgMinMttr = Math.round(mttrVals.reduce((a,b)=>a+b,0)/mttrVals.length);
     mttrTxt = fmtDureeMin(avgMinMttr);
   }
 
   return {
-    ouvertureTxt, avgMinOuv, nbOuverture: withCreation.length,
+    ouvertureTxt, avgMinOuv, nbOuverture: withCreation.length, nbOuvertureExclus: withCreation.length-ouvVals.length,
     tauxSav, nbMatched: withCreation.length,
-    mttrTxt, avgMinMttr, nbMttr: withFin.length
+    mttrTxt, avgMinMttr, nbMttr: withFin.length, nbMttrExclus: withFin.length-mttrVals.length
   };
 }
 
@@ -3673,12 +3668,11 @@ function computeReactiviteFromExcel(filtered){
   }).filter(Boolean);
 
   // Temps moyen d'ouverture de ticket par le SAV B2B : (date création SAV) - (t.debut, ouverture NOC)
+  // Durées négatives (anomalie) exclues du calcul, non comptées comme 0min.
   let ouvertureTxt = "—", avgMinOuv = null;
-  if(matched.length){
-    const totalMin = matched.reduce((s,x)=>{
-      const dm = (x.m.creation - new Date(x.t.debut))/60000; return s+(dm>0?dm:0);
-    },0);
-    avgMinOuv = Math.round(totalMin/matched.length);
+  const ouvVals = matched.map(x=>(x.m.creation - new Date(x.t.debut))/60000).filter(v=>!isNaN(v) && v>=0);
+  if(ouvVals.length){
+    avgMinOuv = Math.round(ouvVals.reduce((a,b)=>a+b,0)/ouvVals.length);
     ouvertureTxt = fmtDureeMin(avgMinOuv);
   }
 
@@ -3687,18 +3681,16 @@ function computeReactiviteFromExcel(filtered){
   // Temps de rétablissement moyen : (date de fin SAV) - (t.debut, ouverture NOC)
   const withFin = matched.filter(x=>x.m.fin);
   let mttrTxt = "—", avgMinMttr = null;
-  if(withFin.length){
-    const totalMin = withFin.reduce((s,x)=>{
-      const dm = (x.m.fin - new Date(x.t.debut))/60000; return s+(dm>0?dm:0);
-    },0);
-    avgMinMttr = Math.round(totalMin/withFin.length);
+  const mttrVals = withFin.map(x=>(x.m.fin - new Date(x.t.debut))/60000).filter(v=>!isNaN(v) && v>=0);
+  if(mttrVals.length){
+    avgMinMttr = Math.round(mttrVals.reduce((a,b)=>a+b,0)/mttrVals.length);
     mttrTxt = fmtDureeMin(avgMinMttr);
   }
 
   return {
-    ouvertureTxt, avgMinOuv, nbOuverture: matched.length,
+    ouvertureTxt, avgMinOuv, nbOuverture: matched.length, nbOuvertureExclus: matched.length-ouvVals.length,
     tauxSav, nbMatched: matched.length,
-    mttrTxt, avgMinMttr, nbMttr: withFin.length
+    mttrTxt, avgMinMttr, nbMttr: withFin.length, nbMttrExclus: withFin.length-mttrVals.length
   };
 }
 
@@ -3751,15 +3743,15 @@ async function loadKpiTickets(){
       tauxSav = fromExcel.tauxSav;
       ouvertureTxt = fromExcel.ouvertureTxt;
       mttrTxt = fromExcel.mttrTxt;
-      savAvecOuverture = {length: fromExcel.nbOuverture};
-      resolus = {length: fromExcel.nbMttr};
+      savAvecOuverture = {length: fromExcel.nbOuverture, exclus: fromExcel.nbOuvertureExclus||0};
+      resolus = {length: fromExcel.nbMttr, exclus: fromExcel.nbMttrExclus||0};
       window._currentMttrMin = fromExcel.avgMinMttr;
     } else {
       tauxSav = null;
       ouvertureTxt = "—";
       mttrTxt = "—";
-      savAvecOuverture = {length: 0};
-      resolus = {length: 0};
+      savAvecOuverture = {length: 0, exclus: 0};
+      resolus = {length: 0, exclus: 0};
       window._currentMttrMin = null;
     }
 
@@ -3779,11 +3771,11 @@ async function loadKpiTickets(){
     set("dg-tk-taux-reiteration",  tauxReiteration===null ? "—" : tauxReiteration+"%");
 
     const subOuv = document.getElementById("dg-tk-ouverture-sub");
-    if(subOuv) subOuv.textContent = savAvecOuverture.length ? savAvecOuverture.length+" ticket(s)" : "—";
+    if(subOuv) subOuv.textContent = savAvecOuverture.length ? savAvecOuverture.length+" ticket(s)"+(savAvecOuverture.exclus>0?` (${savAvecOuverture.exclus} exclu(s))`:"") : "—";
     const subTauxSav = document.getElementById("dg-tk-taux-sav-sub");
     if(subTauxSav) subTauxSav.textContent = fromExcel ? `${fromExcel.nbMatched}/${total} ticket(s)` : "";
     const subMttr = document.getElementById("dg-tk-mttr-sub");
-    if(subMttr) subMttr.textContent = resolus.length ? resolus.length+" ticket(s) résolu(s)" : "";
+    if(subMttr) subMttr.textContent = resolus.length ? resolus.length+" ticket(s) résolu(s)"+(resolus.exclus>0?` (${resolus.exclus} exclu(s))`:"") : "";
 
     const totalEl=document.getElementById("kpi-tickets-total");
     if(totalEl) totalEl.className="dg-kpi-val "+(total>5?"red":total>2?"amber":"green");
