@@ -7051,6 +7051,7 @@ function tkBuildTrendChart({xLabels, series, isDuration}){
   });
 
   let lines='', legend='';
+  let lineSeriesForLabels = [];
   const barSeriesCount = series.filter(s=>s.type==='bar').length || 1;
   const groupW = Math.max(6, (plotW/n)*0.6);
   const barW = groupW/barSeriesCount;
@@ -7082,16 +7083,31 @@ function tkBuildTrendChart({xLabels, series, isDuration}){
           if(v===null||v===undefined||isNaN(v)) return;
           const cx = xAt(i).toFixed(1), cy = yAt(v);
           lines += `<circle cx="${cx}" cy="${cy.toFixed(1)}" r="3.5" fill="${s.color}"/>`;
-          const labelY = cy<24 ? cy+14 : cy-8;
-          const valTxt = isDuration ? tkFormatMs(v) : Math.round(v);
-          lines += `<text x="${cx}" y="${labelY.toFixed(1)}" font-size="9" font-weight="700" fill="${s.color}" text-anchor="middle">${valTxt}</text>`;
         });
       }
+      lineSeriesForLabels.push(s);
     }
     legend += `<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">
       <span style="width:16px;height:${s.dashed?'0':'10px'};background:${s.dashed?'transparent':s.color};border-top:${s.dashed?`2px dotted ${s.color}`:'none'};display:inline-block"></span>
       <span style="font-size:10px;color:var(--n3)">${s.label}</span></span>`;
   });
+
+  // Étiquettes des séries en ligne, dessinées après les tracés : au même x, la valeur la plus haute
+  // s'affiche au-dessus du point, les autres en dessous (évite le chevauchement quand 2 séries sont proches).
+  if(lineSeriesForLabels.length){
+    for(let i=0;i<n;i++){
+      const withVals = lineSeriesForLabels.map(s=>({s, v:s.values[i]})).filter(o=>o.v!==null && o.v!==undefined && !isNaN(o.v));
+      if(!withVals.length) continue;
+      withVals.sort((a,b)=>yAt(a.v)-yAt(b.v)); // du plus haut (y petit) au plus bas
+      const cx = xAt(i).toFixed(1);
+      withVals.forEach((o,rank)=>{
+        const cy = yAt(o.v);
+        const labelY = rank===0 ? (cy<24?cy+14:cy-8) : cy+14;
+        const valTxt = isDuration ? tkFormatMs(o.v) : Math.round(o.v);
+        lines += `<text x="${cx}" y="${labelY.toFixed(1)}" font-size="9" font-weight="700" fill="${o.s.color}" text-anchor="middle">${valTxt}</text>`;
+      });
+    }
+  }
 
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
     ${grid}${lines}${xlab}${ylab}

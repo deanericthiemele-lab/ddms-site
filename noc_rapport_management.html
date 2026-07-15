@@ -3257,9 +3257,21 @@ async function exportPdf(){
         if(prevX!==null){ doc.setDrawColor(...s.color); doc.setLineWidth(0.6); doc.line(prevX,prevY,px,py); }
         doc.setFillColor(...s.color);
         doc.circle(px,py,1,"F");
-        doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.setTextColor(...s.color);
-        doc.text(String(v), px, py-2.5, {align:"center"});
         prevX=px; prevY=py;
+      });
+    });
+    // Étiquettes dessinées après toutes les lignes, avec anti-collision : au même x, la série la
+    // plus haute affiche sa valeur au-dessus du point, les autres en dessous (sinon labels superposés
+    // quand 2 séries ont des valeurs proches).
+    pts.forEach((p,i)=>{
+      const px = x+i*stepX;
+      const withVals = series.map(s=>({s, v:p[s.key]})).filter(o=>o.v!==null && o.v!==undefined);
+      withVals.sort((a,b)=>toY(a.v)-toY(b.v)); // du plus haut (py petit) au plus bas
+      withVals.forEach((o,rank)=>{
+        const py = toY(o.v);
+        const labelY = rank===0 ? py-2.5 : py+5.5;
+        doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.setTextColor(...o.s.color);
+        doc.text(String(o.v), px, labelY, {align:"center"});
       });
     });
     // Légende
@@ -3495,13 +3507,24 @@ async function exportPdf(){
   const evolPts = window._evolutionWeeks;
   const evolValid = evolPts && evolPts.filter(p=>p.taux!==null).length>=2;
 
-  function pdfEvolText(curVal, prevVal, goodWhenDown, label){
+  function pdfEvolText(curVal, prevVal, goodWhenDown, label, mode){
     if(curVal===null || curVal===undefined || prevVal===null || prevVal===undefined) return {text:null, color:GRAY};
     const diff = curVal - prevVal;
     const arrow = diff>0?"^":diff<0?"v":"=";
     const isGood = diff===0 ? null : (goodWhenDown ? diff<0 : diff>0);
     const color = diff===0 ? GRAY : (isGood?GREEN_T:RED_T);
-    return {text: arrow+" "+(diff>0?"+":"")+diff+" vs "+prevVal+" "+(label||"(S-1)"), color};
+    let diffTxt, prevTxt;
+    if(mode==="duration"){
+      diffTxt = (diff>0?"+":diff<0?"-":"")+fmtDureeMin(Math.abs(diff));
+      prevTxt = fmtDureeMin(prevVal);
+    } else if(mode==="percent"){
+      diffTxt = (diff>0?"+":"")+diff+"pt";
+      prevTxt = prevVal+"%";
+    } else {
+      diffTxt = (diff>0?"+":"")+diff;
+      prevTxt = String(prevVal);
+    }
+    return {text: arrow+" "+diffTxt+" vs "+prevTxt+" "+(label||"(S-1)"), color};
   }
   const evolPrevIdx = evolValid ? evolPts.length-2 : -1;
   const evolPrev    = evolValid ? evolPts[evolPrevIdx] : null;
@@ -3603,11 +3626,11 @@ async function exportPdf(){
   const evolTkTotal          = prevTkMetrics ? pdfEvolText(tkTotalNum, prevTkMetrics.tkTotal, false, evolTkLabel) : {text:null};
   const _curOuvMin = fromExcelPdf ? fromExcelPdf.avgMinOuv : null;
   const _curMttrMin = fromExcelPdf ? fromExcelPdf.avgMinMttr : null;
-  const evolTempsOuvSav      = prevTkMetrics ? pdfEvolText(_curOuvMin, prevTkMetrics.tempsOuvertureSav, false, evolTkLabel) : {text:null};
-  const evolTkTauxSav        = prevTkMetrics ? pdfEvolText(tkTauxSav, prevTkMetrics.tkTauxSav, true, evolTkLabel) : {text:null};
-  const evolMttrTicket       = prevTkMetrics ? pdfEvolText(_curMttrMin, prevTkMetrics.mttr, false, evolTkLabel) : {text:null};
+  const evolTempsOuvSav      = prevTkMetrics ? pdfEvolText(_curOuvMin, prevTkMetrics.tempsOuvertureSav, false, evolTkLabel, "duration") : {text:null};
+  const evolTkTauxSav        = prevTkMetrics ? pdfEvolText(tkTauxSav, prevTkMetrics.tkTauxSav, true, evolTkLabel, "percent") : {text:null};
+  const evolMttrTicket       = prevTkMetrics ? pdfEvolText(_curMttrMin, prevTkMetrics.mttr, false, evolTkLabel, "duration") : {text:null};
   const evolReiteration      = prevTkMetrics ? pdfEvolText(nbReiteration, prevTkMetrics.nbReiteration, false, evolTkLabel) : {text:null};
-  const evolTauxReiteration  = prevTkMetrics ? pdfEvolText(tauxReiteration, prevTkMetrics.tauxReiteration, false, evolTkLabel) : {text:null};
+  const evolTauxReiteration  = prevTkMetrics ? pdfEvolText(tauxReiteration, prevTkMetrics.tauxReiteration, false, evolTkLabel, "percent") : {text:null};
 
 
   sectionBar("REACTIVITE (Ouverture rapide de tickets Incidents)");
