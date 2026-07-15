@@ -1554,6 +1554,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   const nbAnomalies  = ifData.reduce((s,d)=>s+d.nb,0);
   const nbReboots    = ndData.filter(d=>d.cause==="Redémarrage").length;
   const nbCoupConf   = nbCoupConfirmeesCalc(ndData);
+  window._currentNbCoupConf = nbCoupConf;
   const clientFrom   = s => { const m=s.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:s.substring(0,8); };
   const clientsImp   = new Set([...ndData.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
 
@@ -1642,7 +1643,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   <div class="dg-grid4">
     <div class="dg-kpi"><div class="dg-kpi-label">Disponibilité globale des liens (Primaire &amp; Backup)</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité des liens signalés</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-signales-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-signales-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${nbCoupConf}</div><span id="dg-coupures-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${nbCoupConf}</div><span id="dg-coupures-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub" id="dg-coupures-sub"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${clientsImp.size}</div><span id="dg-clients-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
   </div>
   <div id="dg-evolution" style="display:none;margin-bottom:16px">
@@ -1896,6 +1897,35 @@ function dgOnTauxManuelInput(){
   };
   if(elTaux) badge(arrTaux, parseInt(elTaux.value), window._evolPrevTaux, "pt");
   if(elSig)  badge(arrSig,  parseInt(elSig.value),  window._evolPrevTauxSignales, "pt");
+  dgAutoSaveManualTaux();
+}
+
+// Auto-sauvegarde Firebase des taux saisis manuellement (débattue 800ms), pour que ces
+// valeurs ne restent jamais uniquement en mémoire locale — toute saisie doit finir dans Firestore.
+let _dgTauxSaveTimer = null;
+function dgAutoSaveManualTaux(){
+  if(_dgTauxSaveTimer) clearTimeout(_dgTauxSaveTimer);
+  _dgTauxSaveTimer = setTimeout(async ()=>{
+    if(!window._db || !window._doc || !window._set) return;
+    const dateLabel = document.getElementById("hdr-date")?.textContent || "";
+    const period = document.getElementById("hdr-period")?.textContent || "";
+    if(!dateLabel || dateLabel==="—") return;
+    const elTaux2 = document.getElementById("dg-taux-manuel");
+    const elSig2  = document.getElementById("dg-taux-signales-manuel");
+    const tauxManuel = elTaux2 && elTaux2.value!=="" ? parseInt(elTaux2.value) : null;
+    const tauxSignalesManuel = elSig2 && elSig2.value!=="" ? parseInt(elSig2.value) : null;
+    try{
+      const list = await getSaved();
+      const existing = list.find(r=>r.hdrDate===dateLabel && r.hdrPeriod===period);
+      if(existing && existing._fid){
+        await window._set(window._doc(window._db,"noc_rapport_journalier",existing._fid), {tauxManuel, tauxSignalesManuel}, {merge:true});
+        existing.tauxManuel = tauxManuel;
+        existing.tauxSignalesManuel = tauxSignalesManuel;
+      }
+      // Si le rapport n'a pas encore été enregistré une première fois, il n'existe pas encore
+      // de document Firestore à mettre à jour — un premier clic sur "Enregistrer" est nécessaire.
+    }catch(e){ console.warn("Auto-save taux manuel:", e); }
+  }, 800);
 }
 
 // Graphe "Tickets ouverts NOC vs SAV B2B — 7 derniers jours" (2 séries), calqué sur noctb.html
@@ -3535,10 +3565,34 @@ async function exportPdf(){
   const _elTauxSigManuelPdf = document.getElementById("dg-taux-signales-manuel");
   const tauxDispoSignales = (_elTauxSigManuelPdf && _elTauxSigManuelPdf.value!=="") ? parseInt(_elTauxSigManuelPdf.value) : null;
   const GREY_T = [120,124,132];
+
+  // Nombre de tickets NOC sur la période, pour le taux "ouverture de ticket / coupure confirmée"
+  let tkCountForRatio = null;
+  try{
+    if(window._db && window._col && window._gets){
+      const _hdrDateR = document.getElementById("hdr-date")?.textContent || "";
+      const _matchesR = _hdrDateR.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+      if(_matchesR.length){
+        const _toDR = s=>{const[d,m,y]=s.split("/");return new Date(+y,+m-1,+d);};
+        const _toIR = dt=>dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
+        const _dsR = _matchesR.map(_toDR).sort((a,b)=>a-b);
+        const _rDatesR = new Set();
+        const _cR = new Date(_dsR[0]);
+        while(_cR<=_dsR[_dsR.length-1]){ _rDatesR.add(_toIR(_cR)); _cR.setDate(_cR.getDate()+1); }
+        const _snapR = await window._gets(window._col(window._db,"noc_tickets_indispo"));
+        tkCountForRatio = _snapR.docs.map(d=>d.data()).filter(t=>t.debut && _rDatesR.has(t.debut.substring(0,10))).length;
+      }
+    }
+  }catch(e){ console.warn("ratio tickets/coupures:", e); }
+  const tauxOuvertureVsCoupures = (tkCountForRatio!==null && nbCoupConfirmees>0) ? Math.round((tkCountForRatio/nbCoupConfirmees)*100) : null;
+  const coupuresSub = tauxOuvertureVsCoupures!==null
+    ? `${tkCountForRatio} ticket(s) ouvert(s) — ${tauxOuvertureVsCoupures}%`
+    : (tkCountForRatio!==null ? `${tkCountForRatio} ticket(s) ouvert(s)` : "");
+
   kpiBlock([
     {label:"Disponibilité globale des liens (Primaire & Backup)", value:tauxDispo===null?"—":tauxDispo+"%",         color:tauxDispo===null?GREY_T:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo===null?GREY_T:tauxDispo>=95?GREEN_T:RED_T, sub:""},
     {label:"Taux de disponibilité des liens signalés",            value:tauxDispoSignales===null?"—":tauxDispoSignales+"%", color:tauxDispoSignales===null?GREY_T:tauxDispoSignales>=95?GREEN_T:tauxDispoSignales>=90?AMBER_T:RED_T, accent:tauxDispoSignales===null?GREY_T:tauxDispoSignales>=95?GREEN_T:RED_T, sub:""},
-    {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"", evol:evolCoupures.text, evolColor:evolCoupures.color},
+    {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:coupuresSub, evol:evolCoupures.text, evolColor:evolCoupures.color},
     {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"", evol:evolClients.text, evolColor:evolClients.color},
   ], 4);
 
@@ -3636,8 +3690,8 @@ async function exportPdf(){
   sectionBar("REACTIVITE (Ouverture rapide de tickets Incidents)");
   kpiBlock([
     {label:"Demande d'ouverture de ticket",     value:tkTotal,             color:RED_T,  accent:RED_T,   sub:"", evol:evolTkTotal.text, evolColor:evolTkTotal.color},
-    {label:"Taux moyen d'ouverture de ticket par le SAV B2B",  value:tkTauxSav===null?"—":tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:fromExcelPdf?`${fromExcelPdf.nbMatched}/${tkTotalNum} ticket(s)`:"", evol:evolTkTauxSav.text, evolColor:evolTkTauxSav.color},
-    {label:"Temps moyen d'ouverture de ticket par le SAV B2B", value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)":"—", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
+    {label:"Taux moyen d'ouverture de ticket par le SAV B2B",  value:tkTauxSav===null?"—":tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:"", evol:evolTkTauxSav.text, evolColor:evolTkTauxSav.color},
+    {label:"Temps moyen d'ouverture de ticket par le SAV B2B", value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:"", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
     {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:"", evol:evolMttrTicket.text, evolColor:evolMttrTicket.color},
     {label:"Réitération (référence qui reviennent)", value:nbReiteration===null?"—":nbReiteration, color:RED_T,  accent:RED_T,   sub:"", evol:evolReiteration.text, evolColor:evolReiteration.color},
     {label:"Taux de réitération",               value:tauxReiteration===null?"—":tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:"", evol:evolTauxReiteration.text, evolColor:evolTauxReiteration.color},
@@ -3682,69 +3736,122 @@ async function exportPdf(){
   drawTrendChartGeneric(evolGraphPts, ML+4, y, CW-8, 16, "mttrMin", fmtMin, undefined, undefined, [5,150,105]);
   y += 25;
 
-  // Nouvelle page pour la suite (Top 10 tickets)
-  doc.addPage(); y = MT; drawFooter();
+  // ── ANALYSE — Objectifs vs réalisé ──────────────────────────────────────
+  {
+    const OK=GREEN_T, KO=RED_T, WARN=AMBER_T, NA=GRAY;
+    const lines = []; // {text, color, bold}
 
-  // ── TOP 10 TICKETS OUVERTS — classés par durée d'attente (priorité aux tickets encore non résolus) ──
-  const nowRef = new Date();
-  const tkAvecDuree = filteredTk.map(t=>{
-    const debutD = t.debut ? new Date(t.debut) : null;
-    let waitMin = null;
-    if(debutD){
-      waitMin = t.fin ? (new Date(t.fin) - debutD)/60000 : (nowRef - debutD)/60000;
+    // 1. Réactivité des équipes NOC & SAV B2B
+    lines.push({text:"1. RÉACTIVITÉ DES ÉQUIPES (NOC & SAV B2B)", bold:true, color:DARK});
+
+    { // Coupures confirmées vs tickets ouverts NOC
+      const diff = tkTotalNum - nbCoupConfirmees;
+      let txt, col;
+      if(diff===0){ txt=`Coupures confirmées (${nbCoupConfirmees}) vs tickets ouverts NOC (${tkTotalNum}) : cohérent, chaque coupure a généré un ticket.`; col=OK; }
+      else if(diff>0){ txt=`Coupures confirmées (${nbCoupConfirmees}) vs tickets ouverts NOC (${tkTotalNum}) : ${diff} ticket(s) de plus que de coupures confirmées.`; col=WARN; }
+      else { txt=`Coupures confirmées (${nbCoupConfirmees}) vs tickets ouverts NOC (${tkTotalNum}) : ${-diff} coupure(s) confirmée(s) sans ticket NOC correspondant.`; col=KO; }
+      lines.push({text:"• "+txt, color:col});
     }
-    return {...t, _waitMin:waitMin, _stillOpen:!t.fin};
-  }).filter(t=>t._waitMin!==null && t._waitMin>0);
 
-  const topTickets = [...tkAvecDuree].sort((a,b)=>{
-    if(a._stillOpen !== b._stillOpen) return a._stillOpen ? -1 : 1;
-    return b._waitMin - a._waitMin;
-  }).slice(0,10);
+    { // % tickets ouverts par le SAV B2B sous 15 minutes
+      const withCreationAn = filteredTk.filter(t=>t.dateCreationExcel && t.debut);
+      const within15 = withCreationAn.filter(t=>{
+        const diff = (new Date(t.dateCreationExcel)-new Date(t.debut))/60000;
+        return !isNaN(diff) && diff>=0 && diff<=15;
+      }).length;
+      const pct15 = tkTotalNum>0 ? Math.round((within15/tkTotalNum)*100) : null;
+      if(pct15===null){ lines.push({text:"• Ouverture de ticket SAV B2B sous 15 min : donnée non disponible.", color:NA}); }
+      else {
+        const ok = pct15>=100;
+        lines.push({text:`• Tickets ouverts par le SAV B2B sous 15 min : ${pct15}% (objectif 100%)`+(ok?" — objectif atteint.":` — écart de ${100-pct15} pt.`), color: ok?OK:KO});
+      }
+    }
 
-  sectionBar("TOP 10 TICKETS OUVERTS (duree d'attente)");
-  if(topTickets.length){
-    doc.autoTable({
-      head:[["#","Client","Référence","Localisation","Heure de coupure","Durée d'attente","Statut"]],
-      body: topTickets.map((t,i)=>{
-        const debutD = new Date(t.debut);
-        const heureC = debutD.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
-        const dMin = t._waitMin;
-        const dureeTxt = dMin>=60 ? (Math.floor(dMin/60)+"h"+String(Math.round(dMin%60)).padStart(2,"0")) : Math.round(dMin)+"min";
-        return [
-          String(i+1),
-          t.client || "—",
-          t.ref || t.reference || t.id || "—",
-          t.localisation || t.site || t.lien || "—",
-          heureC,
-          dureeTxt,
-          t.statut || (t._stillOpen ? "Ouvert" : "—")
-        ];
-      }),
-      startY:y, margin:{left:ML,right:MR}, tableWidth:CW,
-      styles:{fontSize:7.5, cellPadding:2, font:"helvetica", textColor:DARK, lineColor:LGRAY, lineWidth:0.2, overflow:'ellipsize'},
-      headStyles:{fillColor:DARK, textColor:WHITE, fontStyle:"bold", fontSize:7.5},
-      columnStyles:{ 0:{cellWidth:8,halign:"center"} },
-      alternateRowStyles:{fillColor:[250,251,253]},
-      didParseCell(data){
-        if(data.section!=="body") return;
-        if(data.column.index===6 && data.cell.raw==="Ouvert"){
-          data.cell.styles.textColor=RED_T; data.cell.styles.fontStyle="bold";
-        }
-      },
-      didDrawPage(){ drawFooter(); }
+    { // Temps de rétablissement vs 8h
+      if(_curMttrMin===null || _curMttrMin===undefined){ lines.push({text:"• Temps de rétablissement moyen : donnée non disponible.", color:NA}); }
+      else{
+        const ok = _curMttrMin<=480;
+        lines.push({text:`• Temps de rétablissement moyen : ${fmtDureeMin(_curMttrMin)} (objectif ≤ 8h)`+(ok?" — objectif atteint.":` — dépassement de ${fmtDureeMin(Math.abs(_curMttrMin-480))}.`), color: ok?OK:KO});
+      }
+    }
+
+    { // Réitération vs 0
+      if(nbReiteration===null || nbReiteration===undefined){ lines.push({text:"• Réitération (référence qui reviennent) : donnée non disponible.", color:NA}); }
+      else{
+        const ok = nbReiteration===0;
+        lines.push({text:`• Réitération (référence qui reviennent) : ${nbReiteration} (objectif : 0)`+(ok?" — objectif atteint.":" — objectif non atteint."), color: ok?OK:KO});
+      }
+    }
+
+    lines.push({text:"", color:DARK});
+    lines.push({text:"2. DISPONIBILITÉ DES SERVICES", bold:true, color:DARK});
+
+    { // Disponibilité globale vs 90%
+      if(tauxDispo===null || tauxDispo===undefined){ lines.push({text:"• Disponibilité globale des liens : non renseignée.", color:NA}); }
+      else{
+        const ok = tauxDispo>=90;
+        lines.push({text:`• Disponibilité globale des liens (Primaire & Backup) : ${tauxDispo}% (objectif ≥ 90%)`+(ok?" — objectif atteint.":` — écart de ${90-tauxDispo} pt.`), color: ok?OK:KO});
+      }
+    }
+    { // Disponibilité liens signalés vs 90%
+      if(tauxDispoSignales===null || tauxDispoSignales===undefined){ lines.push({text:"• Disponibilité des liens signalés : non renseignée.", color:NA}); }
+      else{
+        const ok = tauxDispoSignales>=90;
+        lines.push({text:`• Disponibilité des liens signalés : ${tauxDispoSignales}% (objectif ≥ 90%)`+(ok?" — objectif atteint.":` — écart de ${90-tauxDispoSignales} pt.`), color: ok?OK:KO});
+      }
+    }
+
+    lines.push({text:"", color:DARK});
+    lines.push({text:"3. TENDANCE GLOBALE SUR LA PÉRIODE", bold:true, color:DARK});
+    {
+      const validTk = evolGraphPts.filter(p=>p.tkTotal!==null && p.tkTotal!==undefined);
+      if(validTk.length>=2){
+        const first=validTk[0].tkTotal, last=validTk[validTk.length-1].tkTotal;
+        const dir = last>first?"en hausse":last<first?"en baisse":"stable";
+        lines.push({text:`• Volume de tickets NOC : ${dir} sur la période (${first} → ${last}).`, color:DARK});
+      }
+      const validOuv = evolGraphPts.filter(p=>p.ouvertureMin>0);
+      if(validOuv.length>=2){
+        const first=validOuv[0].ouvertureMin, last=validOuv[validOuv.length-1].ouvertureMin;
+        const dir = last<first?"en amélioration":last>first?"en dégradation":"stable";
+        lines.push({text:`• Durée d'ouverture SAV B2B : ${dir} (${fmtMin(first)} → ${fmtMin(last)}).`, color:DARK});
+      }
+      const validMttr = evolGraphPts.filter(p=>p.mttrMin>0);
+      if(validMttr.length>=2){
+        const first=validMttr[0].mttrMin, last=validMttr[validMttr.length-1].mttrMin;
+        const dir = last<first?"en amélioration":last>first?"en dégradation":"stable";
+        lines.push({text:`• Durée de relève : ${dir} (${fmtMin(first)} → ${fmtMin(last)}).`, color:DARK});
+      }
+      if(validTk.length<2 && validOuv.length<2 && validMttr.length<2){
+        lines.push({text:"• Pas assez de données sur la période pour dégager une tendance.", color:NA});
+      }
+    }
+
+    // Rendu : boîte encadrée, lignes empilées (titres en gras, puces colorées selon écart à l'objectif)
+    sectionBar("ANALYSE — Objectifs vs réalisé");
+    const fontSizeA=8, lineHA=4.2, padXA=6, padTopA=5;
+    doc.setFontSize(fontSizeA);
+    const wrapped = [];
+    lines.forEach(l=>{
+      if(l.text===""){ wrapped.push({text:"", color:l.color, bold:false}); return; }
+      doc.setFont("helvetica", l.bold?"bold":"normal");
+      const wl = doc.splitTextToSize(l.text, CW-2*padXA);
+      wl.forEach(t=>wrapped.push({text:t, color:l.color, bold:l.bold}));
     });
-    y = doc.lastAutoTable.finalY + 6;
-  } else {
-    checkPage(8); doc.setFontSize(8); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY);
-    doc.text("Aucun ticket avec durée calculable pour cette période.", ML, y+4); y+=8;
+    const boxH = wrapped.length*lineHA + padTopA*2;
+    checkPage(boxH+10);
+    doc.setFillColor(248,249,252); doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
+    doc.roundedRect(ML, y, CW, boxH, 1.5, 1.5, "FD");
+    doc.setFillColor(...ORANGE); doc.rect(ML, y, 1.2, boxH, "F");
+    let cy = y+padTopA+2;
+    wrapped.forEach(l=>{
+      doc.setFont("helvetica", l.bold?"bold":"normal");
+      doc.setTextColor(...l.color);
+      if(l.text) doc.text(l.text, ML+padXA, cy);
+      cy += lineHA;
+    });
+    y += boxH + 8;
   }
-
-  // ── TOP 10 — s'enchaîne directement après le tableau des tickets ──────
-  sectionBar("TOP 10 SITES INSTABLES (oscillations)");
-  topTable(topInstables, "if");
-
-  sectionBar("TOP 10 COUPURES CONFIRMÉES (Node Down)");
-  topTable(topCoupures, "nd");
 
   // Note de bas de rapport
   checkPage(20);
@@ -4145,11 +4252,23 @@ async function loadKpiTickets(){
     set("dg-tk-taux-reiteration",  tauxReiteration===null ? "—" : tauxReiteration+"%");
 
     const subOuv = document.getElementById("dg-tk-ouverture-sub");
-    if(subOuv) subOuv.textContent = savAvecOuverture.length ? savAvecOuverture.length+" ticket(s)" : "—";
+    if(subOuv) subOuv.textContent = "";
     const subTauxSav = document.getElementById("dg-tk-taux-sav-sub");
-    if(subTauxSav) subTauxSav.textContent = fromExcel ? `${fromExcel.nbMatched}/${total} ticket(s)` : "";
+    if(subTauxSav) subTauxSav.textContent = "";
     const subMttr = document.getElementById("dg-tk-mttr-sub");
     if(subMttr) subMttr.textContent = "";
+
+    // Taux "ouverture de ticket NOC / coupure confirmée" — affiché dans la carte Coupures confirmées
+    const subCoupures = document.getElementById("dg-coupures-sub");
+    if(subCoupures){
+      const nbCoup = window._currentNbCoupConf;
+      if(nbCoup!==undefined && nbCoup>0){
+        const tauxOuvVsCoup = Math.round((total/nbCoup)*100);
+        subCoupures.textContent = `${total} ticket(s) ouvert(s) — ${tauxOuvVsCoup}%`;
+      } else {
+        subCoupures.textContent = "";
+      }
+    }
 
     const totalEl=document.getElementById("kpi-tickets-total");
     if(totalEl) totalEl.className="dg-kpi-val "+(total>5?"red":total>2?"amber":"green");
