@@ -1784,7 +1784,7 @@ function dgOnTauxManuelInput(){
 async function renderNocSavEvolutionUI(){
   const evolEl = document.getElementById("dg-evolution-nocsav");
   const pts = window._evolutionWeeks;
-  if(!pts || pts.length<2 || pts.filter(p=>p.taux!==null).length<2){
+  if(!pts || pts.length<1){
     if(evolEl) evolEl.style.display="none";
     if(window._evolNocSavChart){ window._evolNocSavChart.destroy(); window._evolNocSavChart=null; }
     return;
@@ -1848,7 +1848,7 @@ async function renderNocSavEvolutionUI(){
 async function renderOuvertureEvolutionUI(){
   const evolEl = document.getElementById("dg-evolution-ouverture");
   const pts = window._evolutionWeeks;
-  if(!pts || pts.length<2 || pts.filter(p=>p.taux!==null).length<2){
+  if(!pts || pts.length<1){
     if(evolEl) evolEl.style.display="none";
     if(window._evolOuvertureChart){ window._evolOuvertureChart.destroy(); window._evolOuvertureChart=null; }
     return;
@@ -1914,7 +1914,7 @@ async function renderOuvertureEvolutionUI(){
 async function renderMttrEvolutionUI(){
   const evolEl = document.getElementById("dg-evolution-mttr");
   const pts = window._evolutionWeeks;
-  if(!pts || pts.length<2 || pts.filter(p=>p.taux!==null).length<2){
+  if(!pts || pts.length<1){
     if(evolEl) evolEl.style.display="none";
     if(window._evolMttrChart){ window._evolMttrChart.destroy(); window._evolMttrChart=null; }
     return;
@@ -3058,7 +3058,7 @@ async function exportPdf(){
       doc.setFontSize(6); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
       doc.text(p.label, px, y0+h+4.5, {align:"center"});
     });
-    if(valid.length<2){
+    if(valid.length<1){
       doc.setFontSize(7.5); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY);
       doc.text("Aucune donnée disponible pour le moment", x+w/2, y0+h/2, {align:"center"});
       return;
@@ -3098,7 +3098,7 @@ async function exportPdf(){
       doc.setFontSize(6); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
       doc.text(p.label, px, y0+h+4.5, {align:"center"});
     });
-    if(allVals.length<2){
+    if(allVals.length<1){
       doc.setFontSize(7.5); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY);
       doc.text("Aucune donnée disponible pour le moment", x+w/2, y0+h/2, {align:"center"});
       return;
@@ -3186,7 +3186,7 @@ async function exportPdf(){
       const valW = doc.getTextWidth(String(item.value));
       if(item.sub){
         doc.setFontSize(6.5); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
-        doc.text(item.sub, x+w-2, yy+4, {align:"right"});
+        doc.text(item.sub, x+w-2, yy+bh-2.5, {align:"right"});
       }
       if(item.evol){
         const startX  = x + 5 + valW + 2.5;
@@ -3414,8 +3414,10 @@ async function exportPdf(){
   ], 3);
 
   // 3 graphes de tendance — mêmes données et mêmes noms que dans noctb.html (Bilan — Ouverture de ticket)
+  // Indépendant de evolValid (qui ne concerne que la disponibilité réseau) : evolPts contient toujours
+  // les 4 semaines (weekKey + label), on peut donc toujours interroger les tickets de chacune.
   let evolGraphPts;
-  if(evolValid){
+  if(evolPts && evolPts.length){
     evolGraphPts = [];
     for(const p of evolPts){
       const wk = await computeWeekTicketMetrics(p.weekKey);
@@ -3437,6 +3439,13 @@ async function exportPdf(){
     }
   } else {
     evolGraphPts = [{label:"S-3"},{label:"S-2"},{label:"S-1"},{label:"Actuelle"}].map(p=>({...p, tkTotal:null, tkSav:null, ouvertureMin:null, mttrMin:null}));
+    if(evolGraphPts.length){
+      const last = evolGraphPts[evolGraphPts.length-1];
+      last.tkTotal = tkTotalNum;
+      last.tkSav = fromExcelPdf ? fromExcelPdf.nbMatched : null;
+      last.ouvertureMin = fromExcelPdf ? fromExcelPdf.avgMinOuv : null;
+      last.mttrMin = fromExcelPdf ? fromExcelPdf.avgMinMttr : null;
+    }
   }
 
   const fmtMin = v=>v>=1440?(Math.floor(v/1440)+"j"+String(Math.floor((v%1440)/60)).padStart(2,"0")+"h"):v>=60?(Math.floor(v/60)+"h"+String(v%60).padStart(2,"0")):v+"min";
@@ -3467,6 +3476,7 @@ async function exportPdf(){
 
   //  KPI NOC — SITES INSTABLES
   y += 2;
+  doc.addPage(); y = MT; drawFooter();
   sectionBar("PROACTIVITE (Detection des anomalies avant incidents)");
   const instablesAll = [...IF_DATA,...ND_DATA].filter(d=>d.isFlapping);
   const nbClientsInstables = new Set(instablesAll.map(d=>clientFromSite(d.site))).size;
@@ -3491,56 +3501,6 @@ async function exportPdf(){
   y += 5;
   drawTrendChartGeneric(tauxInstablesEvolPts, ML+4, y, CW-8, 16, "tauxInstables", v=>v+"%", 0, 100);
   y += 25;
-
-  // Analyse synthétique des 3 blocs (Disponibilité / Réactivité / Proactivité) sur la période,
-  // avec comparaison à la période précédente quand elle est disponible. Reste sur la 1ère page.
-  {
-    const evolTauxDispoTxt   = (evolValid && tauxDispo!==null) ? pdfEvolText(tauxDispo, evolPrev.taux, true).text : null;
-    const evolSignalesTxt    = (evolValid && tauxDispoSignales!==null) ? pdfEvolText(tauxDispoSignales, evolPrev.tauxSignales, true).text : null;
-
-    const dispoTxt = `Disponibilité : ${tauxDispo===null?"—":tauxDispo+"%"} (liens signalés : ${tauxDispoSignales===null?"—":tauxDispoSignales+"%"})`
-      + (evolTauxDispoTxt ? " ("+evolTauxDispoTxt+")" : "")
-      + `. ${nbCoupConfirmees} coupure(s) confirmée(s)` + (evolCoupures.text ? " ("+evolCoupures.text+")" : "")
-      + `, ${nbClients} client(s) impacté(s)` + (evolClients.text ? " ("+evolClients.text+")" : "") + ".";
-
-    const reactTxt = `Réactivité : ${tkTotal} ticket(s) ouverts` + (evolTkTotal.text ? " ("+evolTkTotal.text+")" : "")
-      + `, taux d'ouverture SAV ${tkTauxSav===null?"—":tkTauxSav+"%"}` + (evolTkTauxSav.text ? " ("+evolTkTauxSav.text+")" : "")
-      + `, délai moyen ${tempsOuvertureSavTxt}` + (evolTempsOuvSav.text ? " ("+evolTempsOuvSav.text+")" : "")
-      + `, rétablissement moyen ${mttrTicketTxt}` + (evolMttrTicket.text ? " ("+evolMttrTicket.text+")" : "") + ".";
-
-    const proactTxt = `Proactivité : ${nbInstables} site(s) instable(s)` + (evolInstables.text ? " ("+evolInstables.text+")" : "")
-      + ` soit ${tauxInstables}%` + (evolTauxInstables.text ? " ("+evolTauxInstables.text+")" : "")
-      + `, taux de correction ${tauxCorrection}%` + (evolTauxCorrection.text ? " ("+evolTauxCorrection.text+")" : "") + ".";
-
-    const items = [dispoTxt, reactTxt, proactTxt];
-    const fontSize = 6.8, lineH = 3.1, padX = 5, padTop = 4.2, numIndent = 6;
-    doc.setFontSize(fontSize); doc.setFont("helvetica","normal");
-    const introTxt = evolValid ? "Analyse de la période (comparaison vs semaine précédente) :" : "Analyse de la période :";
-    const introLines = doc.splitTextToSize(introTxt, CW-2*padX);
-    const itemLines = items.map(t=>doc.splitTextToSize(t, CW-2*padX-numIndent));
-    const totalLines = introLines.length + itemLines.reduce((s,l)=>s+l.length,0) + items.length*0.3;
-    const boxH = totalLines*lineH + padTop + 3;
-
-    if(y + boxH <= PH - 18){
-      doc.setFillColor(248,249,252); doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
-      doc.roundedRect(ML, y, CW, boxH, 1.5, 1.5, "FD");
-      doc.setFillColor(...ORANGE); doc.rect(ML, y, 1.2, boxH, "F");
-      doc.setTextColor(...GRAY);
-      let cy = y + padTop;
-      doc.setFont("helvetica","bold");
-      doc.text(introLines, ML+padX, cy);
-      cy += introLines.length*lineH + 1;
-      doc.setFont("helvetica","normal");
-      items.forEach((t,i)=>{
-        doc.setFont("helvetica","bold");
-        doc.text((i+1)+".", ML+padX, cy);
-        doc.setFont("helvetica","normal");
-        doc.text(itemLines[i], ML+padX+numIndent, cy);
-        cy += itemLines[i].length*lineH + 1;
-      });
-      y += boxH + 4;
-    }
-  }
 
   // Nouvelle page pour la suite (Top 10 tickets)
   doc.addPage(); y = MT; drawFooter();
