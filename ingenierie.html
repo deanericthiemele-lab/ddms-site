@@ -1083,6 +1083,7 @@ document.addEventListener("DOMContentLoaded", function() {
           <select id="summary-annee-seule" style="padding:4px 6px;border:1px solid var(--n5);border-radius:4px;font-size:12px;"></select>
         </span>
         <button class="btn btn-v" style="padding:5px 10px;font-size:12px;" onclick="appliquerPeriodeSummary()">Appliquer</button>
+        <button class="btn" style="padding:5px 10px;font-size:12px;background:#4A4A4A;color:#fff;" onclick="exporterAnalyseGlobalePDF()">📄 Exporter PDF</button>
       </div>
     </div>
     <div id="summary-period-label" style="padding:0 0 4px 0;font-size:11px;color:var(--n4);"></div>
@@ -1221,6 +1222,142 @@ document.addEventListener("DOMContentLoaded", function() {
     const selAnneeSeule = document.getElementById("summary-annee-seule");
     if (selAnneeSeule) selAnneeSeule.value = String(new Date().getFullYear());
     appliquerPeriodeSummary();
+  }
+
+  // ── Export PDF sobre de l'Analyse globale (période en cours) ──
+  function exporterAnalyseGlobalePDF() {
+    const sd = window._summaryData;
+    if (!sd) { alert("Veuillez d'abord charger les données et appliquer une période."); return; }
+    if (!window.jspdf) { alert("Le module PDF n'a pas encore fini de se charger, réessayez dans un instant."); return; }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const marginL = 15, marginR = 15;
+    const grisFonce = [45,45,45], grisMoyen = [110,110,110], grisClair = [225,225,225], grisEnTete = [70,70,70];
+    let y = 18;
+
+    function checkPageBreak(hauteurNecessaire) {
+      if (y + hauteurNecessaire > pageH - 18) {
+        ajouterPiedDePage();
+        doc.addPage();
+        y = 18;
+      }
+    }
+
+    function titreSection(txt) {
+      checkPageBreak(14);
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(...grisFonce);
+      doc.text(txt, marginL, y);
+      y += 5;
+    }
+
+    function ajouterPiedDePage() {
+      const nbPages = doc.internal.getNumberOfPages();
+      doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...grisMoyen);
+      doc.text(`Page ${nbPages}`, pageW - marginR, pageH - 10, { align: 'right' });
+      doc.text('Rapport généré automatiquement — Analyse globale des incidents', marginL, pageH - 10);
+    }
+
+    // ── En-tête ──
+    doc.setFont('helvetica','bold'); doc.setFontSize(16); doc.setTextColor(...grisFonce);
+    doc.text('Analyse Globale des Incidents', marginL, y); y += 7;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(...grisMoyen);
+    if (sd.periodeLabel) { doc.text(`Période analysée : ${sd.periodeLabel}`, marginL, y); y += 5; }
+    if (sd.periodePrecLabel) { doc.text(`Comparée à : ${sd.periodePrecLabel}`, marginL, y); y += 5; }
+    const maintenant = new Date();
+    doc.text(`Généré le ${maintenant.toLocaleDateString('fr-FR')} à ${maintenant.toLocaleTimeString('fr-FR').slice(0,5)}`, marginL, y); y += 4;
+    doc.setDrawColor(...grisClair);
+    doc.line(marginL, y, pageW - marginR, y); y += 8;
+
+    // ── Indicateurs clés ──
+    titreSection('Indicateurs clés');
+    const kpiRows = [
+      ['Total incidents', sd.totalIncidentsYTD, sd.kpiPrecedent ? sd.kpiPrecedent.total : '-'],
+      ['Clients impactés', sd.nbClientsDistincts, sd.kpiPrecedent ? sd.kpiPrecedent.nbClients : '-'],
+      ['ND répétitif (mois courant)', sd.ndRepetitifsMoisCourant.length, sd.ndKpiPrecedent ? sd.ndKpiPrecedent.repetitifsMoisCourant : '-'],
+    ];
+    if (sd.afficherNdConsecutif) {
+      kpiRows.push(['ND consécutif', sd.ndRepetitifs2Mois.length, sd.ndKpiPrecedent ? sd.ndKpiPrecedent.repetitifs2Mois : '-']);
+    }
+    kpiRows.push(
+      ['Zone Abidjan', sd.zoneAbidjanCount, sd.kpiPrecedent ? sd.kpiPrecedent.zoneAbidjan : '-'],
+      ['Zone Intérieur', sd.zoneInterieurCount, sd.kpiPrecedent ? sd.kpiPrecedent.zoneInterieur : '-'],
+      ['Incidents câble', sd.cableCount, sd.kpiPrecedent ? sd.kpiPrecedent.cable : '-'],
+      ['Incidents hors câble', sd.horsCableCount, sd.kpiPrecedent ? sd.kpiPrecedent.horsCable : '-']
+    );
+    doc.autoTable({
+      startY: y,
+      head: [['Indicateur', 'Période analysée', 'Période précédente']],
+      body: kpiRows,
+      theme: 'grid',
+      styles: { fontSize: 9, textColor: grisFonce, lineColor: grisClair, cellPadding: 2.5 },
+      headStyles: { fillColor: grisEnTete, textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248,248,248] },
+      margin: { left: marginL, right: marginR }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── Top 10 clients impactés ──
+    checkPageBreak(20);
+    titreSection('Top 10 clients impactés');
+    doc.autoTable({
+      startY: y,
+      head: [['#', 'Client', 'Incidents', 'ND']],
+      body: (sd.top10clients||[]).map((c,i) => [i+1, c.raison, c.total, c.nds.length]),
+      theme: 'striped',
+      styles: { fontSize: 8.5, textColor: grisFonce, cellPadding: 2 },
+      headStyles: { fillColor: grisEnTete, textColor: 255, fontStyle: 'bold' },
+      margin: { left: marginL, right: marginR }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── Top 10 liens (ND) impactés ──
+    checkPageBreak(20);
+    titreSection('Top 10 liens (ND) impactés');
+    doc.autoTable({
+      startY: y,
+      head: [['#', 'ND', 'Client', 'Incidents']],
+      body: (sd.top10liens||[]).map((it,i) => [i+1, it.nd || '-', it.raison || '-', it.total || 0]),
+      theme: 'striped',
+      styles: { fontSize: 8.5, textColor: grisFonce, cellPadding: 2 },
+      headStyles: { fillColor: grisEnTete, textColor: 255, fontStyle: 'bold' },
+      margin: { left: marginL, right: marginR }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── Zones les plus impactées ──
+    checkPageBreak(20);
+    titreSection('Zones les plus impactées');
+    doc.autoTable({
+      startY: y,
+      head: [['Zone', 'Incidents']],
+      body: (sd.topZones||[]).map(([z,v]) => [z, v]),
+      theme: 'striped',
+      styles: { fontSize: 8.5, textColor: grisFonce, cellPadding: 2 },
+      headStyles: { fillColor: grisEnTete, textColor: 255, fontStyle: 'bold' },
+      margin: { left: marginL, right: marginR }
+    });
+    y = doc.lastAutoTable.finalY + 10;
+
+    // ── Top causes ──
+    checkPageBreak(20);
+    titreSection('Principales causes');
+    doc.autoTable({
+      startY: y,
+      head: [['Cause', 'Occurrences']],
+      body: (sd.top5causes||[]).map(([c,v]) => [c, v]),
+      theme: 'striped',
+      styles: { fontSize: 8.5, textColor: grisFonce, cellPadding: 2 },
+      headStyles: { fillColor: grisEnTete, textColor: 255, fontStyle: 'bold' },
+      margin: { left: marginL, right: marginR }
+    });
+
+    ajouterPiedDePage();
+
+    const dateFichier = maintenant.toISOString().slice(0,10);
+    doc.save(`analyse_globale_incidents_${dateFichier}.pdf`);
   }
 
   function fermerSummary() {
@@ -1712,7 +1849,7 @@ document.addEventListener("DOMContentLoaded", function() {
     document.getElementById("summary-body").innerHTML = html;
 
     // Store data for detail popups
-    window._summaryData = { data, ndReviensTousMois, ndRepetitifsMoisCourant, ndRepetitifs2Mois, ndAnnuel, volParMois, top10clients, top10liens, topZones, top5causes, MN, MNC, moisActuel, nbClientsDistincts, totalIncidentsYTD, clients, zoneAbidjanCount, zoneInterieurCount, cableCount, horsCableCount, isAbidjanLocal, causesCableSummary, normCauseLocal };
+    window._summaryData = { data, ndReviensTousMois, ndRepetitifsMoisCourant, ndRepetitifs2Mois, ndAnnuel, volParMois, top10clients, top10liens, topZones, top5causes, allClientsSorted, allLiensSorted, allCausesSorted, MN, MNC, moisActuel, nbClientsDistincts, totalIncidentsYTD, clients, zoneAbidjanCount, zoneInterieurCount, cableCount, horsCableCount, isAbidjanLocal, causesCableSummary, normCauseLocal, kpiPrecedent, ndKpiPrecedent, periodeLabel: (periodeInfo && periodeInfo.label) || '', periodePrecLabel: (periodeInfo && periodeInfo.prevLabel) || '', afficherNdConsecutif };
   }
 
   // ── Popup détail depuis Summary ───────────────────────────────
@@ -3507,21 +3644,6 @@ window.lancerAnalysePrevision = lancerAnalysePrevision;
         </div>
       </div>
     </div>
-    <button id="btnAnalyse" onclick="openAnalyseModal()">📊 Analyse</button>
-  </div>
-
-  <!-- Modal Analyse -->
-  <div id="analyseModal" onclick="if(event.target===this) closeAnalyseModal()">
-    <div id="analyseModalBox">
-      <div id="analyseModalHeader">
-        <span id="analyseModalTitle">Analyse Incidents</span>
-        <button onclick="closeAnalyseModal()">✕</button>
-      </div>
-      <div id="analyseModalBody"></div>
-      <div id="analyseFooter">
-        <button class="analyse-footer-btn blue" onclick="exportRapport()">⬇ Exporter le rapport</button>
-      </div>
-    </div>
   </div>
 
   <div id="summaryBox" style="display:none"><b>Résumé Incidents</b><hr>Chargement…</div>
@@ -4270,7 +4392,8 @@ sorted.forEach(([k,v])=>{
     }
 
     function closeAnalyseModal(){
-      document.getElementById('analyseModal').classList.remove('open');
+      const m = document.getElementById('analyseModal');
+      if (m) m.classList.remove('open');
     }
     document.addEventListener('keydown', e => { if(e.key==='Escape'){ closeZoneModal(); closeAnalyseModal(); }});
 
