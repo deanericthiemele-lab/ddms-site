@@ -1131,6 +1131,54 @@ function spanDaysFromPeriodLabel(label){
   return Math.min(Math.max(span,1), 31);
 }
 
+// ── Comparaison "période précédente" équitable : même nombre de jours ouvrés, pas une semaine fixe ──
+// (avant : on comparait toujours à "la semaine ouvrée précédente" même si la période actuelle ne faisait qu'1 jour)
+function getBusinessDaysInRange(startISO, endISO){
+  const out=[];
+  let d = new Date(startISO+"T00:00:00");
+  const end = new Date(endISO+"T00:00:00");
+  while(d<=end){
+    const dow=d.getDay();
+    if(dow!==0 && dow!==6) out.push(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"));
+    d.setDate(d.getDate()+1);
+  }
+  return out;
+}
+function getPrecedingBusinessDays(beforeISO, count){
+  const out=[];
+  let d = new Date(beforeISO+"T00:00:00");
+  d.setDate(d.getDate()-1);
+  while(out.length<count){
+    const dow=d.getDay();
+    if(dow!==0 && dow!==6) out.unshift(d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"));
+    d.setDate(d.getDate()-1);
+  }
+  return out;
+}
+function computeTicketMetricsForDates(tickets, isoDates){
+  const isoSet = new Set(isoDates);
+  const inPeriod = (tickets||[]).filter(t=>t.debut && isoSet.has(t.debut.substring(0,10)));
+  const tkTotal = inPeriod.length;
+  const tkSav = inPeriod.filter(t=>!!t.dateCreationExcel).length;
+  const tkTauxSav = tkTotal>0 ? Math.round((tkSav/tkTotal)*100) : null;
+
+  const withCreation = inPeriod.filter(t=>t.dateCreationExcel && t.debut);
+  const ouvVals = withCreation.map(t=>(new Date(t.dateCreationExcel)-new Date(t.debut))/60000).filter(v=>!isNaN(v)&&v>=0);
+  const tempsOuvertureSav = ouvVals.length ? Math.round(ouvVals.reduce((a,b)=>a+b,0)/ouvVals.length) : null;
+
+  const withFin = inPeriod.filter(t=>t.fin && t.debut);
+  const mttrVals = withFin.map(t=>(new Date(t.fin)-new Date(t.debut))/60000).filter(v=>!isNaN(v)&&v>=0);
+  const mttr = mttrVals.length ? Math.round(mttrVals.reduce((a,b)=>a+b,0)/mttrVals.length) : null;
+
+  const refKey = t => normRef(t.ref||t.reference);
+  const parRef = {};
+  inPeriod.forEach(t=>{ const k=refKey(t); if(!k) return; parRef[k]=(parRef[k]||0)+1; });
+  const nbReiteration = Object.values(parRef).reduce((s,n)=>s+(n>1?n-1:0),0);
+  const tauxReiteration = tkTotal>0 ? Math.round((nbReiteration/tkTotal)*100) : null;
+
+  return {tkTotal, tkSav, tkTauxSav, tempsOuvertureSav, mttr, nbReiteration, tauxReiteration};
+}
+
 async function computeDailyTicketTrend(refDateStr, days){
   days = days || 7;
   if(!window._db || !window._col || !window._gets) return [];
@@ -3447,13 +3495,13 @@ async function exportPdf(){
   const evolPts = window._evolutionWeeks;
   const evolValid = evolPts && evolPts.filter(p=>p.taux!==null).length>=2;
 
-  function pdfEvolText(curVal, prevVal, goodWhenDown){
-    if(!evolValid || curVal===null || curVal===undefined || prevVal===null || prevVal===undefined) return {text:null, color:GRAY};
+  function pdfEvolText(curVal, prevVal, goodWhenDown, label){
+    if(curVal===null || curVal===undefined || prevVal===null || prevVal===undefined) return {text:null, color:GRAY};
     const diff = curVal - prevVal;
     const arrow = diff>0?"^":diff<0?"v":"=";
     const isGood = diff===0 ? null : (goodWhenDown ? diff<0 : diff>0);
     const color = diff===0 ? GRAY : (isGood?GREEN_T:RED_T);
-    return {text: arrow+" "+(diff>0?"+":"")+diff+" vs "+prevVal+" (S-1)", color};
+    return {text: arrow+" "+(diff>0?"+":"")+diff+" vs "+prevVal+" "+(label||"(S-1)"), color};
   }
   const evolPrevIdx = evolValid ? evolPts.length-2 : -1;
   const evolPrev    = evolValid ? evolPts[evolPrevIdx] : null;
@@ -3484,6 +3532,7 @@ async function exportPdf(){
   y += 2;
   let tkTotal = "—", tkSav = "—", tkQp = "—";
   let filteredTk = [];
+  let allTicketsRawTk = [];
   try{
     if(window._db && window._col && window._gets){
       const hdrDateTk = document.getElementById("hdr-date")?.textContent || "";
@@ -3497,6 +3546,7 @@ async function exportPdf(){
         return _r;
       })());
       const snapTk = await window._gets(window._col(window._db,"noc_tickets_indispo"));
+      allTicketsRawTk = snapTk.docs.map(d=>d.data());
       filteredTk = snapTk.docs.map(d=>({id:d.id,...d.data()})).filter(t=>t.debut && rapportDatesISOtk.has(t.debut.substring(0,10)));
       tkTotal = String(filteredTk.length||0);
       tkSav   = String(filteredTk.filter(t=>t.destinataire==="SAV B2B").length||0);
@@ -3528,17 +3578,37 @@ async function exportPdf(){
   const nbReiteration   = _reiterationExcelPdf ? _reiterationExcelPdf.nbReiteration : null;
   const tauxReiteration = _reiterationExcelPdf ? _reiterationExcelPdf.tauxReiteration : null;
 
-  // Comparaison vs semaine précédente (uniquement si rapport généré via sélection de semaine)
+  // Comparaison période précédente : même nombre de jours ouvrés que la période actuelle,
+  // immédiatement avant (pas une semaine fixe — sinon 1 jour serait comparé à 5 jours).
   const tkTauxSav = fromExcelPdf ? fromExcelPdf.tauxSav : null;
-  const prevTkMetrics = evolValid ? await computeWeekTicketMetrics(evolPrev.weekKey) : null;
-  const evolTkTotal          = prevTkMetrics ? pdfEvolText(tkTotalNum, prevTkMetrics.tkTotal, false) : {text:null};
+  let prevTkMetrics = null;
+  let evolTkLabel = "(période préc.)";
+  {
+    const _hdrDateForPrev = document.getElementById("hdr-date")?.textContent || "";
+    const _matchesForPrev = _hdrDateForPrev.match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+    if(_matchesForPrev.length){
+      const _toDprev = s=>{const[d,m,y]=s.split("/");return new Date(+y,+m-1,+d);};
+      const _toIprev = dt=>dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
+      const _dsPrev = _matchesForPrev.map(_toDprev).sort((a,b)=>a-b);
+      const currentBizDays = getBusinessDaysInRange(_toIprev(_dsPrev[0]), _toIprev(_dsPrev[_dsPrev.length-1]));
+      if(currentBizDays.length){
+        const prevBizDays = getPrecedingBusinessDays(currentBizDays[0], currentBizDays.length);
+        prevTkMetrics = computeTicketMetricsForDates(allTicketsRawTk, prevBizDays);
+        // Libellé adapté au nombre de jours ouvrés couverts (1 jour, ~1 semaine, ~1 mois, ou générique)
+        const n = currentBizDays.length;
+        evolTkLabel = n===1 ? "(jour préc.)" : n===5 ? "(semaine préc.)" : (n>=20 && n<=23) ? "(mois préc.)" : "(période préc.)";
+      }
+    }
+  }
+  const evolTkTotal          = prevTkMetrics ? pdfEvolText(tkTotalNum, prevTkMetrics.tkTotal, false, evolTkLabel) : {text:null};
   const _curOuvMin = fromExcelPdf ? fromExcelPdf.avgMinOuv : null;
   const _curMttrMin = fromExcelPdf ? fromExcelPdf.avgMinMttr : null;
-  const evolTempsOuvSav      = prevTkMetrics ? pdfEvolText(_curOuvMin, prevTkMetrics.tempsOuvertureSav, false) : {text:null};
-  const evolTkTauxSav        = prevTkMetrics ? pdfEvolText(tkTauxSav, prevTkMetrics.tkTauxSav, true) : {text:null};
-  const evolMttrTicket       = prevTkMetrics ? pdfEvolText(_curMttrMin, prevTkMetrics.mttr, false) : {text:null};
-  const evolReiteration      = prevTkMetrics ? pdfEvolText(nbReiteration, prevTkMetrics.nbReiteration, false) : {text:null};
-  const evolTauxReiteration  = prevTkMetrics ? pdfEvolText(tauxReiteration, prevTkMetrics.tauxReiteration, false) : {text:null};
+  const evolTempsOuvSav      = prevTkMetrics ? pdfEvolText(_curOuvMin, prevTkMetrics.tempsOuvertureSav, false, evolTkLabel) : {text:null};
+  const evolTkTauxSav        = prevTkMetrics ? pdfEvolText(tkTauxSav, prevTkMetrics.tkTauxSav, true, evolTkLabel) : {text:null};
+  const evolMttrTicket       = prevTkMetrics ? pdfEvolText(_curMttrMin, prevTkMetrics.mttr, false, evolTkLabel) : {text:null};
+  const evolReiteration      = prevTkMetrics ? pdfEvolText(nbReiteration, prevTkMetrics.nbReiteration, false, evolTkLabel) : {text:null};
+  const evolTauxReiteration  = prevTkMetrics ? pdfEvolText(tauxReiteration, prevTkMetrics.tauxReiteration, false, evolTkLabel) : {text:null};
+
 
   sectionBar("REACTIVITE (Ouverture rapide de tickets Incidents)");
   kpiBlock([
