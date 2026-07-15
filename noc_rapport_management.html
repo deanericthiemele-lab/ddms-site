@@ -1152,7 +1152,7 @@ async function computeWeekTicketMetrics(weekKey){
     const nbReiterationWk = Object.values(parRef).reduce((s,n)=>s+(n>1?n-1:0),0);
     const tauxReiterationWk = tkTotalWk>0 ? Math.round((nbReiterationWk/tkTotalWk)*100) : null;
 
-    return {tkTotal:tkTotalWk, tkTauxSav:tkTauxSavWk, tempsOuvertureSav:tempsOuvertureSavWk, mttr:mttrWk, nbReiteration:nbReiterationWk, tauxReiteration:tauxReiterationWk};
+    return {tkTotal:tkTotalWk, tkSav:tkSavWk, tkTauxSav:tkTauxSavWk, tempsOuvertureSav:tempsOuvertureSavWk, mttr:mttrWk, nbReiteration:nbReiterationWk, tauxReiteration:tauxReiterationWk};
   } catch(e){ return null; }
 }
 
@@ -1552,8 +1552,20 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     <div class="dg-kpi"><div class="dg-kpi-label">Taux de réitération</div><div class="dg-kpi-val red" id="dg-tk-taux-reiteration">…</div><div class="dg-kpi-sub"></div></div>
   </div>
   <div id="kpi-noc-hint" style="font-size:11px;color:#9aa0ae;margin:-4px 0 16px"></div>
+  <div id="dg-evolution-nocsav" style="display:none;margin-bottom:16px">
+    <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📊 Tickets ouverts NOC vs SAV B2B — 4 semaines</div>
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+      <canvas id="dg-evol-nocsav-chart" height="70"></canvas>
+    </div>
+  </div>
+  <div id="dg-evolution-ouverture" style="display:none;margin-bottom:16px">
+    <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📈 Évolution durée ouverture SAV — 4 semaines</div>
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+      <canvas id="dg-evol-ouverture-chart" height="70"></canvas>
+    </div>
+  </div>
   <div id="dg-evolution-mttr" style="display:none;margin-bottom:16px">
-    <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">Évolution du temps de rétablissement moyen — 4 semaines</div>
+    <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📈 Évolution durée de relève — 4 semaines</div>
     <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
       <canvas id="dg-evol-mttr-chart" height="70"></canvas>
     </div>
@@ -1606,7 +1618,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     evolutionPromise = Promise.resolve(null);
   }
   // Le graphe MTTR a besoin à la fois des semaines d'évolution ET du MTTR courant (issu des tickets)
-  Promise.all([ticketsPromise, evolutionPromise]).then(()=> renderMttrEvolutionUI());
+  Promise.all([ticketsPromise, evolutionPromise]).then(()=>{ renderNocSavEvolutionUI(); renderOuvertureEvolutionUI(); renderMttrEvolutionUI(); });
 }
 
 // Affiche la flèche (vs semaine précédente) + le graphe de tendance 4 semaines
@@ -1766,6 +1778,136 @@ function dgOnTauxManuelInput(){
   };
   if(elTaux) badge(arrTaux, parseInt(elTaux.value), window._evolPrevTaux, "pt");
   if(elSig)  badge(arrSig,  parseInt(elSig.value),  window._evolPrevTauxSignales, "pt");
+}
+
+// Graphe "Tickets ouverts NOC vs SAV B2B — 4 semaines" (2 séries), calqué sur noctb.html
+async function renderNocSavEvolutionUI(){
+  const evolEl = document.getElementById("dg-evolution-nocsav");
+  const pts = window._evolutionWeeks;
+  if(!pts || pts.length<2 || pts.filter(p=>p.taux!==null).length<2){
+    if(evolEl) evolEl.style.display="none";
+    if(window._evolNocSavChart){ window._evolNocSavChart.destroy(); window._evolNocSavChart=null; }
+    return;
+  }
+  const wkPts = [];
+  for(let i=0;i<pts.length;i++){
+    const p = pts[i];
+    const isLast = i===pts.length-1;
+    const wk = isLast && window._currentTkTotal!==undefined
+      ? {tkTotal:window._currentTkTotal, tkSav:window._currentTkSav}
+      : await computeWeekTicketMetrics(p.weekKey);
+    wkPts.push({label:p.label, tkTotal: wk?wk.tkTotal:null, tkSav: wk?wk.tkSav:null});
+  }
+  if(evolEl){
+    evolEl.style.display="block";
+    const canvas=document.getElementById("dg-evol-nocsav-chart");
+    if(window._evolNocSavChart){ window._evolNocSavChart.destroy(); window._evolNocSavChart=null; }
+    if(canvas && window.Chart){
+      const dataLabelsPlugin = {
+        id:"nocsavDataLabels",
+        afterDatasetsDraw(chart){
+          const {ctx} = chart;
+          chart.data.datasets.forEach((ds,di)=>{
+            const meta = chart.getDatasetMeta(di);
+            meta.data.forEach((point,i)=>{
+              const val = ds.data[i];
+              if(val===null||val===undefined) return;
+              ctx.save();
+              ctx.font="600 11px 'Inter', sans-serif";
+              ctx.fillStyle = ds.borderColor;
+              ctx.textAlign="center"; ctx.textBaseline="bottom";
+              ctx.fillText(String(val), point.x, point.y-8);
+              ctx.restore();
+            });
+          });
+        }
+      };
+      const maxVal = Math.max(5, ...wkPts.map(p=>Math.max(p.tkTotal||0,p.tkSav||0)));
+      window._evolNocSavChart = new Chart(canvas,{
+        type:"line",
+        data:{
+          labels: wkPts.map(p=>p.label),
+          datasets:[
+            {label:"Tickets NOC", data:wkPts.map(p=>p.tkTotal), borderColor:"#E05A00", backgroundColor:"rgba(224,90,0,0.08)", fill:false, tension:0.3, pointRadius:4, pointBackgroundColor:"#E05A00", spanGaps:true},
+            {label:"Confirmés SAV B2B", data:wkPts.map(p=>p.tkSav), borderColor:"#2563eb", backgroundColor:"rgba(37,99,235,0.08)", fill:false, tension:0.3, pointRadius:4, pointBackgroundColor:"#2563eb", spanGaps:true}
+          ]
+        },
+        options:{
+          responsive:true,
+          layout:{padding:{top:20}},
+          plugins:{ legend:{display:true, position:"bottom", labels:{boxWidth:10,font:{size:10}}} },
+          scales:{ y:{ min:0, suggestedMax:maxVal } }
+        },
+        plugins:[dataLabelsPlugin]
+      });
+    }
+  }
+}
+
+// Graphe "Évolution durée ouverture SAV — 4 semaines", calqué sur noctb.html
+async function renderOuvertureEvolutionUI(){
+  const evolEl = document.getElementById("dg-evolution-ouverture");
+  const pts = window._evolutionWeeks;
+  if(!pts || pts.length<2 || pts.filter(p=>p.taux!==null).length<2){
+    if(evolEl) evolEl.style.display="none";
+    if(window._evolOuvertureChart){ window._evolOuvertureChart.destroy(); window._evolOuvertureChart=null; }
+    return;
+  }
+  const fmtMin = v => v===null||v===undefined ? null : (v>=1440?(Math.floor(v/1440)+"j"+String(Math.floor((v%1440)/60)).padStart(2,"0")+"h"):v>=60?(Math.floor(v/60)+"h"+String(v%60).padStart(2,"0")):v+"min");
+  const ouvPts = [];
+  for(let i=0;i<pts.length;i++){
+    const p = pts[i];
+    const isLast = i===pts.length-1;
+    const ouvertureMin = isLast && window._currentOuvertureMin!==undefined ? window._currentOuvertureMin : (await computeWeekTicketMetrics(p.weekKey))?.tempsOuvertureSav ?? null;
+    ouvPts.push({label:p.label, ouvertureMin});
+  }
+  if(evolEl){
+    evolEl.style.display="block";
+    const canvas=document.getElementById("dg-evol-ouverture-chart");
+    if(window._evolOuvertureChart){ window._evolOuvertureChart.destroy(); window._evolOuvertureChart=null; }
+    if(canvas && window.Chart){
+      const dataLabelsPluginO = {
+        id:"ouvertureDataLabels",
+        afterDatasetsDraw(chart){
+          const {ctx} = chart;
+          chart.data.datasets.forEach((ds,di)=>{
+            const meta = chart.getDatasetMeta(di);
+            meta.data.forEach((point,i)=>{
+              const val = ds.data[i];
+              if(val===null||val===undefined) return;
+              ctx.save();
+              ctx.font="600 12px 'Inter', sans-serif";
+              ctx.fillStyle="#0d0f14";
+              ctx.textAlign="center"; ctx.textBaseline="bottom";
+              ctx.fillText(fmtMin(val), point.x, point.y-8);
+              ctx.restore();
+            });
+          });
+        }
+      };
+      const maxVal = Math.max(10, ...ouvPts.map(p=>p.ouvertureMin||0));
+      window._evolOuvertureChart = new Chart(canvas,{
+        type:"line",
+        data:{
+          labels: ouvPts.map(p=>p.label),
+          datasets:[{
+            label:"Durée ouverture",
+            data: ouvPts.map(p=>p.ouvertureMin),
+            borderColor:"#2563eb",
+            backgroundColor:"rgba(37,99,235,0.08)",
+            fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:"#2563eb", spanGaps:true
+          }]
+        },
+        options:{
+          responsive:true,
+          layout:{ padding:{ top:20 } },
+          plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>c.raw!==null&&c.raw!==undefined?fmtMin(c.raw):"—"}} },
+          scales:{ y:{ min:0, suggestedMax:maxVal, ticks:{callback:v=>fmtMin(v)} } }
+        },
+        plugins:[dataLabelsPluginO]
+      });
+    }
+  }
 }
 
 // Graphe "Évolution du temps de rétablissement moyen — 4 semaines" (RÉACTIVITÉ), calqué sur le PDF
@@ -2831,7 +2973,11 @@ function _mailCopyFeedback(){
 
 //  EXPORT PDF 
 async function exportPdf(){
-  if(!IF_DATA.length && !ND_DATA.length) return;
+  if(!IF_DATA.length && !ND_DATA.length){
+    alert("Aucune donnée à exporter. Générez d'abord un rapport (bouton \"Générer le rapport\").");
+    return;
+  }
+  try{
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
   const PW = 210, PH = 297;
@@ -2867,7 +3013,7 @@ async function exportPdf(){
   const nbAnomalies = IF_DATA.reduce((s,d)=>s+d.nb,0);
   const nbReboots   = ND_DATA.filter(d=>d.cause==="Redémarrage").length;
   const _elTauxManuelPdf = document.getElementById("dg-taux-manuel");
-  const tauxDispo   = (_elTauxManuelPdf && _elTauxManuelPdf.value!=="") ? parseInt(_elTauxManuelPdf.value) : tauxDispoPondere(IF_DATA, ND_DATA);
+  const tauxDispo   = (_elTauxManuelPdf && _elTauxManuelPdf.value!=="") ? parseInt(_elTauxManuelPdf.value) : null;
 
   function clientFrom(s){ const m=s.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:s.substring(0,8); }
   const clientsSet  = new Set([...ND_DATA.filter(d=>d.isDown).map(d=>clientFrom(d.site))]);
@@ -2899,7 +3045,8 @@ async function exportPdf(){
     y += 8;
   }
 
-  function drawTrendChartGeneric(pts, x, y0, w, h, valueKey, formatFn, clampMin, clampMax){
+  function drawTrendChartGeneric(pts, x, y0, w, h, valueKey, formatFn, clampMin, clampMax, lineColor){
+    const col = lineColor || ORANGE;
     const valid = pts.map(p=>p[valueKey]).filter(v=>v!==null && v!==undefined);
     // Axe + libellés de semaine : toujours affichés, même sans données
     doc.setDrawColor(...LGRAY); doc.setLineWidth(0.2);
@@ -2929,12 +3076,62 @@ async function exportPdf(){
       const v = p[valueKey];
       if(v===null || v===undefined){ prevX=null; return; }
       const py = toY(v);
-      if(prevX!==null){ doc.setDrawColor(...ORANGE); doc.setLineWidth(0.6); doc.line(prevX,prevY,px,py); }
-      doc.setFillColor(...ORANGE);
+      if(prevX!==null){ doc.setDrawColor(...col); doc.setLineWidth(0.6); doc.line(prevX,prevY,px,py); }
+      doc.setFillColor(...col);
       doc.circle(px,py,1,"F");
       doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
       doc.text(formatFn(v), px, py-2.5, {align:"center"});
       prevX=px; prevY=py;
+    });
+  }
+
+  // Variante multi-séries (ex: Tickets NOC vs SAV B2B) — même échelle verticale partagée pour toutes les séries
+  function drawTrendChartMulti(pts, x, y0, w, h, series, clampMin, clampMax){
+    const allVals = [];
+    series.forEach(s=> pts.forEach(p=>{ const v=p[s.key]; if(v!==null && v!==undefined) allVals.push(v); }));
+    doc.setDrawColor(...LGRAY); doc.setLineWidth(0.2);
+    doc.line(x, y0+h, x+w, y0+h);
+    const n = pts.length;
+    const stepX = w/(n-1||1);
+    pts.forEach((p,i)=>{
+      const px = x+i*stepX;
+      doc.setFontSize(6); doc.setFont("helvetica","normal"); doc.setTextColor(...GRAY);
+      doc.text(p.label, px, y0+h+4.5, {align:"center"});
+    });
+    if(allVals.length<2){
+      doc.setFontSize(7.5); doc.setFont("helvetica","italic"); doc.setTextColor(...GRAY);
+      doc.text("Aucune donnée disponible pour le moment", x+w/2, y0+h/2, {align:"center"});
+      return;
+    }
+    let minV = Math.min(...allVals), maxV = Math.max(...allVals);
+    const pad = Math.max(1, Math.round((maxV-minV)*0.15)) || Math.max(1, Math.round(maxV*0.15)) || 5;
+    minV = minV - pad; maxV = maxV + pad;
+    if(clampMin!==undefined) minV = Math.max(clampMin, minV);
+    if(clampMax!==undefined) maxV = Math.min(clampMax, maxV);
+    const span = (maxV-minV)||1;
+    const toY = v => y0+h - ((v-minV)/span)*h;
+    series.forEach(s=>{
+      let prevX=null, prevY=null;
+      pts.forEach((p,i)=>{
+        const px = x+i*stepX;
+        const v = p[s.key];
+        if(v===null || v===undefined){ prevX=null; return; }
+        const py = toY(v);
+        if(prevX!==null){ doc.setDrawColor(...s.color); doc.setLineWidth(0.6); doc.line(prevX,prevY,px,py); }
+        doc.setFillColor(...s.color);
+        doc.circle(px,py,1,"F");
+        doc.setFontSize(7); doc.setFont("helvetica","bold"); doc.setTextColor(...s.color);
+        doc.text(String(v), px, py-2.5, {align:"center"});
+        prevX=px; prevY=py;
+      });
+    });
+    // Légende
+    doc.setFontSize(6.5); doc.setFont("helvetica","normal");
+    let lx = x;
+    series.forEach(s=>{
+      doc.setFillColor(...s.color); doc.circle(lx,y0+h+9,1,"F");
+      doc.setTextColor(...DARK); doc.text(s.label, lx+2.5, y0+h+9.8);
+      lx += doc.getTextWidth(s.label)+10;
     });
   }
 
@@ -3128,10 +3325,11 @@ async function exportPdf(){
   const evolClients    = evolValid ? pdfEvolText(nbClients, evolPrev.nbClients, true) : {text:null};
 
   const _elTauxSigManuelPdf = document.getElementById("dg-taux-signales-manuel");
-  const tauxDispoSignales = (_elTauxSigManuelPdf && _elTauxSigManuelPdf.value!=="") ? parseInt(_elTauxSigManuelPdf.value) : tauxDispoLiensSignales(IF_DATA, ND_DATA);
+  const tauxDispoSignales = (_elTauxSigManuelPdf && _elTauxSigManuelPdf.value!=="") ? parseInt(_elTauxSigManuelPdf.value) : null;
+  const GREY_T = [120,124,132];
   kpiBlock([
-    {label:"Disponibilité globale des liens (Primaire & Backup)", value:tauxDispo+"%",         color:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo>=95?GREEN_T:RED_T, sub:""},
-    {label:"Taux de disponibilité des liens signalés",            value:tauxDispoSignales+"%", color:tauxDispoSignales>=95?GREEN_T:tauxDispoSignales>=90?AMBER_T:RED_T, accent:tauxDispoSignales>=95?GREEN_T:RED_T, sub:""},
+    {label:"Disponibilité globale des liens (Primaire & Backup)", value:tauxDispo===null?"—":tauxDispo+"%",         color:tauxDispo===null?GREY_T:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo===null?GREY_T:tauxDispo>=95?GREEN_T:RED_T, sub:""},
+    {label:"Taux de disponibilité des liens signalés",            value:tauxDispoSignales===null?"—":tauxDispoSignales+"%", color:tauxDispoSignales===null?GREY_T:tauxDispoSignales>=95?GREEN_T:tauxDispoSignales>=90?AMBER_T:RED_T, accent:tauxDispoSignales===null?GREY_T:tauxDispoSignales>=95?GREEN_T:RED_T, sub:""},
     {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:"", evol:evolCoupures.text, evolColor:evolCoupures.color},
     {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"", evol:evolClients.text, evolColor:evolClients.color},
   ], 4);
@@ -3215,28 +3413,56 @@ async function exportPdf(){
     {label:"Taux de réitération",               value:tauxReiteration===null?"—":tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:"", evol:evolTauxReiteration.text, evolColor:evolTauxReiteration.color},
   ], 3);
 
-  // Graphe Évolution du temps de rétablissement moyen — 4 semaines (identique au graphe taux de disponibilité)
-  let mttrEvolPts;
+  // 3 graphes de tendance — mêmes données et mêmes noms que dans noctb.html (Bilan — Ouverture de ticket)
+  let evolGraphPts;
   if(evolValid){
-    mttrEvolPts = [];
+    evolGraphPts = [];
     for(const p of evolPts){
-      const mttrMin = await computeWeekMttrTickets(p.weekKey);
-      mttrEvolPts.push({label:p.label, mttrMin});
+      const wk = await computeWeekTicketMetrics(p.weekKey);
+      evolGraphPts.push({
+        label: p.label,
+        tkTotal: wk ? wk.tkTotal : null,
+        tkSav: wk ? wk.tkSav : null,
+        ouvertureMin: wk ? wk.tempsOuvertureSav : null,
+        mttrMin: wk ? wk.mttr : null,
+      });
     }
-    // La semaine courante utilise la valeur déjà calculée à partir de filteredTk (plus précise)
-    const curAvgMin = tkResolus.length ? Math.round(tkResolus.reduce((s,t)=>{
-      const d=(new Date(t.fin)-new Date(t.debut))/60000; return s+(d>0?d:0);
-    },0)/tkResolus.length) : null;
-    if(mttrEvolPts.length) mttrEvolPts[mttrEvolPts.length-1].mttrMin = curAvgMin;
+    // La semaine courante utilise les valeurs déjà calculées à partir de filteredTk (plus précises)
+    if(evolGraphPts.length){
+      const last = evolGraphPts[evolGraphPts.length-1];
+      last.tkTotal = tkTotalNum;
+      last.tkSav = fromExcelPdf ? fromExcelPdf.nbMatched : last.tkSav;
+      last.ouvertureMin = fromExcelPdf ? fromExcelPdf.avgMinOuv : last.ouvertureMin;
+      last.mttrMin = fromExcelPdf ? fromExcelPdf.avgMinMttr : last.mttrMin;
+    }
   } else {
-    // Pas de contexte semaine : on affiche quand même l'emplacement du graphe, vide
-    mttrEvolPts = [{label:"S-3",mttrMin:null},{label:"S-2",mttrMin:null},{label:"S-1",mttrMin:null},{label:"Actuelle",mttrMin:null}];
+    evolGraphPts = [{label:"S-3"},{label:"S-2"},{label:"S-1"},{label:"Actuelle"}].map(p=>({...p, tkTotal:null, tkSav:null, ouvertureMin:null, mttrMin:null}));
   }
+
+  const fmtMin = v=>v>=1440?(Math.floor(v/1440)+"j"+String(Math.floor((v%1440)/60)).padStart(2,"0")+"h"):v>=60?(Math.floor(v/60)+"h"+String(v%60).padStart(2,"0")):v+"min";
+
   checkPage(28);
   doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
-  doc.text("Évolution du temps de rétablissement moyen — 4 semaines", ML, y+3);
+  doc.text("Tickets ouverts NOC vs SAV B2B — 4 semaines", ML, y+3);
   y += 5;
-  drawTrendChartGeneric(mttrEvolPts, ML+4, y, CW-8, 16, "mttrMin", v=>v>=60?(Math.floor(v/60)+"h"+String(v%60).padStart(2,"0")):v+"min");
+  drawTrendChartMulti(evolGraphPts, ML+4, y, CW-8, 16, [
+    {key:"tkTotal", color:ORANGE, label:"Tickets NOC"},
+    {key:"tkSav",   color:[37,99,235], label:"Confirmés SAV B2B"},
+  ]);
+  y += 27;
+
+  checkPage(28);
+  doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
+  doc.text("Évolution durée ouverture SAV — 4 semaines", ML, y+3);
+  y += 5;
+  drawTrendChartGeneric(evolGraphPts, ML+4, y, CW-8, 16, "ouvertureMin", fmtMin, undefined, undefined, [37,99,235]);
+  y += 25;
+
+  checkPage(28);
+  doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
+  doc.text("Évolution durée de relève — 4 semaines", ML, y+3);
+  y += 5;
+  drawTrendChartGeneric(evolGraphPts, ML+4, y, CW-8, 16, "mttrMin", fmtMin, undefined, undefined, [5,150,105]);
   y += 25;
 
   //  KPI NOC — SITES INSTABLES
@@ -3269,10 +3495,10 @@ async function exportPdf(){
   // Analyse synthétique des 3 blocs (Disponibilité / Réactivité / Proactivité) sur la période,
   // avec comparaison à la période précédente quand elle est disponible. Reste sur la 1ère page.
   {
-    const evolTauxDispoTxt   = evolValid ? pdfEvolText(tauxDispo, evolPrev.taux, true).text : null;
-    const evolSignalesTxt    = evolValid ? pdfEvolText(tauxDispoSignales, evolPrev.tauxSignales, true).text : null;
+    const evolTauxDispoTxt   = (evolValid && tauxDispo!==null) ? pdfEvolText(tauxDispo, evolPrev.taux, true).text : null;
+    const evolSignalesTxt    = (evolValid && tauxDispoSignales!==null) ? pdfEvolText(tauxDispoSignales, evolPrev.tauxSignales, true).text : null;
 
-    const dispoTxt = `Disponibilité : ${tauxDispo}% (liens signalés : ${tauxDispoSignales}%)`
+    const dispoTxt = `Disponibilité : ${tauxDispo===null?"—":tauxDispo+"%"} (liens signalés : ${tauxDispoSignales===null?"—":tauxDispoSignales+"%"})`
       + (evolTauxDispoTxt ? " ("+evolTauxDispoTxt+")" : "")
       + `. ${nbCoupConfirmees} coupure(s) confirmée(s)` + (evolCoupures.text ? " ("+evolCoupures.text+")" : "")
       + `, ${nbClients} client(s) impacté(s)` + (evolClients.text ? " ("+evolClients.text+")" : "") + ".";
@@ -3392,6 +3618,10 @@ async function exportPdf(){
 
   const fname="NOC_B2B_DG_"+dateLabel.replace(/\//g,"-").replace(/\s/g,"_")+".pdf";
   doc.save(fname);
+  } catch(e){
+    console.error("Erreur export PDF:", e);
+    alert("Erreur lors de la génération du PDF : "+(e.message||e)+"\n\nVoir la console (F12) pour le détail.");
+  }
 }
 
 
@@ -3746,6 +3976,7 @@ async function loadKpiTickets(){
       savAvecOuverture = {length: fromExcel.nbOuverture, exclus: fromExcel.nbOuvertureExclus||0};
       resolus = {length: fromExcel.nbMttr, exclus: fromExcel.nbMttrExclus||0};
       window._currentMttrMin = fromExcel.avgMinMttr;
+      window._currentOuvertureMin = fromExcel.avgMinOuv;
     } else {
       tauxSav = null;
       ouvertureTxt = "—";
@@ -3753,7 +3984,10 @@ async function loadKpiTickets(){
       savAvecOuverture = {length: 0, exclus: 0};
       resolus = {length: 0, exclus: 0};
       window._currentMttrMin = null;
+      window._currentOuvertureMin = null;
     }
+    window._currentTkTotal = total;
+    window._currentTkSav = fromExcel ? fromExcel.nbMatched : 0;
 
     // Réitération : calculée uniquement depuis le fichier Excel SAV (référence qui revient
     // plusieurs fois sur la période, rapporté au nombre total de signalisations Excel). Sans
