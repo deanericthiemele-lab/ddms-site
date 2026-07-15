@@ -1131,14 +1131,14 @@ async function computeWeekTicketMetrics(weekKey){
     if(!inWeek.length) return null;
 
     const tkTotalWk = inWeek.length;
-    const tkSavWk = inWeek.filter(t=>t.destinataire==="SAV B2B").length;
+    const tkSavWk = inWeek.filter(t=>!!t.dateCreationExcel).length;
     const tkTauxSavWk = tkTotalWk>0 ? Math.round((tkSavWk/tkTotalWk)*100) : null;
 
-    const tkSavAvecOuvertureWk = inWeek.filter(t=>t.destinataire==="SAV B2B" && t.debut && (t.ouverture||t.dateOuverture||t.creation));
+    const tkSavAvecOuvertureWk = inWeek.filter(t=>t.debut && t.dateCreationExcel);
     let tempsOuvertureSavWk = null;
     if(tkSavAvecOuvertureWk.length){
       const totalMinOuv = tkSavAvecOuvertureWk.reduce((s,t)=>{
-        const d1 = new Date(t.ouverture||t.dateOuverture||t.creation), d0 = new Date(t.debut);
+        const d1 = new Date(t.dateCreationExcel), d0 = new Date(t.debut);
         const diffMin = (d1-d0)/60000; return s+(diffMin>0?diffMin:0);
       },0);
       tempsOuvertureSavWk = Math.round(totalMinOuv/tkSavAvecOuvertureWk.length);
@@ -1153,10 +1153,10 @@ async function computeWeekTicketMetrics(weekKey){
       mttrWk = Math.round(totalMin/tkResolusWk.length);
     }
 
-    const clientKey = t => t.client || t.ref || t.reference || "";
-    const parClient = {};
-    inWeek.forEach(t=>{ const k=clientKey(t); if(!k) return; parClient[k]=(parClient[k]||0)+1; });
-    const nbReiterationWk = Object.values(parClient).reduce((s,n)=>s+(n>1?n-1:0),0);
+    const refKey = t => normRef(t.ref || t.reference);
+    const parRef = {};
+    inWeek.forEach(t=>{ const k=refKey(t); if(!k) return; parRef[k]=(parRef[k]||0)+1; });
+    const nbReiterationWk = Object.values(parRef).reduce((s,n)=>s+(n>1?n-1:0),0);
     const tauxReiterationWk = tkTotalWk>0 ? Math.round((nbReiterationWk/tkTotalWk)*100) : null;
 
     return {tkTotal:tkTotalWk, tkTauxSav:tkTauxSavWk, tempsOuvertureSav:tempsOuvertureSavWk, mttr:mttrWk, nbReiteration:nbReiterationWk, tauxReiteration:tauxReiterationWk};
@@ -3181,7 +3181,7 @@ async function exportPdf(){
     }
   } catch(e){ console.warn("PDF tickets Firebase erreur:",e); }
 
-  const fromExcelPdf = computeReactiviteFromExcel(filteredTk);
+  const fromExcelPdf = computeReactiviteFromExcel(filteredTk) || computeReactiviteFromTicketFields(filteredTk);
 
   // Temps de rétablissement moyen (MTTR tickets) : uniquement calculable via le fichier Excel SAV
   let mttrTicketTxt = "—";
@@ -3201,7 +3201,7 @@ async function exportPdf(){
 
   // Réitération : calculée uniquement depuis le fichier Excel SAV. Sans fichier chargé -> "—"
   const tkTotalNum = parseInt(tkTotal)||0;
-  const _reiterationExcelPdf = computeReiterationFromExcel();
+  const _reiterationExcelPdf = computeReiterationFromExcel() || computeReiterationFromTicketFields(filteredTk);
   const nbReiteration   = _reiterationExcelPdf ? _reiterationExcelPdf.nbReiteration : null;
   const tauxReiteration = _reiterationExcelPdf ? _reiterationExcelPdf.tauxReiteration : null;
 
@@ -3552,6 +3552,52 @@ function fmtDureeMin(min){
 // Réitération calculée depuis le fichier Excel SAV : pour chaque référence apparaissant plusieurs
 // fois dans l'Excel sur la période du rapport, on compte (occurrences - 1). Ex: 2 lignes pour la
 // même référence sur la période = 1 réitération.
+// ── Repli : calcule réactivité/réitération directement depuis les champs déjà stockés sur
+// chaque ticket par noctb.html (dateCreationExcel, fin), sans avoir besoin de re-uploader un
+// fichier Excel dans cet outil. Utilisé quand aucun fichier SAV n'a été chargé ici (_savExcelMap absent).
+function computeReactiviteFromTicketFields(filtered){
+  if(!filtered || !filtered.length) return null;
+
+  const withCreation = filtered.filter(t=>t.dateCreationExcel && t.debut);
+  let ouvertureTxt = "—", avgMinOuv = null;
+  if(withCreation.length){
+    const totalMin = withCreation.reduce((s,t)=>{
+      const dm = (new Date(t.dateCreationExcel) - new Date(t.debut))/60000; return s+(dm>0?dm:0);
+    },0);
+    avgMinOuv = Math.round(totalMin/withCreation.length);
+    ouvertureTxt = fmtDureeMin(avgMinOuv);
+  }
+
+  const tauxSav = filtered.length>0 ? Math.round((withCreation.length/filtered.length)*100) : 0;
+
+  const withFin = filtered.filter(t=>t.fin && t.debut);
+  let mttrTxt = "—", avgMinMttr = null;
+  if(withFin.length){
+    const totalMin = withFin.reduce((s,t)=>{
+      const dm = (new Date(t.fin) - new Date(t.debut))/60000; return s+(dm>0?dm:0);
+    },0);
+    avgMinMttr = Math.round(totalMin/withFin.length);
+    mttrTxt = fmtDureeMin(avgMinMttr);
+  }
+
+  return {
+    ouvertureTxt, avgMinOuv, nbOuverture: withCreation.length,
+    tauxSav, nbMatched: withCreation.length,
+    mttrTxt, avgMinMttr, nbMttr: withFin.length
+  };
+}
+
+function computeReiterationFromTicketFields(filtered){
+  if(!filtered || !filtered.length) return {nbReiteration:0, tauxReiteration:0, total:0};
+  const refCount = {};
+  filtered.forEach(t=>{ const r=normRef(t.ref||t.reference); if(r) refCount[r]=(refCount[r]||0)+1; });
+  const total = filtered.length;
+  const distinctRefs = Object.keys(refCount).length;
+  const nbReiteration = Math.max(0, total-distinctRefs);
+  const tauxReiteration = total>0 ? Math.round(nbReiteration/total*100) : 0;
+  return {nbReiteration, tauxReiteration, total};
+}
+
 function computeReiterationFromExcel(){
   const map = window._savExcelMap;
   if(!map) return null;
@@ -3703,7 +3749,7 @@ async function loadKpiTickets(){
       return rapportDatesISO.has(ticketDateISO);
     });
     const total = filtered.length;
-    const fromExcel = computeReactiviteFromExcel(filtered);
+    const fromExcel = computeReactiviteFromExcel(filtered) || computeReactiviteFromTicketFields(filtered);
 
     let tauxSav, ouvertureTxt, mttrTxt, savAvecOuverture, resolus;
     if(fromExcel){
@@ -3725,7 +3771,7 @@ async function loadKpiTickets(){
     // Réitération : calculée uniquement depuis le fichier Excel SAV (référence qui revient
     // plusieurs fois sur la période, rapporté au nombre total de signalisations Excel). Sans
     // fichier chargé, aucune valeur affichée.
-    const reiterationExcel = computeReiterationFromExcel();
+    const reiterationExcel = computeReiterationFromExcel() || computeReiterationFromTicketFields(filtered);
     const nbReiteration   = reiterationExcel ? reiterationExcel.nbReiteration : null;
     const tauxReiteration = reiterationExcel ? reiterationExcel.tauxReiteration : null;
 
