@@ -1095,14 +1095,14 @@ function previousWeekKeys(weekKey, n){
 // Recalcule le taux de disponibilité d'une semaine donnée à partir des rapports sauvegardés
 function clientFromSite(s){ const m=s.match(/^([A-Z][A-Z0-9]+)_/); return m?m[1]:s.substring(0,8); }
 
-// Calcule le MTTR ticket moyen (minutes) pour une semaine donnée (lundi->dimanche), depuis Firestore
+// Calcule le MTTR ticket moyen (minutes) pour une semaine donnée (lundi->vendredi, pas de travail le week-end), depuis Firestore
 async function computeWeekMttrTickets(weekKey){
   if(!window._db || !window._col || !window._gets) return null;
   try{
     const lun = new Date(weekKey);
-    const dim = new Date(lun); dim.setDate(lun.getDate()+6);
+    const ven = new Date(lun); ven.setDate(lun.getDate()+4); // vendredi
     const toISO = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-    const startISO = toISO(lun), endISO = toISO(dim);
+    const startISO = toISO(lun), endISO = toISO(ven);
     const snap = await window._gets(window._col(window._db,"noc_tickets_indispo"));
     const inWeek = snap.docs.map(d=>d.data()).filter(t=>{
       if(!t.debut || !t.fin) return false;
@@ -1179,9 +1179,9 @@ async function computeWeekTicketMetrics(weekKey){
   if(!window._db || !window._col || !window._gets) return null;
   try{
     const lun = new Date(weekKey);
-    const dim = new Date(lun); dim.setDate(lun.getDate()+6);
+    const ven = new Date(lun); ven.setDate(lun.getDate()+4); // vendredi — pas de travail le week-end
     const toISO = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-    const startISO = toISO(lun), endISO = toISO(dim);
+    const startISO = toISO(lun), endISO = toISO(ven);
     const snap = await window._gets(window._col(window._db,"noc_tickets_indispo"));
     const inWeek = snap.docs.map(d=>d.data()).filter(t=>t.debut && t.debut.substring(0,10)>=startISO && t.debut.substring(0,10)<=endISO);
     if(!inWeek.length) return null;
@@ -3448,8 +3448,8 @@ async function exportPdf(){
   kpiBlock([
     {label:"Demande d'ouverture de ticket",     value:tkTotal,             color:RED_T,  accent:RED_T,   sub:"", evol:evolTkTotal.text, evolColor:evolTkTotal.color},
     {label:"Taux moyen d'ouverture de ticket par le SAV B2B",  value:tkTauxSav===null?"—":tkTauxSav+"%",       color:AMBER_T,accent:AMBER_T, sub:fromExcelPdf?`${fromExcelPdf.nbMatched}/${tkTotalNum} ticket(s)`:"", evol:evolTkTauxSav.text, evolColor:evolTkTauxSav.color},
-    {label:"Temps moyen d'ouverture de ticket par le SAV B2B", value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)"+(tkSavAvecOuverture.exclus>0?` (${tkSavAvecOuverture.exclus} exclu(s))`:""):"—", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
-    {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)"+(tkResolus.exclus>0?` (${tkResolus.exclus} exclu(s))`:""):"", evol:evolMttrTicket.text, evolColor:evolMttrTicket.color},
+    {label:"Temps moyen d'ouverture de ticket par le SAV B2B", value:tempsOuvertureSavTxt,color:AMBER_T,accent:AMBER_T, sub:tkSavAvecOuverture.length?tkSavAvecOuverture.length+" ticket(s)":"—", evol:evolTempsOuvSav.text, evolColor:evolTempsOuvSav.color},
+    {label:"Temps de rétablissement moyen",     value:mttrTicketTxt,       color:AMBER_T,accent:AMBER_T, sub:tkResolus.length?tkResolus.length+" ticket(s) resolu(s)":"", evol:evolMttrTicket.text, evolColor:evolMttrTicket.color},
     {label:"Réitération (référence qui reviennent)", value:nbReiteration===null?"—":nbReiteration, color:RED_T,  accent:RED_T,   sub:"", evol:evolReiteration.text, evolColor:evolReiteration.color},
     {label:"Taux de réitération",               value:tauxReiteration===null?"—":tauxReiteration+"%",color:RED_T,  accent:RED_T,   sub:"", evol:evolTauxReiteration.text, evolColor:evolTauxReiteration.color},
   ], 3);
@@ -3974,11 +3974,11 @@ async function loadKpiTickets(){
     set("dg-tk-taux-reiteration",  tauxReiteration===null ? "—" : tauxReiteration+"%");
 
     const subOuv = document.getElementById("dg-tk-ouverture-sub");
-    if(subOuv) subOuv.textContent = savAvecOuverture.length ? savAvecOuverture.length+" ticket(s)"+(savAvecOuverture.exclus>0?` (${savAvecOuverture.exclus} exclu(s))`:"") : "—";
+    if(subOuv) subOuv.textContent = savAvecOuverture.length ? savAvecOuverture.length+" ticket(s)" : "—";
     const subTauxSav = document.getElementById("dg-tk-taux-sav-sub");
     if(subTauxSav) subTauxSav.textContent = fromExcel ? `${fromExcel.nbMatched}/${total} ticket(s)` : "";
     const subMttr = document.getElementById("dg-tk-mttr-sub");
-    if(subMttr) subMttr.textContent = resolus.length ? resolus.length+" ticket(s) résolu(s)"+(resolus.exclus>0?` (${resolus.exclus} exclu(s))`:"") : "";
+    if(subMttr) subMttr.textContent = resolus.length ? resolus.length+" ticket(s) résolu(s)" : "";
 
     const totalEl=document.getElementById("kpi-tickets-total");
     if(totalEl) totalEl.className="dg-kpi-val "+(total>5?"red":total>2?"amber":"green");
