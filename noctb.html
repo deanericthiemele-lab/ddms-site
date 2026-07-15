@@ -2721,6 +2721,12 @@ async function deleteVip(id){
           <div id="tk-trend-nocsav"></div>
         </div>
         <div style="background:#fff;border:2px solid #b0b0b0;border-radius:8px;padding:14px 34px;box-shadow:0 2px 6px rgba(0,0,0,.08);position:relative">
+          <div style="font-size:13px;font-weight:700;color:#000;margin-bottom:9px">📊 Tickets envoyés NOC vs Incidents résolus</div>
+          <button onclick="tkTrendNavigate(1)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:#fff;border:1px solid var(--n4);border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--n2);box-shadow:0 1px 4px rgba(0,0,0,.15);z-index:2" title="Période précédente">‹</button>
+          <button onclick="tkTrendNavigate(-1)" id="tk-trend-nav-next-4" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:#fff;border:1px solid var(--n4);border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--n2);box-shadow:0 1px 4px rgba(0,0,0,.15);z-index:2" title="Période suivante">›</button>
+          <div id="tk-trend-resolu"></div>
+        </div>
+        <div style="background:#fff;border:2px solid #b0b0b0;border-radius:8px;padding:14px 34px;box-shadow:0 2px 6px rgba(0,0,0,.08);position:relative">
           <div style="font-size:13px;font-weight:700;color:#000;margin-bottom:9px">📈 Évolution durée ouverture SAV</div>
           <button onclick="tkTrendNavigate(1)" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);background:#fff;border:1px solid var(--n4);border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--n2);box-shadow:0 1px 4px rgba(0,0,0,.15);z-index:2" title="Période précédente">‹</button>
           <button onclick="tkTrendNavigate(-1)" id="tk-trend-nav-next-2" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:#fff;border:1px solid var(--n4);border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--n2);box-shadow:0 1px 4px rgba(0,0,0,.15);z-index:2" title="Période suivante">›</button>
@@ -7041,22 +7047,27 @@ function tkBuildTrendChart({xLabels, series, isDuration}){
   });
 
   let lines='', legend='';
-  const barW = Math.max(6, (plotW/n)*0.5);
+  const barSeriesCount = series.filter(s=>s.type==='bar').length || 1;
+  const groupW = Math.max(6, (plotW/n)*0.6);
+  const barW = groupW/barSeriesCount;
+  let barIndex = 0;
   series.forEach(s=>{
     if(s.dashed){
       // Ligne de tendance pointillée, toujours en trait (par-dessus les barres)
       const pts = s.values.map((v,i)=> (v===null||v===undefined) ? null : `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`).filter(Boolean);
       if(pts.length) lines += `<polyline points="${pts.join(' ')}" fill="none" stroke="${s.color}" stroke-width="2" stroke-dasharray="5,4"/>`;
     } else if(s.type==='bar'){
+      const offset = (barIndex - (barSeriesCount-1)/2) * barW;
+      barIndex++;
       s.values.forEach((v,i)=>{
         if(v===null||v===undefined||isNaN(v)) return;
-        const cx = xAt(i);
+        const cx = xAt(i) + offset;
         const y  = yAt(v);
         const h  = (MT+plotH) - y;
-        lines += `<rect x="${(cx-barW/2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${s.color}" rx="2"/>`;
+        lines += `<rect x="${(cx-barW/2+0.5).toFixed(1)}" y="${y.toFixed(1)}" width="${(barW-1).toFixed(1)}" height="${h.toFixed(1)}" fill="${s.color}" rx="2"/>`;
         const labelY = y<24 ? y+14 : y-6;
         const valTxt = isDuration ? tkFormatMs(v) : Math.round(v);
-        lines += `<text x="${cx.toFixed(1)}" y="${labelY.toFixed(1)}" font-size="9" font-weight="700" fill="${s.color}" text-anchor="middle">${valTxt}</text>`;
+        lines += `<text x="${cx.toFixed(1)}" y="${labelY.toFixed(1)}" font-size="8.5" font-weight="700" fill="${s.color}" text-anchor="middle">${valTxt}</text>`;
       });
     } else {
       const pts = s.values.map((v,i)=> (v===null||v===undefined) ? null : `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`);
@@ -7095,7 +7106,8 @@ function tkRenderTendances(){
   const box1 = document.getElementById('tk-trend-nocsav');
   const box2 = document.getElementById('tk-trend-ouverture');
   const box3 = document.getElementById('tk-trend-relieve');
-  if(!box1 && !box2 && !box3) return;
+  const box4 = document.getElementById('tk-trend-resolu');
+  if(!box1 && !box2 && !box3 && !box4) return;
 
   // Filtres qualitatifs uniquement (pas de borne de période — c'est une tendance dans le temps)
   const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
@@ -7116,9 +7128,10 @@ function tkRenderTendances(){
     const d = new Date(t.debut);
     if(isNaN(d)) return;
     const key = tkTrendBucketKey(d, unit);
-    if(!buckets[key]) buckets[key] = {noc:0, sav:0, ouv:[], rel:[]};
+    if(!buckets[key]) buckets[key] = {noc:0, sav:0, resolu:0, ouv:[], rel:[]};
     buckets[key].noc++;
     if(t.dateCreationExcel) buckets[key].sav++;
+    if(t.statut==='Terminé') buckets[key].resolu++;
     const om = tkOuvertureMs(t); if(om!==null && !isNaN(om) && om>=0) buckets[key].ouv.push(om);
     if(t.statut==='Terminé'){
       const rm = tkIncidentMs(t);  if(rm!==null && !isNaN(rm) && rm>=0) buckets[key].rel.push(rm);
@@ -7134,10 +7147,20 @@ function tkRenderTendances(){
   const avgOf = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
 
   // Désactive la flèche "période suivante" (sur les 3 graphes) quand on est déjà sur la fenêtre la plus récente
-  ['tk-trend-nav-next-1','tk-trend-nav-next-2','tk-trend-nav-next-3'].forEach(id=>{
+  ['tk-trend-nav-next-1','tk-trend-nav-next-2','tk-trend-nav-next-3','tk-trend-nav-next-4'].forEach(id=>{
     const b = document.getElementById(id);
     if(b) b.style.opacity = trendOffset<=0 ? '0.35' : '1';
   });
+
+  // Chart 4 : Tickets envoyés NOC vs Incidents résolus (barres groupées)
+  if(box4){
+    const nocVals2 = windowKeys.map(k=>buckets[k].noc);
+    const resoluVals = windowKeys.map(k=>buckets[k].resolu);
+    box4.innerHTML = tkBuildTrendChart({xLabels, isDuration:false, series:[
+      {label:'Tickets NOC', color:'#E05A00', values:nocVals2, type:'bar'},
+      {label:'Incidents résolus', color:'#7c3aed', values:resoluVals, type:'bar'}
+    ]});
+  }
 
   // Chart 1 : Tickets NOC vs SAV B2B
   if(box1){
