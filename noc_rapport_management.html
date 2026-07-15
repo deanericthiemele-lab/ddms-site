@@ -1121,6 +1121,16 @@ async function computeWeekMttrTickets(weekKey){
 // Une seule requête Firestore, puis regroupement par jour côté client — bien plus riche
 // que le découpage par semaine (qui n'a souvent qu'1 point de données sur un système récent).
 const JOURS_ABBR = ['dim','lun','mar','mer','jeu','ven','sam'];
+// Nombre de jours couverts par le libellé de période affiché (ex: "06/07/2026 au 14/07/2026" -> 9)
+// Plafonné à 31 jours pour garder les graphes lisibles.
+function spanDaysFromPeriodLabel(label){
+  const matches = String(label||"").match(/\d{2}\/\d{2}\/\d{4}/g) || [];
+  if(matches.length<2) return 7; // une seule date -> repli sur 7 jours
+  const dates = matches.map(s=>{ const [d,m,y]=s.split("/"); return new Date(+y,+m-1,+d); }).sort((a,b)=>a-b);
+  const span = Math.round((dates[dates.length-1]-dates[0])/86400000)+1;
+  return Math.min(Math.max(span,1), 31);
+}
+
 async function computeDailyTicketTrend(refDateStr, days){
   days = days || 7;
   if(!window._db || !window._col || !window._gets) return [];
@@ -1601,19 +1611,19 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   </div>
   <div id="kpi-noc-hint" style="font-size:11px;color:#9aa0ae;margin:-4px 0 16px"></div>
   <div id="dg-evolution-nocsav" style="display:none;margin-bottom:16px">
-    <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📊 Tickets ouverts NOC vs SAV B2B — 7 derniers jours</div>
+    <div id="dg-title-nocsav" style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📊 Tickets ouverts NOC vs SAV B2B — 7 derniers jours</div>
     <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
       <canvas id="dg-evol-nocsav-chart" height="70"></canvas>
     </div>
   </div>
   <div id="dg-evolution-ouverture" style="display:none;margin-bottom:16px">
-    <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📈 Évolution durée ouverture SAV — 7 derniers jours</div>
+    <div id="dg-title-ouverture" style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📈 Évolution durée ouverture SAV — 7 derniers jours</div>
     <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
       <canvas id="dg-evol-ouverture-chart" height="70"></canvas>
     </div>
   </div>
   <div id="dg-evolution-mttr" style="display:none;margin-bottom:16px">
-    <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📈 Évolution durée de relève — 7 derniers jours</div>
+    <div id="dg-title-mttr" style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📈 Évolution durée de relève — 7 derniers jours</div>
     <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
       <canvas id="dg-evol-mttr-chart" height="70"></canvas>
     </div>
@@ -1832,7 +1842,8 @@ function dgOnTauxManuelInput(){
 async function renderNocSavEvolutionUI(){
   const evolEl = document.getElementById("dg-evolution-nocsav");
   const hdrDate = document.getElementById("hdr-date")?.textContent || "";
-  const wkPts = await computeDailyTicketTrend(hdrDate, 7);
+  const wkPts = await computeDailyTicketTrend(hdrDate, spanDaysFromPeriodLabel(hdrDate));
+  { const t=document.getElementById("dg-title-nocsav"); if(t) t.textContent = `📊 Tickets ouverts NOC vs SAV B2B — ${spanDaysFromPeriodLabel(hdrDate)} derniers jours`; }
   if(!wkPts.length){
     if(evolEl) evolEl.style.display="none";
     if(window._evolNocSavChart){ window._evolNocSavChart.destroy(); window._evolNocSavChart=null; }
@@ -1888,7 +1899,8 @@ async function renderNocSavEvolutionUI(){
 async function renderOuvertureEvolutionUI(){
   const evolEl = document.getElementById("dg-evolution-ouverture");
   const hdrDate = document.getElementById("hdr-date")?.textContent || "";
-  const ouvPts = await computeDailyTicketTrend(hdrDate, 7);
+  const ouvPts = await computeDailyTicketTrend(hdrDate, spanDaysFromPeriodLabel(hdrDate));
+  { const t=document.getElementById("dg-title-ouverture"); if(t) t.textContent = `📈 Évolution durée ouverture SAV — ${spanDaysFromPeriodLabel(hdrDate)} derniers jours`; }
   if(!ouvPts.length){
     if(evolEl) evolEl.style.display="none";
     if(window._evolOuvertureChart){ window._evolOuvertureChart.destroy(); window._evolOuvertureChart=null; }
@@ -1948,7 +1960,8 @@ async function renderOuvertureEvolutionUI(){
 async function renderMttrEvolutionUI(){
   const evolEl = document.getElementById("dg-evolution-mttr");
   const hdrDate = document.getElementById("hdr-date")?.textContent || "";
-  const mttrPts = await computeDailyTicketTrend(hdrDate, 7);
+  const mttrPts = await computeDailyTicketTrend(hdrDate, spanDaysFromPeriodLabel(hdrDate));
+  { const t=document.getElementById("dg-title-mttr"); if(t) t.textContent = `📈 Évolution durée de relève — ${spanDaysFromPeriodLabel(hdrDate)} derniers jours`; }
   if(!mttrPts.length){
     if(evolEl) evolEl.style.display="none";
     if(window._evolMttrChart){ window._evolMttrChart.destroy(); window._evolMttrChart=null; }
@@ -3442,13 +3455,13 @@ async function exportPdf(){
   ], 3);
 
   // 3 graphes de tendance — 7 derniers jours, exactement comme dans noctb.html (Bilan — Ouverture de ticket)
-  const evolGraphPts = await computeDailyTicketTrend(dateLabel, 7);
+  const evolGraphPts = await computeDailyTicketTrend(dateLabel, spanDaysFromPeriodLabel(dateLabel));
 
   const fmtMin = v=>v>=1440?(Math.floor(v/1440)+"j"+String(Math.floor((v%1440)/60)).padStart(2,"0")+"h"):v>=60?(Math.floor(v/60)+"h"+String(v%60).padStart(2,"0")):v+"min";
 
   checkPage(28);
   doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
-  doc.text("Tickets ouverts NOC vs SAV B2B — 7 derniers jours", ML, y+3);
+  doc.text(`Tickets ouverts NOC vs SAV B2B — ${spanDaysFromPeriodLabel(dateLabel)} derniers jours`, ML, y+3);
   y += 5;
   drawTrendChartMulti(evolGraphPts, ML+4, y, CW-8, 16, [
     {key:"tkTotal", color:ORANGE, label:"Tickets NOC"},
@@ -3458,14 +3471,14 @@ async function exportPdf(){
 
   checkPage(28);
   doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
-  doc.text("Évolution durée ouverture SAV — 7 derniers jours", ML, y+3);
+  doc.text(`Évolution durée ouverture SAV — ${spanDaysFromPeriodLabel(dateLabel)} derniers jours`, ML, y+3);
   y += 5;
   drawTrendChartGeneric(evolGraphPts, ML+4, y, CW-8, 16, "ouvertureMin", fmtMin, undefined, undefined, [37,99,235]);
   y += 25;
 
   checkPage(28);
   doc.setFontSize(8); doc.setFont("helvetica","bold"); doc.setTextColor(...DARK);
-  doc.text("Évolution durée de relève — 7 derniers jours", ML, y+3);
+  doc.text(`Évolution durée de relève — ${spanDaysFromPeriodLabel(dateLabel)} derniers jours`, ML, y+3);
   y += 5;
   drawTrendChartGeneric(evolGraphPts, ML+4, y, CW-8, 16, "mttrMin", fmtMin, undefined, undefined, [5,150,105]);
   y += 25;
