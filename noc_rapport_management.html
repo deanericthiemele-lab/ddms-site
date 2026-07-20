@@ -1044,7 +1044,7 @@ function tauxDispoPondere(ifData, ndData){
   return Math.round(sumDispo / allSites.size);
 }
 
-// Taux de disponibilité de service (SAV) : même formule que tauxDispoPondere, mais restreinte
+// Taux global de disponibilité de service : même formule que tauxDispoPondere, mais restreinte
 // aux seuls sites ayant eu au moins un incident/coupure (durée cumulée > 0). Les liens jamais en
 // défaut (100% dispo, aucun événement) sont exclus de la moyenne.
 function tauxDispoLiensSignales(ifData, ndData){
@@ -1641,8 +1641,8 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     </div>
   </div>
   <div class="dg-grid4">
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de service (Primaire &amp; Backup)</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux de disponibilité de service (SAV)</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-signales-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-signales-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de lien</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de service</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-signales-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-signales-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${nbCoupConf}</div><span id="dg-coupures-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub" id="dg-coupures-sub"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${clientsImp.size}</div><span id="dg-clients-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
   </div>
@@ -1757,7 +1757,7 @@ function renderEvolutionUI(pts){
   const evolInstEl = document.getElementById("dg-evolution-instables");
   const arrEl  = document.getElementById("dg-taux-evol");
   const smallIds = ["dg-instables-evol","dg-coupures-evol","dg-clients-evol"];
-  if(!pts || pts.length<2 || pts.filter(p=>p.taux!==null).length<2){
+  if(!pts || pts.length<2 || pts.filter(p=>p.tauxSignales!==null).length<2){
     if(evolEl) evolEl.style.display="none";
     if(evolInstEl) evolInstEl.style.display="none";
     if(arrEl)  arrEl.innerHTML="";
@@ -1815,8 +1815,8 @@ function renderEvolutionUI(pts){
         data:{
           labels: pts.map(p=>p.label),
           datasets:[{
-            label:"Taux de disponibilité",
-            data: pts.map(p=>p.taux),
+            label:"Taux de disponibilité de service",
+            data: pts.map(p=>p.tauxSignales),
             borderColor:"#E05A00",
             backgroundColor:"rgba(224,90,0,0.08)",
             fill:true, tension:0.3, pointRadius:4, pointBackgroundColor:"#E05A00", spanGaps:true
@@ -3363,7 +3363,7 @@ async function exportPdf(){
   }
 
   function drawTrendChart(pts, x, y0, w, h){
-    drawTrendChartGeneric(pts, x, y0, w, h, "taux", v=>v+"%", 0, 100);
+    drawTrendChartGeneric(pts, x, y0, w, h, "tauxSignales", v=>v+"%", 0, 100);
   }
 
   function kpiBlock(items, cols){
@@ -3535,7 +3535,7 @@ async function exportPdf(){
   // Évolution vs semaine précédente (uniquement si rapport généré via sélection de semaine)
   // Note : Helvetica standard (jsPDF) ne supporte pas ▲▼→, on utilise ^ / v / = à la place
   const evolPts = window._evolutionWeeks;
-  const evolValid = evolPts && evolPts.filter(p=>p.taux!==null).length>=2;
+  const evolValid = evolPts && evolPts.filter(p=>p.tauxSignales!==null).length>=2;
 
   function pdfEvolText(curVal, prevVal, goodWhenDown, label, mode){
     if(curVal===null || curVal===undefined || prevVal===null || prevVal===undefined) return {text:null, color:GRAY};
@@ -3590,8 +3590,8 @@ async function exportPdf(){
     : (tkCountForRatio!==null ? `${tkCountForRatio} ticket(s) ouvert(s)` : "");
 
   kpiBlock([
-    {label:"Taux global de disponibilité de service (Primaire & Backup)", value:tauxDispo===null?"—":tauxDispo+"%",         color:tauxDispo===null?GREY_T:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo===null?GREY_T:tauxDispo>=95?GREEN_T:RED_T, sub:""},
-    {label:"Taux de disponibilité de service (SAV)",            value:tauxDispoSignales===null?"—":tauxDispoSignales+"%", color:tauxDispoSignales===null?GREY_T:tauxDispoSignales>=95?GREEN_T:tauxDispoSignales>=90?AMBER_T:RED_T, accent:tauxDispoSignales===null?GREY_T:tauxDispoSignales>=95?GREEN_T:RED_T, sub:""},
+    {label:"Taux global de disponibilité de lien", value:tauxDispo===null?"—":tauxDispo+"%",         color:tauxDispo===null?GREY_T:tauxDispo>=95?GREEN_T:tauxDispo>=90?AMBER_T:RED_T, accent:tauxDispo===null?GREY_T:tauxDispo>=95?GREEN_T:RED_T, sub:""},
+    {label:"Taux global de disponibilité de service",            value:tauxDispoSignales===null?"—":tauxDispoSignales+"%", color:tauxDispoSignales===null?GREY_T:tauxDispoSignales>=95?GREEN_T:tauxDispoSignales>=90?AMBER_T:RED_T, accent:tauxDispoSignales===null?GREY_T:tauxDispoSignales>=95?GREEN_T:RED_T, sub:""},
     {label:"Coupures confirmées",      value:nbCoupConfirmees,   color:RED_T,  accent:RED_T,  sub:coupuresSub, evol:evolCoupures.text, evolColor:evolCoupures.color},
     {label:"Clients impactés",         value:nbClients,          color:RED_T,  accent:RED_T,  sub:"", evol:evolClients.text, evolColor:evolClients.color},
   ], 4);
@@ -3790,7 +3790,7 @@ async function exportPdf(){
       if(tauxDispo===null || tauxDispo===undefined){ lines.push({text:"• Disponibilité globale des liens : non renseignée.", color:NA}); }
       else{
         const ok = tauxDispo>=90;
-        lines.push({text:`• Taux global de disponibilité de service (Primaire & Backup) : ${tauxDispo}% (objectif ≥ 90%)`+(ok?" — objectif atteint.":` — écart de ${90-tauxDispo} pt.`), color: ok?OK:KO});
+        lines.push({text:`• Taux global de disponibilité de lien : ${tauxDispo}% (objectif ≥ 90%)`+(ok?" — objectif atteint.":` — écart de ${90-tauxDispo} pt.`), color: ok?OK:KO});
       }
     }
     { // Disponibilité liens signalés vs 90%
