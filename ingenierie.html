@@ -1274,6 +1274,29 @@ document.addEventListener("DOMContentLoaded", function() {
       if (el.style && el.style.overflow === "auto") el.style.overflow = "visible";
     });
 
+    // Dans le PDF uniquement, certaines listes ne doivent afficher que les 10
+    // premiers éléments (elles restent complètes à l'écran pour la consultation
+    // interactive). "Zones les plus impactées" n'est volontairement pas touché.
+    (function limiterAuTop10PourPDF() {
+      const TITRES_A_LIMITER = ["🔮 ND à risque", "🏆 Top 10 clients impactés", "🔗 Top 10 liens impactés", "🔧 Top 10 causes"];
+      clone.querySelectorAll("h3").forEach(h3 => {
+        const titreTxt = (h3.textContent || "").trim();
+        if (!TITRES_A_LIMITER.includes(titreTxt)) return;
+        const sectionDiv = h3.parentElement;
+        if (!sectionDiv) return;
+        const table = sectionDiv.querySelector("table");
+        if (table) {
+          // 1re ligne = en-tête (sticky) : on garde en-tête + 10 lignes de données
+          const trs = Array.from(table.querySelectorAll("tr"));
+          trs.slice(11).forEach(tr => tr.remove());
+        } else {
+          // Section sans tableau (ex : Top 10 causes) : on garde les 10 premiers blocs
+          const conteneur = h3.nextElementSibling;
+          if (conteneur) Array.from(conteneur.children).slice(10).forEach(el => el.remove());
+        }
+      });
+    })();
+
     const titre = (document.querySelector("#page-performances .ph-title")?.textContent || "📋 Analyse globale").trim();
     const sousTitre = (document.getElementById("summary-badge")?.textContent || "").trim();
     const periodeLabel = (document.getElementById("summary-period-label")?.textContent || "").trim();
@@ -1292,13 +1315,10 @@ document.addEventListener("DOMContentLoaded", function() {
     `;
     wrapper.appendChild(header);
     wrapper.appendChild(clone);
-    // Le wrapper (potentiellement très large/haut une fois les tableaux dépliés)
-    // est rendu hors-écran plutôt que dans le voile visible : il reste capturable
-    // par html2canvas sans jamais apparaître ni déborder à l'écran pour l'utilisateur.
-    const captureContainer = document.createElement("div");
-    captureContainer.style.cssText = "position:fixed;top:0;left:-100000px;background:#ffffff;";
-    captureContainer.appendChild(wrapper);
-    document.body.appendChild(captureContainer);
+    // Le wrapper est ajouté dans le voile (qui a overflow:hidden) : il ne déborde
+    // jamais visuellement à l'écran, sans recourir à un positionnement hors-écran
+    // qui peut faire planter/bloquer html2canvas sur de très grands contenus.
+    voile.appendChild(wrapper);
 
     // Unités capturables séparément : l'en-tête + chaque section de premier niveau.
     // Les sections très hautes (ex : classement complet de 900+ clients/ND une fois
@@ -1388,20 +1408,33 @@ document.addEventListener("DOMContentLoaded", function() {
       }
 
       try {
+        const DELAI_MAX_MS = 45000;
+        let termine = false;
+        const chienDeGarde = setTimeout(() => {
+          if (termine) return;
+          termine = true;
+          if (document.body.contains(voile)) document.body.removeChild(voile);
+          console.error("Export PDF — délai dépassé, génération interrompue.");
+          alert("La génération du PDF prend trop de temps et a été interrompue. Réessayez, ou réduisez la période analysée si le classement est très volumineux.");
+          restaurerBouton();
+        }, DELAI_MAX_MS);
+
         for (const bloc of blocs) {
+          if (termine) return;
           const h = bloc.scrollHeight || bloc.offsetHeight || 0;
           if (!h) continue;
           const canvases = await capturerBlocParBandes(bloc);
           canvases.forEach(ajouterCanvasAuPDF);
         }
+        if (termine) return;
+        termine = true;
+        clearTimeout(chienDeGarde);
         document.body.removeChild(voile);
-        document.body.removeChild(captureContainer);
         const dateFichier = new Date().toISOString().slice(0,10);
         doc.save(`analyse_globale_incidents_${dateFichier}.pdf`);
         restaurerBouton();
       } catch (err) {
         if (document.body.contains(voile)) document.body.removeChild(voile);
-        if (document.body.contains(captureContainer)) document.body.removeChild(captureContainer);
         console.error("Export PDF — erreur :", err);
         alert("Erreur lors de la génération du PDF : " + (err && err.message ? err.message : err));
         restaurerBouton();
@@ -1465,13 +1498,10 @@ document.addEventListener("DOMContentLoaded", function() {
     `;
     wrapper.appendChild(header);
     wrapper.appendChild(clone);
-    // Le wrapper (potentiellement très large/haut) est rendu hors-écran plutôt que
-    // dans le voile visible : il reste capturable par html2canvas sans jamais
-    // apparaître ni déborder à l'écran pour l'utilisateur.
-    const captureContainer = document.createElement("div");
-    captureContainer.style.cssText = "position:fixed;top:0;left:-100000px;background:#ffffff;";
-    captureContainer.appendChild(wrapper);
-    document.body.appendChild(captureContainer);
+    // Le wrapper est ajouté dans le voile (qui a overflow:hidden) : il ne déborde
+    // jamais visuellement à l'écran, sans recourir à un positionnement hors-écran
+    // qui peut faire planter/bloquer html2canvas sur de très grands contenus.
+    voile.appendChild(wrapper);
 
     // Unités capturables séparément : l'en-tête + chaque section de premier niveau,
     // avec capture par bandes pour les sections trop hautes (mêmes seuils que
@@ -1557,20 +1587,33 @@ document.addEventListener("DOMContentLoaded", function() {
       }
 
       try {
+        const DELAI_MAX_MS = 45000;
+        let termine = false;
+        const chienDeGarde = setTimeout(() => {
+          if (termine) return;
+          termine = true;
+          if (document.body.contains(voile)) document.body.removeChild(voile);
+          console.error("Export PDF — délai dépassé, génération interrompue.");
+          alert("La génération du PDF prend trop de temps et a été interrompue. Réessayez, ou réduisez le contenu affiché si la page est très volumineuse.");
+          restaurerBouton();
+        }, DELAI_MAX_MS);
+
         for (const bloc of blocs) {
+          if (termine) return;
           const h = bloc.scrollHeight || bloc.offsetHeight || 0;
           if (!h) continue;
           const canvases = await capturerBlocParBandes(bloc);
           canvases.forEach(ajouterCanvasAuPDF);
         }
+        if (termine) return;
+        termine = true;
+        clearTimeout(chienDeGarde);
         document.body.removeChild(voile);
-        document.body.removeChild(captureContainer);
         const dateFichier = new Date().toISOString().slice(0,10);
         doc.save(`tableau_de_bord_${dateFichier}.pdf`);
         restaurerBouton();
       } catch (err) {
         if (document.body.contains(voile)) document.body.removeChild(voile);
-        if (document.body.contains(captureContainer)) document.body.removeChild(captureContainer);
         console.error("Export PDF — erreur :", err);
         alert("Erreur lors de la génération du PDF : " + (err && err.message ? err.message : err));
         restaurerBouton();
