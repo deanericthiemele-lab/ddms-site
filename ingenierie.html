@@ -1405,6 +1405,163 @@ document.addEventListener("DOMContentLoaded", function() {
     switchPage('dashboard');
   }
 
+  /* ── Export PDF de la page "Tableau de bord" (#page-dashboard) elle-même ──
+     Même technique que exporterAnalyseGlobalePDF() (capture par blocs + bandes),
+     mais appliquée à la page visuelle du tableau de bord plutôt qu'au résumé
+     texte de l'Analyse globale. */
+  async function exporterTableauDeBordPDF() {
+    const pageEl = document.getElementById("page-dashboard");
+    if (!pageEl) { alert("Page Tableau de bord introuvable."); return; }
+    if (typeof html2canvas === "undefined") { alert("Le module de capture (html2canvas) n'a pas encore fini de se charger. Vérifiez votre connexion et réessayez dans un instant."); return; }
+    if (!window.jspdf) { alert("Le module PDF (jsPDF) n'a pas encore fini de se charger. Vérifiez votre connexion et réessayez dans un instant."); return; }
+
+    const btn = document.getElementById("btn-export-dashboard-pdf");
+    const btnLabelOrig = btn ? btn.innerHTML : null;
+    function restaurerBouton() {
+      if (btn) { btn.innerHTML = btnLabelOrig; btn.disabled = false; btn.style.opacity = "1"; }
+    }
+    if (btn) { btn.innerHTML = "⏳ Génération..."; btn.disabled = true; btn.style.opacity = "0.7"; }
+
+    // Voile plein écran : masque la zone de rendu temporaire pendant la capture
+    const voile = document.createElement("div");
+    voile.style.cssText = "position:fixed;inset:0;background:#ffffff;z-index:999999;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;font-size:14px;color:#6B6B6B;";
+    voile.textContent = "⏳ Génération du PDF en cours...";
+    document.body.appendChild(voile);
+
+    // Clone du contenu affiché à l'écran (on retire l'en-tête d'origine, avec son
+    // bouton Exporter, pour reconstruire un en-tête propre dans le PDF), et on
+    // lève les limites de défilement internes pour tout capturer.
+    const clone = pageEl.cloneNode(true);
+    const phDansClone = clone.querySelector(":scope > .ph");
+    if (phDansClone) phDansClone.remove();
+    clone.querySelectorAll("*").forEach(el => {
+      if (el.style && el.style.maxHeight) el.style.maxHeight = "none";
+      if (el.style && el.style.overflowY === "auto") el.style.overflowY = "visible";
+      if (el.style && el.style.overflow === "auto") el.style.overflow = "visible";
+    });
+
+    const titre = (pageEl.querySelector(".ph-title")?.textContent || "📊 Tableau de bord").trim();
+    const sousTitre = (pageEl.querySelector(".ph-sub")?.textContent || "").trim();
+    const largeurCible = Math.max(pageEl.scrollWidth, pageEl.offsetWidth, 1000);
+
+    const wrapper = document.createElement("div");
+    wrapper.style.cssText = `position:relative;width:${largeurCible}px;background:#ffffff;padding:24px;box-sizing:border-box;font-family:${getComputedStyle(document.body).fontFamily || "Arial, sans-serif"};`;
+
+    const header = document.createElement("div");
+    header.style.marginBottom = "16px";
+    header.innerHTML = `
+      <div style="font-size:22px;font-weight:800;color:#1A1A1A;margin-bottom:4px;">${titre}</div>
+      <div style="font-size:13px;color:#6B6B6B;margin-bottom:6px;">${sousTitre}</div>
+      <div style="font-size:11px;color:#B0B0B0;">Généré le ${new Date().toLocaleDateString("fr-FR")}</div>
+      <div style="height:3px;background:#E05A00;border-radius:2px;margin-top:10px;"></div>
+    `;
+    wrapper.appendChild(header);
+    wrapper.appendChild(clone);
+    voile.appendChild(wrapper);
+
+    // Unités capturables séparément : l'en-tête + chaque section de premier niveau,
+    // avec capture par bandes pour les sections trop hautes (mêmes seuils que
+    // exporterAnalyseGlobalePDF, cf. plus haut pour le détail de la technique).
+    const blocs = [header, ...Array.from(clone.children)];
+    const SEUIL_HAUTEUR_BANDE = 2800; // px (avant scale) par bande capturée
+
+    async function capturerBlocParBandes(bloc) {
+      const totalH = bloc.scrollHeight || bloc.offsetHeight || 0;
+      const canvases = [];
+      if (!totalH) return canvases;
+      if (totalH <= SEUIL_HAUTEUR_BANDE) {
+        canvases.push(await html2canvas(bloc, {
+          scale: 2, backgroundColor: "#ffffff", useCORS: true, allowTaint: true, logging: false,
+          scrollX: 0, scrollY: 0, windowWidth: largeurCible
+        }));
+        return canvases;
+      }
+      let y = 0;
+      while (y < totalH) {
+        const bandH = Math.min(SEUIL_HAUTEUR_BANDE, totalH - y);
+        const frame = document.createElement("div");
+        frame.style.cssText = `width:${largeurCible}px;height:${bandH}px;overflow:hidden;position:relative;background:#ffffff;`;
+        const inner = bloc.cloneNode(true);
+        inner.style.position = "relative";
+        inner.style.top = (-y) + "px";
+        frame.appendChild(inner);
+        bloc.parentNode.insertBefore(frame, bloc);
+        try {
+          const canvas = await html2canvas(frame, {
+            scale: 2, backgroundColor: "#ffffff", useCORS: true, allowTaint: true, logging: false,
+            scrollX: 0, scrollY: 0, windowWidth: largeurCible
+          });
+          canvases.push(canvas);
+        } finally {
+          frame.remove();
+        }
+        y += bandH;
+      }
+      return canvases;
+    }
+
+    const attendreRendu = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    attendreRendu.then(() => new Promise(r => setTimeout(r, 150))).then(async () => {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF("p", "mm", "a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const marginX = 8, marginY = 8;
+      const usableW = pageW - marginX * 2;
+      const usableH = pageH - marginY * 2;
+
+      let curY = marginY;
+      let pageStarted = false;
+
+      function ajouterCanvasAuPDF(canvas) {
+        const ratio = usableW / canvas.width;
+        const hMM = canvas.height * ratio;
+        if (hMM > usableH) {
+          const pageHeightPx = usableH / ratio;
+          let renderedPx = 0;
+          while (renderedPx < canvas.height) {
+            const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+            const sliceCanvas = document.createElement("canvas");
+            sliceCanvas.width = canvas.width;
+            sliceCanvas.height = sliceHeightPx;
+            sliceCanvas.getContext("2d").drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+            if (pageStarted) doc.addPage();
+            doc.addImage(sliceCanvas.toDataURL("image/png"), "PNG", marginX, marginY, usableW, sliceHeightPx * ratio);
+            pageStarted = true;
+            renderedPx += sliceHeightPx;
+          }
+          curY = pageH;
+        } else {
+          if (pageStarted && curY + hMM > pageH - marginY) {
+            doc.addPage();
+            curY = marginY;
+          }
+          pageStarted = true;
+          doc.addImage(canvas.toDataURL("image/png"), "PNG", marginX, curY, usableW, hMM);
+          curY += hMM + 4;
+        }
+      }
+
+      try {
+        for (const bloc of blocs) {
+          const h = bloc.scrollHeight || bloc.offsetHeight || 0;
+          if (!h) continue;
+          const canvases = await capturerBlocParBandes(bloc);
+          canvases.forEach(ajouterCanvasAuPDF);
+        }
+        document.body.removeChild(voile);
+        const dateFichier = new Date().toISOString().slice(0,10);
+        doc.save(`tableau_de_bord_${dateFichier}.pdf`);
+        restaurerBouton();
+      } catch (err) {
+        if (document.body.contains(voile)) document.body.removeChild(voile);
+        console.error("Export PDF — erreur :", err);
+        alert("Erreur lors de la génération du PDF : " + (err && err.message ? err.message : err));
+        restaurerBouton();
+      }
+    });
+  }
+
   document.addEventListener("keydown", function(e) {
     if (e.key === "Escape") fermerSummary();
   });
@@ -5352,6 +5509,8 @@ window.togglePanel = togglePanel;
   <div class="page on" id="page-dashboard">
   <div class="ph">
     <div><div class="ph-title">📊 Tableau de bord</div><div class="ph-sub">Analyse des incidents — vue d'ensemble</div></div>
+    <div class="ph-sp"></div>
+    <button id="btn-export-dashboard-pdf" class="btn" style="padding:5px 10px;font-size:12px;background:#E05A00;color:#fff;" onclick="exporterTableauDeBordPDF()">📄 Exporter PDF</button>
   </div>
   <div style="display: none; gap: 20px; flex-wrap: wrap; margin-top: 20px;">
    <!-- Blocs P1/P2/P3 masqués à l'affichage : conservés car exporterNDsDeuxMois(), exporterIncidentsRepetitifs(),
