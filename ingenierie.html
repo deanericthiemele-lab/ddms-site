@@ -845,10 +845,32 @@ document.addEventListener("DOMContentLoaded", function() {
     <div class="si" data-page="suivi" onclick="switchPage('suivi')"><span class="si-ico">📈</span>Suivi des incidents répétitifs</div>
     <div class="si" data-page="prevision" onclick="switchPage('prevision')"><span class="si-ico">📈</span>Prévision de coupures</div>
     <div class="si" data-page="carte" onclick="ouvrirMapIncident()"><span class="si-ico">🗺️</span>Map Incident</div>
+    <div class="si" data-page="pribck" onclick="switchPage('pribck', this)"><span class="si-ico">🔍</span>Recherche PRI et BCK</div>
    </div>
 
    <div id="main">
 
+
+    <!-- ===== PAGE RECHERCHE PRI ET BCK ===== -->
+    <div class="page" id="page-pribck" style="position:relative;">
+      <button class="btn" style="position:absolute;top:14px;right:110px;background:#fff;border:1px solid var(--n5);color:var(--n2);padding:5px 10px;font-size:11.5px;z-index:5;" onclick="pribckImporterExcel()" title="Importer un fichier Excel">📥 Importer</button>
+      <button class="btn" style="position:absolute;top:14px;right:14px;background:#fff;border:1px solid var(--n5);color:var(--n2);padding:5px 10px;font-size:11.5px;z-index:5;" onclick="pribckExporterExcel()" title="Exporter en Excel">📤 Exporter</button>
+      <input type="file" id="pribck-file-input" accept=".xlsx,.xls" style="display:none" onchange="pribckHandleFile(event)"/>
+      <div id="pribck-total-badge" style="display:none;"></div>
+
+      <div id="pribck-google" style="display:flex;flex-direction:column;align-items:center;padding:110px 20px 24px;">
+        <div style="font-family:var(--cond);font-size:40px;font-weight:800;color:var(--n1);margin-bottom:26px;letter-spacing:.3px;text-align:center;">
+          <span style="color:var(--v);">Gestion</span> des liaisons <span style="color:var(--v);">secours</span>
+        </div>
+        <div style="position:relative;width:100%;max-width:560px;">
+          <span style="position:absolute;left:16px;top:22px;transform:translateY(-50%);color:var(--n3);font-size:16px;z-index:2;">🔍</span>
+          <input type="text" id="pribck-search" oninput="pribckRecherche()" placeholder="Rechercher une référence PRI, BCK ou un client..." autocomplete="off"
+            style="width:100%;padding:13px 16px 13px 42px;border:1px solid var(--n5);border-radius:24px;font-size:14px;outline:none;box-shadow:0 1px 6px rgba(0,0,0,.08);box-sizing:border-box;transition:.15s;position:relative;z-index:1;"
+            onfocus="this.style.boxShadow='0 1px 10px rgba(0,0,0,.16)'" onblur="this.style.boxShadow='0 1px 6px rgba(0,0,0,.08)'"/>
+          <div id="pribck-results" style="position:absolute;top:calc(100% + 8px);left:0;right:0;background:#fff;border:1px solid var(--n5);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.14);max-height:420px;overflow:auto;z-index:10;"></div>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== PAGE CLIENT (KPI) ===== -->
     <div class="page" id="page-client">
@@ -1747,6 +1769,7 @@ document.addEventListener("DOMContentLoaded", function() {
     suivi: '__lazyInitSuivi',
     prevision: '__lazyInitPrevision',
     carte: '__lazyInitCarte',
+    pribck: '__lazyInitPribck',
   };
   function ensureSuivi() {
     if (_lazyDone.suivi) return Promise.resolve();
@@ -11142,6 +11165,188 @@ function exporterNDsDeuxMoisExcel() {
       console.error('Erreur chargement taux de disponibilité Firebase :', err);
       window._tauxDispoPret = true;
     });
+
+    // ===== RECHERCHE PRI ET BCK =====
+    const dbPriBck = firebase.firestore();
+    const COL_PRI_BCK = 'pribck_liaisons';
+    const PRIBCK_PWD = 'ddms@';
+    window._pribckData = [];
+
+    function pribckCheckPwd(action) {
+      const p = prompt('Mot de passe requis pour ' + action + ' :');
+      if (p === null) return false;
+      if (p !== PRIBCK_PWD) { alert('Mot de passe incorrect.'); return false; }
+      return true;
+    }
+
+    function pribckEsc(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function pribckSafeId(s) {
+      const clean = String(s || '').trim().replace(/[\/\.\#\$\[\]]/g, '_').substring(0, 400);
+      return clean || ('id_' + Date.now() + '_' + Math.floor(Math.random() * 100000));
+    }
+
+    function pribckMajBadge() {
+      const n = (window._pribckData || []).length;
+      document.getElementById('pribck-total-badge').textContent =
+        'Total : ' + n + ' liaison' + (n > 1 ? 's' : '') + ' (' + n + ' référence' + (n > 1 ? 's' : '') + ' PRI + ' + n + ' référence' + (n > 1 ? 's' : '') + ' BCK)';
+    }
+
+    function __lazyInitPribck() {
+      document.getElementById('pribck-total-badge').textContent = '⏳ Chargement...';
+      dbPriBck.collection(COL_PRI_BCK).get().then(function(snap) {
+        window._pribckData = [];
+        snap.forEach(function(d) { window._pribckData.push(Object.assign({ id: d.id }, d.data())); });
+        pribckMajBadge();
+      }).catch(function(err) {
+        console.error('Erreur chargement liaisons PRI/BCK :', err);
+        document.getElementById('pribck-total-badge').textContent = 'Erreur de chargement';
+      });
+    }
+
+    function pribckRecherche() {
+      const q = document.getElementById('pribck-search').value.trim().toLowerCase();
+      const resultsDiv = document.getElementById('pribck-results');
+      if (!q) { resultsDiv.style.display = 'none'; resultsDiv.innerHTML = ''; return; }
+      const data = window._pribckData || [];
+      const matches = data.filter(function(d) {
+        return (d.refPri || '').toLowerCase().includes(q)
+            || (d.refBck || '').toLowerCase().includes(q)
+            || (d.client || '').toLowerCase().includes(q);
+      }).slice(0, 30);
+      resultsDiv.style.display = 'block';
+      if (matches.length === 0) {
+        resultsDiv.innerHTML = '<div style="text-align:center;color:var(--n3);padding:18px;font-size:13px;">Aucun résultat pour « ' + pribckEsc(document.getElementById('pribck-search').value) + ' »</div>';
+        return;
+      }
+      let html = '';
+      matches.forEach(function(r, i) {
+        html += '<div class="pribck-item" data-id="' + pribckEsc(r.id) + '" style="display:flex;align-items:center;gap:10px;padding:10px 14px;' + (i < matches.length - 1 ? 'border-bottom:1px solid var(--n6);' : '') + '">'
+          + '<div style="flex:1;min-width:0;">'
+          + '<div class="pribck-cell" data-f="client" style="font-weight:700;font-size:12.5px;color:var(--n1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + pribckEsc(r.client) + '</div>'
+          + '<div style="font-size:11.5px;color:var(--n3);margin-top:2px;display:flex;gap:16px;flex-wrap:wrap;">'
+          + '<span>PRI&nbsp;: <b class="pribck-cell" data-f="refPri" style="color:var(--n2);font-weight:600;">' + pribckEsc(r.refPri) + '</b> (<span class="pribck-cell" data-f="loopPri">' + pribckEsc(r.loopPri) + '</span>)</span>'
+          + '<span>BCK&nbsp;: <b class="pribck-cell" data-f="refBck" style="color:var(--n2);font-weight:600;">' + pribckEsc(r.refBck) + '</b> (<span class="pribck-cell" data-f="loopBck">' + pribckEsc(r.loopBck) + '</span>)</span>'
+          + '</div></div>'
+          + '<span style="cursor:pointer;font-size:14px;flex-shrink:0;" onclick="pribckToggleEdit(this)" title="Modifier">✏️</span>'
+          + '</div>';
+      });
+      if (data.length && matches.length === 30) {
+        html += '<div style="text-align:center;color:var(--n3);font-size:11px;padding:6px 0;">Affinez la recherche pour plus de précision (30 résultats max affichés).</div>';
+      }
+      resultsDiv.innerHTML = html;
+    }
+
+    function pribckToggleEdit(icon) {
+      event.stopPropagation();
+      const tr = icon.closest('.pribck-item');
+      const editing = tr.classList.contains('pribck-editing');
+      if (!editing) {
+        if (!pribckCheckPwd('modifier cette liaison')) return;
+        tr.classList.add('pribck-editing');
+        tr.querySelectorAll('.pribck-cell').forEach(function(td) {
+          td.contentEditable = 'true';
+          td.style.background = '#FFF8E8';
+          td.style.borderRadius = '3px';
+        });
+        icon.textContent = '💾';
+        icon.title = 'Enregistrer';
+      } else {
+        const id = tr.getAttribute('data-id');
+        const updates = {};
+        tr.querySelectorAll('.pribck-cell').forEach(function(td) {
+          updates[td.getAttribute('data-f')] = td.textContent.trim();
+        });
+        dbPriBck.collection(COL_PRI_BCK).doc(id).set(updates, { merge: true }).then(function() {
+          const item = (window._pribckData || []).find(function(d) { return d.id === id; });
+          if (item) Object.assign(item, updates);
+          tr.classList.remove('pribck-editing');
+          tr.querySelectorAll('.pribck-cell').forEach(function(td) {
+            td.contentEditable = 'false';
+            td.style.background = '';
+          });
+          icon.textContent = '✏️';
+          icon.title = 'Modifier';
+        }).catch(function(err) {
+          alert('Erreur d\'enregistrement : ' + err.message);
+        });
+      }
+    }
+
+    function pribckImporterExcel() {
+      if (!pribckCheckPwd('importer le fichier Excel')) return;
+      document.getElementById('pribck-file-input').click();
+    }
+
+    function pribckHandleFile(e) {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const wb = XLSX.read(data, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+          pribckImporterVersFirestore(rows);
+        } catch (err) {
+          alert('Erreur de lecture du fichier : ' + err.message);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    async function pribckImporterVersFirestore(rows) {
+      document.getElementById('pribck-total-badge').textContent = '⏳ Import en cours...';
+      try {
+        let batch = dbPriBck.batch();
+        let count = 0;
+        const col = dbPriBck.collection(COL_PRI_BCK);
+        for (const r of rows) {
+          const client = String(r['site_polaris_renamed'] || r['Client'] || r['client'] || '').trim();
+          const refPri = String(r['reference pri'] || r['Référence PRI'] || r['refPri'] || '').trim();
+          const loopPri = String(r['loopback_PRI'] || r['Loopback PRI'] || r['loopPri'] || '').trim();
+          const refBck = String(r['reference bck'] || r['Référence BCK'] || r['refBck'] || '').trim();
+          const loopBck = String(r['loopback_BCK'] || r['Loopback BCK'] || r['loopBck'] || '').trim();
+          if (!client && !refPri && !refBck) continue;
+          const id = pribckSafeId(client || (refPri + '_' + refBck));
+          batch.set(col.doc(id), { client: client, refPri: refPri, loopPri: loopPri, refBck: refBck, loopBck: loopBck });
+          count++;
+          if (count % 450 === 0) {
+            await batch.commit();
+            batch = dbPriBck.batch();
+          }
+        }
+        await batch.commit();
+        alert('Import terminé : ' + count + ' liaisons (1 liaison = 1 lien PRI + 1 lien BCK) enregistrées dans Firebase.');
+        __lazyInitPribck();
+      } catch (err) {
+        alert('Erreur pendant l\'import : ' + err.message);
+        console.error(err);
+      }
+    }
+
+    function pribckExporterExcel() {
+      if (!pribckCheckPwd('exporter le fichier Excel')) return;
+      const data = window._pribckData || [];
+      if (!data.length) { alert('Aucune donnée à exporter.'); return; }
+      const rows = data.map(function(d) {
+        return {
+          'Client': d.client || '',
+          'Référence PRI': d.refPri || '',
+          'Loopback PRI': d.loopPri || '',
+          'Référence BCK': d.refBck || '',
+          'Loopback BCK': d.loopBck || ''
+        };
+      });
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Liaisons PRI BCK');
+      XLSX.writeFile(wb, 'liaisons_pri_bck.xlsx');
+    }
   </script>
 </body>
 </html>
