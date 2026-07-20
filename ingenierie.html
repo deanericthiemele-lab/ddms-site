@@ -1244,7 +1244,9 @@ document.addEventListener("DOMContentLoaded", function() {
     appliquerPeriodeSummary();
   }
 
-  // ── Export PDF — capture fidèle de la page Analyse globale (identique à l'écran) ──
+  // ── Export PDF — capture section par section (évite les erreurs "Canvas exceeds
+  //    max size" des navigateurs quand une section contient une très longue liste,
+  //    ex. le classement complet de tous les clients/ND en mode "Année entière") ──
   function exporterAnalyseGlobalePDF() {
     const bodyEl = document.getElementById("summary-body");
     if (!bodyEl || !bodyEl.innerHTML.trim()) { alert("Veuillez d'abord charger les données et appliquer une période."); return; }
@@ -1259,15 +1261,12 @@ document.addEventListener("DOMContentLoaded", function() {
     if (btn) { btn.innerHTML = "⏳ Génération..."; btn.disabled = true; btn.style.opacity = "0.7"; }
 
     // Voile plein écran : masque la zone de rendu temporaire pendant la capture
-    // (plus fiable qu'un positionnement hors-écran, qui peut produire un PDF vide
-    // selon les navigateurs car html2canvas doit alors cloner tout le document).
     const voile = document.createElement("div");
     voile.style.cssText = "position:fixed;inset:0;background:#ffffff;z-index:999999;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;font-size:14px;color:#6B6B6B;";
-    voile.innerHTML = "⏳ Génération du PDF en cours...";
+    voile.textContent = "⏳ Génération du PDF en cours...";
     document.body.appendChild(voile);
 
     // Clone du contenu affiché à l'écran, en supprimant les limites de défilement internes
-    // (tableaux/listes en max-height + overflow-y:auto) pour que TOUT le contenu apparaisse dans le PDF.
     const clone = bodyEl.cloneNode(true);
     clone.querySelectorAll("*").forEach(el => {
       if (el.style && el.style.maxHeight) el.style.maxHeight = "none";
@@ -1278,12 +1277,9 @@ document.addEventListener("DOMContentLoaded", function() {
     const titre = (document.querySelector("#page-performances .ph-title")?.textContent || "📋 Analyse globale").trim();
     const sousTitre = (document.getElementById("summary-badge")?.textContent || "").trim();
     const periodeLabel = (document.getElementById("summary-period-label")?.textContent || "").trim();
-
     const largeurCible = Math.max(bodyEl.scrollWidth, bodyEl.offsetWidth, 1000);
 
     const wrapper = document.createElement("div");
-    // Placé normalement dans le flux du document (sous le voile), pas hors-écran :
-    // html2canvas capture ainsi exactement ce qui est rendu, sans décalage.
     wrapper.style.cssText = `position:relative;width:${largeurCible}px;background:#ffffff;padding:24px;box-sizing:border-box;font-family:${getComputedStyle(document.body).fontFamily || "Arial, sans-serif"};`;
 
     const header = document.createElement("div");
@@ -1298,56 +1294,110 @@ document.addEventListener("DOMContentLoaded", function() {
     wrapper.appendChild(clone);
     voile.appendChild(wrapper);
 
-    // Laisser le navigateur peindre le clone (+ polices) avant capture
-    const attendreRendu = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-    attendreRendu.then(() => new Promise(r => setTimeout(r, 150))).then(() => {
-      return html2canvas(wrapper, {
-        scale: 2,
-        backgroundColor: "#ffffff",
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: largeurCible,
-        width: largeurCible
-      });
-    }).then(canvas => {
-      document.body.removeChild(voile);
+    // Unités capturables séparément : l'en-tête + chaque section de premier niveau.
+    // Les sections très hautes (ex : classement complet de 900+ clients/ND une fois
+    // les listes déroulantes dépliées pour le PDF) sont capturées par BANDES à hauteur
+    // fixe (recadrage réel via overflow:hidden, pas juste une réduction d'échelle) :
+    // cela évite tout dépassement des limites de taille de canvas du navigateur tout
+    // en gardant une résolution nette (scale 2) sur chaque bande.
+    const blocs = [header, ...Array.from(clone.children)];
+    const SEUIL_HAUTEUR_BANDE = 2800; // px (avant scale) par bande capturée
 
+    async function capturerBlocParBandes(bloc) {
+      const totalH = bloc.scrollHeight || bloc.offsetHeight || 0;
+      const canvases = [];
+      if (!totalH) return canvases;
+      if (totalH <= SEUIL_HAUTEUR_BANDE) {
+        canvases.push(await html2canvas(bloc, {
+          scale: 2, backgroundColor: "#ffffff", useCORS: true, allowTaint: true, logging: false,
+          scrollX: 0, scrollY: 0, windowWidth: largeurCible
+        }));
+        return canvases;
+      }
+      let y = 0;
+      while (y < totalH) {
+        const bandH = Math.min(SEUIL_HAUTEUR_BANDE, totalH - y);
+        const frame = document.createElement("div");
+        frame.style.cssText = `width:${largeurCible}px;height:${bandH}px;overflow:hidden;position:relative;background:#ffffff;`;
+        const inner = bloc.cloneNode(true);
+        inner.style.position = "relative";
+        inner.style.top = (-y) + "px";
+        frame.appendChild(inner);
+        bloc.parentNode.insertBefore(frame, bloc);
+        try {
+          const canvas = await html2canvas(frame, {
+            scale: 2, backgroundColor: "#ffffff", useCORS: true, allowTaint: true, logging: false,
+            scrollX: 0, scrollY: 0, windowWidth: largeurCible
+          });
+          canvases.push(canvas);
+        } finally {
+          frame.remove();
+        }
+        y += bandH;
+      }
+      return canvases;
+    }
+
+    const attendreRendu = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    attendreRendu.then(() => new Promise(r => setTimeout(r, 150))).then(async () => {
       const { jsPDF } = window.jspdf;
       const doc = new jsPDF("p", "mm", "a4");
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
       const marginX = 8, marginY = 8;
       const usableW = pageW - marginX * 2;
-      const ratio = usableW / canvas.width;
-      const pageHeightPx = (pageH - marginY * 2) / ratio;
+      const usableH = pageH - marginY * 2;
 
-      let renderedPx = 0;
-      let pageIndex = 0;
-      while (renderedPx < canvas.height) {
-        const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
-        const sliceCanvas = document.createElement("canvas");
-        sliceCanvas.width = canvas.width;
-        sliceCanvas.height = sliceHeightPx;
-        const ctx = sliceCanvas.getContext("2d");
-        ctx.drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
-        const sliceData = sliceCanvas.toDataURL("image/png");
-        if (pageIndex > 0) doc.addPage();
-        doc.addImage(sliceData, "PNG", marginX, marginY, usableW, sliceHeightPx * ratio);
-        renderedPx += sliceHeightPx;
-        pageIndex++;
+      let curY = marginY;
+      let pageStarted = false;
+
+      function ajouterCanvasAuPDF(canvas) {
+        const ratio = usableW / canvas.width;
+        const hMM = canvas.height * ratio;
+        if (hMM > usableH) {
+          // Le bloc est plus haut qu'une page : on le découpe en plusieurs pages
+          const pageHeightPx = usableH / ratio;
+          let renderedPx = 0;
+          while (renderedPx < canvas.height) {
+            const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+            const sliceCanvas = document.createElement("canvas");
+            sliceCanvas.width = canvas.width;
+            sliceCanvas.height = sliceHeightPx;
+            sliceCanvas.getContext("2d").drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+            if (pageStarted) doc.addPage();
+            doc.addImage(sliceCanvas.toDataURL("image/png"), "PNG", marginX, marginY, usableW, sliceHeightPx * ratio);
+            pageStarted = true;
+            renderedPx += sliceHeightPx;
+          }
+          curY = pageH; // force une nouvelle page pour le bloc suivant
+        } else {
+          if (pageStarted && curY + hMM > pageH - marginY) {
+            doc.addPage();
+            curY = marginY;
+          }
+          pageStarted = true;
+          doc.addImage(canvas.toDataURL("image/png"), "PNG", marginX, curY, usableW, hMM);
+          curY += hMM + 4;
+        }
       }
 
-      const dateFichier = new Date().toISOString().slice(0,10);
-      doc.save(`analyse_globale_incidents_${dateFichier}.pdf`);
-      restaurerBouton();
-    }).catch(err => {
-      if (document.body.contains(voile)) document.body.removeChild(voile);
-      console.error("Export PDF — erreur :", err);
-      alert("Erreur lors de la génération du PDF : " + (err && err.message ? err.message : err));
-      restaurerBouton();
+      try {
+        for (const bloc of blocs) {
+          const h = bloc.scrollHeight || bloc.offsetHeight || 0;
+          if (!h) continue;
+          const canvases = await capturerBlocParBandes(bloc);
+          canvases.forEach(ajouterCanvasAuPDF);
+        }
+        document.body.removeChild(voile);
+        const dateFichier = new Date().toISOString().slice(0,10);
+        doc.save(`analyse_globale_incidents_${dateFichier}.pdf`);
+        restaurerBouton();
+      } catch (err) {
+        if (document.body.contains(voile)) document.body.removeChild(voile);
+        console.error("Export PDF — erreur :", err);
+        alert("Erreur lors de la génération du PDF : " + (err && err.message ? err.message : err));
+        restaurerBouton();
+      }
     });
   }
 
