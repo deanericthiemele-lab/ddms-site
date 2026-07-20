@@ -1297,6 +1297,66 @@ document.addEventListener("DOMContentLoaded", function() {
       });
     })();
 
+    // Dans le PDF uniquement : remplace la carte "Points clés à retenir" par le
+    // graphe "Incidents répétitifs par Mois" (Total Signalisations, ND≥2, Taux de disponibilité).
+    // La vue à l'écran (#summary-body) n'est pas modifiée.
+    // (Le graphique Chart.js n'est réellement instancié que plus bas, une fois le
+    // clone attaché au document — Chart.js a besoin d'un canvas avec une vraie mise en page.)
+    let _pdfMoisCanvasEl = null, _pdfMoisData = null;
+    (function preparerGraphMoisPourPDF() {
+      const h3Cible = Array.from(clone.querySelectorAll("h3"))
+        .find(h => (h.textContent || "").trim() === "🚨 Points clés à retenir");
+      if (!h3Cible) return;
+      const carte = h3Cible.parentElement;
+      if (!carte) return;
+
+      // On garde le titre (h3) mais on retire son ancien contenu texte
+      Array.from(carte.children).forEach(child => { if (child !== h3Cible) child.remove(); });
+      h3Cible.textContent = "📊 Incidents répétitifs par Mois";
+
+      // Agrégation mensuelle à partir des données de la période actuellement analysée
+      const src = (window._summaryData && window._summaryData.data) || [];
+      const signalisations = {}, ndTotal = {}, ndSup2 = {};
+      src.forEach(item => {
+        Object.entries(item.mois || {}).forEach(([mois, nb]) => {
+          const m = parseInt(mois);
+          const n = nb || 0;
+          signalisations[m] = (signalisations[m] || 0) + n;
+          ndTotal[m] = (ndTotal[m] || 0) + (n > 0 ? 1 : 0);
+          if (n >= 2) ndSup2[m] = (ndSup2[m] || 0) + 1;
+        });
+      });
+      const moisTriésPdf = Object.keys(signalisations).sort((a, b) => a - b).map(m => parseInt(m));
+
+      if (!moisTriésPdf.length) {
+        const vide = document.createElement("p");
+        vide.style.cssText = "color:#B0B0B0;text-align:center;padding:20px 0;";
+        vide.textContent = "Aucune donnée mensuelle disponible pour cette période.";
+        carte.appendChild(vide);
+        return;
+      }
+
+      const noms = (typeof moisNoms !== "undefined") ? moisNoms
+        : {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"};
+
+      const canvasWrap = document.createElement("div");
+      canvasWrap.style.cssText = "position:relative;width:100%;height:320px;";
+      const canvasEl = document.createElement("canvas");
+      canvasWrap.appendChild(canvasEl);
+      carte.appendChild(canvasWrap);
+
+      _pdfMoisCanvasEl = canvasEl;
+      _pdfMoisData = {
+        labels: moisTriésPdf.map(m => noms[m]),
+        dataSig: moisTriésPdf.map(m => signalisations[m] || 0),
+        dataND2: moisTriésPdf.map(m => ndSup2[m] || 0),
+        dataDispo: moisTriésPdf.map(m => {
+          const v = (window._tauxDispoParMois || {})[m];
+          return (v === undefined || v === null) ? null : v;
+        })
+      };
+    })();
+
     const titre = (document.querySelector("#page-performances .ph-title")?.textContent || "📋 Analyse globale").trim();
     const sousTitre = (document.getElementById("summary-badge")?.textContent || "").trim();
     const periodeLabel = (document.getElementById("summary-period-label")?.textContent || "").trim();
@@ -1323,6 +1383,45 @@ document.addEventListener("DOMContentLoaded", function() {
     captureContainer.style.cssText = "position:fixed;top:0;left:0;z-index:1;background:#ffffff;";
     captureContainer.appendChild(wrapper);
     document.body.appendChild(captureContainer);
+
+    // Le canvas est maintenant dans un DOM réellement mis en page : on peut
+    // instancier le graphique Chart.js avec une taille correcte avant capture.
+    if (_pdfMoisCanvasEl && _pdfMoisData && typeof Chart !== "undefined") {
+      new Chart(_pdfMoisCanvasEl.getContext("2d"), {
+        type: "bar",
+        data: {
+          labels: _pdfMoisData.labels,
+          datasets: [
+            { label: "Total Signalisations", data: _pdfMoisData.dataSig, backgroundColor: "orange" },
+            { label: "ND ≥ 2", data: _pdfMoisData.dataND2, backgroundColor: "#42a5f5" },
+            {
+              label: "Taux de disponibilité (%)",
+              data: _pdfMoisData.dataDispo,
+              backgroundColor: "#ab47bc",
+              yAxisID: "yDispo",
+              datalabels: {
+                anchor: "end", align: "top", font: { weight: "bold" }, color: "#6a1b9a",
+                formatter: (v) => (v === null || v === undefined) ? "" : `${v}%`
+              }
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { position: "top" },
+            datalabels: { anchor: "end", align: "top", font: { weight: "bold" }, color: "#333" }
+          },
+          scales: {
+            y: { beginAtZero: true },
+            yDispo: { position: "right", min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { callback: v => v + "%" } }
+          }
+        },
+        plugins: (typeof ChartDataLabels !== "undefined") ? [ChartDataLabels] : []
+      });
+    }
 
     // Unités capturables séparément : l'en-tête + chaque section de premier niveau.
     // Les sections très hautes (ex : classement complet de 900+ clients/ND une fois
