@@ -856,12 +856,19 @@ document.addEventListener("DOMContentLoaded", function() {
       <button class="btn" style="position:absolute;top:14px;right:110px;background:#fff;border:1px solid var(--n5);color:var(--n2);padding:5px 10px;font-size:11.5px;z-index:5;" onclick="pribckImporterExcel()" title="Importer un fichier Excel">📥 Importer</button>
       <button class="btn" style="position:absolute;top:14px;right:14px;background:#fff;border:1px solid var(--n5);color:var(--n2);padding:5px 10px;font-size:11.5px;z-index:5;" onclick="pribckExporterExcel()" title="Exporter en Excel">📤 Exporter</button>
       <input type="file" id="pribck-file-input" accept=".xlsx,.xls" style="display:none" onchange="pribckHandleFile(event)"/>
-      <div id="pribck-total-badge" style="display:none;"></div>
+
+      <div id="pribck-progress-wrap" style="display:none;position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#fff;border:1px solid var(--n5);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.16);padding:14px 20px;z-index:200;min-width:300px;">
+        <div id="pribck-progress-label" style="font-size:12px;font-weight:600;color:var(--n2);margin-bottom:8px;">Import en cours...</div>
+        <div style="background:var(--n6);border-radius:6px;height:8px;overflow:hidden;">
+          <div id="pribck-progress-bar" style="background:var(--v);height:100%;width:0%;transition:width .2s;"></div>
+        </div>
+      </div>
 
       <div id="pribck-google" style="display:flex;flex-direction:column;align-items:center;padding:110px 20px 24px;">
-        <div style="font-family:var(--cond);font-size:40px;font-weight:800;color:var(--n1);margin-bottom:26px;letter-spacing:.3px;text-align:center;">
+        <div style="font-family:var(--cond);font-size:40px;font-weight:800;color:var(--n1);letter-spacing:.3px;text-align:center;">
           <span style="color:var(--v);">Gestion</span> des liaisons <span style="color:var(--v);">secours</span>
         </div>
+        <div id="pribck-total-badge" style="font-size:12px;color:var(--n3);margin:8px 0 22px;text-align:center;">Total : 0 liaison (0 référence PRI + 0 référence BCK)</div>
         <div style="position:relative;width:100%;max-width:560px;">
           <span style="position:absolute;left:16px;top:22px;transform:translateY(-50%);color:var(--n3);font-size:16px;z-index:2;">🔍</span>
           <input type="text" id="pribck-search" oninput="pribckRecherche()" placeholder="Rechercher une référence PRI, BCK ou un client..." autocomplete="off"
@@ -11275,6 +11282,16 @@ function exporterNDsDeuxMoisExcel() {
       }
     }
 
+    function pribckShowProgress(show) {
+      document.getElementById('pribck-progress-wrap').style.display = show ? 'block' : 'none';
+    }
+
+    function pribckSetProgress(label, done, total) {
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      document.getElementById('pribck-progress-label').textContent = label + ' : ' + done + ' / ' + total + ' (' + pct + '%)';
+      document.getElementById('pribck-progress-bar').style.width = pct + '%';
+    }
+
     function pribckImporterExcel() {
       if (!pribckCheckPwd('importer le fichier Excel')) return;
       document.getElementById('pribck-file-input').click();
@@ -11299,31 +11316,42 @@ function exporterNDsDeuxMoisExcel() {
       reader.readAsArrayBuffer(file);
     }
 
+    function pribckMapRow(r) {
+      const client = String(r['site_polaris_renamed'] || r['Client'] || r['client'] || '').trim();
+      const refPri = String(r['reference pri'] || r['Référence PRI'] || r['refPri'] || '').trim();
+      const loopPri = String(r['loopback_PRI'] || r['Loopback PRI'] || r['loopPri'] || '').trim();
+      const refBck = String(r['reference bck'] || r['Référence BCK'] || r['refBck'] || '').trim();
+      const loopBck = String(r['loopback_BCK'] || r['Loopback BCK'] || r['loopBck'] || '').trim();
+      return { client: client, refPri: refPri, loopPri: loopPri, refBck: refBck, loopBck: loopBck };
+    }
+
     async function pribckImporterVersFirestore(rows) {
-      document.getElementById('pribck-total-badge').textContent = '⏳ Import en cours...';
+      const valid = rows.map(pribckMapRow).filter(function(r) { return r.client || r.refPri || r.refBck; });
+      const total = valid.length;
+      if (!total) { alert('Aucune ligne exploitable dans ce fichier.'); return; }
+
+      pribckShowProgress(true);
+      pribckSetProgress('Import en cours', 0, total);
+      const CHUNK = 80;
+      const col = dbPriBck.collection(COL_PRI_BCK);
+      let done = 0;
       try {
-        let batch = dbPriBck.batch();
-        let count = 0;
-        const col = dbPriBck.collection(COL_PRI_BCK);
-        for (const r of rows) {
-          const client = String(r['site_polaris_renamed'] || r['Client'] || r['client'] || '').trim();
-          const refPri = String(r['reference pri'] || r['Référence PRI'] || r['refPri'] || '').trim();
-          const loopPri = String(r['loopback_PRI'] || r['Loopback PRI'] || r['loopPri'] || '').trim();
-          const refBck = String(r['reference bck'] || r['Référence BCK'] || r['refBck'] || '').trim();
-          const loopBck = String(r['loopback_BCK'] || r['Loopback BCK'] || r['loopBck'] || '').trim();
-          if (!client && !refPri && !refBck) continue;
-          const id = pribckSafeId(client || (refPri + '_' + refBck));
-          batch.set(col.doc(id), { client: client, refPri: refPri, loopPri: loopPri, refBck: refBck, loopBck: loopBck });
-          count++;
-          if (count % 450 === 0) {
-            await batch.commit();
-            batch = dbPriBck.batch();
-          }
+        for (let i = 0; i < valid.length; i += CHUNK) {
+          const slice = valid.slice(i, i + CHUNK);
+          const batch = dbPriBck.batch();
+          slice.forEach(function(r) {
+            const id = pribckSafeId(r.client || (r.refPri + '_' + r.refBck));
+            batch.set(col.doc(id), r);
+          });
+          await batch.commit();
+          done += slice.length;
+          pribckSetProgress('Import en cours', done, total);
         }
-        await batch.commit();
-        alert('Import terminé : ' + count + ' liaisons (1 liaison = 1 lien PRI + 1 lien BCK) enregistrées dans Firebase.');
+        pribckShowProgress(false);
+        alert('Import terminé : ' + done + ' liaisons (1 liaison = 1 lien PRI + 1 lien BCK) enregistrées dans Firebase.');
         __lazyInitPribck();
       } catch (err) {
+        pribckShowProgress(false);
         alert('Erreur pendant l\'import : ' + err.message);
         console.error(err);
       }
