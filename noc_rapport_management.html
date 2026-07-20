@@ -1645,7 +1645,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   </div>
   <div class="dg-grid4">
     <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de lien</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de service</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-signales-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput(); dgOnTauxSignalesInput();"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-signales-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub" id="dg-taux-signales-verrou-sub" style="color:#9aa0ae;"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de service</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-signales-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput(); dgOnTauxSignalesInput();"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-signales-evol" style="font-size:11px;font-weight:600"></span><button type="button" id="dg-taux-signales-cadenas" onclick="deverrouillerTauxDispoSemaine()" title="Déverrouiller (mot de passe requis)" style="display:none;border:none;background:none;cursor:pointer;font-size:13px;padding:0;line-height:1;">🔒</button></div><div class="dg-kpi-sub" id="dg-taux-signales-verrou-sub" style="color:#9aa0ae;"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${nbCoupConf}</div><span id="dg-coupures-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub" id="dg-coupures-sub"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${clientsImp.size}</div><span id="dg-clients-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
   </div>
@@ -1934,6 +1934,8 @@ function mondayKeyFromHdrDate(){
   return mondayKeyOf(new Date(+m[3], +m[2]-1, +m[1]));
 }
 
+const MDP_TAUX_DISPO_SERVICE = "karaddms@";
+
 function verrouillerChampTauxSignales(elSig, subEl, valeur, label){
   if(elSig){
     elSig.value = (valeur===undefined || valeur===null) ? elSig.value : valeur;
@@ -1943,11 +1945,36 @@ function verrouillerChampTauxSignales(elSig, subEl, valeur, label){
     elSig.style.cursor = "not-allowed";
   }
   if(subEl) subEl.textContent = "🔒 déjà enregistré pour la semaine " + (label || "");
+  const cadenas = document.getElementById("dg-taux-signales-cadenas");
+  if(cadenas) cadenas.style.display = "inline";
+}
+
+function deverrouillerTauxDispoSemaine(){
+  const mdp = prompt("Mot de passe requis pour modifier le taux global de disponibilité de service :");
+  if(mdp === null) return; // annulé
+  if(mdp !== MDP_TAUX_DISPO_SERVICE){
+    alert("Mot de passe incorrect.");
+    return;
+  }
+  const elSig = document.getElementById("dg-taux-signales-manuel");
+  const subEl = document.getElementById("dg-taux-signales-verrou-sub");
+  const cadenas = document.getElementById("dg-taux-signales-cadenas");
+  if(elSig){
+    elSig.disabled = false;
+    elSig.style.background = "";
+    elSig.style.color = "#3d4250";
+    elSig.style.cursor = "text";
+    elSig.focus();
+  }
+  if(subEl) subEl.textContent = "🔓 déverrouillé — nouvelle saisie possible pour cette semaine";
+  if(cadenas) cadenas.style.display = "none";
+  window._tauxDispoSemaineDeverrouille = true;
 }
 
 async function chargerVerrouTauxDispoSemaine(){
   const elSig = document.getElementById("dg-taux-signales-manuel");
   const subEl = document.getElementById("dg-taux-signales-verrou-sub");
+  const cadenas = document.getElementById("dg-taux-signales-cadenas");
   if(!elSig) return;
   // Réinitialise l'état visuel avant de vérifier Firebase (au cas où on change de rapport/semaine)
   elSig.disabled = false;
@@ -1955,6 +1982,8 @@ async function chargerVerrouTauxDispoSemaine(){
   elSig.style.color = "";
   elSig.style.cursor = "";
   if(subEl) subEl.textContent = "";
+  if(cadenas) cadenas.style.display = "none";
+  window._tauxDispoSemaineDeverrouille = false;
 
   const weekKey = mondayKeyFromHdrDate();
   window._tauxDispoSemaineKey = weekKey;
@@ -1972,7 +2001,7 @@ async function chargerVerrouTauxDispoSemaine(){
 
 // Enregistrement Firebase (débattu) déclenché à chaque saisie du champ "Taux global de
 // disponibilité de service", avec verrouillage définitif après le premier enregistrement de
-// la semaine en cours.
+// la semaine en cours (déverrouillable uniquement via mot de passe, voir deverrouillerTauxDispoSemaine).
 let _dgTauxDispoSemaineTimer = null;
 function dgOnTauxSignalesInput(){
   if(_dgTauxDispoSemaineTimer) clearTimeout(_dgTauxDispoSemaineTimer);
@@ -1986,16 +2015,19 @@ function dgOnTauxSignalesInput(){
     if(!weekKey) return;
     const label = weekLabelOf(weekKey);
     try{
-      // Vérifie qu'aucune valeur n'a déjà été enregistrée cette semaine (protection contre une
-      // double saisie, par ex. deux onglets ouverts en parallèle).
       const ref = window._doc(window._db, "noc_taux_dispo_semaine", weekKey);
-      const snap = await window._getDoc(ref);
-      if(snap.exists() && snap.data() && snap.data().valeur !== undefined && snap.data().valeur !== null){
-        verrouillerChampTauxSignales(elSig, subEl, snap.data().valeur, snap.data().label || label);
-        return;
+      // N'effectue le contrôle anti-doublon (Firebase) que si ce champ n'a pas été explicitement
+      // déverrouillé par mot de passe — un déverrouillage autorise l'écrasement de la valeur.
+      if(!window._tauxDispoSemaineDeverrouille){
+        const snap = await window._getDoc(ref);
+        if(snap.exists() && snap.data() && snap.data().valeur !== undefined && snap.data().valeur !== null){
+          verrouillerChampTauxSignales(elSig, subEl, snap.data().valeur, snap.data().label || label);
+          return;
+        }
       }
       await window._set(ref, { valeur, label, maj: new Date().toISOString() });
       verrouillerChampTauxSignales(elSig, subEl, valeur, label);
+      window._tauxDispoSemaineDeverrouille = false;
     }catch(e){ console.warn("Enregistrement taux dispo semaine:", e); }
   }, 600);
 }
@@ -3945,7 +3977,7 @@ async function exportPdf(){
 
     // Rendu : boîte encadrée, lignes empilées (titres en gras, puces colorées selon écart à l'objectif)
     sectionBar("ANALYSE — Objectifs vs réalisé");
-    const fontSizeA=8, lineHA=4.2, padXA=6, padTopA=5;
+    const fontSizeA=12, lineHA=6.3, padXA=6, padTopA=5;
     doc.setFontSize(fontSizeA);
     const wrapped = [];
     lines.forEach(l=>{
