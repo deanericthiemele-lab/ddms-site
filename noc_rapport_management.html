@@ -1644,7 +1644,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     </div>
   </div>
   <div class="dg-grid4">
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de lien</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de lien</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput(); dgOnTauxLienInput();"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span><button type="button" id="dg-taux-lien-cadenas" onclick="deverrouillerTauxDispoLienSemaine()" title="Déverrouiller (mot de passe requis)" style="display:none;border:none;background:none;cursor:pointer;font-size:13px;padding:0;line-height:1;">🔒</button></div><div class="dg-kpi-sub" id="dg-taux-lien-verrou-sub" style="color:#9aa0ae;"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de service</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-signales-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput(); dgOnTauxSignalesInput();"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-signales-evol" style="font-size:11px;font-weight:600"></span><button type="button" id="dg-taux-signales-cadenas" onclick="deverrouillerTauxDispoSemaine()" title="Déverrouiller (mot de passe requis)" style="display:none;border:none;background:none;cursor:pointer;font-size:13px;padding:0;line-height:1;">🔒</button></div><div class="dg-kpi-sub" id="dg-taux-signales-verrou-sub" style="color:#9aa0ae;"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${nbCoupConf}</div><span id="dg-coupures-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub" id="dg-coupures-sub"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${clientsImp.size}</div><span id="dg-clients-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
@@ -1723,6 +1723,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   const ticketsPromise = loadKpiTickets();
   window.scrollTo({top:0,behavior:"smooth"});
   chargerVerrouTauxDispoSemaine();
+  chargerVerrouTauxDispoLienSemaine();
 
   // Évolution 4 semaines : uniquement si ce rapport a été généré via une sélection de semaine (fusion)
   let evolutionPromise;
@@ -1969,6 +1970,98 @@ function deverrouillerTauxDispoSemaine(){
   if(subEl) subEl.textContent = "🔓 déverrouillé — nouvelle saisie possible pour cette semaine";
   if(cadenas) cadenas.style.display = "none";
   window._tauxDispoSemaineDeverrouille = true;
+}
+
+const MDP_TAUX_DISPO_LIEN = "karaddms@";
+
+function verrouillerChampTauxLien(elTaux, subEl, valeur, label){
+  if(elTaux){
+    elTaux.value = (valeur===undefined || valeur===null) ? elTaux.value : valeur;
+    elTaux.disabled = true;
+    elTaux.style.background = "#e9e9e9";
+    elTaux.style.color = "#888";
+    elTaux.style.cursor = "not-allowed";
+  }
+  if(subEl) subEl.textContent = "🔒 déjà enregistré pour la semaine " + (label || "");
+  const cadenas = document.getElementById("dg-taux-lien-cadenas");
+  if(cadenas) cadenas.style.display = "inline";
+}
+
+function deverrouillerTauxDispoLienSemaine(){
+  const mdp = prompt("Mot de passe requis pour modifier le taux global de disponibilité de lien :");
+  if(mdp === null) return;
+  if(mdp !== MDP_TAUX_DISPO_LIEN){
+    alert("Mot de passe incorrect.");
+    return;
+  }
+  const elTaux = document.getElementById("dg-taux-manuel");
+  const subEl = document.getElementById("dg-taux-lien-verrou-sub");
+  const cadenas = document.getElementById("dg-taux-lien-cadenas");
+  if(elTaux){
+    elTaux.disabled = false;
+    elTaux.style.background = "";
+    elTaux.style.color = "#3d4250";
+    elTaux.style.cursor = "text";
+    elTaux.focus();
+  }
+  if(subEl) subEl.textContent = "🔓 déverrouillé — nouvelle saisie possible pour cette semaine";
+  if(cadenas) cadenas.style.display = "none";
+  window._tauxDispoLienSemaineDeverrouille = true;
+}
+
+async function chargerVerrouTauxDispoLienSemaine(){
+  const elTaux = document.getElementById("dg-taux-manuel");
+  const subEl = document.getElementById("dg-taux-lien-verrou-sub");
+  const cadenas = document.getElementById("dg-taux-lien-cadenas");
+  if(!elTaux) return;
+  elTaux.disabled = false;
+  elTaux.style.background = "";
+  elTaux.style.color = "";
+  elTaux.style.cursor = "";
+  if(subEl) subEl.textContent = "";
+  if(cadenas) cadenas.style.display = "none";
+  window._tauxDispoLienSemaineDeverrouille = false;
+
+  const weekKey = window._tauxDispoSemaineKey || mondayKeyFromHdrDate();
+  window._tauxDispoLienSemaineKey = weekKey;
+  if(!weekKey || !window._db || !window._getDoc || !window._doc) return;
+  try{
+    const snap = await window._getDoc(window._doc(window._db, "noc_taux_dispo_lien_semaine", weekKey));
+    if(snap.exists()){
+      const data = snap.data() || {};
+      if(data.valeur !== undefined && data.valeur !== null){
+        verrouillerChampTauxLien(elTaux, subEl, data.valeur, data.label || weekLabelOf(weekKey));
+      }
+    }
+  }catch(e){ console.warn("Chargement verrou taux dispo lien semaine:", e); }
+}
+
+let _dgTauxDispoLienSemaineTimer = null;
+function dgOnTauxLienInput(){
+  if(_dgTauxDispoLienSemaineTimer) clearTimeout(_dgTauxDispoLienSemaineTimer);
+  _dgTauxDispoLienSemaineTimer = setTimeout(async ()=>{
+    const elTaux = document.getElementById("dg-taux-manuel");
+    const subEl = document.getElementById("dg-taux-lien-verrou-sub");
+    if(!elTaux || elTaux.value==="" || !window._db || !window._doc || !window._set || !window._getDoc) return;
+    const valeur = parseInt(elTaux.value);
+    if(isNaN(valeur)) return;
+    const weekKey = window._tauxDispoLienSemaineKey || mondayKeyFromHdrDate();
+    if(!weekKey) return;
+    const label = weekLabelOf(weekKey);
+    try{
+      const ref = window._doc(window._db, "noc_taux_dispo_lien_semaine", weekKey);
+      if(!window._tauxDispoLienSemaineDeverrouille){
+        const snap = await window._getDoc(ref);
+        if(snap.exists() && snap.data() && snap.data().valeur !== undefined && snap.data().valeur !== null){
+          verrouillerChampTauxLien(elTaux, subEl, snap.data().valeur, snap.data().label || label);
+          return;
+        }
+      }
+      await window._set(ref, { valeur, label, maj: new Date().toISOString() });
+      verrouillerChampTauxLien(elTaux, subEl, valeur, label);
+      window._tauxDispoLienSemaineDeverrouille = false;
+    }catch(e){ console.warn("Enregistrement taux dispo lien semaine:", e); }
+  }, 600);
 }
 
 async function chargerVerrouTauxDispoSemaine(){
