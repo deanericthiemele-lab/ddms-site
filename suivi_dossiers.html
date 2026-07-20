@@ -1294,6 +1294,7 @@ function genererRapportKPI(){
 
  const cm = window._mesColMap;
  const mesData = window._mesRapportData;
+ const OBJECTIF_DMR = 40; // Objectif interne : délai moyen de raccordement ≤ 40 jours
 
  // ── 1) ENCOURS (PIPE) — instantané actuel, non filtré par la période de création ──
  const encoursTotal = (dossiersGlobal||[]).length;
@@ -1303,9 +1304,25 @@ function genererRapportKPI(){
   const montant = parseNumRap(r["MONTANT MS"]);
   caEncours += montant;
   const cl = (r["CLIENT"]||"Inconnu").trim();
-  clientsEncours[cl] = (clientsEncours[cl]||0) + montant;
+  if(!clientsEncours[cl]) clientsEncours[cl] = {ca:0, nb:0};
+  clientsEncours[cl].ca += montant;
+  clientsEncours[cl].nb += 1;
  });
- const top10Encours = Object.entries(clientsEncours).sort((a,b)=>b[1]-a[1]).slice(0,10);
+ const top10Encours = Object.entries(clientsEncours).sort((a,b)=>b[1].ca-a[1].ca).slice(0,10);
+
+ // Dossiers en cours hors délais (ancienneté > objectif) et leurs causes principales (ÉTAPE)
+ let encoursHorsDelais = 0;
+ const causesHorsDelais = {};
+ (dossiersGlobal||[]).forEach(r=>{
+  const age = daysBetween(r["DATE CREATION DOSSIER"]);
+  if(age > OBJECTIF_DMR){
+   encoursHorsDelais++;
+   const etape = (r["ETAPE"]||"Non renseignée").toString().trim() || "Non renseignée";
+   causesHorsDelais[etape] = (causesHorsDelais[etape]||0)+1;
+  }
+ });
+ const causesHorsDelaisSorted = Object.entries(causesHorsDelais).sort((a,b)=>b[1]-a[1]).slice(0,3);
+
 
  // ── 2) LIVRÉS / MIS EN SERVICE (fichier MES importé), filtrés sur la période ──
  let livresPeriode = [];
@@ -1318,7 +1335,6 @@ function genererRapportKPI(){
  const totalMES = livresPeriode.length;
  let caLivre=0, fraisMSTotal=0, recurrentTotal=0, dansDelais=0, horsDelais=0, sansDelaiInfo=0;
  let dmrSomme=0, dmrCompte=0;
- const OBJECTIF_DMR = 40; // Objectif interne : délai moyen de raccordement ≤ 40 jours
  const clientsLivres = {}, supportRepartition = {};
  livresPeriode.forEach(r=>{
   const total = cm.total ? parseNumRap(r[cm.total]) : 0;
@@ -1356,19 +1372,48 @@ function genererRapportKPI(){
  const dmrCouleur = dmrMoyen===null ? "#6B6B6B" : (dmrMoyen<=OBJECTIF_DMR ? "#16a34a" : "#dc2626");
 
  // ── 3) STATUTS des dossiers en cours (données Firebase, saisies dans le tableau principal) ──
- const statutCounts = {};
- let sansStatut = 0;
+ const statutCounts = {}, statutAgeSum = {};
+ let sansStatut = 0, sansStatutAgeSum = 0;
  (dossiersGlobal||[]).forEach(r=>{
   const id = (r["ID DOSSIER"]||"").toString().trim();
   const s = window._getStatut ? window._getStatut(id) : "";
+  const age = daysBetween(r["DATE CREATION DOSSIER"]);
   if(s && s.trim()!==""){
    statutCounts[s] = (statutCounts[s]||0)+1;
+   statutAgeSum[s] = (statutAgeSum[s]||0)+age;
   } else {
    sansStatut++;
+   sansStatutAgeSum += age;
   }
  });
  const statutsSorted = Object.entries(statutCounts).sort((a,b)=>b[1]-a[1]);
  const maxStatut = statutsSorted.length ? Math.max(...statutsSorted.map(s=>s[1]), sansStatut) : (sansStatut||1);
+
+ // ── 3bis) PAR PRODUIT — encours (pipe) et livrés (période, fichier MES) ──
+ const produitEncours = {};
+ (dossiersGlobal||[]).forEach(r=>{
+  const p = (r["PRODUIT"]||"Non renseigné").toString().trim() || "Non renseigné";
+  if(!produitEncours[p]) produitEncours[p] = {nb:0, ca:0, dans:0, hors:0};
+  produitEncours[p].nb += 1;
+  produitEncours[p].ca += parseNumRap(r["MONTANT MS"]);
+  const age = daysBetween(r["DATE CREATION DOSSIER"]);
+  if(age <= OBJECTIF_DMR) produitEncours[p].dans += 1; else produitEncours[p].hors += 1;
+ });
+ const produitEncoursSorted = Object.entries(produitEncours).sort((a,b)=>b[1].ca-a[1].ca);
+
+ const produitLivres = {};
+ livresPeriode.forEach(r=>{
+  const p = cm.produit ? (String(r[cm.produit]||"Non renseigné").trim() || "Non renseigné") : "Non renseigné";
+  if(!produitLivres[p]) produitLivres[p] = {nb:0, ca:0, dans:0, hors:0};
+  produitLivres[p].nb += 1;
+  produitLivres[p].ca += cm.total ? parseNumRap(r[cm.total]) : 0;
+  const dmrMES  = cm.dmrMES  ? r[cm.dmrMES]  : null;
+  const dmrTech = cm.dmrTech ? r[cm.dmrTech] : null;
+  if(dmrMES !== null && dmrMES !== "" && dmrTech !== null && dmrTech !== ""){
+   if(parseNumRap(dmrMES) <= parseNumRap(dmrTech)) produitLivres[p].dans += 1; else produitLivres[p].hors += 1;
+  }
+ });
+ const produitLivresSorted = Object.entries(produitLivres).sort((a,b)=>b[1].ca-a[1].ca);
 
  // ── 4) CLIENTS — vue agrégée (encours + livrés période) ──
  const nbClientsEncours = Object.keys(clientsEncours).length;
@@ -1388,8 +1433,6 @@ function genererRapportKPI(){
  html += `<div class="rap-section"><h3>🧮 KPI généraux</h3><div class="rap-kpi-grid rap-nosplit">
    ${kpiCard("Dossiers en cours (encours)", encoursTotal, "#1B4F72")}
    ${kpiCard("CA en cours (MRC)", fmtMontantRap(caEncours), "#1B4F72")}
-   ${kpiCard("Mis en service (période)", totalMES, "#7c3aed")}
-   ${kpiCard("CA livré (période)", fmtMontantRap(caLivre), "#7c3aed")}
    ${kpiCard("Taux de respect des délais", tauxDelais!==null?`${tauxDelais}%`:"-", tauxDelais===null?"#6B6B6B":(tauxDelais>=80?"#16a34a":tauxDelais>=50?"#d97706":"#dc2626"), (dansDelais+horsDelais)?`${dansDelais} dans les délais / ${horsDelais} hors délais`:"")}
    ${kpiCard("DMR — délai moyen de raccordement", dmrMoyen!==null?`${dmrMoyen} j`:"-", dmrCouleur, `Objectif : ${OBJECTIF_DMR} jours` + (dmrMoyen!==null?(dmrMoyen<=OBJECTIF_DMR?" ✅ respecté":" ⚠️ dépassé"):""))}
  </div></div>`;
@@ -1415,14 +1458,30 @@ function genererRapportKPI(){
      <div class="rap-bar-row">
        <div class="rap-bar-label">${s}</div>
        <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxStatut*100)}%;background:#2563eb;"></div></div>
-       <div class="rap-bar-val">${n} <span style="color:#999;font-size:11px;">(${encoursTotal?Math.round(n/encoursTotal*1000)/10:0}%)</span></div>
+       <div class="rap-bar-val">${n} <span style="color:#999;font-size:11px;">(${encoursTotal?Math.round(n/encoursTotal*1000)/10:0}% · âge moyen ${Math.round(statutAgeSum[s]/n)} j)</span></div>
      </div>`).join("") : ""}
    ${sansStatut ? `<div class="rap-bar-row">
        <div class="rap-bar-label">Sans statut</div>
        <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxStatut*100)}%;background:#aaa;"></div></div>
-       <div class="rap-bar-val">${sansStatut} <span style="color:#999;font-size:11px;">(${encoursTotal?Math.round(sansStatut/encoursTotal*1000)/10:0}%)</span></div>
+       <div class="rap-bar-val">${sansStatut} <span style="color:#999;font-size:11px;">(${encoursTotal?Math.round(sansStatut/encoursTotal*1000)/10:0}% · âge moyen ${Math.round(sansStatutAgeSum/sansStatut)} j)</span></div>
      </div>` : ""}
    ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
+ </div>
+
+ <div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Par produit</h4>
+  <div class="rap-grid-2">
+   <div><h5 style="font-size:12px;color:#7c3aed;margin:0 0 6px;">Livré (période)</h5>
+    ${produitLivresSorted.length ? `<table class="rap-top10"><thead><tr><th>Produit</th><th>CA</th><th>Dans délais</th><th>Hors délais</th></tr></thead><tbody>
+     ${produitLivresSorted.map(([p,v])=>`<tr><td>${p}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td style="color:#16a34a;">${v.dans}</td><td style="color:#dc2626;">${v.hors}</td></tr>`).join("")}
+    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
+   </div>
+   <div><h5 style="font-size:12px;color:#1B4F72;margin:0 0 6px;">En cours</h5>
+    ${produitEncoursSorted.length ? `<table class="rap-top10"><thead><tr><th>Produit</th><th>CA</th><th>Dans délais</th><th>Hors délais</th></tr></thead><tbody>
+     ${produitEncoursSorted.map(([p,v])=>`<tr><td>${p}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td style="color:#16a34a;">${v.dans}</td><td style="color:#dc2626;">${v.hors}</td></tr>`).join("")}
+    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
+   </div>
+  </div>
+  <p style="color:#999;font-size:11px;margin-top:8px;">Pour les dossiers en cours, « dans/hors délais » compare l'ancienneté du dossier à l'objectif de ${OBJECTIF_DMR} jours.</p>
  </div></div>`;
 
  /* ════════ BLOC 5 — TOP 10 ════════ */
@@ -1440,8 +1499,8 @@ function genererRapportKPI(){
    </div>
   </div>
   <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA en attente (dossiers en cours)</h4>
-   ${top10Encours.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA en attente</th></tr></thead><tbody>
-    ${top10Encours.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v)}</b></td></tr>`).join("")}
+   ${top10Encours.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA en attente</th><th>Nb dossiers</th></tr></thead><tbody>
+    ${top10Encours.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td>${v.nb}</td></tr>`).join("")}
    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
   </div>
  </div>`;
@@ -1454,6 +1513,14 @@ function genererRapportKPI(){
   analyse += ` Le DMR moyen (délai moyen de raccordement) constaté sur la période est de <b>${dmrMoyen} jour(s)</b>, pour un objectif de <b>${OBJECTIF_DMR} jours</b> (${dmrMoyen<=OBJECTIF_DMR ? "objectif respecté" : "objectif dépassé"}).`;
  }
  analyse += ` Le portefeuille de dossiers en cours (backlog) représente <b>${encoursTotal}</b> dossier(s), soit un chiffre d'affaires potentiel de <b>${fmtMontantRap(caEncours)}</b> une fois livrés.`;
+ if(encoursHorsDelais > 0){
+  analyse += ` Parmi eux, <b>${encoursHorsDelais}</b> dossier(s) sont hors délais (ancienneté > ${OBJECTIF_DMR} jours)`;
+  if(causesHorsDelaisSorted.length){
+   analyse += `, principalement bloqués sur les étapes : ${causesHorsDelaisSorted.map(([etape,n])=>`<b>${etape}</b> (${n})`).join(", ")}.`;
+  } else {
+   analyse += `.`;
+  }
+ }
  html += `<div class="rap-section"><h3>📝 Analyse</h3><div class="rap-analyse">${analyse}</div></div>`;
 
  document.getElementById("rap-body").innerHTML = html;
