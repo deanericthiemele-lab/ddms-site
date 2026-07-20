@@ -248,7 +248,7 @@ td.num{text-align:right}
 <body>
 
 <button onclick="location.href='index.html'">Retour</button>
-<button onclick="location.href='recu prod.html'">Performances KPI</button>
+<button onclick="location.href='recu prod.html'">Suivi performance</button>
 <button onclick="location.href='suivi_dossiers2.html'">PIPE</button>
 <button onclick="location.href='livraison.html'">Dossiers livrés</button>
 <button id="btnNettoyage">Dossiers à geler</button>
@@ -416,14 +416,6 @@ td.num{text-align:right}
    <span id="rap-annee-wrap" class="rap-tb-group" style="display:none;">
      <select id="rap-annee-seule"></select>
    </span>
-
-   <span class="rap-tb-sep"></span>
-
-   <label class="rap-file-btn">
-     📥 Remplacer fichier MES (livraisons)
-     <input type="file" id="rapMesFile" accept=".xlsx,.xls" style="display:none;">
-   </label>
-   <span id="rap-mes-status" class="rap-mes-status">⏳ Chargement automatique...</span>
 
    <span class="rap-tb-sep"></span>
 
@@ -1205,31 +1197,8 @@ function parseNumRap(v){
  return isNaN(n) ? 0 : n;
 }
 
-/* ── Import du fichier MES (livraisons) ── */
-document.getElementById("rapMesFile").addEventListener("change", function(e){
- const file = e.target.files[0];
- if(!file) return;
- const statusEl = document.getElementById("rap-mes-status");
- statusEl.textContent = "⏳ Import en cours...";
- const reader = new FileReader();
- reader.onload = function(evt){
-  try{
-   const wb = XLSX.read(evt.target.result, {type:"array", cellDates:true});
-   const ws = wb.Sheets[wb.SheetNames[0]];
-   const raw = XLSX.utils.sheet_to_json(ws, {raw:true, defval:""});
-   if(!raw.length){ statusEl.textContent = "⚠️ Fichier vide."; return; }
-   window._mesRapportData = raw;
-   window._mesColMap = initColMapMES(raw[0]);
-   statusEl.textContent = `✅ ${raw.length} lignes importées (${file.name})`;
-   statusEl.style.color = "#16a34a";
-  }catch(err){
-   console.error(err);
-   statusEl.textContent = "❌ Erreur de lecture du fichier.";
-   statusEl.style.color = "#dc2626";
-  }
- };
- reader.readAsArrayBuffer(file);
-});
+/* Import manuel du fichier MES retiré : le fichier (Input.xlsx) est désormais
+   chargé automatiquement au démarrage via loadMesAuto(). */
 
 /* ── Sélecteurs de période ── */
 function getAnneesDisponiblesRapport(){
@@ -1349,7 +1318,7 @@ function genererRapportKPI(){
  const totalMES = livresPeriode.length;
  let caLivre=0, fraisMSTotal=0, recurrentTotal=0, dansDelais=0, horsDelais=0, sansDelaiInfo=0;
  let dmrSomme=0, dmrCompte=0;
- const OBJECTIF_DMR = 40; // Objectif interne : délai moyen de relève ≤ 40 jours
+ const OBJECTIF_DMR = 40; // Objectif interne : délai moyen de raccordement ≤ 40 jours
  const clientsLivres = {}, supportRepartition = {};
  livresPeriode.forEach(r=>{
   const total = cm.total ? parseNumRap(r[cm.total]) : 0;
@@ -1416,42 +1385,32 @@ function genererRapportKPI(){
  let html = "";
 
  /* ════════ BLOC 1 — KPI GÉNÉRAUX ════════ */
- html += `<div class="rap-section"><h3>🧮 KPI généraux</h3><div class="rap-kpi-grid">
+ html += `<div class="rap-section"><h3>🧮 KPI généraux</h3><div class="rap-kpi-grid rap-nosplit">
    ${kpiCard("Dossiers en cours (encours)", encoursTotal, "#1B4F72")}
    ${kpiCard("CA en cours (MRC)", fmtMontantRap(caEncours), "#1B4F72")}
    ${kpiCard("Mis en service (période)", totalMES, "#7c3aed")}
    ${kpiCard("CA livré (période)", fmtMontantRap(caLivre), "#7c3aed")}
    ${kpiCard("Taux de respect des délais", tauxDelais!==null?`${tauxDelais}%`:"-", tauxDelais===null?"#6B6B6B":(tauxDelais>=80?"#16a34a":tauxDelais>=50?"#d97706":"#dc2626"), (dansDelais+horsDelais)?`${dansDelais} dans les délais / ${horsDelais} hors délais`:"")}
-   ${kpiCard("DMR — délai moyen de relève", dmrMoyen!==null?`${dmrMoyen} j`:"-", dmrCouleur, `Objectif : ${OBJECTIF_DMR} jours` + (dmrMoyen!==null?(dmrMoyen<=OBJECTIF_DMR?" ✅ respecté":" ⚠️ dépassé"):""))}
+   ${kpiCard("DMR — délai moyen de raccordement", dmrMoyen!==null?`${dmrMoyen} j`:"-", dmrCouleur, `Objectif : ${OBJECTIF_DMR} jours` + (dmrMoyen!==null?(dmrMoyen<=OBJECTIF_DMR?" ✅ respecté":" ⚠️ dépassé"):""))}
  </div></div>`;
 
  /* ════════ BLOC 2 — LIVRAISON DE LA PÉRIODE ════════ */
- html += `<div class="rap-section"><h3>🚚 Livraison de la période</h3><div class="rap-kpi-grid">
+ html += `<div class="rap-section"><h3>🚚 Livraison de la période</h3><div class="rap-kpi-grid rap-nosplit">
    ${kpiCard("Mis en service", totalMES, "#7c3aed")}
    ${kpiCard("Livrés dans les délais", dansDelais, "#16a34a", tauxDelais!==null?`${tauxDelais}% du total évalué`:"")}
    ${kpiCard("Livrés hors délais", horsDelais, "#dc2626", (dansDelais+horsDelais)?`${Math.round(horsDelais/(dansDelais+horsDelais)*1000)/10}% du total évalué`:"")}
-   ${kpiCard("Sans info de délai", sansDelaiInfo, "#6B6B6B")}
    ${kpiCard("Frais de mise en service", fmtMontantRap(fraisMSTotal), "#B07700")}
    ${kpiCard("Récurrent mensuel généré", fmtMontantRap(recurrentTotal), "#B07700")}
    ${kpiCard("CA total (frais + récurrent)", fmtMontantRap(caLivre), "#E05A00")}
- </div>
- <div style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📶 Répartition des livraisons par support</h4>
-   ${supportsSorted.length ? supportsSorted.map(([sup,n])=>`
-     <div class="rap-bar-row">
-       <div class="rap-bar-label">${sup}</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxSupport*100)}%;"></div></div>
-       <div class="rap-bar-val">${n}</div>
-     </div>`).join("") : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
  </div></div>`;
 
  /* ════════ BLOC 3 — DOSSIERS EN COURS (avec statuts) ════════ */
- html += `<div class="rap-section"><h3>🏗️ Dossiers en cours</h3><div class="rap-kpi-grid">
+ html += `<div class="rap-section"><h3>🏗️ Dossiers en cours</h3><div class="rap-kpi-grid rap-nosplit">
    ${kpiCard("Dossiers en cours", encoursTotal, "#1B4F72")}
    ${kpiCard("CA en attente", fmtMontantRap(caEncours), "#1B4F72")}
    ${kpiCard("Clients concernés", nbClientsEncours, "#1B4F72")}
-   ${kpiCard("Sans statut renseigné", sansStatut, "#6B6B6B")}
  </div>
- <div style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Répartition par statut</h4>
+ <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Répartition par statut</h4>
    ${statutsSorted.length ? statutsSorted.map(([s,n])=>`
      <div class="rap-bar-row">
        <div class="rap-bar-label">${s}</div>
@@ -1466,17 +1425,9 @@ function genererRapportKPI(){
    ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
  </div></div>`;
 
- /* ════════ BLOC 4 — CLIENTS ════════ */
- html += `<div class="rap-section"><h3>👥 Clients</h3><div class="rap-kpi-grid">
-   ${kpiCard("Clients avec dossiers en cours", nbClientsEncours, "#1B4F72")}
-   ${kpiCard("Panier moyen (en cours)", fmtMontantRap(panierMoyenEncours), "#1B4F72")}
-   ${kpiCard("Clients livrés (période)", nbClientsLivres, "#7c3aed")}
-   ${kpiCard("Panier moyen (livré, période)", fmtMontantRap(panierMoyenLivre), "#7c3aed")}
- </div></div>`;
-
  /* ════════ BLOC 5 — TOP 10 ════════ */
  html += `<div class="rap-section"><h3>🏆 Top 10</h3>
-  <div class="rap-grid-2">
+  <div class="rap-grid-2 rap-nosplit">
    <div><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA livré (période)</h4>
     ${top10LivresCA.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA</th><th>Nb dossiers</th></tr></thead><tbody>
      ${top10LivresCA.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td>${v.nb}</td></tr>`).join("")}
@@ -1488,7 +1439,7 @@ function genererRapportKPI(){
     </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
    </div>
   </div>
-  <div style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA en attente (dossiers en cours)</h4>
+  <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA en attente (dossiers en cours)</h4>
    ${top10Encours.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA en attente</th></tr></thead><tbody>
     ${top10Encours.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v)}</b></td></tr>`).join("")}
    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
@@ -1500,7 +1451,7 @@ function genererRapportKPI(){
   analyse += ` Le taux de respect des délais s'établit à <b>${tauxDelais}%</b> (${dansDelais} dans les délais / ${horsDelais} hors délais).`;
  }
  if(dmrMoyen !== null){
-  analyse += ` Le DMR moyen (délai moyen de relève) constaté sur la période est de <b>${dmrMoyen} jour(s)</b>, pour un objectif de <b>${OBJECTIF_DMR} jours</b> (${dmrMoyen<=OBJECTIF_DMR ? "objectif respecté" : "objectif dépassé"}).`;
+  analyse += ` Le DMR moyen (délai moyen de raccordement) constaté sur la période est de <b>${dmrMoyen} jour(s)</b>, pour un objectif de <b>${OBJECTIF_DMR} jours</b> (${dmrMoyen<=OBJECTIF_DMR ? "objectif respecté" : "objectif dépassé"}).`;
  }
  analyse += ` Le portefeuille de dossiers en cours (backlog) représente <b>${encoursTotal}</b> dossier(s), soit un chiffre d'affaires potentiel de <b>${fmtMontantRap(caEncours)}</b> une fois livrés.`;
  html += `<div class="rap-section"><h3>📝 Analyse</h3><div class="rap-analyse">${analyse}</div></div>`;
@@ -1549,11 +1500,18 @@ function exporterRapportPDF(){
 
  const attendreRendu = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
  attendreRendu.then(()=> new Promise(r=>setTimeout(r,150))).then(()=>{
+  // Mesurer, en pixels CSS, la position des blocs "à ne pas découper" (tableaux, grilles KPI,
+  // listes de répartition) AVANT la capture — on s'en sert ensuite pour caler les sauts de page.
+  const wrapperRect = wrapper.getBoundingClientRect();
+  const blocsNoSplit = [...wrapper.querySelectorAll(".rap-nosplit")].map(el=>{
+   const r = el.getBoundingClientRect();
+   return { top: r.top - wrapperRect.top, bottom: r.bottom - wrapperRect.top };
+  });
   return html2canvas(wrapper, {
    scale:2, backgroundColor:"#ffffff", useCORS:true, allowTaint:true, logging:false,
    scrollX:0, scrollY:0, windowWidth:largeurCible, width:largeurCible
-  });
- }).then(canvas=>{
+  }).then(canvas=>({canvas, blocsNoSplit}));
+ }).then(({canvas, blocsNoSplit})=>{
   document.body.removeChild(voile);
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF("p","mm","a4");
@@ -1564,9 +1522,27 @@ function exporterRapportPDF(){
   const ratio = usableW / canvas.width;
   const pageHeightPx = (pageH - marginY*2) / ratio;
 
+  // Conversion des positions mesurées (px CSS) en px canvas (échelle html2canvas réelle)
+  const echelle = canvas.width / largeurCible;
+  const boxesPx = blocsNoSplit.map(b=>({ top: b.top*echelle, bottom: b.bottom*echelle }));
+
+  // Calcule la fin de chaque page en reculant la coupe avant tout bloc "no-split"
+  // qui commence sur cette page mais déborderait sur la suivante.
+  function finDePage(debutPx){
+   let fin = Math.min(debutPx + pageHeightPx, canvas.height);
+   boxesPx.forEach(b=>{
+    if(b.top > debutPx + 1 && b.top < fin && b.bottom > fin){
+     if(b.top < fin) fin = b.top;
+    }
+   });
+   if(fin <= debutPx) fin = Math.min(debutPx + pageHeightPx, canvas.height); // bloc plus grand qu'une page : on ne peut pas l'éviter
+   return fin;
+  }
+
   let renderedPx=0, pageIndex=0;
   while(renderedPx < canvas.height){
-   const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+   const finPx = finDePage(renderedPx);
+   const sliceHeightPx = finPx - renderedPx;
    const sliceCanvas = document.createElement("canvas");
    sliceCanvas.width = canvas.width;
    sliceCanvas.height = sliceHeightPx;
