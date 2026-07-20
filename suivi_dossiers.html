@@ -1414,6 +1414,8 @@ function genererRapportKPI(){
   }
  });
  const produitLivresSorted = Object.entries(produitLivres).sort((a,b)=>b[1].ca-a[1].ca);
+ const produitVolumeSorted = Object.entries(produitLivres).sort((a,b)=>b[1].nb-a[1].nb);
+ const maxVolProduit = produitVolumeSorted.length ? produitVolumeSorted[0][1].nb : 1;
 
  // ── 4) CLIENTS — vue agrégée (encours + livrés période) ──
  const nbClientsEncours = Object.keys(clientsEncours).length;
@@ -1433,8 +1435,14 @@ function genererRapportKPI(){
  html += `<div class="rap-section"><h3>🧮 KPI généraux</h3><div class="rap-kpi-grid rap-nosplit">
    ${kpiCard("Dossiers en cours (encours)", encoursTotal, "#1B4F72")}
    ${kpiCard("CA en cours (MRC)", fmtMontantRap(caEncours), "#1B4F72")}
-   ${kpiCard("Taux de respect des délais", tauxDelais!==null?`${tauxDelais}%`:"-", tauxDelais===null?"#6B6B6B":(tauxDelais>=80?"#16a34a":tauxDelais>=50?"#d97706":"#dc2626"), (dansDelais+horsDelais)?`${dansDelais} dans les délais / ${horsDelais} hors délais`:"")}
-   ${kpiCard("DMR — délai moyen de raccordement", dmrMoyen!==null?`${dmrMoyen} j`:"-", dmrCouleur, `Objectif : ${OBJECTIF_DMR} jours` + (dmrMoyen!==null?(dmrMoyen<=OBJECTIF_DMR?" ✅ respecté":" ⚠️ dépassé"):""))}
+ </div>
+ <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Volume par produit (Libéllé Produit)</h4>
+   ${produitVolumeSorted.length ? produitVolumeSorted.map(([p,v])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label">${p}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(v.nb/maxVolProduit*100)}%;"></div></div>
+       <div class="rap-bar-val">${v.nb} <span style="color:#999;font-size:11px;">(${totalMES?Math.round(v.nb/totalMES*1000)/10:0}%)</span></div>
+     </div>`).join("") : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
  </div></div>`;
 
  /* ════════ BLOC 2 — LIVRAISON DE LA PÉRIODE ════════ */
@@ -1445,6 +1453,13 @@ function genererRapportKPI(){
    ${kpiCard("Frais de mise en service", fmtMontantRap(fraisMSTotal), "#B07700")}
    ${kpiCard("Récurrent mensuel généré", fmtMontantRap(recurrentTotal), "#B07700")}
    ${kpiCard("CA total (frais + récurrent)", fmtMontantRap(caLivre), "#E05A00")}
+   ${kpiCard("Taux de respect des délais", tauxDelais!==null?`${tauxDelais}%`:"-", tauxDelais===null?"#6B6B6B":(tauxDelais>=80?"#16a34a":tauxDelais>=50?"#d97706":"#dc2626"), (dansDelais+horsDelais)?`${dansDelais} dans les délais / ${horsDelais} hors délais`:"")}
+   ${kpiCard("DMR — délai moyen de raccordement", dmrMoyen!==null?`${dmrMoyen} j`:"-", dmrCouleur, `Objectif : ${OBJECTIF_DMR} jours` + (dmrMoyen!==null?(dmrMoyen<=OBJECTIF_DMR?" ✅ respecté":" ⚠️ dépassé"):""))}
+ </div>
+ <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Par produit — Livré (période)</h4>
+   ${produitLivresSorted.length ? `<table class="rap-top10"><thead><tr><th>Produit</th><th>CA</th><th>Dans délais</th><th>Hors délais</th></tr></thead><tbody>
+    ${produitLivresSorted.map(([p,v])=>`<tr><td>${p}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td style="color:#16a34a;">${v.dans}</td><td style="color:#dc2626;">${v.hors}</td></tr>`).join("")}
+   </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
  </div></div>`;
 
  /* ════════ BLOC 3 — DOSSIERS EN COURS (avec statuts) ════════ */
@@ -1468,20 +1483,11 @@ function genererRapportKPI(){
    ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
  </div>
 
- <div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Par produit</h4>
-  <div class="rap-grid-2">
-   <div><h5 style="font-size:12px;color:#7c3aed;margin:0 0 6px;">Livré (période)</h5>
-    ${produitLivresSorted.length ? `<table class="rap-top10"><thead><tr><th>Produit</th><th>CA</th><th>Dans délais</th><th>Hors délais</th></tr></thead><tbody>
-     ${produitLivresSorted.map(([p,v])=>`<tr><td>${p}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td style="color:#16a34a;">${v.dans}</td><td style="color:#dc2626;">${v.hors}</td></tr>`).join("")}
-    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
-   </div>
-   <div><h5 style="font-size:12px;color:#1B4F72;margin:0 0 6px;">En cours</h5>
-    ${produitEncoursSorted.length ? `<table class="rap-top10"><thead><tr><th>Produit</th><th>CA</th><th>Dans délais</th><th>Hors délais</th></tr></thead><tbody>
-     ${produitEncoursSorted.map(([p,v])=>`<tr><td>${p}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td style="color:#16a34a;">${v.dans}</td><td style="color:#dc2626;">${v.hors}</td></tr>`).join("")}
-    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
-   </div>
-  </div>
-  <p style="color:#999;font-size:11px;margin-top:8px;">Pour les dossiers en cours, « dans/hors délais » compare l'ancienneté du dossier à l'objectif de ${OBJECTIF_DMR} jours.</p>
+ <div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Par produit — En cours</h4>
+   ${produitEncoursSorted.length ? `<table class="rap-top10"><thead><tr><th>Produit</th><th>CA</th><th>Dans délais</th><th>Hors délais</th></tr></thead><tbody>
+    ${produitEncoursSorted.map(([p,v])=>`<tr><td>${p}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td style="color:#16a34a;">${v.dans}</td><td style="color:#dc2626;">${v.hors}</td></tr>`).join("")}
+   </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
+   <p style="color:#999;font-size:11px;margin-top:8px;">« Dans/hors délais » compare l'ancienneté du dossier à l'objectif de ${OBJECTIF_DMR} jours.</p>
  </div></div>`;
 
  /* ════════ BLOC 5 — TOP 10 ════════ */
