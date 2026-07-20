@@ -2548,6 +2548,7 @@ async function deleteVip(id){
       <option value="Terminé">🟢 Terminé</option>
     </select>
     <button class="btn btn-out btn-sm" onclick="ticketExportCSV()" style="gap:5px">📊 Exporter CSV</button>
+    <button class="btn btn-out btn-sm" onclick="ticketRemoveDuplicates()" style="gap:5px" title="Détecte et supprime les tickets strictement identiques (même client, référence, dates, statut, notes)">🧹 Supprimer les doublons</button>
   </div>
 
   <!-- Layout 2 colonnes -->
@@ -8304,6 +8305,73 @@ async function deleteCalBascule(id){
     renderCalBascule();
     toast('Test supprimé ✓','ok');
   }catch(e){ toast('Erreur: '+e.message,'err'); }
+}
+
+// ── Détection et suppression des tickets en double ──────────────────────────
+// Un doublon = 2 (ou plus) tickets partageant exactement les mêmes valeurs pour
+// les champs métier (client, référence, type, dates, localisation, statut,
+// destinataire, contacts, agent, notes) — seuls l'id Firestore et les horodatages
+// techniques (createdAt/updatedAt) diffèrent. Dans chaque groupe de doublons, le
+// plus ancien (createdAt le plus petit, ou id le plus petit à défaut) est
+// conservé ; les autres sont supprimés de Firestore et de la liste locale.
+function ticketCleKey(t){
+  return [
+    (t.client||'').trim().toLowerCase(),
+    (t.ref||'').trim().toLowerCase(),
+    (t.type||'').trim().toLowerCase(),
+    t.debut||'', t.fin||'',
+    (t.localisation||'').trim().toLowerCase(),
+    (t.statut||'').trim().toLowerCase(),
+    (t.destinataire||'').trim().toLowerCase(),
+    (t.contact_nom||'').trim().toLowerCase(),
+    (t.contact_tel||'').trim().toLowerCase(),
+    (t.contact_mail||'').trim().toLowerCase(),
+    (t.ouvert_par||'').trim().toLowerCase(),
+    (t.notes||'').trim().toLowerCase()
+  ].join('|');
+}
+
+async function ticketRemoveDuplicates(){
+  const all = DB.tickets||[];
+  if(!all.length){ toast('Aucun ticket chargé','err'); return; }
+
+  const groups = {};
+  all.forEach(t=>{
+    const k = ticketCleKey(t);
+    if(!groups[k]) groups[k] = [];
+    groups[k].push(t);
+  });
+
+  const aSupprimer = [];
+  let nbGroupesDoublons = 0;
+  Object.values(groups).forEach(list=>{
+    if(list.length<2) return;
+    nbGroupesDoublons++;
+    // Conserve le plus ancien (createdAt le plus petit, sinon id le plus petit)
+    const tri = [...list].sort((a,b)=>{
+      const ca = a.createdAt ? new Date(a.createdAt).getTime() : Infinity;
+      const cb = b.createdAt ? new Date(b.createdAt).getTime() : Infinity;
+      if(ca!==cb) return ca-cb;
+      return (a.id||'').localeCompare(b.id||'');
+    });
+    tri.slice(1).forEach(t=>aSupprimer.push(t));
+  });
+
+  if(!aSupprimer.length){ toast('Aucun doublon trouvé ✓','ok'); return; }
+
+  if(!confirm(`${aSupprimer.length} ticket(s) en double trouvé(s) dans ${nbGroupesDoublons} groupe(s) (même client/référence/dates/statut/notes). Un seul exemplaire sera conservé par groupe. Supprimer les doublons ?`)) return;
+
+  let ok=0, ko=0;
+  for(const t of aSupprimer){
+    try{
+      await window._del(window._doc(window._db,'noc_tickets_indispo',t.id));
+      ok++;
+    }catch(e){ ko++; console.error('Suppression doublon ticket', t.id, e); }
+  }
+  const idsSupprimes = new Set(aSupprimer.map(t=>t.id));
+  DB.tickets = DB.tickets.filter(t=>!idsSupprimes.has(t.id));
+  ticketRender();
+  toast(ko>0 ? `${ok} doublon(s) supprimé(s), ${ko} erreur(s)` : `${ok} doublon(s) supprimé(s) ✓`, ko>0?'warn':'ok');
 }
 
 function ticketExportCSV(){
