@@ -242,6 +242,9 @@ td.num{text-align:right}
 .rap-bar-track{flex:1;height:14px;background:#f0f0f0;border-radius:7px;overflow:hidden;}
 .rap-bar-fill{height:100%;background:#7c3aed;border-radius:7px;}
 .rap-bar-val{width:70px;text-align:right;font-weight:700;color:#333;}
+.rap-bar-cols{display:flex;gap:10px;flex-shrink:0;}
+.rap-bar-col{width:58px;text-align:right;font-size:12px;color:#333;}
+.rap-bar-col-head{font-size:10px;color:#999;text-transform:uppercase;font-weight:700;letter-spacing:.3px;}
 .rap-analyse{background:#F7F7F7;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.6;color:#1a1a1a;}
 </style>
 </head>
@@ -1437,12 +1440,11 @@ function genererRapportKPI(){
    ${kpiCard("CA en cours (MRC)", fmtMontantRap(caEncours), "#1B4F72")}
  </div>
  <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Volume par produit (Libéllé Produit)</h4>
-   ${produitVolumeSorted.length ? produitVolumeSorted.map(([p,v])=>`
-     <div class="rap-bar-row">
-       <div class="rap-bar-label">${p}</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(v.nb/maxVolProduit*100)}%;"></div></div>
-       <div class="rap-bar-val">${v.nb} <span style="color:#999;font-size:11px;">(${totalMES?Math.round(v.nb/totalMES*1000)/10:0}%)</span></div>
-     </div>`).join("") : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
+  <div class="rap-kpi-grid">
+   ${produitVolumeSorted.length ? produitVolumeSorted.map(([p,v])=>
+     kpiCard(p, v.nb, "#7c3aed", totalMES?`${Math.round(v.nb/totalMES*1000)/10}% du total`:"")
+   ).join("") : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
+  </div>
  </div></div>`;
 
  /* ════════ BLOC 2 — LIVRAISON DE LA PÉRIODE ════════ */
@@ -1468,26 +1470,44 @@ function genererRapportKPI(){
    ${kpiCard("CA en attente", fmtMontantRap(caEncours), "#1B4F72")}
    ${kpiCard("Clients concernés", nbClientsEncours, "#1B4F72")}
  </div>
- <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Répartition par statut</h4>
-   ${statutsSorted.length ? statutsSorted.map(([s,n])=>`
-     <div class="rap-bar-row">
-       <div class="rap-bar-label">${s}</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxStatut*100)}%;background:#2563eb;"></div></div>
-       <div class="rap-bar-val">${n} <span style="color:#999;font-size:11px;">(${encoursTotal?Math.round(n/encoursTotal*1000)/10:0}% · âge moyen ${Math.round(statutAgeSum[s]/n)} j)</span></div>
-     </div>`).join("") : ""}
-   ${sansStatut ? `<div class="rap-bar-row">
-       <div class="rap-bar-label">Sans statut</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxStatut*100)}%;background:#aaa;"></div></div>
-       <div class="rap-bar-val">${sansStatut} <span style="color:#999;font-size:11px;">(${encoursTotal?Math.round(sansStatut/encoursTotal*1000)/10:0}% · âge moyen ${Math.round(sansStatutAgeSum/sansStatut)} j)</span></div>
-     </div>` : ""}
-   ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
- </div>
 
- <div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Par produit — En cours</h4>
+ <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Par produit — En cours</h4>
    ${produitEncoursSorted.length ? `<table class="rap-top10"><thead><tr><th>Produit</th><th>CA</th><th>Dans délais</th><th>Hors délais</th></tr></thead><tbody>
     ${produitEncoursSorted.map(([p,v])=>`<tr><td>${p}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td style="color:#16a34a;">${v.dans}</td><td style="color:#dc2626;">${v.hors}</td></tr>`).join("")}
    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
    <p style="color:#999;font-size:11px;margin-top:8px;">« Dans/hors délais » compare l'ancienneté du dossier à l'objectif de ${OBJECTIF_DMR} jours.</p>
+ </div>
+
+ <div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Répartition par statut</h4>
+   ${(statutsSorted.length || sansStatut) ? `<div class="rap-bar-row" style="margin-bottom:8px;">
+     <div class="rap-bar-label"></div>
+     <div class="rap-bar-track" style="background:none;"></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col rap-bar-col-head">Volume</div>
+       <div class="rap-bar-col rap-bar-col-head">%</div>
+       <div class="rap-bar-col rap-bar-col-head">Âge moy.</div>
+     </div>
+   </div>` : ""}
+   ${statutsSorted.length ? statutsSorted.map(([s,n])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxStatut*100)}%;background:#2563eb;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col"><b>${n}</b></div>
+         <div class="rap-bar-col">${encoursTotal?Math.round(n/encoursTotal*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(statutAgeSum[s]/n)} j</div>
+       </div>
+     </div>`).join("") : ""}
+   ${sansStatut ? `<div class="rap-bar-row">
+       <div class="rap-bar-label">Sans statut</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxStatut*100)}%;background:#aaa;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col"><b>${sansStatut}</b></div>
+         <div class="rap-bar-col">${encoursTotal?Math.round(sansStatut/encoursTotal*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(sansStatutAgeSum/sansStatut)} j</div>
+       </div>
+     </div>` : ""}
+   ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
  </div></div>`;
 
  /* ════════ BLOC 5 — TOP 10 ════════ */
