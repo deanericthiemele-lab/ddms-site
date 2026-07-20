@@ -1393,9 +1393,18 @@ function genererRapportKPI(){
  const maxStatut = statutsSorted.length ? Math.max(...statutsSorted.map(s=>s[1]), sansStatut) : (sansStatut||1);
 
  // ── 3bis) PAR PRODUIT — encours (pipe) et livrés (période, fichier MES) ──
+ // Le pipe n'a pas de colonne unique LS/LSI/T0/T2 : "TYPE ABONNEMENT" donne LS/LSI/numerique,
+ // et pour les lignes "numerique" c'est la colonne PRODUIT qui précise T0 ou T2.
  const produitEncours = {};
  (dossiersGlobal||[]).forEach(r=>{
-  const p = (r["PRODUIT"]||"Non renseigné").toString().trim() || "Non renseigné";
+  const typeAbo = (r["TYPE ABONNEMENT"]||"").toString().trim().toUpperCase();
+  let p;
+  if(typeAbo === "LS") p = "LS";
+  else if(typeAbo === "LSI") p = "LSI";
+  else {
+   const prodVal = (r["PRODUIT"]||"").toString().trim().toUpperCase();
+   p = prodVal || "Non renseigné";
+  }
   if(!produitEncours[p]) produitEncours[p] = {nb:0, ca:0, dans:0, hors:0};
   produitEncours[p].nb += 1;
   produitEncours[p].ca += parseNumRap(r["MONTANT MS"]);
@@ -1417,7 +1426,7 @@ function genererRapportKPI(){
   }
  });
  const produitLivresSorted = Object.entries(produitLivres).sort((a,b)=>b[1].ca-a[1].ca);
- const produitVolumeSorted = Object.entries(produitLivres).sort((a,b)=>b[1].nb-a[1].nb);
+ const produitVolumeSorted = Object.entries(produitEncours).sort((a,b)=>b[1].nb-a[1].nb);
  const maxVolProduit = produitVolumeSorted.length ? produitVolumeSorted[0][1].nb : 1;
 
  // ── 4) CLIENTS — vue agrégée (encours + livrés période) ──
@@ -1433,19 +1442,6 @@ function genererRapportKPI(){
   </div>`;
  }
  let html = "";
-
- /* ════════ BLOC 1 — KPI GÉNÉRAUX ════════ */
- html += `<div class="rap-section"><h3>🧮 KPI généraux</h3><div class="rap-kpi-grid rap-nosplit">
-   ${kpiCard("Dossiers en cours (encours)", encoursTotal, "#1B4F72")}
-   ${kpiCard("CA en cours (MRC)", fmtMontantRap(caEncours), "#1B4F72")}
- </div>
- <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Volume par produit (Libéllé Produit)</h4>
-  <div class="rap-kpi-grid">
-   ${produitVolumeSorted.length ? produitVolumeSorted.map(([p,v])=>
-     kpiCard(p, v.nb, "#7c3aed", totalMES?`${Math.round(v.nb/totalMES*1000)/10}% du total`:"")
-   ).join("") : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
-  </div>
- </div></div>`;
 
  /* ════════ BLOC 2 — LIVRAISON DE LA PÉRIODE ════════ */
  html += `<div class="rap-section"><h3>🚚 Livraison de la période</h3><div class="rap-kpi-grid rap-nosplit">
@@ -1512,19 +1508,7 @@ function genererRapportKPI(){
 
  /* ════════ BLOC 5 — TOP 10 ════════ */
  html += `<div class="rap-section"><h3>🏆 Top 10</h3>
-  <div class="rap-grid-2 rap-nosplit">
-   <div><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA livré (période)</h4>
-    ${top10LivresCA.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA</th><th>Nb dossiers</th></tr></thead><tbody>
-     ${top10LivresCA.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td>${v.nb}</td></tr>`).join("")}
-    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
-   </div>
-   <div><h4 style="font-size:13px;color:#555;margin:0 0 8px;">Volume livré (période)</h4>
-    ${top10LivresVol.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>Nb dossiers</th><th>CA</th></tr></thead><tbody>
-     ${top10LivresVol.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${v.nb}</b></td><td>${fmtMontantRap(v.ca)}</td></tr>`).join("")}
-    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
-   </div>
-  </div>
-  <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA en attente (dossiers en cours)</h4>
+  <div class="rap-nosplit"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA en attente (dossiers en cours)</h4>
    ${top10Encours.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA en attente</th><th>Nb dossiers</th></tr></thead><tbody>
     ${top10Encours.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td>${v.nb}</td></tr>`).join("")}
    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
