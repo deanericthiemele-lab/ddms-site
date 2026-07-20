@@ -8579,31 +8579,66 @@ function exporterIncidentsND2ParMois() {
 }
 
 // ===== Champs éditables "Taux de disponibilité" sous le graphique mensuel =====
+const MDP_TAUX_DISPO = 'franck1';
+
 function afficherChampsTauxDispo(moisTriés, labels) {
   const conteneur = document.getElementById('taux-dispo-row');
   if (!conteneur) return;
   conteneur.innerHTML = '';
   moisTriés.forEach((m, i) => {
     const val = (window._tauxDispoParMois[m] === undefined || window._tauxDispoParMois[m] === null) ? '' : window._tauxDispoParMois[m];
+    const verrouille = (val !== '');
     const cell = document.createElement('div');
     cell.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;';
     cell.innerHTML = `
-      <input type="number" min="0" max="100" step="0.1" value="${val}" placeholder="%"
-        data-mois="${m}"
-        title="Taux de disponibilité — ${labels[i]}"
-        style="width:56px;font-size:11px;text-align:center;padding:2px 4px;border:1px solid #ccc;border-radius:4px;color:#6a1b9a;font-weight:600;">
+      <div style="display:flex;align-items:center;gap:2px;">
+        <input type="number" min="0" max="100" step="0.1" value="${val}" placeholder="%"
+          data-mois="${m}"
+          title="Taux de disponibilité — ${labels[i]}"
+          ${verrouille ? 'disabled' : ''}
+          style="width:52px;font-size:11px;text-align:center;padding:2px 4px;border:1px solid #ccc;border-radius:4px;font-weight:600;
+          ${verrouille ? 'background:#e9e9e9;color:#888;cursor:not-allowed;' : 'background:#fff;color:#6a1b9a;'}">
+        <button type="button" class="taux-dispo-cadenas" data-mois-cadenas="${m}"
+          title="${verrouille ? 'Déverrouiller (mot de passe requis)' : 'Verrouillé après enregistrement'}"
+          style="border:none;background:none;cursor:pointer;font-size:12px;padding:0;line-height:1;${verrouille ? '' : 'visibility:hidden;'}">
+          🔒
+        </button>
+      </div>
       <span class="taux-dispo-statut" data-mois-statut="${m}" style="font-size:9px;color:#999;height:11px;"></span>
     `;
     const input = cell.querySelector('input');
+    const cadenas = cell.querySelector('.taux-dispo-cadenas');
     input.addEventListener('change', () => majTauxDispoMois(m, input.value));
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+    cadenas.addEventListener('click', () => deverrouillerChampTauxDispo(m));
     conteneur.appendChild(cell);
   });
+}
+
+function deverrouillerChampTauxDispo(mois) {
+  const mdp = prompt('Mot de passe requis pour modifier le taux de disponibilité :');
+  if (mdp === null) return; // annulé
+  if (mdp !== MDP_TAUX_DISPO) {
+    alert('Mot de passe incorrect.');
+    return;
+  }
+  const input = document.querySelector(`input[data-mois="${mois}"]`);
+  if (input) {
+    input.disabled = false;
+    input.style.background = '#fff';
+    input.style.color = '#6a1b9a';
+    input.style.cursor = 'text';
+    input.focus();
+  }
+  const cadenas = document.querySelector(`.taux-dispo-cadenas[data-mois-cadenas="${mois}"]`);
+  if (cadenas) cadenas.style.visibility = 'hidden';
 }
 
 function majTauxDispoMois(mois, valeur) {
   if (!window._tauxDispoParMois) window._tauxDispoParMois = {};
   const statutEl = document.querySelector(`.taux-dispo-statut[data-mois-statut="${mois}"]`);
+  const inputEl = document.querySelector(`input[data-mois="${mois}"]`);
+  const cadenasEl = document.querySelector(`.taux-dispo-cadenas[data-mois-cadenas="${mois}"]`);
 
   const supprimer = (valeur === '' || valeur === null || isNaN(parseFloat(valeur)));
   let v = null;
@@ -8640,6 +8675,14 @@ function majTauxDispoMois(mois, valeur) {
     if (statutEl) {
       statutEl.textContent = '✔';
       setTimeout(() => { if (statutEl) statutEl.textContent = ''; }, 1500);
+    }
+    // Verrouille le champ après enregistrement réussi (si une valeur a bien été saisie)
+    if (!supprimer && inputEl) {
+      inputEl.disabled = true;
+      inputEl.style.background = '#e9e9e9';
+      inputEl.style.color = '#888';
+      inputEl.style.cursor = 'not-allowed';
+      if (cadenasEl) cadenasEl.style.visibility = 'visible';
     }
   }).catch(err => {
     console.error('Erreur enregistrement taux de disponibilité :', err);
