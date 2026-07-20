@@ -1386,6 +1386,27 @@ function genererRapportKPI(){
  const dmrMoyen = dmrCompte ? Math.round((dmrSomme/dmrCompte)*10)/10 : null;
  const dmrCouleur = dmrMoyen===null ? "#6B6B6B" : (dmrMoyen<=OBJECTIF_DMR ? "#16a34a" : "#dc2626");
 
+ // ── 3) STATUTS des dossiers en cours (données Firebase, saisies dans le tableau principal) ──
+ const statutCounts = {};
+ let sansStatut = 0;
+ (dossiersGlobal||[]).forEach(r=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
+  const s = window._getStatut ? window._getStatut(id) : "";
+  if(s && s.trim()!==""){
+   statutCounts[s] = (statutCounts[s]||0)+1;
+  } else {
+   sansStatut++;
+  }
+ });
+ const statutsSorted = Object.entries(statutCounts).sort((a,b)=>b[1]-a[1]);
+ const maxStatut = statutsSorted.length ? Math.max(...statutsSorted.map(s=>s[1]), sansStatut) : (sansStatut||1);
+
+ // ── 4) CLIENTS — vue agrégée (encours + livrés période) ──
+ const nbClientsEncours = Object.keys(clientsEncours).length;
+ const nbClientsLivres = Object.keys(clientsLivres).length;
+ const panierMoyenEncours = nbClientsEncours ? caEncours/encoursTotal : 0;
+ const panierMoyenLivre = totalMES ? caLivre/totalMES : 0;
+
  // ── Rendu HTML ──
  function kpiCard(label, val, color, sub){
   return `<div class="rap-kpi-card" style="border-left-color:${color};">
@@ -1394,49 +1415,84 @@ function genererRapportKPI(){
  }
  let html = "";
 
- html += `<div class="rap-section"><h3>🧮 Vue d'ensemble</h3><div class="rap-kpi-grid">
+ /* ════════ BLOC 1 — KPI GÉNÉRAUX ════════ */
+ html += `<div class="rap-section"><h3>🧮 KPI généraux</h3><div class="rap-kpi-grid">
    ${kpiCard("Dossiers en cours (encours)", encoursTotal, "#1B4F72")}
    ${kpiCard("CA en cours (MRC)", fmtMontantRap(caEncours), "#1B4F72")}
    ${kpiCard("Mis en service (période)", totalMES, "#7c3aed")}
    ${kpiCard("CA livré (période)", fmtMontantRap(caLivre), "#7c3aed")}
-   ${kpiCard("Livrés dans les délais", dansDelais, "#16a34a", tauxDelais!==null?`${tauxDelais}% du total évalué`:"")}
-   ${kpiCard("Livrés hors délais", horsDelais, "#dc2626", (dansDelais+horsDelais)?`${Math.round(horsDelais/(dansDelais+horsDelais)*1000)/10}% du total évalué`:"")}
+   ${kpiCard("Taux de respect des délais", tauxDelais!==null?`${tauxDelais}%`:"-", tauxDelais===null?"#6B6B6B":(tauxDelais>=80?"#16a34a":tauxDelais>=50?"#d97706":"#dc2626"), (dansDelais+horsDelais)?`${dansDelais} dans les délais / ${horsDelais} hors délais`:"")}
    ${kpiCard("DMR — délai moyen de relève", dmrMoyen!==null?`${dmrMoyen} j`:"-", dmrCouleur, `Objectif : ${OBJECTIF_DMR} jours` + (dmrMoyen!==null?(dmrMoyen<=OBJECTIF_DMR?" ✅ respecté":" ⚠️ dépassé"):""))}
  </div></div>`;
 
- html += `<div class="rap-section"><h3>💰 Détail chiffre d'affaires (période, fichier MES)</h3><div class="rap-kpi-grid">
+ /* ════════ BLOC 2 — LIVRAISON DE LA PÉRIODE ════════ */
+ html += `<div class="rap-section"><h3>🚚 Livraison de la période</h3><div class="rap-kpi-grid">
+   ${kpiCard("Mis en service", totalMES, "#7c3aed")}
+   ${kpiCard("Livrés dans les délais", dansDelais, "#16a34a", tauxDelais!==null?`${tauxDelais}% du total évalué`:"")}
+   ${kpiCard("Livrés hors délais", horsDelais, "#dc2626", (dansDelais+horsDelais)?`${Math.round(horsDelais/(dansDelais+horsDelais)*1000)/10}% du total évalué`:"")}
+   ${kpiCard("Sans info de délai", sansDelaiInfo, "#6B6B6B")}
    ${kpiCard("Frais de mise en service", fmtMontantRap(fraisMSTotal), "#B07700")}
    ${kpiCard("Récurrent mensuel généré", fmtMontantRap(recurrentTotal), "#B07700")}
    ${kpiCard("CA total (frais + récurrent)", fmtMontantRap(caLivre), "#E05A00")}
-   ${kpiCard("Sans info de délai", sansDelaiInfo, "#6B6B6B")}
- </div></div>`;
-
- html += `<div class="rap-grid-2">
-   <div class="rap-section"><h3>🏆 Top 10 clients — CA livré (période)</h3>
-    ${top10LivresCA.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA</th><th>Nb dossiers</th></tr></thead><tbody>
-     ${top10LivresCA.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td>${v.nb}</td></tr>`).join("")}
-    </tbody></table>` : `<p style="color:#999;font-size:12px;">Importez le fichier MES pour afficher ce classement.</p>`}
-   </div>
-   <div class="rap-section"><h3>📦 Top 10 clients — volume livré (période)</h3>
-    ${top10LivresVol.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>Nb dossiers</th><th>CA</th></tr></thead><tbody>
-     ${top10LivresVol.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${v.nb}</b></td><td>${fmtMontantRap(v.ca)}</td></tr>`).join("")}
-    </tbody></table>` : `<p style="color:#999;font-size:12px;">Importez le fichier MES pour afficher ce classement.</p>`}
-   </div>
- </div>`;
-
- html += `<div class="rap-section"><h3>📶 Répartition des livraisons par support (période)</h3>
+ </div>
+ <div style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📶 Répartition des livraisons par support</h4>
    ${supportsSorted.length ? supportsSorted.map(([sup,n])=>`
      <div class="rap-bar-row">
        <div class="rap-bar-label">${sup}</div>
        <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxSupport*100)}%;"></div></div>
        <div class="rap-bar-val">${n}</div>
-     </div>`).join("") : `<p style="color:#999;font-size:12px;">Importez le fichier MES pour afficher cette répartition.</p>`}
- </div>`;
+     </div>`).join("") : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
+ </div></div>`;
 
- html += `<div class="rap-section"><h3>🏗️ Top 10 dossiers en cours — CA en attente</h3>
+ /* ════════ BLOC 3 — DOSSIERS EN COURS (avec statuts) ════════ */
+ html += `<div class="rap-section"><h3>🏗️ Dossiers en cours</h3><div class="rap-kpi-grid">
+   ${kpiCard("Dossiers en cours", encoursTotal, "#1B4F72")}
+   ${kpiCard("CA en attente", fmtMontantRap(caEncours), "#1B4F72")}
+   ${kpiCard("Clients concernés", nbClientsEncours, "#1B4F72")}
+   ${kpiCard("Sans statut renseigné", sansStatut, "#6B6B6B")}
+ </div>
+ <div style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Répartition par statut</h4>
+   ${statutsSorted.length ? statutsSorted.map(([s,n])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxStatut*100)}%;background:#2563eb;"></div></div>
+       <div class="rap-bar-val">${n} <span style="color:#999;font-size:11px;">(${encoursTotal?Math.round(n/encoursTotal*1000)/10:0}%)</span></div>
+     </div>`).join("") : ""}
+   ${sansStatut ? `<div class="rap-bar-row">
+       <div class="rap-bar-label">Sans statut</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxStatut*100)}%;background:#aaa;"></div></div>
+       <div class="rap-bar-val">${sansStatut} <span style="color:#999;font-size:11px;">(${encoursTotal?Math.round(sansStatut/encoursTotal*1000)/10:0}%)</span></div>
+     </div>` : ""}
+   ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
+ </div></div>`;
+
+ /* ════════ BLOC 4 — CLIENTS ════════ */
+ html += `<div class="rap-section"><h3>👥 Clients</h3><div class="rap-kpi-grid">
+   ${kpiCard("Clients avec dossiers en cours", nbClientsEncours, "#1B4F72")}
+   ${kpiCard("Panier moyen (en cours)", fmtMontantRap(panierMoyenEncours), "#1B4F72")}
+   ${kpiCard("Clients livrés (période)", nbClientsLivres, "#7c3aed")}
+   ${kpiCard("Panier moyen (livré, période)", fmtMontantRap(panierMoyenLivre), "#7c3aed")}
+ </div></div>`;
+
+ /* ════════ BLOC 5 — TOP 10 ════════ */
+ html += `<div class="rap-section"><h3>🏆 Top 10</h3>
+  <div class="rap-grid-2">
+   <div><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA livré (période)</h4>
+    ${top10LivresCA.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA</th><th>Nb dossiers</th></tr></thead><tbody>
+     ${top10LivresCA.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td>${v.nb}</td></tr>`).join("")}
+    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
+   </div>
+   <div><h4 style="font-size:13px;color:#555;margin:0 0 8px;">Volume livré (période)</h4>
+    ${top10LivresVol.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>Nb dossiers</th><th>CA</th></tr></thead><tbody>
+     ${top10LivresVol.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${v.nb}</b></td><td>${fmtMontantRap(v.ca)}</td></tr>`).join("")}
+    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
+   </div>
+  </div>
+  <div style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">CA en attente (dossiers en cours)</h4>
    ${top10Encours.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA en attente</th></tr></thead><tbody>
     ${top10Encours.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v)}</b></td></tr>`).join("")}
    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
+  </div>
  </div>`;
 
  let analyse = `📊 Sur la période sélectionnée, <b>${totalMES}</b> dossier(s) ont été mis en service pour un chiffre d'affaires de <b>${fmtMontantRap(caLivre)}</b>.`;
