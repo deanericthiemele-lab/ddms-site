@@ -1146,11 +1146,31 @@ document.addEventListener("DOMContentLoaded", function() {
     }
   }
 
+  // Retourne la dernière semaine complète (lundi → dimanche) précédant la semaine en cours
+  function getDerniereSemaineSummary() {
+    const now = new Date();
+    const jour = now.getDay(); // 0=dim, 1=lun, ... 6=sam
+    const diffLundi = (jour === 0) ? 6 : jour - 1;
+    const lundiCourant = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diffLundi);
+    const lundiPrec = new Date(lundiCourant.getFullYear(), lundiCourant.getMonth(), lundiCourant.getDate() - 7);
+    const dimanchePrec = new Date(lundiPrec.getFullYear(), lundiPrec.getMonth(), lundiPrec.getDate() + 6);
+    return { debut: lundiPrec, fin: dimanchePrec };
+  }
+  function toISODateSummary(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
   function changerModePeriodeSummary() {
     const mode = document.getElementById("summary-mode").value;
     document.getElementById("summary-mois-wrap").style.display = (mode === "mois") ? "flex" : "none";
     document.getElementById("summary-dates-wrap").style.display = (mode === "dates") ? "flex" : "none";
     document.getElementById("summary-annee-wrap").style.display = (mode === "annee") ? "flex" : "none";
+    if (mode === "dates") {
+      const { debut, fin } = getDerniereSemaineSummary();
+      document.getElementById("summary-date-debut").value = toISODateSummary(debut);
+      document.getElementById("summary-date-fin").value = toISODateSummary(fin);
+      if (window._summaryRawData) appliquerPeriodeSummary();
+    }
   }
 
   function fmtDateFr(d) {
@@ -1228,12 +1248,23 @@ document.addEventListener("DOMContentLoaded", function() {
   function exporterAnalyseGlobalePDF() {
     const bodyEl = document.getElementById("summary-body");
     if (!bodyEl || !bodyEl.innerHTML.trim()) { alert("Veuillez d'abord charger les données et appliquer une période."); return; }
-    if (typeof html2canvas === "undefined") { alert("Le module de capture n'a pas encore fini de se charger, réessayez dans un instant."); return; }
-    if (!window.jspdf) { alert("Le module PDF n'a pas encore fini de se charger, réessayez dans un instant."); return; }
+    if (typeof html2canvas === "undefined") { alert("Le module de capture (html2canvas) n'a pas encore fini de se charger. Vérifiez votre connexion et réessayez dans un instant."); return; }
+    if (!window.jspdf) { alert("Le module PDF (jsPDF) n'a pas encore fini de se charger. Vérifiez votre connexion et réessayez dans un instant."); return; }
 
     const btn = document.getElementById("btn-export-summary-pdf");
     const btnLabelOrig = btn ? btn.innerHTML : null;
+    function restaurerBouton() {
+      if (btn) { btn.innerHTML = btnLabelOrig; btn.disabled = false; btn.style.opacity = "1"; }
+    }
     if (btn) { btn.innerHTML = "⏳ Génération..."; btn.disabled = true; btn.style.opacity = "0.7"; }
+
+    // Voile plein écran : masque la zone de rendu temporaire pendant la capture
+    // (plus fiable qu'un positionnement hors-écran, qui peut produire un PDF vide
+    // selon les navigateurs car html2canvas doit alors cloner tout le document).
+    const voile = document.createElement("div");
+    voile.style.cssText = "position:fixed;inset:0;background:#ffffff;z-index:999999;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;font-size:14px;color:#6B6B6B;";
+    voile.innerHTML = "⏳ Génération du PDF en cours...";
+    document.body.appendChild(voile);
 
     // Clone du contenu affiché à l'écran, en supprimant les limites de défilement internes
     // (tableaux/listes en max-height + overflow-y:auto) pour que TOUT le contenu apparaisse dans le PDF.
@@ -1241,77 +1272,83 @@ document.addEventListener("DOMContentLoaded", function() {
     clone.querySelectorAll("*").forEach(el => {
       if (el.style && el.style.maxHeight) el.style.maxHeight = "none";
       if (el.style && el.style.overflowY === "auto") el.style.overflowY = "visible";
+      if (el.style && el.style.overflow === "auto") el.style.overflow = "visible";
     });
 
     const titre = (document.querySelector("#page-performances .ph-title")?.textContent || "📋 Analyse globale").trim();
     const sousTitre = (document.getElementById("summary-badge")?.textContent || "").trim();
     const periodeLabel = (document.getElementById("summary-period-label")?.textContent || "").trim();
 
+    const largeurCible = Math.max(bodyEl.scrollWidth, bodyEl.offsetWidth, 1000);
+
     const wrapper = document.createElement("div");
-    wrapper.style.position = "fixed";
-    wrapper.style.left = "-99999px";
-    wrapper.style.top = "0";
-    wrapper.style.width = bodyEl.scrollWidth + "px";
-    wrapper.style.background = "#ffffff";
-    wrapper.style.padding = "20px";
-    wrapper.style.fontFamily = getComputedStyle(document.body).fontFamily || "Arial, sans-serif";
+    // Placé normalement dans le flux du document (sous le voile), pas hors-écran :
+    // html2canvas capture ainsi exactement ce qui est rendu, sans décalage.
+    wrapper.style.cssText = `position:relative;width:${largeurCible}px;background:#ffffff;padding:24px;box-sizing:border-box;font-family:${getComputedStyle(document.body).fontFamily || "Arial, sans-serif"};`;
 
     const header = document.createElement("div");
     header.style.marginBottom = "16px";
     header.innerHTML = `
-      <div style="font-size:20px;font-weight:800;color:#1A1A1A;margin-bottom:4px;">${titre}</div>
-      <div style="font-size:12px;color:#6B6B6B;margin-bottom:6px;">${sousTitre}</div>
+      <div style="font-size:22px;font-weight:800;color:#1A1A1A;margin-bottom:4px;">${titre}</div>
+      <div style="font-size:13px;color:#6B6B6B;margin-bottom:6px;">${sousTitre}</div>
       <div style="font-size:11px;color:#B0B0B0;">${periodeLabel}</div>
       <div style="height:3px;background:#E05A00;border-radius:2px;margin-top:10px;"></div>
     `;
     wrapper.appendChild(header);
     wrapper.appendChild(clone);
-    document.body.appendChild(wrapper);
+    voile.appendChild(wrapper);
 
-    function restaurerBouton() {
-      if (btn) { btn.innerHTML = btnLabelOrig; btn.disabled = false; btn.style.opacity = "1"; }
-    }
-
-    // Laisser le navigateur peindre le clone avant capture
-    setTimeout(() => {
-      html2canvas(wrapper, { scale: 2, backgroundColor: "#ffffff", useCORS: true, windowWidth: wrapper.scrollWidth }).then(canvas => {
-        document.body.removeChild(wrapper);
-
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF("p", "mm", "a4");
-        const pageW = doc.internal.pageSize.getWidth();
-        const pageH = doc.internal.pageSize.getHeight();
-        const marginX = 8, marginY = 8;
-        const usableW = pageW - marginX * 2;
-        const ratio = usableW / canvas.width;
-        const pageHeightPx = (pageH - marginY * 2) / ratio;
-
-        let renderedPx = 0;
-        let pageIndex = 0;
-        while (renderedPx < canvas.height) {
-          const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
-          const sliceCanvas = document.createElement("canvas");
-          sliceCanvas.width = canvas.width;
-          sliceCanvas.height = sliceHeightPx;
-          const ctx = sliceCanvas.getContext("2d");
-          ctx.drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
-          const sliceData = sliceCanvas.toDataURL("image/png");
-          if (pageIndex > 0) doc.addPage();
-          doc.addImage(sliceData, "PNG", marginX, marginY, usableW, sliceHeightPx * ratio);
-          renderedPx += sliceHeightPx;
-          pageIndex++;
-        }
-
-        const dateFichier = new Date().toISOString().slice(0,10);
-        doc.save(`analyse_globale_incidents_${dateFichier}.pdf`);
-        restaurerBouton();
-      }).catch(err => {
-        if (document.body.contains(wrapper)) document.body.removeChild(wrapper);
-        console.error(err);
-        alert("Erreur lors de la génération du PDF.");
-        restaurerBouton();
+    // Laisser le navigateur peindre le clone (+ polices) avant capture
+    const attendreRendu = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+    attendreRendu.then(() => new Promise(r => setTimeout(r, 150))).then(() => {
+      return html2canvas(wrapper, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: largeurCible,
+        width: largeurCible
       });
-    }, 50);
+    }).then(canvas => {
+      document.body.removeChild(voile);
+
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF("p", "mm", "a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const marginX = 8, marginY = 8;
+      const usableW = pageW - marginX * 2;
+      const ratio = usableW / canvas.width;
+      const pageHeightPx = (pageH - marginY * 2) / ratio;
+
+      let renderedPx = 0;
+      let pageIndex = 0;
+      while (renderedPx < canvas.height) {
+        const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+        const sliceCanvas = document.createElement("canvas");
+        sliceCanvas.width = canvas.width;
+        sliceCanvas.height = sliceHeightPx;
+        const ctx = sliceCanvas.getContext("2d");
+        ctx.drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+        const sliceData = sliceCanvas.toDataURL("image/png");
+        if (pageIndex > 0) doc.addPage();
+        doc.addImage(sliceData, "PNG", marginX, marginY, usableW, sliceHeightPx * ratio);
+        renderedPx += sliceHeightPx;
+        pageIndex++;
+      }
+
+      const dateFichier = new Date().toISOString().slice(0,10);
+      doc.save(`analyse_globale_incidents_${dateFichier}.pdf`);
+      restaurerBouton();
+    }).catch(err => {
+      if (document.body.contains(voile)) document.body.removeChild(voile);
+      console.error("Export PDF — erreur :", err);
+      alert("Erreur lors de la génération du PDF : " + (err && err.message ? err.message : err));
+      restaurerBouton();
+    });
   }
 
   function fermerSummary() {

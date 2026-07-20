@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Suivi des Dossiers</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <!-- Firebase Realtime Database -->
 <script type="module">
@@ -203,6 +205,44 @@ td.num{text-align:right}
 .popup-content{background:#fff;border-radius:8px;padding:15px;width:1100px;max-height:85vh;overflow:auto}
 .popup-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .close{cursor:pointer;font-weight:bold;font-size:18px}
+
+/* ===== Rapport KPI ===== */
+.rap-shell{width:min(1400px,96vw);max-height:92vh;font-family:Arial,Helvetica,sans-serif;}
+.rap-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#f7f5ff;border:1px solid #e0d9fb;border-radius:8px;padding:8px 12px;margin-bottom:8px;}
+.rap-tb-label{font-size:12px;font-weight:700;color:#4c1d95;}
+.rap-tb-group{display:flex;align-items:center;gap:6px;}
+.rap-tb-sep{width:1px;align-self:stretch;background:#e0d9fb;margin:0 2px;}
+.rap-toolbar select,.rap-toolbar input[type="date"]{padding:5px 7px;border:1px solid #d4c9f5;border-radius:6px;font-size:12px;}
+.rap-btn{padding:6px 12px;font-size:12px;font-weight:600;border:none;border-radius:6px;cursor:pointer;color:#fff;}
+.rap-btn-primary{background:#7c3aed;}
+.rap-btn-pdf{background:#E05A00;}
+.rap-btn:disabled{opacity:.6;cursor:default;}
+.rap-file-btn{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px dashed #7c3aed;color:#5b21b6;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600;cursor:pointer;}
+.rap-file-btn:hover{background:#f3f0ff;}
+.rap-mes-status{font-size:11px;color:#888;}
+.rap-period-label{font-size:11px;color:#888;padding:2px 2px 8px;}
+
+.rap-section{background:#fff;border-radius:10px;box-shadow:0 1px 6px rgba(0,0,0,.08);padding:16px;margin-bottom:16px;}
+.rap-section h3{margin:0 0 12px;font-size:14px;color:#1a1a1a;border-bottom:2px solid #f7f7f7;padding-bottom:6px;}
+.rap-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+.rap-kpi-card{border-radius:8px;padding:12px 14px;background:#fafafa;border-left:4px solid #7c3aed;}
+.rap-kpi-card .v{font-size:22px;font-weight:800;color:#1a1a1a;line-height:1.1;}
+.rap-kpi-card .l{font-size:11px;color:#666;margin-top:4px;font-weight:600;}
+.rap-kpi-card .p{font-size:10px;color:#999;margin-top:2px;}
+
+.rap-top10{width:100%;border-collapse:collapse;font-size:12.5px;}
+.rap-top10 th{background:#f3f0ff;color:#4c1d95;text-align:left;padding:6px 8px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;}
+.rap-top10 td{padding:6px 8px;border-bottom:1px solid #f0f0f0;}
+.rap-top10 tr:last-child td{border-bottom:none;}
+.rap-rank{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;border-radius:50%;background:#7c3aed;color:#fff;font-size:10px;font-weight:800;margin-right:6px;}
+.rap-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media (max-width:900px){.rap-grid-2{grid-template-columns:1fr;}}
+.rap-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;}
+.rap-bar-label{width:130px;flex-shrink:0;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rap-bar-track{flex:1;height:14px;background:#f0f0f0;border-radius:7px;overflow:hidden;}
+.rap-bar-fill{height:100%;background:#7c3aed;border-radius:7px;}
+.rap-bar-val{width:70px;text-align:right;font-weight:700;color:#333;}
+.rap-analyse{background:#F7F7F7;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.6;color:#1a1a1a;}
 </style>
 </head>
 <body>
@@ -215,6 +255,7 @@ td.num{text-align:right}
 <button onclick="location.href='blr.html'">BLR</button>
 <button onclick="location.href='lte.html'">LTE</button>
 <button onclick="location.href='hub_vsat.html'">VSAT</button>
+<button id="btnRapport" style="background:#7c3aed;color:white;">📊 Rapport</button>
 
 <h1 id="resume">Dossiers : 0</h1>
 <div class="subresume" id="subresume">LS : 0 | LSI : 0 | Numérique : 0</div>
@@ -345,6 +386,56 @@ td.num{text-align:right}
    <thead><tr><th>Valeur</th><th style="width:80px;">Action</th></tr></thead>
    <tbody id="tbodyOptions"></tbody>
   </table>
+ </div>
+</div>
+
+<!-- Popup Rapport KPI -->
+<div class="popup" id="popupRapport">
+ <div class="popup-content rap-shell">
+  <div class="popup-header">
+   <h2>📊 Rapport — Pilotage dossiers B2B</h2>
+   <span class="close" onclick="fermerRapport()">✕</span>
+  </div>
+
+  <div class="rap-toolbar">
+   <span class="rap-tb-label">📅 Période :</span>
+   <select id="rap-mode" onchange="changerModePeriodeRapport()">
+     <option value="mois">Par mois</option>
+     <option value="dates">Entre 2 dates</option>
+     <option value="annee">Année entière</option>
+   </select>
+   <span id="rap-mois-wrap" class="rap-tb-group">
+     <select id="rap-mois-unique"></select>
+     <select id="rap-mois-annee"></select>
+   </span>
+   <span id="rap-dates-wrap" class="rap-tb-group" style="display:none;">
+     <input type="date" id="rap-date-debut">
+     <span style="color:#888;">→</span>
+     <input type="date" id="rap-date-fin">
+   </span>
+   <span id="rap-annee-wrap" class="rap-tb-group" style="display:none;">
+     <select id="rap-annee-seule"></select>
+   </span>
+
+   <span class="rap-tb-sep"></span>
+
+   <label class="rap-file-btn">
+     📥 Importer fichier MES (livraisons)
+     <input type="file" id="rapMesFile" accept=".xlsx,.xls" style="display:none;">
+   </label>
+   <span id="rap-mes-status" class="rap-mes-status">Aucun fichier importé</span>
+
+   <span class="rap-tb-sep"></span>
+
+   <button class="rap-btn rap-btn-primary" onclick="genererRapportKPI()">Générer</button>
+   <button class="rap-btn rap-btn-pdf" id="btn-export-rapport-pdf" onclick="exporterRapportPDF()">📄 Exporter PDF</button>
+  </div>
+
+  <div id="rap-period-label" class="rap-period-label"></div>
+
+  <div id="rap-body">
+   <p style="color:#999;text-align:center;padding:30px;">⏳ Importez le fichier MES puis cliquez sur « Générer » pour construire le rapport.</p>
+  </div>
  </div>
 </div>
 
@@ -1028,5 +1119,377 @@ window.supprimerLigneSolution = function(safeKey){
  const count = tbody ? tbody.querySelectorAll("tr").length : 0;
  document.getElementById("popupSolutionsTempTitle").textContent = `🔧 Solutions temporaires (${count})`;
 };
+
+/* ============================================================
+   ===============  RAPPORT KPI — PILOTAGE B2B  ================
+   ============================================================ */
+
+const MN_RAP = {1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",8:"Août",9:"Septembre",10:"Octobre",11:"Novembre",12:"Décembre"};
+
+window._mesRapportData = null;   // lignes brutes importées du fichier MES (livraisons)
+window._mesColMap = null;        // correspondance des colonnes du fichier importé
+
+document.getElementById("btnRapport").onclick = function(){
+ initPeriodeSelectorsRapport();
+ document.getElementById("rap-mode").value = "mois";
+ changerModePeriodeRapport();
+ document.getElementById("popupRapport").style.display = "flex";
+};
+
+function fermerRapport(){
+ document.getElementById("popupRapport").style.display = "none";
+}
+
+/* ── Normalisation d'en-têtes (tolère accents, espaces, retours à la ligne) ── */
+function normHeadRap(h){
+ return String(h||"").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Z0-9]/g,"");
+}
+function trouverCleRap(sample, motifs){
+ const keys = Object.keys(sample||{});
+ for(const motif of motifs){
+  const k = keys.find(k => normHeadRap(k).includes(motif));
+  if(k) return k;
+ }
+ return null;
+}
+function initColMapMES(sample){
+ return {
+  client:       trouverCleRap(sample, ["CLIENT"]),
+  produit:      trouverCleRap(sample, ["LIBELLEPRODUIT","PRODUIT"]),
+  support:      trouverCleRap(sample, ["SUPPORT"]),
+  localisation: trouverCleRap(sample, ["LOCALISATION"]),
+  dateCreation: trouverCleRap(sample, ["DATEDECREATION"]),
+  dateMAD:      trouverCleRap(sample, ["DATEDEMAD"]),
+  dmrTech:      trouverCleRap(sample, ["DMRTECHNIQUE"]),
+  fraisMS:      trouverCleRap(sample, ["FRAISDEMISEENSERVICE","FRAISMS"]),
+  recurrent:    trouverCleRap(sample, ["RECCURENTMENSUEL","RECURRENTMENSUEL","RECURENTMENSUEL"]),
+  total:        trouverCleRap(sample, ["TOTAL"]),
+  dateMES:      trouverCleRap(sample, ["DATEMESMEF","DATEMES"]),
+  dmrMES:       trouverCleRap(sample, ["DMRMES"]),
+  semaine:      trouverCleRap(sample, ["SEMAINE"]),
+ };
+}
+function parseNumRap(v){
+ if(v===undefined||v===null||v==="-"||v==="") return 0;
+ if(typeof v === "number") return v;
+ const s = String(v).replace(/[\s\u00A0]/g,"").replace(",",".");
+ const n = parseFloat(s);
+ return isNaN(n) ? 0 : n;
+}
+
+/* ── Import du fichier MES (livraisons) ── */
+document.getElementById("rapMesFile").addEventListener("change", function(e){
+ const file = e.target.files[0];
+ if(!file) return;
+ const statusEl = document.getElementById("rap-mes-status");
+ statusEl.textContent = "⏳ Import en cours...";
+ const reader = new FileReader();
+ reader.onload = function(evt){
+  try{
+   const wb = XLSX.read(evt.target.result, {type:"array", cellDates:true});
+   const ws = wb.Sheets[wb.SheetNames[0]];
+   const raw = XLSX.utils.sheet_to_json(ws, {raw:true, defval:""});
+   if(!raw.length){ statusEl.textContent = "⚠️ Fichier vide."; return; }
+   window._mesRapportData = raw;
+   window._mesColMap = initColMapMES(raw[0]);
+   statusEl.textContent = `✅ ${raw.length} lignes importées (${file.name})`;
+   statusEl.style.color = "#16a34a";
+  }catch(err){
+   console.error(err);
+   statusEl.textContent = "❌ Erreur de lecture du fichier.";
+   statusEl.style.color = "#dc2626";
+  }
+ };
+ reader.readAsArrayBuffer(file);
+});
+
+/* ── Sélecteurs de période ── */
+function getAnneesDisponiblesRapport(){
+ const annees = new Set();
+ (dossiersGlobal||[]).forEach(r=>{ const d=parseDate(r["DATE CREATION DOSSIER"]); if(d) annees.add(d.getFullYear()); });
+ if(window._mesRapportData && window._mesColMap){
+  window._mesRapportData.forEach(r=>{
+   const d = parseDate(r[window._mesColMap.dateMES] || r[window._mesColMap.dateCreation]);
+   if(d) annees.add(d.getFullYear());
+  });
+ }
+ annees.add(new Date().getFullYear());
+ return [...annees].sort((a,b)=>a-b);
+}
+function initPeriodeSelectorsRapport(){
+ const selMois = document.getElementById("rap-mois-unique");
+ const selMoisAnnee = document.getElementById("rap-mois-annee");
+ const selAnneeSeule = document.getElementById("rap-annee-seule");
+ const annees = getAnneesDisponiblesRapport();
+ const anneeActuelle = new Date().getFullYear();
+ if(!selMois.options.length){
+  selMois.innerHTML = Object.entries(MN_RAP).map(([m,l])=>`<option value="${m}">${l}</option>`).join("");
+  selMois.value = String(new Date().getMonth()+1);
+  selMois.addEventListener("change", genererRapportKPI);
+ }
+ const optsAnnee = annees.map(a=>`<option value="${a}">${a}</option>`).join("");
+ [selMoisAnnee, selAnneeSeule].forEach(sel=>{
+  sel.innerHTML = optsAnnee;
+  sel.value = String(annees.includes(anneeActuelle) ? anneeActuelle : annees[annees.length-1]);
+  if(!sel.dataset.bound){ sel.addEventListener("change", genererRapportKPI); sel.dataset.bound="1"; }
+ });
+}
+// Dernière semaine complète (lundi → dimanche) précédant la semaine en cours
+function getDerniereSemaineRapport(){
+ const now = new Date();
+ const jour = now.getDay();
+ const diffLundi = (jour===0) ? 6 : jour-1;
+ const lundiCourant = new Date(now.getFullYear(), now.getMonth(), now.getDate()-diffLundi);
+ const lundiPrec = new Date(lundiCourant.getFullYear(), lundiCourant.getMonth(), lundiCourant.getDate()-7);
+ const dimanchePrec = new Date(lundiPrec.getFullYear(), lundiPrec.getMonth(), lundiPrec.getDate()+6);
+ return {debut:lundiPrec, fin:dimanchePrec};
+}
+function toISODateRap(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+
+function changerModePeriodeRapport(){
+ const mode = document.getElementById("rap-mode").value;
+ document.getElementById("rap-mois-wrap").style.display = (mode==="mois") ? "flex" : "none";
+ document.getElementById("rap-dates-wrap").style.display = (mode==="dates") ? "flex" : "none";
+ document.getElementById("rap-annee-wrap").style.display = (mode==="annee") ? "flex" : "none";
+ if(mode==="dates"){
+  const {debut,fin} = getDerniereSemaineRapport();
+  document.getElementById("rap-date-debut").value = toISODateRap(debut);
+  document.getElementById("rap-date-fin").value = toISODateRap(fin);
+ }
+ if(window._mesRapportData) genererRapportKPI();
+}
+["rap-date-debut","rap-date-fin"].forEach(id=>{
+ document.getElementById(id).addEventListener("change", ()=>{ if(window._mesRapportData) genererRapportKPI(); });
+});
+
+function fmtDateFrRap(d){
+ if(!(d instanceof Date) || isNaN(d)) return "-";
+ return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+}
+function fmtMontantRap(n){
+ return Math.round(n).toLocaleString("fr-FR") + " F";
+}
+function getPeriodeRapport(){
+ const mode = document.getElementById("rap-mode").value;
+ if(mode==="dates"){
+  const v1=document.getElementById("rap-date-debut").value, v2=document.getElementById("rap-date-fin").value;
+  if(!v1||!v2){ alert("Veuillez choisir les deux dates."); return null; }
+  const debut=new Date(v1+"T00:00:00"), fin=new Date(v2+"T23:59:59");
+  if(debut>fin){ alert("La date de début doit précéder la date de fin."); return null; }
+  return {debut,fin};
+ }
+ if(mode==="annee"){
+  const annee=parseInt(document.getElementById("rap-annee-seule").value,10);
+  return {debut:new Date(annee,0,1,0,0,0), fin:new Date(annee,11,31,23,59,59)};
+ }
+ const mois=parseInt(document.getElementById("rap-mois-unique").value,10);
+ const annee=parseInt(document.getElementById("rap-mois-annee").value,10);
+ return {debut:new Date(annee,mois-1,1,0,0,0), fin:new Date(annee,mois,0,23,59,59)};
+}
+
+/* ── Génération du rapport ── */
+function genererRapportKPI(){
+ const periode = getPeriodeRapport();
+ if(!periode) return;
+ const {debut,fin} = periode;
+ document.getElementById("rap-period-label").textContent =
+  `Période analysée : ${fmtDateFrRap(debut)} → ${fmtDateFrRap(fin)}`;
+
+ const cm = window._mesColMap;
+ const mesData = window._mesRapportData;
+
+ // ── 1) ENCOURS (PIPE) — instantané actuel, non filtré par la période de création ──
+ const encoursTotal = (dossiersGlobal||[]).length;
+ let caEncours = 0;
+ const clientsEncours = {};
+ (dossiersGlobal||[]).forEach(r=>{
+  const montant = parseNumRap(r["MONTANT MS"]);
+  caEncours += montant;
+  const cl = (r["CLIENT"]||"Inconnu").trim();
+  clientsEncours[cl] = (clientsEncours[cl]||0) + montant;
+ });
+ const top10Encours = Object.entries(clientsEncours).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+ // ── 2) LIVRÉS / MIS EN SERVICE (fichier MES importé), filtrés sur la période ──
+ let livresPeriode = [];
+ if(mesData && cm){
+  livresPeriode = mesData.filter(r=>{
+   const d = parseDate(r[cm.dateMES]);
+   return d && d>=debut && d<=fin;
+  });
+ }
+ const totalMES = livresPeriode.length;
+ let caLivre=0, fraisMSTotal=0, recurrentTotal=0, dansDelais=0, horsDelais=0, sansDelaiInfo=0;
+ const clientsLivres = {}, supportRepartition = {};
+ livresPeriode.forEach(r=>{
+  const total = cm.total ? parseNumRap(r[cm.total]) : 0;
+  const frais = cm.fraisMS ? parseNumRap(r[cm.fraisMS]) : 0;
+  const rec   = cm.recurrent ? parseNumRap(r[cm.recurrent]) : 0;
+  caLivre += total; fraisMSTotal += frais; recurrentTotal += rec;
+
+  const dmrMES  = cm.dmrMES  ? r[cm.dmrMES]  : null;
+  const dmrTech = cm.dmrTech ? r[cm.dmrTech] : null;
+  if(dmrMES !== null && dmrMES !== "" && dmrTech !== null && dmrTech !== ""){
+   const vMES = parseNumRap(dmrMES), vTech = parseNumRap(dmrTech);
+   if(vMES <= vTech) dansDelais++; else horsDelais++;
+  } else {
+   sansDelaiInfo++;
+  }
+
+  const cl = cm.client ? (String(r[cm.client]||"Inconnu").trim()) : "Inconnu";
+  if(!clientsLivres[cl]) clientsLivres[cl] = {ca:0, nb:0};
+  clientsLivres[cl].ca += total;
+  clientsLivres[cl].nb += 1;
+
+  const sup = cm.support ? (String(r[cm.support]||"Autre").trim()) : "Autre";
+  supportRepartition[sup] = (supportRepartition[sup]||0) + 1;
+ });
+ const top10LivresCA = Object.entries(clientsLivres).sort((a,b)=>b[1].ca-a[1].ca).slice(0,10);
+ const top10LivresVol = Object.entries(clientsLivres).sort((a,b)=>b[1].nb-a[1].nb).slice(0,10);
+ const tauxDelais = (dansDelais+horsDelais) ? Math.round(dansDelais/(dansDelais+horsDelais)*1000)/10 : null;
+ const supportsSorted = Object.entries(supportRepartition).sort((a,b)=>b[1]-a[1]);
+ const maxSupport = supportsSorted.length ? supportsSorted[0][1] : 1;
+
+ // ── Rendu HTML ──
+ function kpiCard(label, val, color, sub){
+  return `<div class="rap-kpi-card" style="border-left-color:${color};">
+    <div class="v">${val}</div><div class="l">${label}</div>${sub?`<div class="p">${sub}</div>`:""}
+  </div>`;
+ }
+ let html = "";
+
+ html += `<div class="rap-section"><h3>🧮 Vue d'ensemble</h3><div class="rap-kpi-grid">
+   ${kpiCard("Dossiers en cours (encours)", encoursTotal, "#1B4F72")}
+   ${kpiCard("CA en cours (MRC)", fmtMontantRap(caEncours), "#1B4F72")}
+   ${kpiCard("Mis en service (période)", totalMES, "#7c3aed")}
+   ${kpiCard("CA livré (période)", fmtMontantRap(caLivre), "#7c3aed")}
+   ${kpiCard("Livrés dans les délais", dansDelais, "#16a34a", tauxDelais!==null?`${tauxDelais}% du total évalué`:"")}
+   ${kpiCard("Livrés hors délais", horsDelais, "#dc2626", (dansDelais+horsDelais)?`${Math.round(horsDelais/(dansDelais+horsDelais)*1000)/10}% du total évalué`:"")}
+ </div></div>`;
+
+ html += `<div class="rap-section"><h3>💰 Détail chiffre d'affaires (période, fichier MES)</h3><div class="rap-kpi-grid">
+   ${kpiCard("Frais de mise en service", fmtMontantRap(fraisMSTotal), "#B07700")}
+   ${kpiCard("Récurrent mensuel généré", fmtMontantRap(recurrentTotal), "#B07700")}
+   ${kpiCard("CA total (frais + récurrent)", fmtMontantRap(caLivre), "#E05A00")}
+   ${kpiCard("Sans info de délai", sansDelaiInfo, "#6B6B6B")}
+ </div></div>`;
+
+ html += `<div class="rap-grid-2">
+   <div class="rap-section"><h3>🏆 Top 10 clients — CA livré (période)</h3>
+    ${top10LivresCA.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA</th><th>Nb dossiers</th></tr></thead><tbody>
+     ${top10LivresCA.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td>${v.nb}</td></tr>`).join("")}
+    </tbody></table>` : `<p style="color:#999;font-size:12px;">Importez le fichier MES pour afficher ce classement.</p>`}
+   </div>
+   <div class="rap-section"><h3>📦 Top 10 clients — volume livré (période)</h3>
+    ${top10LivresVol.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>Nb dossiers</th><th>CA</th></tr></thead><tbody>
+     ${top10LivresVol.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${v.nb}</b></td><td>${fmtMontantRap(v.ca)}</td></tr>`).join("")}
+    </tbody></table>` : `<p style="color:#999;font-size:12px;">Importez le fichier MES pour afficher ce classement.</p>`}
+   </div>
+ </div>`;
+
+ html += `<div class="rap-section"><h3>📶 Répartition des livraisons par support (période)</h3>
+   ${supportsSorted.length ? supportsSorted.map(([sup,n])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label">${sup}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxSupport*100)}%;"></div></div>
+       <div class="rap-bar-val">${n}</div>
+     </div>`).join("") : `<p style="color:#999;font-size:12px;">Importez le fichier MES pour afficher cette répartition.</p>`}
+ </div>`;
+
+ html += `<div class="rap-section"><h3>🏗️ Top 10 dossiers en cours — CA en attente</h3>
+   ${top10Encours.length ? `<table class="rap-top10"><thead><tr><th>#</th><th>Client</th><th>CA en attente</th></tr></thead><tbody>
+    ${top10Encours.map(([cl,v],i)=>`<tr><td><span class="rap-rank">${i+1}</span></td><td>${cl}</td><td><b>${fmtMontantRap(v)}</b></td></tr>`).join("")}
+   </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
+ </div>`;
+
+ let analyse = `📊 Sur la période sélectionnée, <b>${totalMES}</b> dossier(s) ont été mis en service pour un chiffre d'affaires de <b>${fmtMontantRap(caLivre)}</b>.`;
+ if(dansDelais+horsDelais > 0){
+  analyse += ` Le taux de respect des délais s'établit à <b>${tauxDelais}%</b> (${dansDelais} dans les délais / ${horsDelais} hors délais).`;
+ }
+ analyse += ` Le portefeuille de dossiers en cours (backlog) représente <b>${encoursTotal}</b> dossier(s), soit un chiffre d'affaires potentiel de <b>${fmtMontantRap(caEncours)}</b> une fois livrés.`;
+ html += `<div class="rap-section"><h3>📝 Analyse</h3><div class="rap-analyse">${analyse}</div></div>`;
+
+ document.getElementById("rap-body").innerHTML = html;
+}
+
+/* ── Export PDF du rapport (capture fidèle à l'écran) ── */
+function exporterRapportPDF(){
+ const bodyEl = document.getElementById("rap-body");
+ if(!bodyEl || !bodyEl.innerHTML.trim()){ alert("Veuillez d'abord générer le rapport."); return; }
+ if(typeof html2canvas==="undefined"){ alert("Le module de capture n'a pas fini de se charger, réessayez dans un instant."); return; }
+ if(!window.jspdf){ alert("Le module PDF n'a pas fini de se charger, réessayez dans un instant."); return; }
+
+ const btn = document.getElementById("btn-export-rapport-pdf");
+ const btnLabelOrig = btn ? btn.innerHTML : null;
+ function restaurerBouton(){ if(btn){ btn.innerHTML=btnLabelOrig; btn.disabled=false; btn.style.opacity="1"; } }
+ if(btn){ btn.innerHTML="⏳ Génération..."; btn.disabled=true; btn.style.opacity="0.7"; }
+
+ const voile = document.createElement("div");
+ voile.style.cssText = "position:fixed;inset:0;background:#ffffff;z-index:999999;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;font-size:14px;color:#6B6B6B;";
+ voile.textContent = "⏳ Génération du PDF en cours...";
+ document.body.appendChild(voile);
+
+ const clone = bodyEl.cloneNode(true);
+ clone.querySelectorAll("*").forEach(el=>{
+  if(el.style && el.style.maxHeight) el.style.maxHeight="none";
+  if(el.style && el.style.overflowY==="auto") el.style.overflowY="visible";
+ });
+
+ const periodeLabel = (document.getElementById("rap-period-label")?.textContent || "").trim();
+ const largeurCible = Math.max(bodyEl.scrollWidth, bodyEl.offsetWidth, 1000);
+
+ const wrapper = document.createElement("div");
+ wrapper.style.cssText = `position:relative;width:${largeurCible}px;background:#ffffff;padding:24px;box-sizing:border-box;font-family:Arial,Helvetica,sans-serif;`;
+ const header = document.createElement("div");
+ header.style.marginBottom = "16px";
+ header.innerHTML = `
+   <div style="font-size:22px;font-weight:800;color:#1A1A1A;margin-bottom:4px;">📊 Rapport — Pilotage dossiers B2B</div>
+   <div style="font-size:11px;color:#B0B0B0;">${periodeLabel}</div>
+   <div style="height:3px;background:#7c3aed;border-radius:2px;margin-top:10px;"></div>
+ `;
+ wrapper.appendChild(header);
+ wrapper.appendChild(clone);
+ voile.appendChild(wrapper);
+
+ const attendreRendu = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+ attendreRendu.then(()=> new Promise(r=>setTimeout(r,150))).then(()=>{
+  return html2canvas(wrapper, {
+   scale:2, backgroundColor:"#ffffff", useCORS:true, allowTaint:true, logging:false,
+   scrollX:0, scrollY:0, windowWidth:largeurCible, width:largeurCible
+  });
+ }).then(canvas=>{
+  document.body.removeChild(voile);
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF("p","mm","a4");
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const marginX=8, marginY=8;
+  const usableW = pageW - marginX*2;
+  const ratio = usableW / canvas.width;
+  const pageHeightPx = (pageH - marginY*2) / ratio;
+
+  let renderedPx=0, pageIndex=0;
+  while(renderedPx < canvas.height){
+   const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedPx);
+   const sliceCanvas = document.createElement("canvas");
+   sliceCanvas.width = canvas.width;
+   sliceCanvas.height = sliceHeightPx;
+   const ctx = sliceCanvas.getContext("2d");
+   ctx.drawImage(canvas, 0, renderedPx, canvas.width, sliceHeightPx, 0, 0, canvas.width, sliceHeightPx);
+   const sliceData = sliceCanvas.toDataURL("image/png");
+   if(pageIndex>0) doc.addPage();
+   doc.addImage(sliceData,"PNG",marginX,marginY,usableW,sliceHeightPx*ratio);
+   renderedPx += sliceHeightPx; pageIndex++;
+  }
+  const dateFichier = new Date().toISOString().slice(0,10);
+  doc.save(`rapport_dossiers_b2b_${dateFichier}.pdf`);
+  restaurerBouton();
+ }).catch(err=>{
+  if(document.body.contains(voile)) document.body.removeChild(voile);
+  console.error("Export PDF — erreur :", err);
+  alert("Erreur lors de la génération du PDF : " + (err && err.message ? err.message : err));
+  restaurerBouton();
+ });
+}
 </script>
 </html>
