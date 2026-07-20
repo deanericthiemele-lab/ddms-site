@@ -1272,43 +1272,54 @@ async function computeWeekAvailability(weekKey){
   const list = await getSaved();
   const reports = list.filter(r=>mondayKeyOf(parseReportDate(r))===weekKey)
                       .sort((a,b)=>parseReportDate(a)-parseReportDate(b));
-  if(!reports.length) return null;
 
-  let ifD, ndD;
-  const allHaveRaw = reports.every(r=>r.rawText && r.rawText.trim());
-  if(allHaveRaw){
-    // Rejoue le pipeline complet de parsing sur les données brutes de la semaine (précis)
-    const merged = reports.map(r=>r.rawText.trim()).join("\n");
-    const events = parseEvents(merged);
-    ifD = buildRows(events,"if");
-    ndD = buildRows(events,"nd");
-  } else {
-    // Anciens rapports sans texte brut : agrégation approximative depuis if_data/nd_data stockés
-    const mergeMap = key => {
-      const map={};
-      reports.forEach(r=>{
-        (r[key]||[]).forEach(d=>{
-          if(!map[d.site]) map[d.site]={...d};
-          else {
-            const s=map[d.site];
-            s.nb += d.nb;
-            if(d.up && d.up!=="—"){ s.up=d.up; s.isDown=false; }
-            else if(d.isDown){ s.isDown=true; }
-          }
+  let ifD = [], ndD = [];
+  if(reports.length){
+    const allHaveRaw = reports.every(r=>r.rawText && r.rawText.trim());
+    if(allHaveRaw){
+      // Rejoue le pipeline complet de parsing sur les données brutes de la semaine (précis)
+      const merged = reports.map(r=>r.rawText.trim()).join("\n");
+      const events = parseEvents(merged);
+      ifD = buildRows(events,"if");
+      ndD = buildRows(events,"nd");
+    } else {
+      // Anciens rapports sans texte brut : agrégation approximative depuis if_data/nd_data stockés
+      const mergeMap = key => {
+        const map={};
+        reports.forEach(r=>{
+          (r[key]||[]).forEach(d=>{
+            if(!map[d.site]) map[d.site]={...d};
+            else {
+              const s=map[d.site];
+              s.nb += d.nb;
+              if(d.up && d.up!=="—"){ s.up=d.up; s.isDown=false; }
+              else if(d.isDown){ s.isDown=true; }
+            }
+          });
         });
-      });
-      return Object.values(map);
-    };
-    ifD = mergeMap("if_data");
-    ndD = mergeMap("nd_data");
+        return Object.values(map);
+      };
+      ifD = mergeMap("if_data");
+      ndD = mergeMap("nd_data");
+    }
   }
   const manuelTaux     = reports.map(r=>r.tauxManuel).filter(v=>v!==undefined && v!==null && !isNaN(v));
-  const manuelSignales = reports.map(r=>r.tauxSignalesManuel).filter(v=>v!==undefined && v!==null && !isNaN(v));
-  const taux           = manuelTaux.length ? Math.round(manuelTaux.reduce((a,b)=>a+b,0)/manuelTaux.length) : tauxDispoPondere(ifD, ndD);
-  // Taux global de disponibilité de service : uniquement la saisie manuelle — jamais de calcul
-  // automatique de repli. Si aucune valeur n'a été renseignée cette semaine-là, on renvoie null
-  // (le graphe "Évolution — 4 semaines" n'affichera alors rien pour cette semaine).
-  const tauxSignales   = manuelSignales.length ? Math.round(manuelSignales.reduce((a,b)=>a+b,0)/manuelSignales.length) : null;
+  const taux           = manuelTaux.length ? Math.round(manuelTaux.reduce((a,b)=>a+b,0)/manuelTaux.length) : (reports.length ? tauxDispoPondere(ifD, ndD) : null);
+  // Taux global de disponibilité de service : uniquement la valeur enregistrée pour CETTE semaine
+  // dans Firestore (collection "noc_taux_dispo_semaine", une valeur par semaine — voir le système
+  // de verrouillage hebdomadaire). Jamais de calcul automatique de repli, jamais lu depuis les
+  // rapports journaliers individuels. Indépendant du nombre de rapports journaliers de la semaine.
+  let tauxSignales = null;
+  if(window._db && window._doc && window._getDoc){
+    try{
+      const snapSig = await window._getDoc(window._doc(window._db, "noc_taux_dispo_semaine", weekKey));
+      if(snapSig.exists()){
+        const v = snapSig.data()?.valeur;
+        if(v!==undefined && v!==null) tauxSignales = v;
+      }
+    }catch(e){ console.warn("Lecture taux dispo service semaine:", e); }
+  }
+  if(!reports.length && tauxSignales===null && taux===null) return null;
   const totalSitesWk   = new Set([...ifD.map(d=>d.site), ...ndD.map(d=>d.site)]).size;
   const instablesAllWk = [...ifD,...ndD].filter(d=>d.isFlapping);
   const nbInstables    = instablesAllWk.length;
@@ -1506,7 +1517,7 @@ function getTotalSitesSupervises(defaultVal){
 }
 
 //  RENDER DASHBOARD — met à jour le DOM existant (ne l'écrase pas) 
-function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
+async function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   // Mettre à jour hdr-date si pas déjà fait
   const hdrDate = document.getElementById("hdr-date");
   if(hdrDate && hdrDate.textContent !== periodLabel) hdrDate.textContent = periodLabel;
@@ -1725,26 +1736,17 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   chargerVerrouTauxDispoSemaine();
   chargerVerrouTauxDispoLienSemaine();
 
-  // Évolution 4 semaines : uniquement si ce rapport a été généré via une sélection de semaine (fusion)
-  let evolutionPromise;
-  if(window._pendingWeekReports){
-    const reportsForWeek = window._pendingWeekReports;
-    window._pendingWeekReports = null;
-    const dates = reportsForWeek.map(parseReportDate).sort((a,b)=>a-b);
-    const curKey = mondayKeyOf(dates[dates.length-1]);
-    const _instablesAllCur = [...ifData,...ndData].filter(d=>d.isFlapping);
-    const _nbClientsInstablesCur = new Set(_instablesAllCur.map(d=>clientFromSite(d.site))).size;
-    const _nbCorrigesCur = _instablesAllCur.filter(d=>!d.isDown).length;
-    const _tauxCorrectionCur = _instablesAllCur.length>0 ? Math.round((_nbCorrigesCur/_instablesAllCur.length)*100) : 0;
-    // Taux global de disponibilité de service (semaine en cours) : uniquement la moyenne des
-    // valeurs saisies manuellement sur les rapports de cette semaine — jamais de calcul auto.
-    const _manuelSignalesCur = reportsForWeek.map(r=>r.tauxSignalesManuel).filter(v=>v!==undefined && v!==null && !isNaN(v));
-    const _tauxSignalesCur = _manuelSignalesCur.length ? Math.round(_manuelSignalesCur.reduce((a,b)=>a+b,0)/_manuelSignalesCur.length) : null;
-    evolutionPromise = computeEvolutionWeeks(curKey, {taux:tauxDispo, tauxSignales:_tauxSignalesCur, nbInstables, tauxInstables: totalSitesSupervises>0?Math.round((nbInstables/totalSitesSupervises)*100):0, nbClientsInstables:_nbClientsInstablesCur, tauxCorrection:_tauxCorrectionCur, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
-  } else {
-    renderEvolutionUI(null);
-    evolutionPromise = Promise.resolve(null);
-  }
+  // Évolution 4 semaines : toujours calculée sur les 4 dernières semaines réelles (jusqu'à
+  // aujourd'hui), indépendamment du rapport actuellement affiché à l'écran/de la sélection.
+  window._pendingWeekReports = null;
+  const _todayWeekKeyEvol = mondayKeyOf(new Date());
+  const evolutionPromise = computeWeekAvailability(_todayWeekKeyEvol).then(curData=>{
+    const currentMetrics = curData || {
+      taux:null, tauxSignales:null, nbInstables:null, tauxInstables:null,
+      nbClientsInstables:null, tauxCorrection:null, nbCoupConfirmees:null, nbClients:null
+    };
+    return computeEvolutionWeeks(_todayWeekKeyEvol, currentMetrics);
+  }).then(renderEvolutionUI);
   // Le graphe MTTR a besoin à la fois des semaines d'évolution ET du MTTR courant (issu des tickets)
   Promise.all([ticketsPromise, evolutionPromise]).then(()=>{ renderNocSavEvolutionUI(); renderResoluEvolutionUI(); renderOuvertureEvolutionUI(); renderMttrEvolutionUI(); });
 }
