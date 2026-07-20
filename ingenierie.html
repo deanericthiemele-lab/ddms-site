@@ -5934,6 +5934,11 @@ function fermerPopupPourcentage2Mois() {
     </div>
     <canvas height="250" id="graphique-fusionne" width="600">
     </canvas>
+    <div style="display:flex;justify-content:center;align-items:center;gap:4px;margin-top:2px;">
+     <span style="font-size:10px;color:#6a1b9a;font-weight:700;">📶 Taux de disponibilité :</span>
+    </div>
+    <div id="taux-dispo-row" style="display:flex;margin-top:4px;padding-left:40px;padding-right:45px;">
+    </div>
     <!-- Popup graphique fusionnée % / % M-1 -->
     <div id="popup-pourcentage-fusionne" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); justify-content:center; align-items:center; z-index:9999;">
      <div style="background:white; padding:16px 20px 14px 20px; border-radius:10px; width:60%; max-width:600px; position:relative;">
@@ -8466,6 +8471,14 @@ function exporterIncidentsND2ParMois() {
   const dataIncidentsND2 = moisTriés.map(m => incidentsND2[m] || 0);
   const dataNDtotal = moisTriés.map(m => ndTotal[m] || 0);
 
+  // ===== Taux de disponibilité (champ éditable sous chaque mois) =====
+  window._moisTriésFusionne = moisTriés;
+  if (!window._tauxDispoParMois) window._tauxDispoParMois = {};
+  const dataTauxDispo = moisTriés.map(m => {
+    const v = window._tauxDispoParMois[m];
+    return (v === undefined || v === null || v === '') ? null : parseFloat(v);
+  });
+
   const ctx = document.getElementById('graphique-fusionne').getContext('2d');
   if (window.graphiqueFusionne) window.graphiqueFusionne.destroy();
 
@@ -8506,6 +8519,19 @@ function exporterIncidentsND2ParMois() {
           data: dataIncidentsND2,
           backgroundColor: '#ef5350',
           hidden: true,
+        },
+        {
+          label: 'Taux de disponibilité (%)',
+          data: dataTauxDispo,
+          backgroundColor: '#ab47bc',
+          yAxisID: 'yDispo',
+          datalabels: {
+            anchor: 'end',
+            align: 'top',
+            font: { weight: 'bold' },
+            color: '#6a1b9a',
+            formatter: (value) => (value === null || value === undefined) ? '' : `${value}%`
+          }
         }
       ]
     },
@@ -8516,8 +8542,9 @@ function exporterIncidentsND2ParMois() {
         const idx = elements[0].index;
         const dsIdx = elements[0].datasetIndex;
         const mNum = moisTriés[idx];
-        // 0=Total Signalisations, 1=ND total, 2=ND≥2, 3=Incidents ND≥2
-        const dsLabels = ['Total Signalisations','ND total','ND ≥ 2','Incidents ND ≥ 2'];
+        // 0=Total Signalisations, 1=ND total, 2=ND≥2, 3=Incidents ND≥2, 4=Taux dispo
+        const dsLabels = ['Total Signalisations','ND total','ND ≥ 2','Incidents ND ≥ 2','Taux de disponibilité (%)'];
+        if (dsIdx === 4) return; // pas de popup pour le taux de disponibilité
         afficherPopupMoisClients(mNum, dsIdx, dsLabels[dsIdx]);
       },
       plugins: {
@@ -8533,6 +8560,14 @@ function exporterIncidentsND2ParMois() {
       scales: {
         y: {
           beginAtZero: true
+        },
+        yDispo: {
+          position: 'right',
+          min: 0,
+          max: 100,
+          grid: { drawOnChartArea: false },
+          ticks: { callback: v => v + '%' },
+          title: { display: true, text: 'Disponibilité' }
         }
       }
     },
@@ -8540,6 +8575,76 @@ function exporterIncidentsND2ParMois() {
   });
 
   calculerEstimationFinMois(moisTriés, signalisations);
+  afficherChampsTauxDispo(moisTriés, labels);
+}
+
+// ===== Champs éditables "Taux de disponibilité" sous le graphique mensuel =====
+function afficherChampsTauxDispo(moisTriés, labels) {
+  const conteneur = document.getElementById('taux-dispo-row');
+  if (!conteneur) return;
+  conteneur.innerHTML = '';
+  moisTriés.forEach((m, i) => {
+    const val = (window._tauxDispoParMois[m] === undefined || window._tauxDispoParMois[m] === null) ? '' : window._tauxDispoParMois[m];
+    const cell = document.createElement('div');
+    cell.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;';
+    cell.innerHTML = `
+      <input type="number" min="0" max="100" step="0.1" value="${val}" placeholder="%"
+        data-mois="${m}"
+        title="Taux de disponibilité — ${labels[i]}"
+        style="width:56px;font-size:11px;text-align:center;padding:2px 4px;border:1px solid #ccc;border-radius:4px;color:#6a1b9a;font-weight:600;">
+      <span class="taux-dispo-statut" data-mois-statut="${m}" style="font-size:9px;color:#999;height:11px;"></span>
+    `;
+    const input = cell.querySelector('input');
+    input.addEventListener('change', () => majTauxDispoMois(m, input.value));
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+    conteneur.appendChild(cell);
+  });
+}
+
+function majTauxDispoMois(mois, valeur) {
+  if (!window._tauxDispoParMois) window._tauxDispoParMois = {};
+  const statutEl = document.querySelector(`.taux-dispo-statut[data-mois-statut="${mois}"]`);
+
+  const supprimer = (valeur === '' || valeur === null || isNaN(parseFloat(valeur)));
+  let v = null;
+  if (!supprimer) {
+    v = parseFloat(valeur);
+    if (v < 0) v = 0;
+    if (v > 100) v = 100;
+    window._tauxDispoParMois[mois] = v;
+  } else {
+    delete window._tauxDispoParMois[mois];
+  }
+
+  // Mise à jour immédiate du graphique (sans attendre Firebase)
+  if (window.graphiqueFusionne && window._moisTriésFusionne) {
+    const ds = window.graphiqueFusionne.data.datasets.find(d => d.label === 'Taux de disponibilité (%)');
+    if (ds) {
+      ds.data = window._moisTriésFusionne.map(m => {
+        const val = window._tauxDispoParMois[m];
+        return (val === undefined || val === null) ? null : val;
+      });
+      window.graphiqueFusionne.update();
+    }
+  }
+
+  // Enregistrement dans Firebase (collection ingenierie_taux_dispo, doc id = numéro du mois)
+  if (typeof dbTauxDispo === 'undefined') return;
+  if (statutEl) statutEl.textContent = '⏳';
+  const docRef = dbTauxDispo.collection(COL_TAUX_DISPO).doc(String(mois));
+  const promesse = supprimer
+    ? docRef.delete()
+    : docRef.set({ valeur: v, maj: firebase.firestore.FieldValue.serverTimestamp() });
+
+  promesse.then(() => {
+    if (statutEl) {
+      statutEl.textContent = '✔';
+      setTimeout(() => { if (statutEl) statutEl.textContent = ''; }, 1500);
+    }
+  }).catch(err => {
+    console.error('Erreur enregistrement taux de disponibilité :', err);
+    if (statutEl) statutEl.textContent = '✖ erreur';
+  });
 }
 
   // ===== Estimation dynamique des incidents en fin de mois en cours =====
@@ -10855,5 +10960,43 @@ function exporterNDsDeuxMoisExcel() {
   </div><!-- /page-dashboard -->
   </div><!-- /main -->
   </div><!-- /wrap -->
+
+  <!-- Firebase (enregistrement du Taux de disponibilité) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+      authDomain: "ddms-architectures.firebaseapp.com",
+      projectId: "ddms-architectures",
+      storageBucket: "ddms-architectures.firebasestorage.app",
+      messagingSenderId: "767552965189",
+      appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const dbTauxDispo = firebase.firestore();
+    const COL_TAUX_DISPO = 'ingenierie_taux_dispo';
+
+    // Charge les valeurs enregistrées dans Firestore au démarrage
+    window._tauxDispoParMois = {};
+    window._tauxDispoPret = false;
+    dbTauxDispo.collection(COL_TAUX_DISPO).get().then(snap => {
+      snap.forEach(docSnap => {
+        const m = parseInt(docSnap.id, 10);
+        const v = docSnap.data().valeur;
+        if (!isNaN(m) && v !== undefined && v !== null) {
+          window._tauxDispoParMois[m] = v;
+        }
+      });
+      window._tauxDispoPret = true;
+      // Si le graphique mensuel est déjà affiché, on le rafraîchit avec les valeurs Firebase
+      if (typeof afficherGraphiqueFusionne === 'function') {
+        afficherGraphiqueFusionne();
+      }
+    }).catch(err => {
+      console.error('Erreur chargement taux de disponibilité Firebase :', err);
+      window._tauxDispoPret = true;
+    });
+  </script>
 </body>
 </html>
