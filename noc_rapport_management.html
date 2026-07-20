@@ -1305,7 +1305,10 @@ async function computeWeekAvailability(weekKey){
   const manuelTaux     = reports.map(r=>r.tauxManuel).filter(v=>v!==undefined && v!==null && !isNaN(v));
   const manuelSignales = reports.map(r=>r.tauxSignalesManuel).filter(v=>v!==undefined && v!==null && !isNaN(v));
   const taux           = manuelTaux.length ? Math.round(manuelTaux.reduce((a,b)=>a+b,0)/manuelTaux.length) : tauxDispoPondere(ifD, ndD);
-  const tauxSignales   = manuelSignales.length ? Math.round(manuelSignales.reduce((a,b)=>a+b,0)/manuelSignales.length) : tauxDispoLiensSignales(ifD, ndD);
+  // Taux global de disponibilité de service : uniquement la saisie manuelle — jamais de calcul
+  // automatique de repli. Si aucune valeur n'a été renseignée cette semaine-là, on renvoie null
+  // (le graphe "Évolution — 4 semaines" n'affichera alors rien pour cette semaine).
+  const tauxSignales   = manuelSignales.length ? Math.round(manuelSignales.reduce((a,b)=>a+b,0)/manuelSignales.length) : null;
   const totalSitesWk   = new Set([...ifD.map(d=>d.site), ...ndD.map(d=>d.site)]).size;
   const instablesAllWk = [...ifD,...ndD].filter(d=>d.isFlapping);
   const nbInstables    = instablesAllWk.length;
@@ -1642,7 +1645,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   </div>
   <div class="dg-grid4">
     <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de lien</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
-    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de service</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-signales-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput()"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-signales-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
+    <div class="dg-kpi"><div class="dg-kpi-label">Taux global de disponibilité de service</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><input type="number" id="dg-taux-signales-manuel" class="dg-kpi-input" min="0" max="100" step="1" value="" placeholder="—" oninput="dgOnTauxManuelInput(); dgOnTauxSignalesInput();"><span style="font-size:20px;font-weight:600;color:#3d4250">%</span><span id="dg-taux-signales-evol" style="font-size:11px;font-weight:600"></span></div><div class="dg-kpi-sub" id="dg-taux-signales-verrou-sub" style="color:#9aa0ae;"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Coupures confirmées</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${nbCoupConf}</div><span id="dg-coupures-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub" id="dg-coupures-sub"></div></div>
     <div class="dg-kpi"><div class="dg-kpi-label">Clients impactés</div><div style="display:flex;align-items:baseline;gap:6px;flex-wrap:wrap"><div class="dg-kpi-val red">${clientsImp.size}</div><span id="dg-clients-evol" style="font-size:10px;font-weight:600"></span></div><div class="dg-kpi-sub"></div></div>
   </div>
@@ -1719,6 +1722,7 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   sbRenderList();
   const ticketsPromise = loadKpiTickets();
   window.scrollTo({top:0,behavior:"smooth"});
+  chargerVerrouTauxDispoSemaine();
 
   // Évolution 4 semaines : uniquement si ce rapport a été généré via une sélection de semaine (fusion)
   let evolutionPromise;
@@ -1731,7 +1735,11 @@ function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
     const _nbClientsInstablesCur = new Set(_instablesAllCur.map(d=>clientFromSite(d.site))).size;
     const _nbCorrigesCur = _instablesAllCur.filter(d=>!d.isDown).length;
     const _tauxCorrectionCur = _instablesAllCur.length>0 ? Math.round((_nbCorrigesCur/_instablesAllCur.length)*100) : 0;
-    evolutionPromise = computeEvolutionWeeks(curKey, {taux:tauxDispo, tauxSignales:tauxDispoSignales, nbInstables, tauxInstables: totalSitesSupervises>0?Math.round((nbInstables/totalSitesSupervises)*100):0, nbClientsInstables:_nbClientsInstablesCur, tauxCorrection:_tauxCorrectionCur, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
+    // Taux global de disponibilité de service (semaine en cours) : uniquement la moyenne des
+    // valeurs saisies manuellement sur les rapports de cette semaine — jamais de calcul auto.
+    const _manuelSignalesCur = reportsForWeek.map(r=>r.tauxSignalesManuel).filter(v=>v!==undefined && v!==null && !isNaN(v));
+    const _tauxSignalesCur = _manuelSignalesCur.length ? Math.round(_manuelSignalesCur.reduce((a,b)=>a+b,0)/_manuelSignalesCur.length) : null;
+    evolutionPromise = computeEvolutionWeeks(curKey, {taux:tauxDispo, tauxSignales:_tauxSignalesCur, nbInstables, tauxInstables: totalSitesSupervises>0?Math.round((nbInstables/totalSitesSupervises)*100):0, nbClientsInstables:_nbClientsInstablesCur, tauxCorrection:_tauxCorrectionCur, nbCoupConfirmees:nbCoupConf, nbClients:clientsImp.size}).then(renderEvolutionUI);
   } else {
     renderEvolutionUI(null);
     evolutionPromise = Promise.resolve(null);
@@ -1897,7 +1905,99 @@ function dgOnTauxManuelInput(){
   };
   if(elTaux) badge(arrTaux, parseInt(elTaux.value), window._evolPrevTaux, "pt");
   if(elSig)  badge(arrSig,  parseInt(elSig.value),  window._evolPrevTauxSignales, "pt");
+  // Répercute immédiatement la saisie sur le dernier point (semaine en cours) du graphe
+  // "Évolution — 4 semaines", sans attendre un rechargement du rapport.
+  // (On met à jour l'instance Chart.js directement plutôt que d'appeler renderEvolutionUI,
+  // qui elle-même appelle dgOnTauxManuelInput() — un appel croisé provoquerait une boucle infinie.)
+  if(elSig && window._evolutionWeeks && window._evolutionWeeks.length){
+    const nouvelleVal = (elSig.value!=="" && !isNaN(parseInt(elSig.value))) ? parseInt(elSig.value) : null;
+    const derniere = window._evolutionWeeks[window._evolutionWeeks.length-1];
+    derniere.tauxSignales = nouvelleVal;
+    if(window._evolChart){
+      const ds = window._evolChart.data.datasets[0];
+      ds.data[ds.data.length-1] = nouvelleVal;
+      window._evolChart.update();
+    }
+  }
   dgAutoSaveManualTaux();
+}
+
+// ===== Taux global de disponibilité de service : une seule saisie autorisée par semaine =====
+// La valeur est enregistrée dans Firestore, collection "noc_taux_dispo_semaine", avec pour
+// identifiant de document la clé de la semaine (lundi de la semaine, ex "2026-07-13" pour la
+// semaine du 13 au 19/07). Une fois une valeur enregistrée pour une semaine donnée, le champ
+// est verrouillé (grisé) pour toute la semaine — impossible de la ressaisir ou de l'écraser.
+function mondayKeyFromHdrDate(){
+  const hdrDateTxt = document.getElementById("hdr-date")?.textContent || "";
+  const m = hdrDateTxt.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if(!m) return null;
+  return mondayKeyOf(new Date(+m[3], +m[2]-1, +m[1]));
+}
+
+function verrouillerChampTauxSignales(elSig, subEl, valeur, label){
+  if(elSig){
+    elSig.value = (valeur===undefined || valeur===null) ? elSig.value : valeur;
+    elSig.disabled = true;
+    elSig.style.background = "#e9e9e9";
+    elSig.style.color = "#888";
+    elSig.style.cursor = "not-allowed";
+  }
+  if(subEl) subEl.textContent = "🔒 déjà enregistré pour la semaine " + (label || "");
+}
+
+async function chargerVerrouTauxDispoSemaine(){
+  const elSig = document.getElementById("dg-taux-signales-manuel");
+  const subEl = document.getElementById("dg-taux-signales-verrou-sub");
+  if(!elSig) return;
+  // Réinitialise l'état visuel avant de vérifier Firebase (au cas où on change de rapport/semaine)
+  elSig.disabled = false;
+  elSig.style.background = "";
+  elSig.style.color = "";
+  elSig.style.cursor = "";
+  if(subEl) subEl.textContent = "";
+
+  const weekKey = mondayKeyFromHdrDate();
+  window._tauxDispoSemaineKey = weekKey;
+  if(!weekKey || !window._db || !window._getDoc || !window._doc) return;
+  try{
+    const snap = await window._getDoc(window._doc(window._db, "noc_taux_dispo_semaine", weekKey));
+    if(snap.exists()){
+      const data = snap.data() || {};
+      if(data.valeur !== undefined && data.valeur !== null){
+        verrouillerChampTauxSignales(elSig, subEl, data.valeur, data.label || weekLabelOf(weekKey));
+      }
+    }
+  }catch(e){ console.warn("Chargement verrou taux dispo semaine:", e); }
+}
+
+// Enregistrement Firebase (débattu) déclenché à chaque saisie du champ "Taux global de
+// disponibilité de service", avec verrouillage définitif après le premier enregistrement de
+// la semaine en cours.
+let _dgTauxDispoSemaineTimer = null;
+function dgOnTauxSignalesInput(){
+  if(_dgTauxDispoSemaineTimer) clearTimeout(_dgTauxDispoSemaineTimer);
+  _dgTauxDispoSemaineTimer = setTimeout(async ()=>{
+    const elSig = document.getElementById("dg-taux-signales-manuel");
+    const subEl = document.getElementById("dg-taux-signales-verrou-sub");
+    if(!elSig || elSig.value==="" || !window._db || !window._doc || !window._set || !window._getDoc) return;
+    const valeur = parseInt(elSig.value);
+    if(isNaN(valeur)) return;
+    const weekKey = window._tauxDispoSemaineKey || mondayKeyFromHdrDate();
+    if(!weekKey) return;
+    const label = weekLabelOf(weekKey);
+    try{
+      // Vérifie qu'aucune valeur n'a déjà été enregistrée cette semaine (protection contre une
+      // double saisie, par ex. deux onglets ouverts en parallèle).
+      const ref = window._doc(window._db, "noc_taux_dispo_semaine", weekKey);
+      const snap = await window._getDoc(ref);
+      if(snap.exists() && snap.data() && snap.data().valeur !== undefined && snap.data().valeur !== null){
+        verrouillerChampTauxSignales(elSig, subEl, snap.data().valeur, snap.data().label || label);
+        return;
+      }
+      await window._set(ref, { valeur, label, maj: new Date().toISOString() });
+      verrouillerChampTauxSignales(elSig, subEl, valeur, label);
+    }catch(e){ console.warn("Enregistrement taux dispo semaine:", e); }
+  }, 600);
 }
 
 // Auto-sauvegarde Firebase des taux saisis manuellement (débattue 800ms), pour que ces
@@ -3787,17 +3887,17 @@ async function exportPdf(){
     lines.push({text:"2. DISPONIBILITÉ DES SERVICES", bold:true, color:DARK});
 
     { // Disponibilité globale vs 90%
-      if(tauxDispo===null || tauxDispo===undefined){ lines.push({text:"• Disponibilité globale des liens : non renseignée.", color:NA}); }
+      if(tauxDispo===null || tauxDispo===undefined){ lines.push({text:"• Taux global de disponibilité de lien : non renseignée.", color:NA}); }
       else{
         const ok = tauxDispo>=90;
         lines.push({text:`• Taux global de disponibilité de lien : ${tauxDispo}% (objectif ≥ 90%)`+(ok?" — objectif atteint.":` — écart de ${90-tauxDispo} pt.`), color: ok?OK:KO});
       }
     }
     { // Disponibilité liens signalés vs 90%
-      if(tauxDispoSignales===null || tauxDispoSignales===undefined){ lines.push({text:"• Disponibilité des liens signalés : non renseignée.", color:NA}); }
+      if(tauxDispoSignales===null || tauxDispoSignales===undefined){ lines.push({text:"• Taux global de disponibilité de service : non renseignée.", color:NA}); }
       else{
         const ok = tauxDispoSignales>=90;
-        lines.push({text:`• Disponibilité des liens signalés : ${tauxDispoSignales}% (objectif ≥ 90%)`+(ok?" — objectif atteint.":` — écart de ${90-tauxDispoSignales} pt.`), color: ok?OK:KO});
+        lines.push({text:`• Taux global de disponibilité de service : ${tauxDispoSignales}% (objectif ≥ 90%)`+(ok?" — objectif atteint.":` — écart de ${90-tauxDispoSignales} pt.`), color: ok?OK:KO});
       }
     }
 
@@ -3822,20 +3922,20 @@ async function exportPdf(){
         const dir = last<first?"en amélioration":last>first?"en dégradation":"stable";
         lines.push({text:`• Durée de relève : ${dir} (${fmtMin(first)} → ${fmtMin(last)}).`, color:DARK});
       }
-      // Disponibilité : ajoutée automatiquement dès que 2 semaines de valeurs (saisies ou calculées) existent
+      // Disponibilité : ajoutée automatiquement dès que 2 semaines de valeurs saisies manuellement existent (aucun calcul automatique de repli)
       let validDispo = [], validDispoSig = [];
       if(evolValid){
         validDispo = evolPts.filter(p=>p.taux!==null && p.taux!==undefined);
         if(validDispo.length>=2){
           const first=validDispo[0].taux, last=validDispo[validDispo.length-1].taux;
           const dir = last>first?"en hausse":last<first?"en baisse":"stable";
-          lines.push({text:`• Disponibilité globale des liens : ${dir} sur la période (${first}% → ${last}%).`, color:DARK});
+          lines.push({text:`• Taux global de disponibilité de lien : ${dir} sur la période (${first}% → ${last}%).`, color:DARK});
         }
         validDispoSig = evolPts.filter(p=>p.tauxSignales!==null && p.tauxSignales!==undefined);
         if(validDispoSig.length>=2){
           const first=validDispoSig[0].tauxSignales, last=validDispoSig[validDispoSig.length-1].tauxSignales;
           const dir = last>first?"en hausse":last<first?"en baisse":"stable";
-          lines.push({text:`• Disponibilité des liens signalés : ${dir} sur la période (${first}% → ${last}%).`, color:DARK});
+          lines.push({text:`• Taux global de disponibilité de service : ${dir} sur la période (${first}% → ${last}%).`, color:DARK});
         }
       }
       if(validTk.length<2 && validOuv.length<2 && validMttr.length<2 && validDispo.length<2 && validDispoSig.length<2){
@@ -4459,7 +4559,7 @@ async function pdaLoadFromFirebase(){
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, doc, deleteDoc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
   const cfg = {
     apiKey:"AIzaSyC4zvX8M3dyiGLjwQxYYensN2xYBgME_Mc",
     authDomain:"ong-dons-app.firebaseapp.com",
@@ -4472,7 +4572,7 @@ async function pdaLoadFromFirebase(){
   const db  = getFirestore(app);
   window._db=db;
   window._col=collection; window._add=addDoc; window._gets=getDocs;
-  window._doc=doc; window._del=deleteDoc; window._set=setDoc;
+  window._doc=doc; window._del=deleteDoc; window._set=setDoc; window._getDoc=getDoc;
   // Firebase prêt — toutes les fonctions JS sont déjà définies
   sbRenderList();
 </script>
