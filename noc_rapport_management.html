@@ -72,6 +72,11 @@
   .btn-generate{background:var(--orange);color:#fff;border:none;border-radius:7px;padding:10px 28px;font-size:13px;font-weight:500;cursor:pointer;font-family:'Inter',sans-serif}
   .btn-generate:hover{opacity:.88}
   .parse-error{font-size:11px;color:var(--red);margin-top:8px;display:none}
+  .chart-copy-btn{width:26px;height:26px;border-radius:6px;border:1px solid var(--border2);background:#fff;color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:border-color .15s,color .15s,background .15s}
+  .chart-copy-btn:hover{border-color:var(--orange);color:var(--orange)}
+  .chart-copy-btn:active{transform:scale(.93)}
+  .chart-copy-btn:disabled{opacity:.7;cursor:default}
+  .chart-copy-btn-abs{position:absolute;top:8px;right:8px;z-index:5}
 
   #rapport{display:none}
 
@@ -504,7 +509,10 @@
             <div class="panel-title">Interruption de lien</div>
             <div class="panel-sub">Câble/lien physique interrompu (Interface Down)</div>
           </div>
-          <span class="panel-tag" id="ctag-if">—</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="panel-tag" id="ctag-if">—</span>
+            <button type="button" class="chart-copy-btn" onclick="copyChartAsImage('chartIf', this)" title="Copier le graphe en image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+          </div>
         </div>
         <div class="chart-inner" style="padding:0">
           <div class="chart-scroll" id="cs-if">
@@ -525,7 +533,10 @@
             <div class="panel-title">Coupures de service</div>
             <div class="panel-sub">Équipement injoignable (Node Down / Timeout / Reboot)</div>
           </div>
-          <span class="panel-tag" id="ctag-nd">—</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="panel-tag" id="ctag-nd">—</span>
+            <button type="button" class="chart-copy-btn" onclick="copyChartAsImage('chartNd', this)" title="Copier le graphe en image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+          </div>
         </div>
         <div class="chart-inner" style="padding:0">
           <div class="chart-scroll" id="cs-nd">
@@ -1600,6 +1611,58 @@ function buildRowsFromCsv(csvRows, type){
   return finalizeRows(map, events);
 }
 
+//  COPIE DES GRAPHES EN IMAGE (bouton en haut à droite de chaque graphe) 
+function downloadBlob(blob, filename){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+function flashCopyBtn(btnEl, ok){
+  if(!btnEl) return;
+  const original=btnEl.innerHTML;
+  btnEl.innerHTML= ok
+    ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 6L9 17l-5-5"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+  btnEl.disabled=true;
+  setTimeout(()=>{ btnEl.innerHTML=original; btnEl.disabled=false; }, 1400);
+}
+
+async function copyChartAsImage(canvasId, btnEl){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas){ flashCopyBtn(btnEl,false); return; }
+  try{
+    // Fond blanc (les canvas Chart.js ont un fond transparent par défaut)
+    const tmp=document.createElement("canvas");
+    tmp.width=canvas.width; tmp.height=canvas.height;
+    const tctx=tmp.getContext("2d");
+    tctx.fillStyle="#ffffff";
+    tctx.fillRect(0,0,tmp.width,tmp.height);
+    tctx.drawImage(canvas,0,0);
+    tmp.toBlob(async function(blob){
+      if(!blob){ flashCopyBtn(btnEl,false); return; }
+      try{
+        if(navigator.clipboard && window.ClipboardItem){
+          await navigator.clipboard.write([ new ClipboardItem({ "image/png": blob }) ]);
+          flashCopyBtn(btnEl,true);
+        } else {
+          downloadBlob(blob, canvasId+".png");
+          flashCopyBtn(btnEl,true);
+        }
+      }catch(err){
+        console.warn("Copie image échouée, téléchargement en secours:", err);
+        downloadBlob(blob, canvasId+".png");
+        flashCopyBtn(btnEl,true);
+      }
+    }, "image/png");
+  }catch(err){
+    console.warn("Erreur capture du graphe:", err);
+    flashCopyBtn(btnEl,false);
+  }
+}
+
 //  GENERATE 
 function generate(){
   const raw=document.getElementById("raw-input").value;
@@ -1799,7 +1862,8 @@ async function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   </div>
   <div id="dg-evolution" style="display:none;margin-bottom:16px">
     <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">Évolution du taux de disponibilité — 4 semaines</div>
-    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px;position:relative">
+      <button type="button" class="chart-copy-btn chart-copy-btn-abs" onclick="copyChartAsImage('dg-evol-chart', this)" title="Copier le graphe en image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
       <canvas id="dg-evol-chart" height="70"></canvas>
     </div>
   </div>
@@ -1818,25 +1882,29 @@ async function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   <div id="kpi-noc-hint" style="font-size:11px;color:#9aa0ae;margin:-4px 0 16px"></div>
   <div id="dg-evolution-nocsav" style="display:none;margin-bottom:16px">
     <div id="dg-title-nocsav" style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📊 Tickets ouverts NOC vs SAV B2B — 7 derniers jours</div>
-    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px;position:relative">
+      <button type="button" class="chart-copy-btn chart-copy-btn-abs" onclick="copyChartAsImage('dg-evol-nocsav-chart', this)" title="Copier le graphe en image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
       <canvas id="dg-evol-nocsav-chart" height="70"></canvas>
     </div>
   </div>
   <div id="dg-evolution-resolu" style="display:none;margin-bottom:16px">
     <div id="dg-title-resolu" style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📊 Tickets envoyés NOC vs Incidents résolus — 7 derniers jours</div>
-    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px;position:relative">
+      <button type="button" class="chart-copy-btn chart-copy-btn-abs" onclick="copyChartAsImage('dg-evol-resolu-chart', this)" title="Copier le graphe en image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
       <canvas id="dg-evol-resolu-chart" height="70"></canvas>
     </div>
   </div>
   <div id="dg-evolution-ouverture" style="display:none;margin-bottom:16px">
     <div id="dg-title-ouverture" style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📈 Évolution durée ouverture SAV — 7 derniers jours</div>
-    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px;position:relative">
+      <button type="button" class="chart-copy-btn chart-copy-btn-abs" onclick="copyChartAsImage('dg-evol-ouverture-chart', this)" title="Copier le graphe en image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
       <canvas id="dg-evol-ouverture-chart" height="70"></canvas>
     </div>
   </div>
   <div id="dg-evolution-mttr" style="display:none;margin-bottom:16px">
     <div id="dg-title-mttr" style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">📈 Évolution durée de relève — 7 derniers jours</div>
-    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px;position:relative">
+      <button type="button" class="chart-copy-btn chart-copy-btn-abs" onclick="copyChartAsImage('dg-evol-mttr-chart', this)" title="Copier le graphe en image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
       <canvas id="dg-evol-mttr-chart" height="70"></canvas>
     </div>
   </div>
@@ -1850,7 +1918,8 @@ async function renderDashboard(ifData, ndData, periodLabel, heures, genDateStr){
   </div>
   <div id="dg-evolution-instables" style="display:none;margin-bottom:16px">
     <div style="font-size:12px;font-weight:700;color:#3d4250;margin-bottom:8px">Évolution du taux de sites instables — 4 semaines</div>
-    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px">
+    <div style="background:#fff;border:1px solid #d8dce4;border-radius:8px;padding:12px 16px;position:relative">
+      <button type="button" class="chart-copy-btn chart-copy-btn-abs" onclick="copyChartAsImage('dg-evol-instables-chart', this)" title="Copier le graphe en image"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
       <canvas id="dg-evol-instables-chart" height="70"></canvas>
     </div>
   </div>
