@@ -3317,7 +3317,17 @@ async function saveCurrentReport(){
   const _heure    = _now.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
   const label     = dateLabel + " — " + _heure;
 
-  const rawText = window._lastRawText || "";
+  // Firestore limite chaque document à 1 Mo. Un gros CSV importé (ex: export EventLogs de
+  // plusieurs dizaines de milliers de lignes) peut largement dépasser cette taille : dans ce cas
+  // on n'enregistre PAS le texte brut (le rapport se sauvegarde quand même normalement avec ses
+  // KPI/IF_DATA/ND_DATA ; seule la fusion "texte brut" ne sera pas dispo pour ce rapport précis,
+  // la fusion basculera automatiquement sur son fallback par données agrégées).
+  const MAX_RAWTEXT_BYTES = 700000;
+  let rawText = window._lastRawText || "";
+  if(new Blob([rawText]).size > MAX_RAWTEXT_BYTES){
+    console.warn("Rapport volumineux : texte brut non sauvegardé (limite Firestore 1 Mo/document). La fusion utilisera les données agrégées pour ce rapport.");
+    rawText = "";
+  }
   const _elTauxManuel = document.getElementById("dg-taux-manuel");
   const _elTauxSigManuel = document.getElementById("dg-taux-signales-manuel");
   const tauxManuel = _elTauxManuel && _elTauxManuel.value!=="" ? parseInt(_elTauxManuel.value) : null;
