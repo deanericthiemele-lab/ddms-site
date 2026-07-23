@@ -6434,6 +6434,9 @@ function fermerPopupPourcentageFusionne() {
   <input accept=".xlsx,.xls" id="planning-files" multiple="" style="display:none" type="file"/>
   <br/>
   <input id="recherche" oninput="filtrerTableau()" placeholder="🔍 Rechercher un client... (ex : DOUANE, SIB)" style="margin-top: 20px; padding: 5px; width: 300px;" type="text"/>
+  <br/>
+  <input id="rechercheNL" oninput="filtrerTableau()" placeholder='🗣️ Zone en langage libre — ex: "les liens à Marcory", "clients critiques à Cocody"' style="margin-top: 8px; padding: 5px; width: 460px;" type="text"/>
+  <div id="dashboard-comprehension" style="font-size:12px;color:#888;margin:4px 0 0 2px;min-height:16px;"></div>
   <div id="info-resultats">
   </div>
   <!-- Filtres de dates -->
@@ -7360,15 +7363,44 @@ function resetDates() {
   document.getElementById("date-debut").value = "";
   document.getElementById("date-fin").value = "";
   document.getElementById("recherche").value = "";
+  if (document.getElementById("rechercheNL")) document.getElementById("rechercheNL").value = "";
   // Reset vue graphique fusionne aussi
   window._semaineActive = null;
   document.getElementById('semaine-plage-info').textContent = '';
   filtrerTableau();
 }
 
+// ===== Interprétation de la zone en langage libre (Tableau de bord) =====
+function interpreterRechercheDashboard(phraseBrute) {
+    let txt = nlqNormalize(phraseBrute);
+    txt = txt.replace(/\bcritiques?\b/g, ' statut_critique ');
+    const tokens = txt.split(' ').filter(Boolean);
+    let critique = false;
+    const termes = [];
+    tokens.forEach(tok => {
+        if (tok === 'statut_critique') { critique = true; return; }
+        if (NLQ_STOPWORDS.has(tok)) return;
+        if (tok.length < 2) return;
+        termes.push(tok);
+    });
+    return { critique, termes };
+}
+
 function filtrerTableau() {
   const filtre = document.getElementById("recherche").value.toLowerCase();
   const motsCles = filtre.split(',').map(f => f.trim()).filter(f => f);
+  const brutNL = document.getElementById("rechercheNL") ? document.getElementById("rechercheNL").value : "";
+  const { critique: critiqueNL, termes: termesNL } = interpreterRechercheDashboard(brutNL);
+
+  function matchNL(item) {
+    if (critiqueNL && !item.critiques) return false;
+    if (termesNL.length) {
+      const texte = nlqNormalize([item.nd, item.raison, item.localisation, (item.causes || []).join(' ')].join(' '));
+      if (!termesNL.every(t => texte.includes(t))) return false;
+    }
+    return true;
+  }
+
   let tableauSource = filtreDateActive ? appliquerFiltreDate(tableauActuel) : [...tableauActuel];
   // Appliquer le filtre semaine si actif (filtre sur datesCreation + recalcul mois/total)
   if (window._semaineActive) tableauSource = appliquerFiltreSemaine(tableauSource);
@@ -7383,13 +7415,25 @@ function filtrerTableau() {
     const d2 = document.getElementById('date-fin') ? document.getElementById('date-fin').value : '';
     const parts = [];
     if (f) parts.push('🔍 ' + f);
+    if (brutNL && brutNL.trim()) parts.push('🗣️ ' + brutNL.trim());
     if (d1 || d2) parts.push('📅 ' + (d1 || '…') + ' → ' + (d2 || '…'));
     if (window._semaineActive) parts.push('📅 S' + window._semaineActive.iso);
     lbl.textContent = parts.length ? '(' + parts.join(' · ') + ')' : '';
   }
 
+  // Retour visuel : qu'est-ce que le programme a compris dans la zone en langage libre ?
+  function majComprehension() {
+    const el = document.getElementById('dashboard-comprehension');
+    if (!el) return;
+    if (!brutNL || !brutNL.trim()) { el.textContent = ''; return; }
+    const parts = [];
+    if (critiqueNL) parts.push('Critique : oui');
+    if (termesNL.length) parts.push('Recherche : ' + termesNL.join(', '));
+    el.textContent = parts.length ? '🔎 Compris → ' + parts.join(' · ') : '🔎 Aucun critère reconnu dans cette phrase — affichage complet.';
+  }
+
   if (clientCritiqueSelectionne) {
-    filtres = tableauSource.filter(item => item.critiques && canonicalClient(item.raison) === canonicalClient(clientCritiqueSelectionne));
+    filtres = tableauSource.filter(item => item.critiques && canonicalClient(item.raison) === canonicalClient(clientCritiqueSelectionne) && matchNL(item));
     afficherTableau(filtres);
     afficherGraphique(filtres);
     afficherBarCritiquesPourSelection(filtres);
@@ -7403,10 +7447,11 @@ function filtrerTableau() {
     document.getElementById("resume-douleurs").innerHTML = "";
     document.getElementById("info-resultats").textContent = `ND critiques pour ${clientCritiqueSelectionne} : ${filtres.length}`;
     majLabelExport();
+    majComprehension();
     return;
   }
 
-  if (!filtre.trim()) {
+  if (!filtre.trim() && !(brutNL && brutNL.trim())) {
     filtres = [...tableauSource];
     afficherTableau(filtres);
     afficherStats(filtres);
@@ -7421,6 +7466,7 @@ function filtrerTableau() {
     document.getElementById("resume-douleurs").innerHTML = "";
     document.getElementById("info-resultats").textContent = `Résultats : ${filtres.length} ND affichés sur ${tableauActuel.length}`;
     majLabelExport();
+    majComprehension();
     return;
   }
 
@@ -7429,10 +7475,10 @@ function filtrerTableau() {
       motsCles.some(mot =>
         item.nd.toLowerCase().includes(mot) ||
         item.raison.toLowerCase().includes(mot)
-      )
+      ) && matchNL(item)
     );
   } else {
-    filtres = [...tableauSource];
+    filtres = tableauSource.filter(item => matchNL(item));
   }
 
   afficherTableau(filtres);
@@ -7448,6 +7494,7 @@ function filtrerTableau() {
   mettreAJourCasesVertes(filtres);
   document.getElementById("info-resultats").textContent = `Résultats : ${filtres.length} ND affichés sur ${tableauActuel.length}`;
   majLabelExport();
+  majComprehension();
 }
 
 function exporterCritiques() {
