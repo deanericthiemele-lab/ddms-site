@@ -7371,15 +7371,41 @@ function resetDates() {
 }
 
 // ===== Interprétation de la zone en langage libre (Tableau de bord) =====
+// Fonctions autonomes (ne dépendent d'aucune variable définie sur une autre page)
+function dashNlqNormalize(s) {
+    return (s || "").toString().toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+const DASH_NLQ_STOPWORDS = new Set([
+    "je","tu","il","elle","on","nous","vous","ils","elles",
+    "veux","veut","voudrais","voudrait","aimerais","souhaite","souhaiterais",
+    "cherche","chercher","recherche","rechercher","trouve","trouver","trouves",
+    "montre","montrer","montrez","affiche","afficher","affichez","donne","donner","donnez",
+    "peux","pouvez","pourrais","pourriez","stp","svp","merci",
+    "voir","liste","lister","uniquement","seulement","juste",
+    "le","la","l","les","un","une","des","du","de","d",
+    "au","aux","a","ce","cet","cette","ces",
+    "qui","que","quoi","dont","ou","et",
+    "sont","est","etre","avec","sans","pour","sur","dans","par","chez",
+    "tout","tous","toute","toutes","ceux","celles","celui","celle",
+    "nd","liens","lien","ligne","lignes","client","clients",
+    "localisation","zone","cause","causes","information","informations",
+    "moi"
+]);
+
 function interpreterRechercheDashboard(phraseBrute) {
-    let txt = nlqNormalize(phraseBrute);
+    let txt = dashNlqNormalize(phraseBrute);
     txt = txt.replace(/\bcritiques?\b/g, ' statut_critique ');
     const tokens = txt.split(' ').filter(Boolean);
     let critique = false;
     const termes = [];
     tokens.forEach(tok => {
         if (tok === 'statut_critique') { critique = true; return; }
-        if (NLQ_STOPWORDS.has(tok)) return;
+        if (DASH_NLQ_STOPWORDS.has(tok)) return;
         if (tok.length < 2) return;
         termes.push(tok);
     });
@@ -7395,7 +7421,7 @@ function filtrerTableau() {
   function matchNL(item) {
     if (critiqueNL && !item.critiques) return false;
     if (termesNL.length) {
-      const texte = nlqNormalize([item.nd, item.raison, item.localisation, (item.causes || []).join(' ')].join(' '));
+      const texte = dashNlqNormalize([item.nd, item.raison, item.localisation, (item.causes || []).join(' ')].join(' '));
       if (!termesNL.every(t => texte.includes(t))) return false;
     }
     return true;
