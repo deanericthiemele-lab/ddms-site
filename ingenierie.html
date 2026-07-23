@@ -2449,12 +2449,17 @@ document.addEventListener("DOMContentLoaded", function() {
 <div style="margin-top:5px; font-size:14px; color:gray;">
     Volume traité : <span id="volumeTraite">0</span> | Volume non traité : <span id="volumeNonTraite">0</span>
 </div>
-<div id="searchBar" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+<div id="searchBar" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
 <input id="searchAll" oninput="applyFilter()" placeholder="Rechercher ND ou Client" type="text"/>
 <button onclick="clearFilter()">Réinitialiser</button>
 <button id="btnSRO" style="display:none;">SRO Global</button>
 <button id="btnSROcorrige" style="display:none;">SRO corrigé</button>
 </div>
+<div id="searchBarNL" style="margin-bottom:2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+<input id="searchNL" oninput="applyFilter()" placeholder='Zone en langage libre — ex: "les liens à Marcory", "ND non traités à Cocody", "rechutes Yopougon"' type="text" style="min-width:360px;flex:1;"/>
+<button onclick="clearFilterNL()">Réinitialiser</button>
+</div>
+<div id="filtre-comprehension" style="font-size:12px;color:#888;margin:0 0 10px 2px;min-height:16px;"></div>
 <!-- Tableau Traités -->
 <h3 class="title-row">✅ Traités (<span id="countTraites">0</span>) <button class="export-btn" onclick="exportTableToXLSX('tableTraites','Traites.xlsx')">Exporter</button> <button class="btnSROTable" style="margin-left:10px;">SRO</button></h3>
 <table id="tableTraites"><thead></thead><tbody></tbody></table>
@@ -2942,8 +2947,97 @@ function clearFilter() {
     applyFilter();
 }
 
+function clearFilterNL() {
+    document.getElementById("searchNL").value = "";
+    applyFilter();
+}
+
+// ===== Interprétation d'une phrase libre (recherche en langage naturel) =====
+
+// Mots vides / conversationnels à ignorer (ne représentent pas un critère de recherche)
+const NLQ_STOPWORDS = new Set([
+    "je","tu","il","elle","on","nous","vous","ils","elles",
+    "veux","veut","voudrais","voudrait","aimerais","souhaite","souhaiterais",
+    "cherche","chercher","recherche","rechercher","trouve","trouver","trouves",
+    "montre","montrer","montrez","affiche","afficher","affichez","donne","donner","donnez",
+    "peux","pouvez","pourrais","pourriez","stp","svp","merci",
+    "voir","liste","lister","uniquement","seulement","juste",
+    "le","la","l","les","un","une","des","du","de","d",
+    "au","aux","a","ce","cet","cette","ces",
+    "qui","que","quoi","dont","ou","et",
+    "sont","est","etre","avec","sans","pour","sur","dans","par","chez",
+    "tout","tous","toute","toutes","ceux","celles","celui","celle",
+    "nd","liens","lien","ligne","lignes","client","clients",
+    "localisation","zone","cause","causes","information","informations",
+    "moi","svp"
+]);
+
+// Statuts détectables et tables correspondantes dans la page
+const NLQ_STATUT_TABLES = {
+    traite: ["tableTraites", "tableTraitesRechutes2Mois", "tableTraitesRechutes2MoisMemeCause"],
+    nontraite: ["tableNonTraites"],
+    planifie: ["tablePlanifies"],
+    rechute: ["tableTraitesRechutes2Mois", "tableTraitesRechutes2MoisMemeCause", "tableRechutesMois"],
+    stable: ["tableNDStables"],
+};
+
+const NLQ_STATUT_LABELS = {
+    traite: "Traité",
+    nontraite: "Non traité",
+    planifie: "Planifié",
+    rechute: "Rechute",
+    stable: "Stable",
+};
+
+function nlqNormalize(s) {
+    return (s || "").toString().toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+// Analyse une phrase libre et retourne { statuts: [...], termes: [...] }
+function interpreterRecherche(phraseBrute) {
+    let txt = nlqNormalize(phraseBrute);
+
+    // Expressions composées de statut à fusionner avant tokenisation
+    txt = txt
+        .replace(/\b(non|pas)\s+traite(s)?\b/g, " statut_nontraite ")
+        .replace(/\btraite(s)?\b/g, " statut_traite ")
+        .replace(/\bplanifie(s)?\b/g, " statut_planifie ")
+        .replace(/\brechute(s)?\b|\brecidive(s)?\b/g, " statut_rechute ")
+        .replace(/\bstable(s)?\b/g, " statut_stable ");
+
+    const tokens = txt.split(" ").filter(Boolean);
+    const statuts = [];
+    const termes = [];
+
+    tokens.forEach(tok => {
+        if (tok.indexOf("statut_") === 0) {
+            const s = tok.replace("statut_", "");
+            if (statuts.indexOf(s) === -1) statuts.push(s);
+            return;
+        }
+        if (NLQ_STOPWORDS.has(tok)) return;
+        if (tok.length < 2) return;
+        termes.push(tok);
+    });
+
+    return { statuts, termes };
+}
+
 function applyFilter() {
-    const q = document.getElementById("searchAll").value.toLowerCase().trim();
+    const qSimple = (document.getElementById("searchAll").value || "").toLowerCase().trim();
+    const brutNL = document.getElementById("searchNL") ? document.getElementById("searchNL").value : "";
+    const { statuts, termes } = interpreterRecherche(brutNL);
+
+    // Détermine quelles tables restent actives si un statut a été identifié
+    let tablesActives = null; // null = toutes les tables restent actives
+    if (statuts.length) {
+        tablesActives = new Set();
+        statuts.forEach(s => (NLQ_STATUT_TABLES[s] || []).forEach(id => tablesActives.add(id)));
+    }
 
     const tables = [
         { id: "tableTraites", countId: "countTraites" },
@@ -2960,11 +3054,18 @@ function applyFilter() {
     let totalNonTraiteVisible = 0;
 
     tables.forEach(t => {
+        const tableActive = !tablesActives || tablesActives.has(t.id);
         const rows = Array.from(document.querySelectorAll(`#${t.id} tbody tr`));
         let visibleCount = 0;
         rows.forEach(tr => {
-            const text = tr.innerText.toLowerCase();
-            const show = q === "" ? true : text.includes(q);
+            let show = tableActive;
+            if (show && qSimple) {
+                show = tr.innerText.toLowerCase().includes(qSimple);
+            }
+            if (show && termes.length) {
+                const text = nlqNormalize(tr.innerText);
+                show = termes.every(term => text.includes(term));
+            }
             tr.style.display = show ? "" : "none";
             if (show) visibleCount++;
         });
@@ -2984,6 +3085,21 @@ function applyFilter() {
     if (document.getElementById("kpi-nontraite")) document.getElementById("kpi-nontraite").textContent = totalND > 0 ? ((totalNonTraiteVisible/totalND)*100).toFixed(1) + "%" : "0%";
     if (document.getElementById("volumeTraite")) document.getElementById("volumeTraite").textContent = totalTraiteVisible;
     if (document.getElementById("volumeNonTraite")) document.getElementById("volumeNonTraite").textContent = totalNonTraiteVisible;
+
+    // Retour visuel : qu'est-ce que le programme a compris dans la zone en langage libre ?
+    const comprehensionEl = document.getElementById("filtre-comprehension");
+    if (comprehensionEl) {
+        if (!brutNL || !brutNL.trim()) {
+            comprehensionEl.textContent = "";
+        } else {
+            const parts = [];
+            if (statuts.length) parts.push("Statut : " + statuts.map(s => NLQ_STATUT_LABELS[s] || s).join(", "));
+            if (termes.length) parts.push("Recherche : " + termes.join(", "));
+            comprehensionEl.textContent = parts.length
+                ? "🔎 Compris → " + parts.join(" · ")
+                : "🔎 Aucun critère reconnu dans cette phrase — affichage complet.";
+        }
+    }
 }
 
 
