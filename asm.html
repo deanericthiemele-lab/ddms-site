@@ -3626,10 +3626,20 @@ window.generateKpiReportPdf = async function() {
       comexAnalysis.push({ txt: !aboveObj ? `Axe d'amélioration : prioriser la relance des COMEX en retard chez ${priorityName} et fiabiliser la planification en début de période.` : `Axe d'amélioration : maintenir la cadence et généraliser la méthode de ${top[0]} à toute l'équipe.`, alert:false });
     }
 
+    // ── Liste détaillée des COMEX réalisés (triée par ASM, pas groupée) ──
+    const comexDoneList = comexItems
+      .filter(r => r.done)
+      .map(r => ({
+        asm: (r.asm||'').trim() || '—',
+        client: r.clientNom || '—',
+        date: r.date || ''
+      }))
+      .sort((a,b) => a.asm.localeCompare(b.asm, 'fr') || a.date.localeCompare(b.date));
+
     buildKpiReportPdf({
       start, end, satMembers, satAnalysis,
       oppRanked, oppTotal, oppCount: oppRows.length, oppAnalysis,
-      comexRanked, comexTotal: comexItems.length, comexDone, comexAnalysis
+      comexRanked, comexTotal: comexItems.length, comexDone, comexAnalysis, comexDoneList
     });
     closeModal('modal-kpi-report');
     toast('Rapport PDF généré ✓', 'success');
@@ -3662,8 +3672,14 @@ function buildKpiReportPdf(d) {
   const genTime = new Date().toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
   const medalTxt = idx => idx===0 ? '1er' : idx===1 ? '2e' : idx===2 ? '3e' : ('#'+(idx+1));
 
+  let _pageGuard = 0;
   function checkPage(needed) {
-    if (y + needed > PH - 18) { doc2.addPage(); y = MT; drawFooter(); }
+    if (!isFinite(needed) || needed < 0) needed = 20;
+    if (y + needed > PH - 18) {
+      _pageGuard++;
+      if (_pageGuard > 300) { console.warn('buildKpiReportPdf: page guard atteint, arrêt de la pagination'); return; }
+      doc2.addPage(); y = MT; drawFooter();
+    }
   }
   function drawFooter() {
     const p = doc2.internal.getCurrentPageInfo().pageNumber;
@@ -3735,24 +3751,45 @@ function buildKpiReportPdf(d) {
     if (!lines || !lines.length) return;
     const RED_T = [178, 38, 38];
     const TXT_T = [45, 58, 82];
+    const FS = 8.3;
+    const LH = 4.3; // mm entre lignes, cohérent avec FS=8.3pt
+    const GAP = 1.8; // mm entre paragraphes
     const innerW = CW - 14;
-    const wrapped = lines.map(l => ({ w: doc2.splitTextToSize(l.txt, innerW), alert: l.alert }));
-    const boxH = wrapped.reduce((s,item) => s + item.w.length*4.6 + 2, 0) + 11;
+
+    // Mesure : police fixée AVANT le splitTextToSize pour matcher le rendu exact
+    const wrapped = lines.map(l => {
+      doc2.setFontSize(FS);
+      doc2.setFont('helvetica', l.alert ? 'bold' : 'normal');
+      const w = doc2.splitTextToSize(String(l.txt || ''), innerW);
+      return { w, alert: !!l.alert };
+    });
+
+    let boxH = 9; // marge haute + label "ANALYSE"
+    wrapped.forEach(item => { boxH += item.w.length * LH + GAP; });
+    boxH += 3; // marge basse
+    if (!isFinite(boxH) || boxH <= 0) boxH = 20;
+
     checkPage(boxH + 6);
     doc2.setFillColor(255, 247, 237);
     doc2.setDrawColor(...LGRAY); doc2.setLineWidth(0.3);
     doc2.roundedRect(ML, y, CW, boxH, 2, 2, 'FD');
     doc2.setFillColor(...GOLD);
     doc2.rect(ML, y, 2.2, boxH, 'F');
+
     let ly = y + 6.5;
     doc2.setFontSize(7.5); doc2.setFont('helvetica','bold'); doc2.setTextColor(...GOLD);
     doc2.text('ANALYSE', ML+7, ly);
     ly += 5;
+
     wrapped.forEach(item => {
-      doc2.setFontSize(8.3); doc2.setFont('helvetica', item.alert ? 'bold' : 'normal');
+      doc2.setFontSize(FS);
+      doc2.setFont('helvetica', item.alert ? 'bold' : 'normal');
       doc2.setTextColor(...(item.alert ? RED_T : TXT_T));
-      doc2.text(item.w, ML+7, ly);
-      ly += item.w.length*4.6 + 2;
+      item.w.forEach(lineTxt => {
+        doc2.text(lineTxt, ML+7, ly);
+        ly += LH;
+      });
+      ly += GAP;
     });
     y += boxH + 8;
   }
@@ -3827,6 +3864,29 @@ function buildKpiReportPdf(d) {
     null
   );
   analysisBox(d.comexAnalysis);
+
+  // ── 4. Liste des COMEX réalisés — triée par ASM (client, date) ──
+  doc2.addPage(); y = MT; drawFooter();
+  sectionBar("LISTE DES COMEX RÉALISÉS — TRIÉE PAR ASM");
+  if (!d.comexDoneList || !d.comexDoneList.length) {
+    doc2.setFontSize(8.5); doc2.setFont('helvetica','italic'); doc2.setTextColor(...GRAY);
+    doc2.text("Aucun COMEX réalisé sur cette période.", ML, y+5); y += 10;
+  } else {
+    doc2.autoTable({
+      head:[["ASM","Client","Date"]],
+      body: d.comexDoneList.map(r => [
+        r.asm, r.client,
+        r.date ? new Date(r.date+'T00:00:00').toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}) : '—'
+      ]),
+      startY:y, margin:{left:ML,right:MR}, tableWidth:CW,
+      styles:{fontSize:8, cellPadding:2.4, font:'helvetica', textColor:DARK, lineColor:LGRAY, lineWidth:0.2},
+      headStyles:{fillColor:DARK, textColor:WHITE, fontStyle:'bold', fontSize:8},
+      columnStyles:{ 0:{cellWidth:60}, 1:{cellWidth:'auto'}, 2:{cellWidth:32,halign:'right'} },
+      alternateRowStyles:{fillColor:[250,251,253]},
+      didDrawPage() { drawFooter(); }
+    });
+    y = doc2.lastAutoTable.finalY + 8;
+  }
 
   drawFooter();
   const fileLabel = (d.start||'periode').replace(/-/g,'') + '_' + (d.end||'').replace(/-/g,'');
