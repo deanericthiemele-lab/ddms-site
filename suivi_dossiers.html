@@ -190,21 +190,39 @@ window._porteurParStatut = {
  "Attente signature client":"Client"
 };
 
+// Catégorie par défaut (statuts suspendus connus) — sert de repli si non renseigné manuellement
+window._statutsSuspendusDefaut = new Set([
+ "Attente activation des SIM","Trans saturée","Autorisation DDPE",
+ "Attente paiement frais pour MES","Autorisation client","Local en chantier",
+ "GC innondé","Attente maintenance fibre","Mairie du Plateau","Autorisation Aeria",
+ "Attente poteau","Carte P2P down","Autorisation Marine","Autorisation mairie",
+ "Appro","Attente baie client","Budget FH","Attente GC client","Attente signature client"
+]);
+window._categorieParStatut = {}; // statut -> "encours" | "suspendu" (surcharge manuelle)
+window._getCategorieStatut = function(statut){
+  if(window._categorieParStatut[statut]) return window._categorieParStatut[statut];
+  return window._statutsSuspendusDefaut.has(statut) ? "suspendu" : "encours";
+};
+
 // Charger les porteurs custom depuis Firebase (fusion avec les valeurs par defaut)
 onValue(ref(db, "statut_porteurs"), (snapshot) => {
   const data = snapshot.val() || {};
   Object.values(data).forEach(entry => {
-    if(entry && entry.statut) window._porteurParStatut[entry.statut] = entry.porteur || "";
+    if(entry && entry.statut){
+      window._porteurParStatut[entry.statut] = entry.porteur || "";
+      if(entry.categorie) window._categorieParStatut[entry.statut] = entry.categorie;
+    }
   });
   if(typeof window._refreshOptionsList === "function") window._refreshOptionsList();
 });
 
-window._savePorteurStatut = async function(statut, porteur) {
+window._savePorteurStatut = async function(statut, porteur, categorie) {
   if(!statut) return;
   window._porteurParStatut[statut] = porteur || "";
+  if(categorie) window._categorieParStatut[statut] = categorie;
   const safeKey = statut.replace(/[.#$\[\]/]/g, "_");
   try {
-    await set(ref(db, "statut_porteurs/" + safeKey), { statut: statut, porteur: porteur || "" });
+    await set(ref(db, "statut_porteurs/" + safeKey), { statut: statut, porteur: porteur || "", categorie: categorie || window._getCategorieStatut(statut) });
   } catch(e) {
     console.error("Erreur Firebase porteur:", e);
   }
@@ -212,11 +230,11 @@ window._savePorteurStatut = async function(statut, porteur) {
 
 window._saveOption = async function(val) {
   if(!val || window._statutOptions.includes(val)) return;
-  // Nouveau statut : demander le porteur avant de l'ajouter
+  // Nouveau statut : demander le porteur (et la catégorie) avant de l'ajouter
   if(typeof window._askPorteur === "function"){
-    const porteur = await window._askPorteur(val);
-    if(porteur === null) return; // annulé par l'utilisateur
-    await window._savePorteurStatut(val, porteur);
+    const result = await window._askPorteur(val);
+    if(result === null) return; // annulé par l'utilisateur
+    await window._savePorteurStatut(val, result.porteur, result.categorie);
   }
   window._statutOptions.push(val);
   // Sauvegarder seulement les options custom (au-dela des 5 de base)
@@ -308,15 +326,17 @@ td.num{text-align:right}
 
 <button onclick="location.href='index.html'">Retour</button>
 <button onclick="location.href='recu prod.html'">Suivi performance</button>
-<button onclick="location.href='suivi_dossiers2.html'">PIPE</button>
+<button onclick="location.href='suivi_dossiers2.html'">Pipe</button>
 <button onclick="location.href='livraison.html'">Dossiers livrés</button>
-<button id="btnNettoyage">Dossiers à geler</button>
-<button onclick="location.href='blr.html'">BLR</button>
-<button onclick="location.href='lte.html'">LTE</button>
-<button onclick="location.href='hub_vsat.html'">VSAT</button>
+<button id="btnNettoyage" style="display:none;">Dossiers à geler</button>
 <button id="btnRapport" style="background:#7c3aed;color:white;">📊 Rapport</button>
 
-<h1 id="resume">Dossiers : 0</h1>
+<div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+<h1 id="resume" style="margin:0;">Dossiers : 0</h1>
+<button id="btnCatEnCours" style="background:#16a34a;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;">🟢 En cours</button>
+<button id="btnCatSuspendus" style="background:#dc2626;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;">🔴 Suspendus</button>
+<button id="btnCatTous" style="background:#6b7280;color:white;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px;display:none;">✕ Tous</button>
+</div>
 <div class="subresume" id="subresume">LS : 0 | LSI : 0 | Numérique : 0</div>
 <div id="statutsCoverage" style="border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:10px;background:#f9f9f9;color:#555;">
   📊 Statuts renseignés : <strong id="statutsRenseignes">0</strong> / <strong id="statutsTotal">0</strong>
@@ -356,7 +376,7 @@ td.num{text-align:right}
       <div id="statutFilterItems"></div>
     </div>
   </div>
-  <button id="btnSolutionsTemp" style="background:#2563eb;color:white;">🔧 Solutions temporaires</button>
+  <button id="btnSolutionsTemp" style="background:#2563eb;color:white;display:none;">🔧 Solutions temporaires</button>
 </div>
 
 <!-- Liste deroulante statuts -->
@@ -464,6 +484,15 @@ td.num{text-align:right}
    <input type="text" id="newPorteurInput" placeholder="Nouveau porteur..." maxlength="40"
     style="flex:1;padding:6px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;"/>
    <button id="btnValiderPorteur" style="background:#2563eb;color:white;">Valider</button>
+  </div>
+  <p style="font-size:12px;color:#888;margin-bottom:6px;">Ce statut fait partie de la catégorie :</p>
+  <div style="display:flex;gap:10px;margin-bottom:14px;">
+   <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+    <input type="radio" name="categorieStatut" value="encours" checked/> 🟢 En cours
+   </label>
+   <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;">
+    <input type="radio" name="categorieStatut" value="suspendu"/> 🔴 Suspendu
+   </label>
   </div>
   <div style="text-align:right;">
    <button onclick="window._resolvePorteur(null)" style="background:#e5e7eb;color:#333;">Annuler</button>
@@ -862,7 +891,8 @@ function filtrerEtAfficher(){
   const statsFil = window._statutFilterSelected || new Set();
   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
   const statutOk=statsFil.size===0||statsFil.has(statut);
-  if(txt.includes(q)&&moisOk&&statutOk){
+  const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk){
    cpt++;
    const id=(r["ID DOSSIER"]||"").toString().trim();
    rows.push(`<tr>
@@ -880,7 +910,8 @@ function filtrerEtAfficher(){
   }
  });
  tbody.innerHTML=rows.join("");
- document.getElementById("resume").textContent="Dossiers : "+cpt;
+ const catLabel = window._categorieFiltreActive==="encours" ? " (En cours)" : window._categorieFiltreActive==="suspendu" ? " (Suspendus)" : "";
+ document.getElementById("resume").textContent="Dossiers : "+cpt+catLabel;
  peuplerDepuisFirebase();
  attachStatutListeners();
  attachSolutionListeners();
@@ -889,6 +920,33 @@ function filtrerEtAfficher(){
 document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
 document.getElementById("moisFilter").addEventListener("change", filtrerEtAfficher);
 // statutFilter géré par le dropdown custom multi-sélection
+
+// ── Filtre catégorie : En cours / Suspendus ──
+window._categorieFiltreActive = null;
+function _updateCatButtonsUI(){
+ const btnEC = document.getElementById("btnCatEnCours");
+ const btnSU = document.getElementById("btnCatSuspendus");
+ const btnTous = document.getElementById("btnCatTous");
+ if(!btnEC||!btnSU||!btnTous) return;
+ btnEC.style.outline = window._categorieFiltreActive==="encours" ? "3px solid #14532d" : "none";
+ btnSU.style.outline = window._categorieFiltreActive==="suspendu" ? "3px solid #7f1d1d" : "none";
+ btnTous.style.display = window._categorieFiltreActive ? "inline-block" : "none";
+}
+document.getElementById("btnCatEnCours").addEventListener("click", function(){
+ window._categorieFiltreActive = window._categorieFiltreActive==="encours" ? null : "encours";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("btnCatSuspendus").addEventListener("click", function(){
+ window._categorieFiltreActive = window._categorieFiltreActive==="suspendu" ? null : "suspendu";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("btnCatTous").addEventListener("click", function(){
+ window._categorieFiltreActive = null;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
 
 // Sync options custom dans statutFilter avec % et compteur statuts renseignés
 const origOnValue = window._statutOptions;
@@ -1051,7 +1109,7 @@ window._refreshOptionsList = function(){
  }
 };
 
-// Modale : demande du porteur pour un nouveau statut. Resout avec le porteur choisi, ou null si annulé.
+// Modale : demande du porteur + catégorie pour un nouveau statut. Résout avec {porteur, categorie}, ou null si annulé.
 window._resolvePorteur = null;
 window._askPorteur = function(statutName){
  return new Promise((resolve)=>{
@@ -1062,29 +1120,37 @@ window._askPorteur = function(statutName){
   const btnValider = document.getElementById("btnValiderPorteur");
   label.textContent = `Statut « ${statutName} » — choisissez ou ajoutez son porteur :`;
   input.value = "";
+  const radioEnCours = document.querySelector('input[name="categorieStatut"][value="encours"]');
+  const radioSuspendu = document.querySelector('input[name="categorieStatut"][value="suspendu"]');
+  if(radioEnCours) radioEnCours.checked = true;
 
   // Liste des porteurs déjà connus (dédupliqués)
   const porteurs = [...new Set(Object.values(window._porteurParStatut||{}).filter(p=>p&&p.trim()!==""))].sort((a,b)=>a.localeCompare(b));
   chipsWrap.innerHTML = "";
+  let porteurChoisi = null;
   porteurs.forEach(p=>{
    const chip = document.createElement("span");
    chip.textContent = p;
    chip.style.cssText = "padding:5px 10px;border:1px solid #2563eb;color:#2563eb;border-radius:14px;font-size:12px;cursor:pointer;background:#eff6ff;";
-   chip.onclick = ()=> finish(p);
+   chip.onclick = ()=> {
+    const categorie = radioSuspendu && radioSuspendu.checked ? "suspendu" : "encours";
+    finish({porteur:p, categorie});
+   };
    chipsWrap.appendChild(chip);
   });
 
-  function finish(porteur){
+  function finish(result){
    popup.style.display = "none";
    window._resolvePorteur = null;
-   resolve(porteur);
+   resolve(result);
   }
 
-  window._resolvePorteur = (val)=> finish(val);
+  window._resolvePorteur = ()=> finish(null);
   btnValider.onclick = ()=>{
    const v = input.value.trim();
    if(!v){ alert("Entrez un porteur ou choisissez-en un existant."); return; }
-   finish(v);
+   const categorie = radioSuspendu && radioSuspendu.checked ? "suspendu" : "encours";
+   finish({porteur:v, categorie});
   };
   input.onkeydown = (e)=>{ if(e.key==="Enter") btnValider.onclick(); };
 
@@ -1167,7 +1233,8 @@ document.getElementById("btnExport").onclick=()=>{
   const txt=(id+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+statut+" "+_moisFr).toLowerCase();
   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
   const statutOk=statsFil.size===0||statsFil.has(statut);
-  if(txt.includes(q)&&moisOk&&statutOk){
+  const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk){
    dataExport.push({
     "CLIENT":r["CLIENT"]||"",
     "ID DOSSIER":r["ID DOSSIER"]||"",
@@ -1184,9 +1251,11 @@ document.getElementById("btnExport").onclick=()=>{
  });
  const ws=XLSX.utils.json_to_sheet(dataExport);
  const wb=XLSX.utils.book_new();
+ const suffixe = window._categorieFiltreActive==="encours" ? "_en_cours" : window._categorieFiltreActive==="suspendu" ? "_suspendus" : "";
  XLSX.utils.book_append_sheet(wb,ws,"Export");
- XLSX.writeFile(wb,"export_dossiers.xlsx");
+ XLSX.writeFile(wb,"export_dossiers"+suffixe+".xlsx");
 };
+
 
 // Table de correspondance statut -> porteur
 window._porteurParStatut = {
@@ -1585,6 +1654,24 @@ function genererRapportKPI(){
  const statutsSorted = Object.entries(statutCounts).sort((a,b)=>b[1]-a[1]);
  const maxStatut = statutsSorted.length ? Math.max(...statutsSorted.map(s=>s[1]), sansStatut) : (sansStatut||1);
 
+ // ── 3ter) STATUT GLOBAL — regroupement En cours / Suspendus ──
+ let enCoursTotalG = 0, suspendusTotalG = 0;
+ let enCoursAgeSumG = 0, suspendusAgeSumG = 0;
+ const enCoursDetail = [], suspendusDetail = [];
+ statutsSorted.forEach(([s,n])=>{
+  const age = statutAgeSum[s];
+  const categorie = window._getCategorieStatut ? window._getCategorieStatut(s) : "encours";
+  if(categorie === "suspendu"){
+   suspendusTotalG += n; suspendusAgeSumG += age;
+   suspendusDetail.push([s,n,age]);
+  } else {
+   enCoursTotalG += n; enCoursAgeSumG += age;
+   enCoursDetail.push([s,n,age]);
+  }
+ });
+ const globalTotalG = enCoursTotalG + suspendusTotalG + sansStatut;
+ const maxGlobalCat = Math.max(enCoursTotalG, suspendusTotalG, 1);
+
  // ── 3bis) PAR PRODUIT — encours (pipe) et livrés (période, fichier MES) ──
  // Le pipe n'a pas de colonne unique LS/LSI/T0/T2 : "TYPE ABONNEMENT" donne LS/LSI/numerique,
  // et pour les lignes "numerique" c'est la colonne PRODUIT qui précise T0 ou T2.
@@ -1697,6 +1784,66 @@ function genererRapportKPI(){
        </div>
      </div>` : ""}
    ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
+ </div>
+
+ <div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Statut global (en cours et suspendus)</h4>
+   ${globalTotalG ? `<div class="rap-bar-row" style="margin-bottom:8px;">
+     <div class="rap-bar-label"></div>
+     <div class="rap-bar-track" style="background:none;"></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col rap-bar-col-head">Volume</div>
+       <div class="rap-bar-col rap-bar-col-head">%</div>
+       <div class="rap-bar-col rap-bar-col-head">Âge moy.</div>
+     </div>
+   </div>
+   <div class="rap-bar-row">
+     <div class="rap-bar-label"><b>🟢 En cours</b></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(enCoursTotalG/maxGlobalCat*100)}%;background:#16a34a;"></div></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col"><b>${enCoursTotalG}</b></div>
+       <div class="rap-bar-col">${globalTotalG?Math.round(enCoursTotalG/globalTotalG*1000)/10:0}%</div>
+       <div class="rap-bar-col">${enCoursTotalG?Math.round(enCoursAgeSumG/enCoursTotalG):0} j</div>
+     </div>
+   </div>
+   ${enCoursDetail.map(([s,n,age])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGlobalCat*100)}%;background:#86efac;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col">${n}</div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(age/n)} j</div>
+       </div>
+     </div>`).join("")}
+   <div class="rap-bar-row" style="margin-top:6px;">
+     <div class="rap-bar-label"><b>🔴 Suspendus</b></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(suspendusTotalG/maxGlobalCat*100)}%;background:#dc2626;"></div></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col"><b>${suspendusTotalG}</b></div>
+       <div class="rap-bar-col">${globalTotalG?Math.round(suspendusTotalG/globalTotalG*1000)/10:0}%</div>
+       <div class="rap-bar-col">${suspendusTotalG?Math.round(suspendusAgeSumG/suspendusTotalG):0} j</div>
+     </div>
+   </div>
+   ${suspendusDetail.map(([s,n,age])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGlobalCat*100)}%;background:#fca5a5;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col">${n}</div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(age/n)} j</div>
+       </div>
+     </div>`).join("")}
+   ${sansStatut ? `<div class="rap-bar-row" style="margin-top:6px;">
+       <div class="rap-bar-label" style="color:#888;">Sans statut</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxGlobalCat*100)}%;background:#ccc;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col"><b>${sansStatut}</b></div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(sansStatut/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(sansStatutAgeSum/sansStatut)} j</div>
+       </div>
+     </div>` : ""}
+   ` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
  </div></div>`;
 
  /* ════════ BLOC 5 — TOP 10 ════════ */
