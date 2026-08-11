@@ -3553,10 +3553,83 @@ window.generateKpiReportPdf = async function() {
     const comexRanked = Object.entries(comexByAsm).sort((a,b) => b[1].done - a[1].done || b[1].total - a[1].total);
     const comexDone = comexItems.filter(r => r.done).length;
 
+    // ── Analyse 1 : satisfaction (vs historique toutes périodes) ──
+    await kpiFetchAllDocs();
+    const satAvgs = [];
+    kpiPeriodsList.forEach(p => {
+      const dd = kpiAllDocsCache[p.id];
+      if (!dd) return;
+      const f = (dd.members||[]).filter(m => m.nom && m.nom.trim() && m.note !== '' && m.note != null);
+      if (f.length) satAvgs.push(f.reduce((s,m) => s+(parseFloat(m.note)||0), 0) / f.length);
+    });
+    const satAnalysis = [];
+    if (satMembers.length) {
+      const OBJ = 9;
+      const avg = satMembers.reduce((s,m) => s+m.note, 0) / satMembers.length;
+      const best = satMembers[0], worst = satMembers[satMembers.length-1];
+      const globalAvg = satAvgs.length ? satAvgs.reduce((a,b)=>a+b,0)/satAvgs.length : null;
+      const aboveObj = avg >= OBJ;
+      const trend = globalAvg!=null ? (avg > globalAvg+0.2 ? 'en progression vs historique' : avg < globalAvg-0.2 ? 'en retrait vs historique' : 'stable vs historique') : null;
+      satAnalysis.push({ txt:`Sur la période : moyenne équipe ${avg.toFixed(1)}/10, ${aboveObj?'au-dessus':'en-dessous'} de l'objectif (${OBJ}/10). Top : ${best.nom} (${best.note.toFixed(1)}) — À accompagner : ${worst.nom} (${worst.note.toFixed(1)}).`, alert: !aboveObj });
+      if (globalAvg!=null) satAnalysis.push({ txt:`Globalement : ${globalAvg.toFixed(1)}/10 de moyenne sur ${satAvgs.length} période(s) — ${trend}.`, alert:false });
+      satAnalysis.push({ txt: aboveObj ? `Axe d'amélioration : maintenir le niveau et diffuser les pratiques de ${best.nom} pour sécuriser durablement la satisfaction.` : `Axe d'amélioration : plan d'accompagnement pour ${worst.nom} et partage des bonnes pratiques de ${best.nom} avec le reste de l'équipe.`, alert:false });
+    } else {
+      satAnalysis.push({ txt:'Aucune note de satisfaction renseignée pour cette période.', alert:false });
+    }
+
+    // ── Analyse 2 : opportunités gagnées (vs historique) ──
+    const oppAnalysis = [];
+    const OBJ_PER_ASM_PER_MONTH = 1;
+    const _d1 = new Date(start+'T00:00:00'), _d2 = new Date(end+'T00:00:00');
+    const monthsInPeriod = Math.max(1, Math.round((_d2-_d1)/(1000*60*60*24*30)));
+    const activeAsm = satMembers.map(m => m.nom);
+    const objTarget = OBJ_PER_ASM_PER_MONTH * monthsInPeriod;
+    const oppByAsmMap = Object.fromEntries(oppRanked);
+    const asmEnDessous = activeAsm.filter(nom => (oppByAsmMap[nom] ? oppByAsmMap[nom].count : 0) < objTarget);
+    if (!oppRanked.length) {
+      oppAnalysis.push({ txt:`Aucune opportunité gagnée sur cette période — objectif (≥ ${objTarget} deal${objTarget>1?'s':''}/ASM) non atteint${activeAsm.length?' pour '+activeAsm.join(', '):''}.`, alert:true });
+      oppAnalysis.push({ txt:`Axe d'amélioration : relancer les opportunités en cours et sécuriser les deals proches de signature.`, alert:false });
+    } else {
+      const top = oppRanked[0];
+      const histTotals = [];
+      kpiPeriodsList.forEach(p => {
+        if (p.id === periodId) return;
+        histTotals.push(kpiOpportunitesGagneesPeriode(p.start, p.end).reduce((s,r)=>s+r.montant,0));
+      });
+      const histAvg = histTotals.length ? histTotals.reduce((a,b)=>a+b,0)/histTotals.length : null;
+      const trend = (histAvg!=null && histAvg>0) ? (oppTotal>histAvg*1.1 ? `en hausse de ${Math.round((oppTotal/histAvg-1)*100)}% vs moyenne historique` : oppTotal<histAvg*0.9 ? `en baisse de ${Math.round((1-oppTotal/histAvg)*100)}% vs moyenne historique` : 'stable vs moyenne historique') : null;
+      oppAnalysis.push({ txt:`Sur la période : ${oppRows.length} opportunité(s) gagnée(s) pour ${kpiFmtMontant(oppTotal)}. Top performer : ${top[0]} (${kpiFmtMontant(top[1].montant)}, ${top[1].count} deal${top[1].count>1?'s':''}).`, alert:false });
+      if (activeAsm.length) oppAnalysis.push({ txt:`Objectif (≥${objTarget} deal${objTarget>1?'s':''}/ASM) : ${activeAsm.length-asmEnDessous.length}/${activeAsm.length} ASM l'ont atteint${asmEnDessous.length?' — en retard : '+asmEnDessous.join(', '):''}.`, alert: asmEnDessous.length>0 });
+      if (histAvg!=null) oppAnalysis.push({ txt:`Globalement : moyenne historique ${kpiFmtMontant(Math.round(histAvg))} / période sur ${histTotals.length} période(s) — ${trend}.`, alert:false });
+      oppAnalysis.push({ txt: asmEnDessous.length ? `Axe d'amélioration : activer le pipeline chez ${asmEnDessous.join(', ')} et dupliquer l'approche de ${top[0]} sur leurs comptes.` : `Axe d'amélioration : objectif atteint par toute l'équipe — capitaliser sur la dynamique et viser une hausse du montant moyen par deal.`, alert:false });
+    }
+
+    // ── Analyse 3 : COMEX réalisés (vs historique tous mois) ──
+    const comexAnalysis = [];
+    if (!comexItems.length) {
+      comexAnalysis.push({ txt:'Aucun COMEX planifié sur cette période.', alert:false });
+    } else {
+      const OBJ_RATE = 100;
+      const ratePeriod = Math.round(comexDone/comexItems.length*100);
+      const top = comexRanked[0];
+      const worst = comexRanked.length>1 ? comexRanked[comexRanked.length-1] : null;
+      const allItems = kpiComexAllItems();
+      const byMonth = {};
+      allItems.forEach(r => { if (!r.date) return; const mk=r.date.slice(0,7); byMonth[mk]=byMonth[mk]||{done:0,total:0}; byMonth[mk].total++; if (r.done) byMonth[mk].done++; });
+      const monthRates = Object.values(byMonth).map(v => v.total?v.done/v.total*100:0);
+      const globalRate = monthRates.length ? Math.round(monthRates.reduce((a,b)=>a+b,0)/monthRates.length) : null;
+      const aboveObj = ratePeriod >= OBJ_RATE;
+      const trend = globalRate!=null ? (ratePeriod>globalRate+5?'en progression vs historique':ratePeriod<globalRate-5?'en retrait vs historique':'stable vs historique') : null;
+      const priorityName = worst ? worst[0] : top[0];
+      comexAnalysis.push({ txt:`Sur la période : ${comexDone}/${comexItems.length} COMEX réalisés (${ratePeriod}%), ${aboveObj?'au-dessus':'en-dessous'} de l'objectif (${OBJ_RATE}%). Meilleur suivi : ${top[0]} (${top[1].done}/${top[1].total})${worst?` — À relancer : ${worst[0]} (${worst[1].done}/${worst[1].total})`:''}.`, alert: !aboveObj });
+      if (globalRate!=null) comexAnalysis.push({ txt:`Globalement : taux de réalisation moyen de ${globalRate}% sur ${monthRates.length} mois — ${trend}.`, alert:false });
+      comexAnalysis.push({ txt: !aboveObj ? `Axe d'amélioration : prioriser la relance des COMEX en retard chez ${priorityName} et fiabiliser la planification en début de période.` : `Axe d'amélioration : maintenir la cadence et généraliser la méthode de ${top[0]} à toute l'équipe.`, alert:false });
+    }
+
     buildKpiReportPdf({
-      start, end, satMembers,
-      oppRanked, oppTotal, oppCount: oppRows.length,
-      comexRanked, comexTotal: comexItems.length, comexDone
+      start, end, satMembers, satAnalysis,
+      oppRanked, oppTotal, oppCount: oppRows.length, oppAnalysis,
+      comexRanked, comexTotal: comexItems.length, comexDone, comexAnalysis
     });
     closeModal('modal-kpi-report');
     toast('Rapport PDF généré ✓', 'success');
@@ -3658,6 +3731,31 @@ function buildKpiReportPdf(d) {
     });
     y = doc2.lastAutoTable.finalY + 8;
   }
+  function analysisBox(lines) {
+    if (!lines || !lines.length) return;
+    const RED_T = [178, 38, 38];
+    const TXT_T = [45, 58, 82];
+    const innerW = CW - 14;
+    const wrapped = lines.map(l => ({ w: doc2.splitTextToSize(l.txt, innerW), alert: l.alert }));
+    const boxH = wrapped.reduce((s,item) => s + item.w.length*4.6 + 2, 0) + 11;
+    checkPage(boxH + 6);
+    doc2.setFillColor(255, 247, 237);
+    doc2.setDrawColor(...LGRAY); doc2.setLineWidth(0.3);
+    doc2.roundedRect(ML, y, CW, boxH, 2, 2, 'FD');
+    doc2.setFillColor(...GOLD);
+    doc2.rect(ML, y, 2.2, boxH, 'F');
+    let ly = y + 6.5;
+    doc2.setFontSize(7.5); doc2.setFont('helvetica','bold'); doc2.setTextColor(...GOLD);
+    doc2.text('ANALYSE', ML+7, ly);
+    ly += 5;
+    wrapped.forEach(item => {
+      doc2.setFontSize(8.3); doc2.setFont('helvetica', item.alert ? 'bold' : 'normal');
+      doc2.setTextColor(...(item.alert ? RED_T : TXT_T));
+      doc2.text(item.w, ML+7, ly);
+      ly += item.w.length*4.6 + 2;
+    });
+    y += boxH + 8;
+  }
 
   // ── PAGE 1 : COUVERTURE ──
   doc2.setFillColor(...GOLD);
@@ -3708,6 +3806,7 @@ function buildKpiReportPdf(d) {
     { 0:{cellWidth:16,halign:'center'}, 1:{cellWidth:70}, 2:{cellWidth:'auto'}, 3:{cellWidth:28,halign:'right'} },
     null
   );
+  analysisBox(d.satAnalysis);
 
   // ── 2. Classement opportunités gagnées ──
   sectionBar("2.  CLASSEMENT DES ASM SELON LES OPPORTUNITÉS GAGNÉES");
@@ -3717,6 +3816,7 @@ function buildKpiReportPdf(d) {
     { 0:{cellWidth:16,halign:'center'}, 1:{cellWidth:70}, 2:{cellWidth:'auto',halign:'center'}, 3:{cellWidth:36,halign:'right'} },
     3
   );
+  analysisBox(d.oppAnalysis);
 
   // ── 3. Classement COMEX réalisés ──
   sectionBar("3.  CLASSEMENT DES ASM SELON LES COMEX RÉALISÉS");
@@ -3726,6 +3826,7 @@ function buildKpiReportPdf(d) {
     { 0:{cellWidth:16,halign:'center'}, 1:{cellWidth:60}, 2:{cellWidth:'auto',halign:'center'}, 3:{cellWidth:30,halign:'center'}, 4:{cellWidth:24,halign:'right'} },
     null
   );
+  analysisBox(d.comexAnalysis);
 
   drawFooter();
   const fileLabel = (d.start||'periode').replace(/-/g,'') + '_' + (d.end||'').replace(/-/g,'');
