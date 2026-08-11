@@ -160,8 +160,64 @@ window._db_ref = ref;
 window._db_set = set;
 window._db = db;
 
+// Table de correspondance statut -> porteur (valeurs par defaut)
+window._porteurParStatut = {
+ "Travaux FO en cours":"CIC/DDMS",
+ "En raccordement":"CIC/DDMS",
+ "Attente activation des SIM":"DSI",
+ "Trans saturée":"DT",
+ "Autorisation DDPE":"Etat",
+ "Etude FO en cours":"CIC/DDMS",
+ "Attente paiement frais pour MES":"Occs",
+ "Autorisation client":"Client",
+ "Intégration en cours":"DDMS",
+ "Local en chantier":"Client",
+ "GC innondé":"DT",
+ "Attente maintenance fibre":"DT",
+ "Mairie du Plateau":"Etat",
+ "Dedouanement VITIB":"Vitib",
+ "Autorisation Aeria":"AERIA",
+ "Attente poteau":"DT",
+ "Carte P2P down":"DT",
+ "GC complexe":"CIC",
+ "Autorisation Marine":"Etat",
+ "Autorisation mairie":"Etat",
+ "Appro":"DAL",
+ "Attente baie client":"Client",
+ "MES en cours":"DDMS",
+ "Budget FH":"DDMS",
+ "Attente GC client":"Client",
+ "Attente signature client":"Client"
+};
+
+// Charger les porteurs custom depuis Firebase (fusion avec les valeurs par defaut)
+onValue(ref(db, "statut_porteurs"), (snapshot) => {
+  const data = snapshot.val() || {};
+  Object.values(data).forEach(entry => {
+    if(entry && entry.statut) window._porteurParStatut[entry.statut] = entry.porteur || "";
+  });
+  if(typeof window._refreshOptionsList === "function") window._refreshOptionsList();
+});
+
+window._savePorteurStatut = async function(statut, porteur) {
+  if(!statut) return;
+  window._porteurParStatut[statut] = porteur || "";
+  const safeKey = statut.replace(/[.#$\[\]/]/g, "_");
+  try {
+    await set(ref(db, "statut_porteurs/" + safeKey), { statut: statut, porteur: porteur || "" });
+  } catch(e) {
+    console.error("Erreur Firebase porteur:", e);
+  }
+};
+
 window._saveOption = async function(val) {
   if(!val || window._statutOptions.includes(val)) return;
+  // Nouveau statut : demander le porteur avant de l'ajouter
+  if(typeof window._askPorteur === "function"){
+    const porteur = await window._askPorteur(val);
+    if(porteur === null) return; // annulé par l'utilisateur
+    await window._savePorteurStatut(val, porteur);
+  }
   window._statutOptions.push(val);
   // Sauvegarder seulement les options custom (au-dela des 5 de base)
   const custom = window._statutOptions.slice(5);
@@ -387,9 +443,31 @@ td.num{text-align:right}
    <button id="btnAddOption" style="background:#2563eb;color:white;">+ Ajouter</button>
   </div>
   <table style="width:100%;" id="tableOptions">
-   <thead><tr><th>Valeur</th><th style="width:80px;">Action</th></tr></thead>
+   <thead><tr><th>Valeur</th><th>Porteur</th><th style="width:80px;">Action</th></tr></thead>
    <tbody id="tbodyOptions"></tbody>
   </table>
+ </div>
+</div>
+
+<!-- Popup demande de porteur pour un nouveau statut -->
+<div class="popup" id="popupAskPorteur">
+ <div class="popup-content" style="width:400px;">
+  <div class="popup-header">
+   <h2>Nouveau statut</h2>
+   <span class="close" onclick="window._resolvePorteur(null)">✕</span>
+  </div>
+  <p id="askPorteurStatutLabel" style="font-size:14px;margin-bottom:10px;color:#333;"></p>
+  <p style="font-size:12px;color:#888;margin-bottom:6px;">Choisir un porteur existant :</p>
+  <div id="porteurChipsList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;"></div>
+  <p style="font-size:12px;color:#888;margin-bottom:6px;">Ou ajouter un nouveau porteur :</p>
+  <div style="display:flex;gap:8px;margin-bottom:14px;">
+   <input type="text" id="newPorteurInput" placeholder="Nouveau porteur..." maxlength="40"
+    style="flex:1;padding:6px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;"/>
+   <button id="btnValiderPorteur" style="background:#2563eb;color:white;">Valider</button>
+  </div>
+  <div style="text-align:right;">
+   <button onclick="window._resolvePorteur(null)" style="background:#e5e7eb;color:#333;">Annuler</button>
+  </div>
  </div>
 </div>
 
@@ -896,7 +974,7 @@ window.syncStatutFilter = function syncStatutFilter(){
     const checked = window._statutFilterSelected.has(o);
     const div = document.createElement("div");
     div.style.cssText = "padding:5px 12px;display:flex;align-items:center;gap:8px;cursor:pointer;";
-    div.innerHTML = `<input type="checkbox" value="${o.replace(/"/g,'&quot;')}" ${checked?"checked":""} style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;"/><span style="font-size:13px;">${label}</span>`;
+    div.innerHTML = `<input type="checkbox" value="${o.replace(/"/g,'&quot;')}" ${checked?"checked":""} style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;"/><span style="font-size:13px;flex:1;">${label}</span><span class="statut-del-x" title="Supprimer ce statut" style="color:#ef4444;font-weight:bold;cursor:pointer;padding:0 6px;">✕</span>`;
     const cb = div.querySelector("input");
     cb.addEventListener("change", function(){
       if(this.checked) window._statutFilterSelected.add(o);
@@ -904,8 +982,13 @@ window.syncStatutFilter = function syncStatutFilter(){
       window._updateStatutFilterBtn();
       filtrerEtAfficher();
     });
+    const delBtn = div.querySelector(".statut-del-x");
+    delBtn.addEventListener("click", function(e){
+      e.stopPropagation();
+      window.deleteOption(o);
+    });
     div.addEventListener("click", function(e){
-      if(e.target !== cb){ cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); }
+      if(e.target !== cb && e.target !== delBtn){ cb.checked = !cb.checked; cb.dispatchEvent(new Event("change")); }
     });
     container.appendChild(div);
   });
@@ -951,8 +1034,10 @@ function renderOptionsList(){
  tbody.innerHTML="";
  (window._statutOptions||[]).forEach((opt,i)=>{
   const isDefault = i < 5;
+  const porteur = (window._porteurParStatut && window._porteurParStatut[opt]) || "-";
   tbody.innerHTML+=`<tr>
    <td>${opt}</td>
+   <td style="color:#555;font-size:13px;">${porteur}</td>
    <td>${isDefault
     ? '<span style="color:#aaa;font-size:12px;">défaut</span>'
     : `<button onclick="deleteOption('${opt.replace(/'/g,"\'")}') " style="background:#ef4444;color:white;padding:3px 8px;border-radius:4px;border:none;cursor:pointer;">🗑 Suppr.</button>`
@@ -960,8 +1045,57 @@ function renderOptionsList(){
   </tr>`;
  });
 }
+window._refreshOptionsList = function(){
+ if(document.getElementById("popupGererListe") && document.getElementById("popupGererListe").style.display==="flex"){
+  renderOptionsList();
+ }
+};
+
+// Modale : demande du porteur pour un nouveau statut. Resout avec le porteur choisi, ou null si annulé.
+window._resolvePorteur = null;
+window._askPorteur = function(statutName){
+ return new Promise((resolve)=>{
+  const popup = document.getElementById("popupAskPorteur");
+  const label = document.getElementById("askPorteurStatutLabel");
+  const chipsWrap = document.getElementById("porteurChipsList");
+  const input = document.getElementById("newPorteurInput");
+  const btnValider = document.getElementById("btnValiderPorteur");
+  label.textContent = `Statut « ${statutName} » — choisissez ou ajoutez son porteur :`;
+  input.value = "";
+
+  // Liste des porteurs déjà connus (dédupliqués)
+  const porteurs = [...new Set(Object.values(window._porteurParStatut||{}).filter(p=>p&&p.trim()!==""))].sort((a,b)=>a.localeCompare(b));
+  chipsWrap.innerHTML = "";
+  porteurs.forEach(p=>{
+   const chip = document.createElement("span");
+   chip.textContent = p;
+   chip.style.cssText = "padding:5px 10px;border:1px solid #2563eb;color:#2563eb;border-radius:14px;font-size:12px;cursor:pointer;background:#eff6ff;";
+   chip.onclick = ()=> finish(p);
+   chipsWrap.appendChild(chip);
+  });
+
+  function finish(porteur){
+   popup.style.display = "none";
+   window._resolvePorteur = null;
+   resolve(porteur);
+  }
+
+  window._resolvePorteur = (val)=> finish(val);
+  btnValider.onclick = ()=>{
+   const v = input.value.trim();
+   if(!v){ alert("Entrez un porteur ou choisissez-en un existant."); return; }
+   finish(v);
+  };
+  input.onkeydown = (e)=>{ if(e.key==="Enter") btnValider.onclick(); };
+
+  popup.style.display = "flex";
+ });
+};
 
 window.deleteOption = async function(val){
+ const pwd = window.prompt("Mot de passe requis pour supprimer le statut « "+val+" » :");
+ if(pwd === null) return; // annulé
+ if(pwd !== "edith"){ alert("Mot de passe incorrect."); return; }
  if(!window._statutOptions) return;
  window._statutOptions = window._statutOptions.filter(o=>o!==val);
  const custom = window._statutOptions.slice(5);
@@ -972,6 +1106,7 @@ window.deleteOption = async function(val){
  const dl=document.getElementById("statut-datalist");
  if(dl) dl.innerHTML=window._statutOptions.map(o=>`<option value="${o}">`).join("");
  renderOptionsList();
+ if(typeof window.syncStatutFilter === "function") window.syncStatutFilter();
 };
 
 document.getElementById("btnAddOption").onclick=async()=>{
@@ -1053,7 +1188,37 @@ document.getElementById("btnExport").onclick=()=>{
  XLSX.writeFile(wb,"export_dossiers.xlsx");
 };
 
-// Export Excel : liste des statuts de la zone de filtre (nom + nombre de dossiers + %)
+// Table de correspondance statut -> porteur
+window._porteurParStatut = {
+ "Travaux FO en cours":"CIC/DDMS",
+ "En raccordement":"CIC/DDMS",
+ "Attente activation des SIM":"DSI",
+ "Trans saturée":"DT",
+ "Autorisation DDPE":"Etat",
+ "Etude FO en cours":"CIC/DDMS",
+ "Attente paiement frais pour MES":"Occs",
+ "Autorisation client":"Client",
+ "Intégration en cours":"DDMS",
+ "Local en chantier":"Client",
+ "GC innondé":"DT",
+ "Attente maintenance fibre":"DT",
+ "Mairie du Plateau":"Etat",
+ "Dedouanement VITIB":"Vitib",
+ "Autorisation Aeria":"AERIA",
+ "Attente poteau":"DT",
+ "Carte P2P down":"DT",
+ "GC complexe":"CIC",
+ "Autorisation Marine":"Etat",
+ "Autorisation mairie":"Etat",
+ "Appro":"DAL",
+ "Attente baie client":"Client",
+ "MES en cours":"DDMS",
+ "Budget FH":"DDMS",
+ "Attente GC client":"Client",
+ "Attente signature client":"Client"
+};
+
+// Export Excel : liste des statuts de la zone de filtre (nom + nombre de dossiers + porteur + %)
 window._exportTousStatuts=function(){
  const items = document.querySelectorAll("#statutFilterItems input[type=checkbox]");
  let dataExport=[];
@@ -1065,10 +1230,12 @@ window._exportTousStatuts=function(){
   const nom = m ? m[1].trim() : txt;
   const nb = m ? parseInt(m[2],10) : 0;
   const pct = m && m[3] ? m[3]+"%" : "0.0%";
+  const porteur = window._porteurParStatut[nom] || "";
   dataExport.push({
-   "STATUT": nom,
-   "NB DOSSIERS": nb,
-   "% DU TOTAL": pct
+   "statut": nom,
+   "nb dossiers": nb,
+   "porteur": porteur,
+   "% du total": pct
   });
  });
  const ws=XLSX.utils.json_to_sheet(dataExport);
