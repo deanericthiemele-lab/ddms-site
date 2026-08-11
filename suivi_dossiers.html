@@ -896,8 +896,10 @@ function filtrerEtAfficher(){
  const tbody=document.querySelector("#tableDossiers tbody");
  const rows=[];
  let cpt=0;
+ const lastMonday = getLastMonday();
  dossiersGlobal.forEach(r=>{
-  const statut = window._getStatut ? window._getStatut((r["ID DOSSIER"]||"").toString().trim()) : "";
+  const id=(r["ID DOSSIER"]||"").toString().trim();
+  const statut = window._getStatut ? window._getStatut(id) : "";
   const _d=parseDate(r["DATE CREATION DOSSIER"]);
   const _moisFr=_d?_d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}):"";
   const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+statut+" "+_moisFr).toLowerCase();
@@ -905,9 +907,14 @@ function filtrerEtAfficher(){
   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
   const statutOk=statsFil.size===0||statsFil.has(statut);
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk){
+  let fraicheurOk = true;
+  if(window._filtreFraicheurActif){
+   const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
+   const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
+   fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+  }
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk){
    cpt++;
-   const id=(r["ID DOSSIER"]||"").toString().trim();
    rows.push(`<tr>
     <td>${r["CLIENT"]||""}</td>
     <td>${r["ID DOSSIER"]||""}</td>
@@ -924,7 +931,8 @@ function filtrerEtAfficher(){
  });
  tbody.innerHTML=rows.join("");
  const catLabel = window._categorieFiltreActive==="encours" ? " (En cours)" : window._categorieFiltreActive==="suspendu" ? " (Suspendus)" : "";
- document.getElementById("resume").textContent="Dossiers : "+cpt+catLabel;
+ const fraicheurLabel = window._filtreFraicheurActif==="ajour" ? " (À jour)" : window._filtreFraicheurActif==="retard" ? " (En retard)" : "";
+ document.getElementById("resume").textContent="Dossiers : "+cpt+catLabel+fraicheurLabel;
  peuplerDepuisFirebase();
  attachStatutListeners();
  attachSolutionListeners();
@@ -936,6 +944,8 @@ document.getElementById("moisFilter").addEventListener("change", filtrerEtAffich
 
 // ── Filtre catégorie : En cours / Suspendus ──
 window._categorieFiltreActive = null;
+// ── Filtre fraîcheur : badges "à jour" / "en retard" ──
+window._filtreFraicheurActif = null;
 function _updateCatButtonsUI(){
  const btnEC = document.getElementById("btnCatEnCours");
  const btnSU = document.getElementById("btnCatSuspendus");
@@ -943,7 +953,7 @@ function _updateCatButtonsUI(){
  if(!btnEC||!btnSU||!btnTous) return;
  btnEC.style.outline = window._categorieFiltreActive==="encours" ? "3px solid #14532d" : "none";
  btnSU.style.outline = window._categorieFiltreActive==="suspendu" ? "3px solid #7f1d1d" : "none";
- btnTous.style.display = window._categorieFiltreActive ? "inline-block" : "none";
+ btnTous.style.display = (window._categorieFiltreActive || window._filtreFraicheurActif) ? "inline-block" : "none";
 }
 /* ── Bloc réutilisable "Statut global (en cours et suspendus)" — utilisé dans le rapport ET dans le popup rapide ──
    filtreCat: null = affiche les deux catégories (rapport complet) ; "encours" ou "suspendu" = affiche uniquement cette catégorie (popup rapide)
@@ -985,6 +995,12 @@ function buildStatutGlobalHTML(filtreCat, hideTitle){
  const afficherSuspendu = filtreCat !== "encours";
  const afficherSansStatut = !filtreCat; // "sans statut" ne concerne ni l'une ni l'autre catégorie précisément
  const masquerResume = !!filtreCat; // vue mono-catégorie (popup) : on masque la ligne total en gras
+ // Échelle des barres : en vue mono-catégorie, on cale sur le plus gros statut du détail (pas le total)
+ // pour que les longueurs de barres restent lisibles et proportionnées.
+ const maxDetailEnCours = enCoursDetail.length ? Math.max(...enCoursDetail.map(d=>d[1])) : 1;
+ const maxDetailSuspendu = suspendusDetail.length ? Math.max(...suspendusDetail.map(d=>d[1])) : 1;
+ const echelleEnCours = masquerResume ? Math.max(maxDetailEnCours,1) : maxGlobalCat;
+ const echelleSuspendu = masquerResume ? Math.max(maxDetailSuspendu,1) : maxGlobalCat;
  const titre = filtreCat==="suspendu" ? "📋 Dossiers suspendus" : filtreCat==="encours" ? "📋 Dossiers en cours" : "📋 Statut global (en cours et suspendus)";
 
  return `<div class="rap-nosplit">${hideTitle ? "" : `<h4 style="font-size:13px;color:#555;margin:0 0 8px;">${titre}</h4>`}
@@ -999,7 +1015,7 @@ function buildStatutGlobalHTML(filtreCat, hideTitle){
    </div>
    ${afficherEnCours ? `${masquerResume ? "" : `<div class="rap-bar-row">
      <div class="rap-bar-label"><b>🟢 En cours</b></div>
-     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(enCoursTotalG/maxGlobalCat*100)}%;background:#16a34a;"></div></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(enCoursTotalG/echelleEnCours*100)}%;background:#16a34a;"></div></div>
      <div class="rap-bar-cols">
        <div class="rap-bar-col"><b>${enCoursTotalG}</b></div>
        <div class="rap-bar-col">${globalTotalG?Math.round(enCoursTotalG/globalTotalG*1000)/10:0}%</div>
@@ -1009,7 +1025,7 @@ function buildStatutGlobalHTML(filtreCat, hideTitle){
    ${enCoursDetail.map(([s,n,age])=>`
      <div class="rap-bar-row">
        <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGlobalCat*100)}%;background:#86efac;"></div></div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/echelleEnCours*100)}%;background:#86efac;"></div></div>
        <div class="rap-bar-cols">
          <div class="rap-bar-col">${n}</div>
          <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
@@ -1018,7 +1034,7 @@ function buildStatutGlobalHTML(filtreCat, hideTitle){
      </div>`).join("")}` : ""}
    ${afficherSuspendu ? `${masquerResume ? "" : `<div class="rap-bar-row" style="margin-top:6px;">
      <div class="rap-bar-label"><b>🔴 Suspendus</b></div>
-     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(suspendusTotalG/maxGlobalCat*100)}%;background:#dc2626;"></div></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(suspendusTotalG/echelleSuspendu*100)}%;background:#dc2626;"></div></div>
      <div class="rap-bar-cols">
        <div class="rap-bar-col"><b>${suspendusTotalG}</b></div>
        <div class="rap-bar-col">${globalTotalG?Math.round(suspendusTotalG/globalTotalG*1000)/10:0}%</div>
@@ -1028,7 +1044,7 @@ function buildStatutGlobalHTML(filtreCat, hideTitle){
    ${suspendusDetail.map(([s,n,age])=>`
      <div class="rap-bar-row">
        <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGlobalCat*100)}%;background:#fca5a5;"></div></div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/echelleSuspendu*100)}%;background:#fca5a5;"></div></div>
        <div class="rap-bar-cols">
          <div class="rap-bar-col">${n}</div>
          <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
@@ -1126,6 +1142,7 @@ document.getElementById("btnCatSuspendus").addEventListener("click", function(){
 });
 document.getElementById("btnCatTous").addEventListener("click", function(){
  window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
@@ -1156,7 +1173,21 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
   document.getElementById("statutsTotal").textContent = total;
   const nonRespecte = total - respecteRegle;
   const pctEl = document.getElementById("statutsPct");
-  pctEl.innerHTML = `<span title="Statuts mis à jour depuis le dernier lundi" style="background:#dcfce7;color:#15803d;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;">✅ ${respecteRegle} à jour (depuis lundi)</span> <span title="Statuts non mis à jour depuis le dernier lundi" style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;margin-left:4px;">❌ ${nonRespecte} en retard</span>`;
+  const outlineAJour = window._filtreFraicheurActif==="ajour" ? "outline:2px solid #15803d;" : "";
+  const outlineRetard = window._filtreFraicheurActif==="retard" ? "outline:2px solid #b91c1c;" : "";
+  pctEl.innerHTML = `<span id="badgeAJour" title="Cliquer pour filtrer : statuts mis à jour depuis le dernier lundi" style="background:#dcfce7;color:#15803d;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;cursor:pointer;${outlineAJour}">✅ ${respecteRegle} à jour (depuis lundi)</span> <span id="badgeRetard" title="Cliquer pour filtrer : statuts non mis à jour depuis le dernier lundi" style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;margin-left:4px;cursor:pointer;${outlineRetard}">❌ ${nonRespecte} en retard</span>`;
+  const badgeAJour = document.getElementById("badgeAJour");
+  const badgeRetard = document.getElementById("badgeRetard");
+  if(badgeAJour) badgeAJour.onclick = function(){
+   window._filtreFraicheurActif = window._filtreFraicheurActif==="ajour" ? null : "ajour";
+   if(typeof _updateCatButtonsUI==="function") _updateCatButtonsUI();
+   filtrerEtAfficher();
+  };
+  if(badgeRetard) badgeRetard.onclick = function(){
+   window._filtreFraicheurActif = window._filtreFraicheurActif==="retard" ? null : "retard";
+   if(typeof _updateCatButtonsUI==="function") _updateCatButtonsUI();
+   filtrerEtAfficher();
+  };
 }
 
 // Multi-sélection statuts
