@@ -175,8 +175,8 @@ window._porteurParStatut = {
  "GC innondé":"DT",
  "Attente maintenance fibre":"DT",
  "Mairie du Plateau":"Etat",
- "Dedouanement VITIB":"Vitib",
- "Autorisation Aeria":"AERIA",
+ "Dedouanement VITIB":"Client",
+ "Autorisation Aeria":"Client",
  "Attente poteau":"DT",
  "Carte P2P down":"DT",
  "GC complexe":"CIC",
@@ -337,7 +337,11 @@ td.num{text-align:right}
 <button id="btnCatSuspendus" style="background:#dc2626;color:white;border:none;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;">🔴 Suspendus</button>
 <button id="btnCatTous" style="background:#6b7280;color:white;border:none;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;display:none;">✕ Tous</button>
 </div>
-<div class="subresume" id="subresume">LS : 0 | LSI : 0 | Numérique : 0</div>
+<div class="subresume" id="subresume">
+ <span id="typeLS" style="cursor:pointer;padding:2px 6px;border-radius:4px;">LS : 0</span> |
+ <span id="typeLSI" style="cursor:pointer;padding:2px 6px;border-radius:4px;">LSI : 0</span> |
+ <span id="typeNUM" style="cursor:pointer;padding:2px 6px;border-radius:4px;">Numérique : 0</span>
+</div>
 <div id="statutsCoverage" style="border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:10px;background:#f9f9f9;color:#555;">
   📊 <span style="font-weight:700;color:#000;">Mis à jour des statuts : <strong id="statutsRenseignes">0</strong> / <strong id="statutsTotal">0</strong></span>
   <span id="statutsPct" style="margin-left:6px;color:#888;"></span>
@@ -854,6 +858,14 @@ function peuplerDepuisFirebase(){
  });
 }
 
+function matchTypeAbo(r, typeFiltre){
+ const t=(r["TYPE ABONNEMENT"]||"").toUpperCase();
+ if(typeFiltre==="LS") return t==="LS";
+ if(typeFiltre==="LSI") return t==="LSI";
+ if(typeFiltre==="NUM") return t.includes("NUM");
+ return true;
+}
+
 function renderMain(){
  document.getElementById("resume").textContent="Dossiers : "+dossiersGlobal.length;
  let ls=0,lsi=0,num=0;
@@ -863,7 +875,9 @@ function renderMain(){
   else if(t==="LSI") lsi++;
   else if(t.includes("NUM")) num++;
  });
- document.getElementById("subresume").textContent=`LS : ${ls} | LSI : ${lsi} | Numérique : ${num}`;
+ document.getElementById("typeLS").textContent = "LS : "+ls;
+ document.getElementById("typeLSI").textContent = "LSI : "+lsi;
+ document.getElementById("typeNUM").textContent = "Numérique : "+num;
  const tbody=document.querySelector("#tableDossiers tbody");
  // Construire tout le HTML d'un seul coup (évite que innerHTML+= reparse et efface les values)
  const rows=[];
@@ -907,13 +921,14 @@ function filtrerEtAfficher(){
   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
   const statutOk=statsFil.size===0||statsFil.has(statut);
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
+  const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk){
    cpt++;
    rows.push(`<tr>
     <td>${r["CLIENT"]||""}</td>
@@ -932,11 +947,13 @@ function filtrerEtAfficher(){
  tbody.innerHTML=rows.join("");
  const catLabel = window._categorieFiltreActive==="encours" ? " (En cours)" : window._categorieFiltreActive==="suspendu" ? " (Suspendus)" : "";
  const fraicheurLabel = window._filtreFraicheurActif==="ajour" ? " (À jour)" : window._filtreFraicheurActif==="retard" ? " (En retard)" : "";
- document.getElementById("resume").textContent="Dossiers : "+cpt+catLabel+fraicheurLabel;
+ const typeLabel = window._filtreTypeActif==="LS" ? " (LS)" : window._filtreTypeActif==="LSI" ? " (LSI)" : window._filtreTypeActif==="NUM" ? " (Numérique)" : "";
+ document.getElementById("resume").textContent="Dossiers : "+cpt+catLabel+fraicheurLabel+typeLabel;
  peuplerDepuisFirebase();
  attachStatutListeners();
  attachSolutionListeners();
  syncStatutFilter();
+ _updateTypeSpansUI();
 }
 document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
 document.getElementById("moisFilter").addEventListener("change", filtrerEtAfficher);
@@ -946,6 +963,8 @@ document.getElementById("moisFilter").addEventListener("change", filtrerEtAffich
 window._categorieFiltreActive = null;
 // ── Filtre fraîcheur : badges "à jour" / "en retard" ──
 window._filtreFraicheurActif = null;
+// ── Filtre type d'abonnement : LS / LSI / Numérique ──
+window._filtreTypeActif = null;
 function _updateCatButtonsUI(){
  const btnEC = document.getElementById("btnCatEnCours");
  const btnSU = document.getElementById("btnCatSuspendus");
@@ -953,8 +972,42 @@ function _updateCatButtonsUI(){
  if(!btnEC||!btnSU||!btnTous) return;
  btnEC.style.outline = window._categorieFiltreActive==="encours" ? "3px solid #14532d" : "none";
  btnSU.style.outline = window._categorieFiltreActive==="suspendu" ? "3px solid #7f1d1d" : "none";
- btnTous.style.display = (window._categorieFiltreActive || window._filtreFraicheurActif) ? "inline-block" : "none";
+ btnTous.style.display = (window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreTypeActif) ? "inline-block" : "none";
 }
+function _updateTypeSpansUI(){
+ const spLS = document.getElementById("typeLS");
+ const spLSI = document.getElementById("typeLSI");
+ const spNUM = document.getElementById("typeNUM");
+ if(!spLS||!spLSI||!spNUM) return;
+ [["LS",spLS],["LSI",spLSI],["NUM",spNUM]].forEach(([key,el])=>{
+  el.style.background = window._filtreTypeActif===key ? "#dbeafe" : "transparent";
+  el.style.outline = window._filtreTypeActif===key ? "2px solid #2563eb" : "none";
+ });
+}
+document.getElementById("typeLS").addEventListener("click", function(){
+ const activer = window._filtreTypeActif !== "LS";
+ window._filtreTypeActif = activer ? "LS" : null;
+ window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("typeLSI").addEventListener("click", function(){
+ const activer = window._filtreTypeActif !== "LSI";
+ window._filtreTypeActif = activer ? "LSI" : null;
+ window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("typeNUM").addEventListener("click", function(){
+ const activer = window._filtreTypeActif !== "NUM";
+ window._filtreTypeActif = activer ? "NUM" : null;
+ window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
 /* ── Bloc réutilisable "Statut global (en cours et suspendus)" — utilisé dans le rapport ET dans le popup rapide ──
    filtreCat: null = affiche les deux catégories (rapport complet) ; "encours" ou "suspendu" = affiche uniquement cette catégorie (popup rapide)
    hideTitle: true = n'affiche pas le <h4> interne (utile quand le titre est déjà affiché ailleurs, ex. popup) */
@@ -1133,6 +1186,7 @@ document.getElementById("btnCatEnCours").addEventListener("click", function(){
  const activer = window._categorieFiltreActive !== "encours";
  window._categorieFiltreActive = activer ? "encours" : null;
  window._filtreFraicheurActif = null;
+ window._filtreTypeActif = null;
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
@@ -1140,6 +1194,7 @@ document.getElementById("btnCatSuspendus").addEventListener("click", function(){
  const activer = window._categorieFiltreActive !== "suspendu";
  window._categorieFiltreActive = activer ? "suspendu" : null;
  window._filtreFraicheurActif = null;
+ window._filtreTypeActif = null;
  _updateCatButtonsUI();
  filtrerEtAfficher();
  if(activer) ouvrirPopupStatutGlobal("suspendu");
@@ -1147,6 +1202,7 @@ document.getElementById("btnCatSuspendus").addEventListener("click", function(){
 document.getElementById("btnCatTous").addEventListener("click", function(){
  window._categorieFiltreActive = null;
  window._filtreFraicheurActif = null;
+ window._filtreTypeActif = null;
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
@@ -1186,6 +1242,7 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
    const activer = window._filtreFraicheurActif !== "ajour";
    window._filtreFraicheurActif = activer ? "ajour" : null;
    window._categorieFiltreActive = null;
+   window._filtreTypeActif = null;
    if(typeof _updateCatButtonsUI==="function") _updateCatButtonsUI();
    filtrerEtAfficher();
   };
@@ -1193,6 +1250,7 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
    const activer = window._filtreFraicheurActif !== "retard";
    window._filtreFraicheurActif = activer ? "retard" : null;
    window._categorieFiltreActive = null;
+   window._filtreTypeActif = null;
    if(typeof _updateCatButtonsUI==="function") _updateCatButtonsUI();
    filtrerEtAfficher();
   };
@@ -1322,7 +1380,7 @@ function renderOptionsList(){
   const estSuspendu = window._getCategorieStatut ? window._getCategorieStatut(opt)==="suspendu" : false;
   const safeOpt = opt.replace(/'/g,"\\'");
   tbody.innerHTML+=`<tr>
-   <td>${opt}</td>
+   <td style="cursor:pointer;" onclick="modifierValeurStatut('${safeOpt}')" title="Cliquer pour renommer ce statut">${opt} <span style="color:#2563eb;font-size:11px;">✎</span></td>
    <td style="color:#555;font-size:13px;cursor:pointer;" onclick="modifierPorteurStatut('${safeOpt}')" title="Cliquer pour modifier le porteur">${porteur} <span style="color:#2563eb;font-size:11px;">✎</span></td>
    <td style="text-align:center;"><input type="checkbox" ${estSuspendu?"checked":""} onclick="basculerCategorieStatut('${safeOpt}', this)" style="width:16px;height:16px;cursor:pointer;accent-color:#dc2626;"/></td>
    <td>${isDefault
@@ -1362,6 +1420,79 @@ window.modifierPorteurStatut = async function(statut){
   await window._savePorteurStatut(statut, val);
  }
  renderOptionsList();
+};
+
+// Renomme un statut PARTOUT : liste des options, porteur/catégorie, et tous les dossiers qui l'utilisent (tableau + Firebase)
+window.modifierValeurStatut = async function(ancienStatut){
+ const pwd = window.prompt("Mot de passe requis pour modifier le statut « "+ancienStatut+" » :");
+ if(pwd === null) return;
+ if(pwd !== "edith"){ alert("Mot de passe incorrect."); return; }
+ const nouveauStatut = window.prompt("Nouvelle valeur pour « "+ancienStatut+" » :", ancienStatut);
+ if(nouveauStatut === null) return;
+ const val = nouveauStatut.trim();
+ if(!val || val === ancienStatut) return;
+
+ const fusion = (window._statutOptions||[]).includes(val);
+ if(fusion){
+  const ok = confirm(`Le statut « ${val} » existe déjà.\nTous les dossiers actuellement en « ${ancienStatut} » basculeront vers « ${val} », et « ${ancienStatut} » sera retiré de la liste.\nContinuer ?`);
+  if(!ok) return;
+ }
+
+ const operations = [];
+
+ // 1) Mettre à jour tous les dossiers (mémoire + Firebase) qui portent ce statut
+ Object.keys(window._statuts||{}).forEach(safeKey=>{
+  const entry = window._statuts[safeKey];
+  const v = (entry && typeof entry === "object") ? entry.value : entry;
+  if(v === ancienStatut){
+   const nouvelEntry = (entry && typeof entry === "object") ? {...entry, value: val} : {value: val, updatedAt: new Date().toISOString()};
+   window._statuts[safeKey] = nouvelEntry;
+   operations.push(window._db_set(window._db_ref(window._db, "statuts_dossiers/" + safeKey), nouvelEntry));
+  }
+ });
+
+ // 2) Porteur + catégorie : transférer sur le nouveau nom (sauf fusion, où l'on garde ceux du statut cible)
+ const safeOld = ancienStatut.replace(/[.#$\[\]/]/g, "_");
+ if(!fusion){
+  const porteurActuel = (window._porteurParStatut && window._porteurParStatut[ancienStatut]) || "";
+  const categorieActuelle = window._getCategorieStatut ? window._getCategorieStatut(ancienStatut) : "encours";
+  delete window._porteurParStatut[ancienStatut];
+  delete window._categorieParStatut[ancienStatut];
+  window._porteurParStatut[val] = porteurActuel;
+  window._categorieParStatut[val] = categorieActuelle;
+  const safeNew = val.replace(/[.#$\[\]/]/g, "_");
+  operations.push(window._db_set(window._db_ref(window._db, "statut_porteurs/" + safeOld), null));
+  operations.push(window._db_set(window._db_ref(window._db, "statut_porteurs/" + safeNew), { statut: val, porteur: porteurActuel, categorie: categorieActuelle }));
+ } else {
+  delete window._porteurParStatut[ancienStatut];
+  delete window._categorieParStatut[ancienStatut];
+  operations.push(window._db_set(window._db_ref(window._db, "statut_porteurs/" + safeOld), null));
+ }
+
+ // 3) Liste des options
+ const idx = (window._statutOptions||[]).indexOf(ancienStatut);
+ if(idx !== -1){
+  if(fusion){
+   window._statutOptions.splice(idx,1);
+  } else {
+   window._statutOptions[idx] = val;
+  }
+  const custom = window._statutOptions.slice(5);
+  operations.push(window._db_set(window._db_ref(window._db, "statut_options"), custom));
+ }
+
+ try {
+  await Promise.all(operations);
+ } catch(e){
+  console.error("Erreur lors du renommage du statut:", e);
+  alert("Une erreur est survenue pendant la mise à jour. Vérifiez la console.");
+ }
+
+ // 4) Rafraîchir tout l'affichage (liste, datalist, tableau principal, filtres, badges)
+ const dl = document.getElementById("statut-datalist");
+ if(dl) dl.innerHTML = window._statutOptions.map(o=>`<option value="${o}">`).join("");
+ renderOptionsList();
+ if(typeof filtrerEtAfficher === "function") filtrerEtAfficher();
 };
 
 // Modale : demande du porteur + catégorie pour un nouveau statut. Résout avec {porteur, categorie}, ou null si annulé.
@@ -1479,6 +1610,7 @@ document.getElementById("btnExport").onclick=()=>{
  const q=document.getElementById("searchInput").value.toLowerCase();
  const mois=document.getElementById("moisFilter").value.toLowerCase();
  const statsFil=window._statutFilterSelected||new Set();
+ const lastMonday = getLastMonday();
  let dataExport=[];
  dossiersGlobal.forEach(r=>{
   const id=(r["ID DOSSIER"]||"").toString().trim();
@@ -1489,7 +1621,14 @@ document.getElementById("btnExport").onclick=()=>{
   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
   const statutOk=statsFil.size===0||statsFil.has(statut);
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk){
+  const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
+  let fraicheurOk = true;
+  if(window._filtreFraicheurActif){
+   const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
+   const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
+   fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+  }
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&fraicheurOk){
    dataExport.push({
     "CLIENT":r["CLIENT"]||"",
     "ID DOSSIER":r["ID DOSSIER"]||"",
@@ -1506,41 +1645,13 @@ document.getElementById("btnExport").onclick=()=>{
  });
  const ws=XLSX.utils.json_to_sheet(dataExport);
  const wb=XLSX.utils.book_new();
- const suffixe = window._categorieFiltreActive==="encours" ? "_en_cours" : window._categorieFiltreActive==="suspendu" ? "_suspendus" : "";
+ let suffixe = window._categorieFiltreActive==="encours" ? "_en_cours" : window._categorieFiltreActive==="suspendu" ? "_suspendus" : "";
+ suffixe += window._filtreFraicheurActif==="ajour" ? "_a_jour" : window._filtreFraicheurActif==="retard" ? "_en_retard" : "";
+ suffixe += window._filtreTypeActif ? "_"+window._filtreTypeActif.toLowerCase() : "";
  XLSX.utils.book_append_sheet(wb,ws,"Export");
  XLSX.writeFile(wb,"export_dossiers"+suffixe+".xlsx");
 };
 
-
-// Table de correspondance statut -> porteur
-window._porteurParStatut = {
- "Travaux FO en cours":"CIC/DDMS",
- "En raccordement":"CIC/DDMS",
- "Attente activation des SIM":"DSI",
- "Trans saturée":"DT",
- "Autorisation DDPE":"Etat",
- "Etude FO en cours":"CIC/DDMS",
- "Attente paiement frais pour MES":"Occs",
- "Autorisation client":"Client",
- "Intégration en cours":"DDMS",
- "Local en chantier":"Client",
- "GC innondé":"DT",
- "Attente maintenance fibre":"DT",
- "Mairie du Plateau":"Etat",
- "Dedouanement VITIB":"Vitib",
- "Autorisation Aeria":"AERIA",
- "Attente poteau":"DT",
- "Carte P2P down":"DT",
- "GC complexe":"CIC",
- "Autorisation Marine":"Etat",
- "Autorisation mairie":"Etat",
- "Appro":"DAL",
- "Attente baie client":"Client",
- "MES en cours":"DDMS",
- "Budget FH":"DDMS",
- "Attente GC client":"Client",
- "Attente signature client":"Client"
-};
 
 // Export Excel : liste des statuts de la zone de filtre (nom + nombre de dossiers + porteur + %)
 window._exportTousStatuts=function(){
