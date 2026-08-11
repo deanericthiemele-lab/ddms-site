@@ -311,10 +311,10 @@ td.num{text-align:right}
 .rap-rank{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;border-radius:50%;background:#7c3aed;color:#fff;font-size:10px;font-weight:800;margin-right:6px;}
 .rap-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media (max-width:900px){.rap-grid-2{grid-template-columns:1fr;}}
-.rap-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;}
+.rap-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px;}
 .rap-bar-label{width:130px;flex-shrink:0;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.rap-bar-track{flex:1;height:14px;background:#f0f0f0;border-radius:7px;overflow:hidden;}
-.rap-bar-fill{height:100%;background:#7c3aed;border-radius:7px;}
+.rap-bar-track{flex:1;height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden;}
+.rap-bar-fill{height:100%;background:#7c3aed;border-radius:4px;}
 .rap-bar-val{width:70px;text-align:right;font-weight:700;color:#333;}
 .rap-bar-cols{display:flex;gap:10px;flex-shrink:0;}
 .rap-bar-col{width:58px;text-align:right;font-size:12px;color:#333;}
@@ -339,7 +339,7 @@ td.num{text-align:right}
 </div>
 <div class="subresume" id="subresume">LS : 0 | LSI : 0 | Numérique : 0</div>
 <div id="statutsCoverage" style="border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:10px;background:#f9f9f9;color:#555;">
-  📊 Statuts renseignés : <strong id="statutsRenseignes">0</strong> / <strong id="statutsTotal">0</strong>
+  📊 Mis à jour des statuts : <strong id="statutsRenseignes">0</strong> / <strong id="statutsTotal">0</strong>
   <span id="statutsPct" style="margin-left:6px;color:#888;"></span>
 </div>
 
@@ -497,6 +497,20 @@ td.num{text-align:right}
   <div style="text-align:right;">
    <button onclick="window._resolvePorteur(null)" style="background:#e5e7eb;color:#333;">Annuler</button>
   </div>
+ </div>
+</div>
+
+<!-- Popup Statut global (en cours et suspendus) -->
+<div class="popup" id="popupStatutGlobal">
+ <div class="popup-content" style="width:520px;max-height:75vh;overflow-y:auto;">
+  <div class="popup-header">
+   <h2>📋 Statut global (en cours et suspendus)</h2>
+   <span class="close" onclick="fermerPopupStatutGlobal()">✕</span>
+  </div>
+  <div style="text-align:right;margin-bottom:10px;">
+   <button id="btnExportStatutGlobal" style="background:#16a34a;color:white;padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:13px;">📥 Export Excel</button>
+  </div>
+  <div id="statutGlobalBody"></div>
  </div>
 </div>
 
@@ -931,6 +945,144 @@ function _updateCatButtonsUI(){
  btnSU.style.outline = window._categorieFiltreActive==="suspendu" ? "3px solid #7f1d1d" : "none";
  btnTous.style.display = window._categorieFiltreActive ? "inline-block" : "none";
 }
+/* ── Bloc réutilisable "Statut global (en cours et suspendus)" — utilisé dans le rapport ET dans le popup rapide ──
+   filtreCat: null = affiche les deux catégories (rapport complet) ; "encours" ou "suspendu" = affiche uniquement cette catégorie (popup rapide) */
+function buildStatutGlobalHTML(filtreCat){
+ const statutCounts = {}, statutAgeSum = {};
+ let sansStatut = 0, sansStatutAgeSum = 0;
+ (dossiersGlobal||[]).forEach(r=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
+  const s = window._getStatut ? window._getStatut(id) : "";
+  const age = daysBetween(r["DATE CREATION DOSSIER"]);
+  if(s && s.trim()!==""){
+   statutCounts[s] = (statutCounts[s]||0)+1;
+   statutAgeSum[s] = (statutAgeSum[s]||0)+age;
+  } else {
+   sansStatut++;
+   sansStatutAgeSum += age;
+  }
+ });
+ const statutsSorted = Object.entries(statutCounts).sort((a,b)=>b[1]-a[1]);
+
+ let enCoursTotalG = 0, suspendusTotalG = 0;
+ let enCoursAgeSumG = 0, suspendusAgeSumG = 0;
+ const enCoursDetail = [], suspendusDetail = [];
+ statutsSorted.forEach(([s,n])=>{
+  const age = statutAgeSum[s];
+  const categorie = window._getCategorieStatut ? window._getCategorieStatut(s) : "encours";
+  if(categorie === "suspendu"){
+   suspendusTotalG += n; suspendusAgeSumG += age;
+   suspendusDetail.push([s,n,age]);
+  } else {
+   enCoursTotalG += n; enCoursAgeSumG += age;
+   enCoursDetail.push([s,n,age]);
+  }
+ });
+ const globalTotalG = enCoursTotalG + suspendusTotalG + sansStatut;
+ const maxGlobalCat = Math.max(enCoursTotalG, suspendusTotalG, 1);
+ const afficherEnCours = filtreCat !== "suspendu";
+ const afficherSuspendu = filtreCat !== "encours";
+ const afficherSansStatut = !filtreCat; // "sans statut" ne concerne ni l'une ni l'autre catégorie précisément
+ const titre = filtreCat==="suspendu" ? "📋 Statut suspendus" : filtreCat==="encours" ? "📋 Statut en cours" : "📋 Statut global (en cours et suspendus)";
+
+ return `<div class="rap-nosplit"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">${titre}</h4>
+   ${globalTotalG ? `<div class="rap-bar-row" style="margin-bottom:8px;">
+     <div class="rap-bar-label"></div>
+     <div class="rap-bar-track" style="background:none;"></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col rap-bar-col-head">Volume</div>
+       <div class="rap-bar-col rap-bar-col-head">%</div>
+       <div class="rap-bar-col rap-bar-col-head">Âge moy.</div>
+     </div>
+   </div>
+   ${afficherEnCours ? `<div class="rap-bar-row">
+     <div class="rap-bar-label"><b>🟢 En cours</b></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(enCoursTotalG/maxGlobalCat*100)}%;background:#16a34a;"></div></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col"><b>${enCoursTotalG}</b></div>
+       <div class="rap-bar-col">${globalTotalG?Math.round(enCoursTotalG/globalTotalG*1000)/10:0}%</div>
+       <div class="rap-bar-col">${enCoursTotalG?Math.round(enCoursAgeSumG/enCoursTotalG):0} j</div>
+     </div>
+   </div>
+   ${enCoursDetail.map(([s,n,age])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGlobalCat*100)}%;background:#86efac;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col">${n}</div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(age/n)} j</div>
+       </div>
+     </div>`).join("")}` : ""}
+   ${afficherSuspendu ? `<div class="rap-bar-row" style="margin-top:6px;">
+     <div class="rap-bar-label"><b>🔴 Suspendus</b></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(suspendusTotalG/maxGlobalCat*100)}%;background:#dc2626;"></div></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col"><b>${suspendusTotalG}</b></div>
+       <div class="rap-bar-col">${globalTotalG?Math.round(suspendusTotalG/globalTotalG*1000)/10:0}%</div>
+       <div class="rap-bar-col">${suspendusTotalG?Math.round(suspendusAgeSumG/suspendusTotalG):0} j</div>
+     </div>
+   </div>
+   ${suspendusDetail.map(([s,n,age])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGlobalCat*100)}%;background:#fca5a5;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col">${n}</div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(age/n)} j</div>
+       </div>
+     </div>`).join("")}` : ""}
+   ${(afficherSansStatut && sansStatut) ? `<div class="rap-bar-row" style="margin-top:6px;">
+       <div class="rap-bar-label" style="color:#888;">Sans statut</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxGlobalCat*100)}%;background:#ccc;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col"><b>${sansStatut}</b></div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(sansStatut/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(sansStatutAgeSum/sansStatut)} j</div>
+       </div>
+     </div>` : ""}
+   ` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
+ </div>`;
+}
+
+window._popupStatutGlobalCat = "suspendu";
+function ouvrirPopupStatutGlobal(categorie){
+ const popup = document.getElementById("popupStatutGlobal");
+ const body = document.getElementById("statutGlobalBody");
+ if(!popup || !body) return;
+ window._popupStatutGlobalCat = categorie || "suspendu";
+ body.innerHTML = buildStatutGlobalHTML(window._popupStatutGlobalCat);
+ popup.style.display = "flex";
+}
+function fermerPopupStatutGlobal(){
+ const popup = document.getElementById("popupStatutGlobal");
+ if(popup) popup.style.display = "none";
+}
+
+document.getElementById("btnExportStatutGlobal").addEventListener("click", function(){
+ const cat = window._popupStatutGlobalCat || "suspendu";
+ let dataExport = [];
+ (dossiersGlobal||[]).forEach(r=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
+  const statut = window._getStatut ? window._getStatut(id) : "";
+  if(!statut || statut.trim()==="") return;
+  const categorieStatut = window._getCategorieStatut ? window._getCategorieStatut(statut) : "encours";
+  if(categorieStatut !== cat) return;
+  dataExport.push({
+   "CLIENT": r["CLIENT"]||"",
+   "ID DOSSIER": r["ID DOSSIER"]||"",
+   "DURÉE (j)": daysBetween(r["DATE CREATION DOSSIER"]),
+   "STATUT": statut
+  });
+ });
+ const ws = XLSX.utils.json_to_sheet(dataExport);
+ const wb = XLSX.utils.book_new();
+ const nomFeuille = cat==="suspendu" ? "Suspendus" : "En cours";
+ XLSX.utils.book_append_sheet(wb, ws, nomFeuille);
+ XLSX.writeFile(wb, `dossiers_${nomFeuille.toLowerCase()}.xlsx`);
+});
+
 document.getElementById("btnCatEnCours").addEventListener("click", function(){
  window._categorieFiltreActive = window._categorieFiltreActive==="encours" ? null : "encours";
  _updateCatButtonsUI();
@@ -940,6 +1092,7 @@ document.getElementById("btnCatSuspendus").addEventListener("click", function(){
  window._categorieFiltreActive = window._categorieFiltreActive==="suspendu" ? null : "suspendu";
  _updateCatButtonsUI();
  filtrerEtAfficher();
+ ouvrirPopupStatutGlobal("suspendu");
 });
 document.getElementById("btnCatTous").addEventListener("click", function(){
  window._categorieFiltreActive = null;
@@ -971,10 +1124,9 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
   });
   document.getElementById("statutsRenseignes").textContent = renseignes;
   document.getElementById("statutsTotal").textContent = total;
-  const pctRespect = total > 0 ? Math.round(respecteRegle/total*100) : 0;
-  const pctNonRespect = 100 - pctRespect;
+  const nonRespecte = total - respecteRegle;
   const pctEl = document.getElementById("statutsPct");
-  pctEl.innerHTML = `<span title="Statuts mis à jour depuis le dernier lundi" style="background:#16a34a;color:white;border-radius:10px;padding:1px 8px;font-size:12px;">✅ ${pctRespect}% à jour (depuis lundi)</span> <span title="Statuts non mis à jour depuis le dernier lundi" style="background:#dc2626;color:white;border-radius:10px;padding:1px 8px;font-size:12px;margin-left:4px;">❌ ${pctNonRespect}% en retard</span>`;
+  pctEl.innerHTML = `<span title="Statuts mis à jour depuis le dernier lundi" style="background:#dcfce7;color:#15803d;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;">✅ ${respecteRegle} à jour (depuis lundi)</span> <span title="Statuts non mis à jour depuis le dernier lundi" style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;margin-left:4px;">❌ ${nonRespecte} en retard</span>`;
 }
 
 // Multi-sélection statuts
@@ -1659,24 +1811,6 @@ function genererRapportKPI(){
  const statutsSorted = Object.entries(statutCounts).sort((a,b)=>b[1]-a[1]);
  const maxStatut = statutsSorted.length ? Math.max(...statutsSorted.map(s=>s[1]), sansStatut) : (sansStatut||1);
 
- // ── 3ter) STATUT GLOBAL — regroupement En cours / Suspendus ──
- let enCoursTotalG = 0, suspendusTotalG = 0;
- let enCoursAgeSumG = 0, suspendusAgeSumG = 0;
- const enCoursDetail = [], suspendusDetail = [];
- statutsSorted.forEach(([s,n])=>{
-  const age = statutAgeSum[s];
-  const categorie = window._getCategorieStatut ? window._getCategorieStatut(s) : "encours";
-  if(categorie === "suspendu"){
-   suspendusTotalG += n; suspendusAgeSumG += age;
-   suspendusDetail.push([s,n,age]);
-  } else {
-   enCoursTotalG += n; enCoursAgeSumG += age;
-   enCoursDetail.push([s,n,age]);
-  }
- });
- const globalTotalG = enCoursTotalG + suspendusTotalG + sansStatut;
- const maxGlobalCat = Math.max(enCoursTotalG, suspendusTotalG, 1);
-
  // ── 3bis) PAR PRODUIT — encours (pipe) et livrés (période, fichier MES) ──
  // Le pipe n'a pas de colonne unique LS/LSI/T0/T2 : "TYPE ABONNEMENT" donne LS/LSI/numerique,
  // et pour les lignes "numerique" c'est la colonne PRODUIT qui précise T0 ou T2.
@@ -1791,65 +1925,8 @@ function genererRapportKPI(){
    ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
  </div>
 
- <div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Statut global (en cours et suspendus)</h4>
-   ${globalTotalG ? `<div class="rap-bar-row" style="margin-bottom:8px;">
-     <div class="rap-bar-label"></div>
-     <div class="rap-bar-track" style="background:none;"></div>
-     <div class="rap-bar-cols">
-       <div class="rap-bar-col rap-bar-col-head">Volume</div>
-       <div class="rap-bar-col rap-bar-col-head">%</div>
-       <div class="rap-bar-col rap-bar-col-head">Âge moy.</div>
-     </div>
-   </div>
-   <div class="rap-bar-row">
-     <div class="rap-bar-label"><b>🟢 En cours</b></div>
-     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(enCoursTotalG/maxGlobalCat*100)}%;background:#16a34a;"></div></div>
-     <div class="rap-bar-cols">
-       <div class="rap-bar-col"><b>${enCoursTotalG}</b></div>
-       <div class="rap-bar-col">${globalTotalG?Math.round(enCoursTotalG/globalTotalG*1000)/10:0}%</div>
-       <div class="rap-bar-col">${enCoursTotalG?Math.round(enCoursAgeSumG/enCoursTotalG):0} j</div>
-     </div>
-   </div>
-   ${enCoursDetail.map(([s,n,age])=>`
-     <div class="rap-bar-row">
-       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGlobalCat*100)}%;background:#86efac;"></div></div>
-       <div class="rap-bar-cols">
-         <div class="rap-bar-col">${n}</div>
-         <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
-         <div class="rap-bar-col">${Math.round(age/n)} j</div>
-       </div>
-     </div>`).join("")}
-   <div class="rap-bar-row" style="margin-top:6px;">
-     <div class="rap-bar-label"><b>🔴 Suspendus</b></div>
-     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(suspendusTotalG/maxGlobalCat*100)}%;background:#dc2626;"></div></div>
-     <div class="rap-bar-cols">
-       <div class="rap-bar-col"><b>${suspendusTotalG}</b></div>
-       <div class="rap-bar-col">${globalTotalG?Math.round(suspendusTotalG/globalTotalG*1000)/10:0}%</div>
-       <div class="rap-bar-col">${suspendusTotalG?Math.round(suspendusAgeSumG/suspendusTotalG):0} j</div>
-     </div>
-   </div>
-   ${suspendusDetail.map(([s,n,age])=>`
-     <div class="rap-bar-row">
-       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGlobalCat*100)}%;background:#fca5a5;"></div></div>
-       <div class="rap-bar-cols">
-         <div class="rap-bar-col">${n}</div>
-         <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
-         <div class="rap-bar-col">${Math.round(age/n)} j</div>
-       </div>
-     </div>`).join("")}
-   ${sansStatut ? `<div class="rap-bar-row" style="margin-top:6px;">
-       <div class="rap-bar-label" style="color:#888;">Sans statut</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxGlobalCat*100)}%;background:#ccc;"></div></div>
-       <div class="rap-bar-cols">
-         <div class="rap-bar-col"><b>${sansStatut}</b></div>
-         <div class="rap-bar-col">${globalTotalG?Math.round(sansStatut/globalTotalG*1000)/10:0}%</div>
-         <div class="rap-bar-col">${Math.round(sansStatutAgeSum/sansStatut)} j</div>
-       </div>
-     </div>` : ""}
-   ` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
- </div></div>`;
+ ${buildStatutGlobalHTML()}
+ </div>`;
 
  /* ════════ BLOC 5 — TOP 10 ════════ */
  html += `<div class="rap-section"><h3>🏆 Top 10</h3>
