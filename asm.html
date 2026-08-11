@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ASM — Base de Connaissance Client</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>*,*::before,*::after{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif !important;font-size:14px;}</style>
 
 <script type="module">
@@ -3480,6 +3482,256 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
   renderAllPda();
 };
 
+// ══════════════════════════════════════════════════════
+// 📄 RAPPORT PDF — Classement ASM (satisfaction / opportunités / COMEX)
+// ══════════════════════════════════════════════════════
+window.openKpiReportModal = async function() {
+  await kpiLoadPeriodsList();
+  const sel = document.getElementById('kpi-report-period-select');
+  const warn = document.getElementById('kpi-report-empty-warning');
+  if (kpiPeriodsList.length) {
+    warn.style.display = 'none';
+    sel.innerHTML = kpiPeriodsList.slice().reverse().map(p =>
+      `<option value="${p.id}"${p.id===kpiCurrentId?' selected':''}>${kpiFmtPeriodLabel(p.start,p.end)}</option>`
+    ).join('');
+  } else {
+    warn.style.display = 'block';
+    const def = kpiDefaultRange();
+    sel.innerHTML = `<option value="__current__">${kpiFmtPeriodLabel(def.start, def.end)}</option>`;
+  }
+  document.getElementById('modal-kpi-report').style.display = 'flex';
+};
+
+window.generateKpiReportPdf = async function() {
+  const sel = document.getElementById('kpi-report-period-select');
+  const periodId = sel.value;
+  const btn = document.getElementById('kpi-report-generate-btn');
+  const origLabel = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = 'Génération…';
+  try {
+    let start, end, satMembers = [];
+    if (!periodId || periodId === '__current__') {
+      const def = kpiDefaultRange();
+      start = def.start; end = def.end;
+    } else {
+      const meta = kpiPeriodsList.find(p => p.id === periodId);
+      start = meta ? meta.start : kpiDefaultRange().start;
+      end = meta ? meta.end : kpiDefaultRange().end;
+      let periodData = null;
+      if (periodId === kpiCurrentId && kpiData) {
+        periodData = kpiData;
+      } else {
+        try {
+          const snap = await getDoc(doc(db, COL_KPI, periodId));
+          if (snap.exists()) periodData = snap.data();
+        } catch(e) { /* pas de données de satisfaction pour cette période */ }
+      }
+      if (periodData && periodData.members) {
+        satMembers = periodData.members
+          .filter(m => m.nom && m.nom.trim() && m.note !== '' && m.note != null)
+          .map(m => ({ nom: m.nom.trim(), poste: m.poste || '', note: parseFloat(m.note) || 0 }))
+          .sort((a,b) => b.note - a.note);
+      }
+    }
+
+    // ── Opportunités gagnées sur la période ──
+    const oppRows = kpiOpportunitesGagneesPeriode(start, end);
+    const oppByAsm = {};
+    oppRows.forEach(r => { oppByAsm[r.asm] = oppByAsm[r.asm] || {montant:0,count:0}; oppByAsm[r.asm].montant += r.montant; oppByAsm[r.asm].count += 1; });
+    const oppRanked = Object.entries(oppByAsm).sort((a,b) => b[1].montant - a[1].montant);
+    const oppTotal = oppRows.reduce((s,r) => s+r.montant, 0);
+
+    // ── COMEX réalisés sur la période ──
+    const comexItems = kpiComexAllItems().filter(r => r.date && r.date >= start && r.date <= end);
+    const comexByAsm = {};
+    comexItems.forEach(r => {
+      const nom = (r.asm||'').trim(); if (!nom) return;
+      comexByAsm[nom] = comexByAsm[nom] || {done:0,total:0};
+      comexByAsm[nom].total += 1;
+      if (r.done) comexByAsm[nom].done += 1;
+    });
+    const comexRanked = Object.entries(comexByAsm).sort((a,b) => b[1].done - a[1].done || b[1].total - a[1].total);
+    const comexDone = comexItems.filter(r => r.done).length;
+
+    buildKpiReportPdf({
+      start, end, satMembers,
+      oppRanked, oppTotal, oppCount: oppRows.length,
+      comexRanked, comexTotal: comexItems.length, comexDone
+    });
+    closeModal('modal-kpi-report');
+    toast('Rapport PDF généré ✓', 'success');
+  } catch(e) {
+    toast('Erreur génération PDF : '+e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = origLabel;
+  }
+};
+
+function buildKpiReportPdf(d) {
+  const { jsPDF } = window.jspdf;
+  const doc2 = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  const PW = 210, PH = 297;
+  const ML = 15, MR = 15, MT = 18;
+  const CW = PW - ML - MR;
+  let y = MT;
+
+  const GOLD   = [138, 99, 16];
+  const GOLDLT = [232, 200, 115];
+  const DARK   = [26, 34, 54];
+  const GRAY   = [84, 104, 130];
+  const LGRAY  = [226, 230, 239];
+  const WHITE  = [255, 255, 255];
+  const GREEN  = [21, 128, 61];
+  const BGLIGHT= [247, 248, 250];
+
+  const periodLabel = kpiFmtPeriodLabel(d.start, d.end);
+  const genDate = new Date().toLocaleDateString('fr-FR', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  const genTime = new Date().toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+  const medalTxt = idx => idx===0 ? '1er' : idx===1 ? '2e' : idx===2 ? '3e' : ('#'+(idx+1));
+
+  function checkPage(needed) {
+    if (y + needed > PH - 18) { doc2.addPage(); y = MT; drawFooter(); }
+  }
+  function drawFooter() {
+    const p = doc2.internal.getCurrentPageInfo().pageNumber;
+    doc2.setDrawColor(...LGRAY); doc2.setLineWidth(0.3);
+    doc2.line(ML, PH-12, PW-MR, PH-12);
+    doc2.setFontSize(7.5); doc2.setFont('helvetica','normal'); doc2.setTextColor(...GRAY);
+    doc2.text("Portail de gestion opérationnelle ASM · Document confidentiel", ML, PH-7);
+    doc2.text("Page "+p, PW-MR, PH-7, {align:'right'});
+  }
+  function sectionBar(title) {
+    checkPage(12);
+    doc2.setFillColor(...GOLD);
+    doc2.rect(ML, y, CW, 6.5, 'F');
+    doc2.setFontSize(9); doc2.setFont('helvetica','bold'); doc2.setTextColor(...WHITE);
+    doc2.text(title, ML+4, y+4.5);
+    y += 10;
+  }
+  function kpiBlock(items, cols) {
+    checkPage(22);
+    const w = CW / cols;
+    const rows = Math.ceil(items.length / cols);
+    const bh = 16;
+    items.forEach((item,i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      const x = ML + col*w, yy = y + row*(bh+3);
+      doc2.setFillColor(...BGLIGHT); doc2.setDrawColor(...LGRAY); doc2.setLineWidth(0.3);
+      doc2.roundedRect(x+0.5, yy, w-1, bh, 1, 1, 'FD');
+      doc2.setFillColor(...(item.accent||GOLD));
+      doc2.rect(x+0.5, yy, 2, bh, 'F');
+      doc2.setFontSize(7); doc2.setFont('helvetica','bold'); doc2.setTextColor(...GRAY);
+      doc2.text(item.label, x+5, yy+4.5);
+      doc2.setFontSize(13); doc2.setFont('helvetica','bold'); doc2.setTextColor(...(item.color||DARK));
+      doc2.text(String(item.value), x+5, yy+12.5);
+      if (item.sub) {
+        doc2.setFontSize(6.5); doc2.setFont('helvetica','normal'); doc2.setTextColor(...GRAY);
+        doc2.text(item.sub, x+w-2, yy+12.5, {align:'right'});
+      }
+    });
+    y += rows*(bh+3) + 3;
+  }
+  function rankTable(head, body, colStyles, accentCol) {
+    if (!body.length) {
+      checkPage(10);
+      doc2.setFontSize(8.5); doc2.setFont('helvetica','italic'); doc2.setTextColor(...GRAY);
+      doc2.text("Aucune donnée sur cette période.", ML, y+5); y += 10;
+      return;
+    }
+    doc2.autoTable({
+      head:[head], body,
+      startY:y, margin:{left:ML,right:MR}, tableWidth:CW,
+      styles:{fontSize:8, cellPadding:2.4, font:'helvetica', textColor:DARK, lineColor:LGRAY, lineWidth:0.2},
+      headStyles:{fillColor:DARK, textColor:WHITE, fontStyle:'bold', fontSize:8},
+      columnStyles: colStyles,
+      alternateRowStyles:{fillColor:[250,251,253]},
+      didParseCell(cd) {
+        if (cd.section==='body' && cd.row.index===0) {
+          cd.cell.styles.fillColor = [253, 243, 220];
+          cd.cell.styles.fontStyle = 'bold';
+        }
+        if (cd.section==='body' && accentCol!=null && cd.column.index===accentCol) {
+          cd.cell.styles.textColor = GREEN; cd.cell.styles.fontStyle = 'bold';
+        }
+      },
+      didDrawPage() { drawFooter(); }
+    });
+    y = doc2.lastAutoTable.finalY + 8;
+  }
+
+  // ── PAGE 1 : COUVERTURE ──
+  doc2.setFillColor(...GOLD);
+  doc2.rect(0, 0, PW, 8, 'F');
+  doc2.setFontSize(10); doc2.setFont('helvetica','bold'); doc2.setTextColor(...GOLD);
+  doc2.text("PORTAIL ASM", ML, 22);
+  doc2.setFontSize(7.5); doc2.setFont('helvetica','normal'); doc2.setTextColor(...GRAY);
+  doc2.text("Base de Connaissance Client · Performances KPI", ML, 28);
+  doc2.setDrawColor(...LGRAY); doc2.setLineWidth(0.4);
+  doc2.line(ML, 32, PW-MR, 32);
+
+  y = 46;
+  doc2.setFontSize(15); doc2.setFont('helvetica','bold'); doc2.setTextColor(...DARK);
+  doc2.text("RAPPORT DE PERFORMANCE ASM", ML, y);
+  y += 9;
+  doc2.setDrawColor(...GOLD); doc2.setLineWidth(1.2);
+  doc2.line(ML, y, ML+100, y);
+  y += 10;
+  doc2.setFontSize(9.5); doc2.setFont('helvetica','normal'); doc2.setTextColor(...GRAY);
+  doc2.text("Classement satisfaction client, opportunités gagnées et COMEX réalisés", ML, y);
+  y += 8;
+  doc2.setFontSize(9); doc2.setFont('helvetica','bold'); doc2.setTextColor(...GOLD);
+  doc2.text("Période : " + periodLabel, ML, y);
+  y += 6;
+  doc2.setFontSize(7.5); doc2.setFont('helvetica','normal'); doc2.setTextColor(...GRAY);
+  doc2.text("Généré le " + genDate + " à " + genTime, ML, y);
+
+  y += 8;
+  doc2.setDrawColor(...LGRAY); doc2.setLineWidth(0.3);
+  doc2.line(ML, y, PW-MR, y);
+  y += 10;
+
+  // KPI globaux de synthèse
+  sectionBar("SYNTHÈSE DE LA PÉRIODE");
+  const avgNote = d.satMembers.length ? (d.satMembers.reduce((s,m)=>s+m.note,0)/d.satMembers.length) : null;
+  kpiBlock([
+    {label:"Satisfaction moyenne", value: avgNote!=null ? avgNote.toFixed(1)+'/10' : '—', color:GOLD, accent:GOLD, sub:"équipe"},
+    {label:"Opportunités gagnées", value: d.oppCount, color:GREEN, accent:GREEN, sub: kpiFmtMontant(d.oppTotal)},
+    {label:"COMEX réalisés", value: d.comexDone+"/"+d.comexTotal, color:GOLD, accent:GOLD, sub: d.comexTotal ? Math.round(d.comexDone/d.comexTotal*100)+"%" : "—"},
+  ], 3);
+  y += 4;
+
+  // ── 1. Classement satisfaction ──
+  sectionBar("1.  CLASSEMENT DES ASM SELON LA SATISFACTION CLIENT");
+  rankTable(
+    ["Rang","ASM","Poste","Note / 10"],
+    d.satMembers.map((m,i) => [medalTxt(i), m.nom, m.poste||'—', m.note.toFixed(1)]),
+    { 0:{cellWidth:16,halign:'center'}, 1:{cellWidth:70}, 2:{cellWidth:'auto'}, 3:{cellWidth:28,halign:'right'} },
+    null
+  );
+
+  // ── 2. Classement opportunités gagnées ──
+  sectionBar("2.  CLASSEMENT DES ASM SELON LES OPPORTUNITÉS GAGNÉES");
+  rankTable(
+    ["Rang","ASM","Opportunités gagnées","Montant total"],
+    d.oppRanked.map(([nom,v],i) => [medalTxt(i), nom, String(v.count), kpiFmtMontant(v.montant)]),
+    { 0:{cellWidth:16,halign:'center'}, 1:{cellWidth:70}, 2:{cellWidth:'auto',halign:'center'}, 3:{cellWidth:36,halign:'right'} },
+    3
+  );
+
+  // ── 3. Classement COMEX réalisés ──
+  sectionBar("3.  CLASSEMENT DES ASM SELON LES COMEX RÉALISÉS");
+  rankTable(
+    ["Rang","ASM","COMEX réalisés","Total planifiés","Taux"],
+    d.comexRanked.map(([nom,v],i) => [medalTxt(i), nom, String(v.done), String(v.total), (v.total?Math.round(v.done/v.total*100):0)+"%"]),
+    { 0:{cellWidth:16,halign:'center'}, 1:{cellWidth:60}, 2:{cellWidth:'auto',halign:'center'}, 3:{cellWidth:30,halign:'center'}, 4:{cellWidth:24,halign:'right'} },
+    null
+  );
+
+  drawFooter();
+  const fileLabel = (d.start||'periode').replace(/-/g,'') + '_' + (d.end||'').replace(/-/g,'');
+  doc2.save(`Rapport_ASM_${fileLabel}.pdf`);
+}
+
 </script>
 
 <style>
@@ -4507,6 +4759,7 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
       <div style="flex:1"></div>
       <input type="hidden" id="kpi-date-start">
       <input type="hidden" id="kpi-date-end">
+      <button onclick="openKpiReportModal()" style="background:#8a6310;border:1px solid #8a6310;border-radius:8px;color:#fff;font-family:'Syne',sans-serif;font-size:11px;font-weight:700;padding:8px 14px;cursor:pointer;letter-spacing:.04em;white-space:nowrap;display:flex;align-items:center;gap:6px;transition:background .15s;" onmouseover="this.style.background='#6e4f0d'" onmouseout="this.style.background='#8a6310'">📄 Rapport PDF</button>
       <button onclick="closeKpiPerformances()" style="background:#fff3da;border:1px solid #e8c873;border-radius:8px;color:#8a6310;font-size:18px;width:34px;height:34px;cursor:pointer;line-height:1;transition:background .15s;" onmouseover="this.style.background='#f7e6b0'" onmouseout="this.style.background='#fff3da'">✕</button>
     </div>
     <div id="kpi-periods-strip" style="display:flex;align-items:center;gap:6px;padding:8px 22px;background:#fffdf5;border-bottom:1px solid #f0e3c0;overflow-x:auto;flex-shrink:0;"></div>
@@ -4677,6 +4930,26 @@ window.selectClientAndDeleteAndRefresh = async function(clientId, i) {
   </div>
 </div>
 <input type="file" id="kpi-photo-input" accept="image/*" style="display:none" onchange="kpiOnPhotoChosen(event)">
+
+<div id="modal-kpi-report" class="modal-overlay" style="display:none;z-index:9998;" onclick="closeModalOutside(event,'modal-kpi-report')">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-title">📄 Rapport PDF — Classement ASM <button class="modal-close" onclick="closeModal('modal-kpi-report')">✕</button></div>
+    <div class="field">
+      <label>Période à couvrir <span style="color:var(--red)">*</span></label>
+      <select id="kpi-report-period-select" style="width:100%;box-sizing:border-box;"></select>
+      <div style="font-size:10px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:6px;line-height:1.5;">
+        Le rapport reprend, sur la période sélectionnée : la satisfaction client, les opportunités gagnées et les COMEX réalisés, par ASM.
+      </div>
+    </div>
+    <div id="kpi-report-empty-warning" style="display:none;background:#fdf0d0;border:1px solid #e8c873;border-radius:8px;padding:8px 12px;font-size:11px;color:#8a6310;font-family:'DM Mono',monospace;margin-top:4px;">
+      ⚠️ Aucune période de satisfaction enregistrée — seules les opportunités et COMEX seront inclus, sur le mois en cours.
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('modal-kpi-report')">Annuler</button>
+      <button class="btn-primary" id="kpi-report-generate-btn" onclick="generateKpiReportPdf()">📄 Générer le PDF</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
