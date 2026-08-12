@@ -918,6 +918,7 @@ function tkTypeLienSaveLabel(){
 
 // ── Lien Primaire / Lien backup — auto-correspondance (Firestore : pribck_liaisons, projet ddms-architectures) ──
 let _tkLinkLookupTimer = null;
+window._tkLinkInvalid = window._tkLinkInvalid || { pri:false, bck:false };
 
 function tkPribckFindByPrimaire(ref){
   const q = String(ref||'').trim().toLowerCase();
@@ -930,6 +931,12 @@ function tkPribckFindByBackup(ref){
   return (window._pribckData||[]).find(d=>String(d.refBck||'').trim().toLowerCase()===q) || null;
 }
 
+function tkSetLinkFieldState(el, invalid){
+  if(!el) return;
+  el.style.borderColor = invalid ? 'var(--r)' : '';
+  el.style.background   = invalid ? 'var(--rl)' : '';
+}
+
 function tkLinkAutoLookup(source){
   clearTimeout(_tkLinkLookupTimer);
   _tkLinkLookupTimer = setTimeout(()=>{
@@ -937,24 +944,63 @@ function tkLinkAutoLookup(source){
     const priEl = document.getElementById('tk-ref');
     const bckEl = document.getElementById('tk-ref-bck');
     if(!priEl || !bckEl) return;
+    if(!window._tkLinkInvalid) window._tkLinkInvalid = {pri:false, bck:false};
 
     if(source==='pri'){
       const val = priEl.value.trim();
+      window._tkLinkInvalid.pri = false;
+      tkSetLinkFieldState(priEl, false);
       if(!val){ if(msgEl){msgEl.textContent='';} return; }
+
+      // Cette référence est-elle en réalité un lien BACKUP existant ? → refusé.
+      const asBackup = tkPribckFindByBackup(val);
+      if(asBackup){
+        priEl.value = '';
+        window._tkLinkInvalid.pri = false;
+        tkSetLinkFieldState(priEl, true);
+        setTimeout(()=>tkSetLinkFieldState(priEl, false), 1600);
+        const suffix = asBackup.refPri ? ' (associée au lien primaire '+asBackup.refPri+')' : '';
+        if(msgEl){ msgEl.textContent = '⛔ « '+val+' » est un lien BACKUP'+suffix+' — non autorisé dans Lien Primaire'; msgEl.style.color='var(--r)'; }
+        toast('⛔ Cette référence est un lien BACKUP, pas un lien primaire','err');
+        priEl.focus();
+        return;
+      }
+
       const m = tkPribckFindByPrimaire(val);
       if(m){
         if(m.refBck){
           bckEl.value = m.refBck;
+          window._tkLinkInvalid.bck = false;
+          tkSetLinkFieldState(bckEl, false);
           if(msgEl){ msgEl.textContent = '✓ Lien backup trouvé automatiquement : '+m.refBck; msgEl.style.color='var(--g)'; }
         } else if(msgEl){ msgEl.textContent = '⚠️ Aucun lien backup enregistré pour ce lien primaire'; msgEl.style.color='var(--a)'; }
       } else if(msgEl){ msgEl.textContent = 'ℹ️ Pas de lien backup trouvé'; msgEl.style.color='var(--n4)'; }
     } else {
       const val = bckEl.value.trim();
+      window._tkLinkInvalid.bck = false;
+      tkSetLinkFieldState(bckEl, false);
       if(!val){ if(msgEl){msgEl.textContent='';} return; }
+
+      // Cette référence est-elle en réalité un lien PRIMAIRE existant ? → refusé.
+      const asPrimaire = tkPribckFindByPrimaire(val);
+      if(asPrimaire){
+        bckEl.value = '';
+        window._tkLinkInvalid.bck = false;
+        tkSetLinkFieldState(bckEl, true);
+        setTimeout(()=>tkSetLinkFieldState(bckEl, false), 1600);
+        const suffix = asPrimaire.refBck ? ' (son backup est '+asPrimaire.refBck+')' : '';
+        if(msgEl){ msgEl.textContent = '⛔ « '+val+' » est un lien PRIMAIRE'+suffix+' — non autorisé dans Lien backup'; msgEl.style.color='var(--r)'; }
+        toast('⛔ Cette référence est un lien primaire, pas un lien backup','err');
+        bckEl.focus();
+        return;
+      }
+
       const m = tkPribckFindByBackup(val);
       if(m){
         if(m.refPri){
           priEl.value = m.refPri;
+          window._tkLinkInvalid.pri = false;
+          tkSetLinkFieldState(priEl, false);
           if(msgEl){ msgEl.textContent = '✓ Lien primaire trouvé automatiquement : '+m.refPri; msgEl.style.color='var(--g)'; }
         } else if(msgEl){ msgEl.textContent = 'ℹ️ Correspondance trouvée sans référence primaire associée'; msgEl.style.color='var(--n4)'; }
       } else if(msgEl){ msgEl.textContent = 'ℹ️ Pas de lien primaire trouvé'; msgEl.style.color='var(--n4)'; }
@@ -2754,9 +2800,10 @@ async function deleteVip(id){
             <div class="fgrp" style="margin:0">
               <label style="display:flex;align-items:center;gap:5px">
                 <span id="tk-type-label">Type de lien</span>
+                <span style="color:var(--r)">*</span>
                 <span onclick="tkOpenTypeLienManager()" title="Modifier ce champ et sa liste de valeurs" style="cursor:pointer;font-size:11px;color:var(--n4);text-transform:none;letter-spacing:0">✏️</span>
               </label>
-              <select id="tk-type">
+              <select id="tk-type" required>
                 <option value="">— Sélectionner —</option>
                 <option value="LSI">LSI</option>
                 <option value="FH">FH</option>
@@ -7747,6 +7794,9 @@ function ticketResetForm(){
   document.getElementById('tk-service-statut').value='';
   document.getElementById('tk-destinataire').value='';
   const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent='';
+  window._tkLinkInvalid = {pri:false, bck:false};
+  tkSetLinkFieldState(document.getElementById('tk-ref'), false);
+  tkSetLinkFieldState(document.getElementById('tk-ref-bck'), false);
   tkSetDest('');
   const now=new Date(); now.setSeconds(0,0);
   document.getElementById('tk-debut').value=now.toISOString().slice(0,16);
@@ -7762,6 +7812,9 @@ function ticketEditInline(id){
   document.getElementById('tk-ref').value=t.ref||'';
   document.getElementById('tk-ref-bck').value=t.refBackup||'';
   const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent='';
+  window._tkLinkInvalid = {pri:false, bck:false};
+  tkSetLinkFieldState(document.getElementById('tk-ref'), false);
+  tkSetLinkFieldState(document.getElementById('tk-ref-bck'), false);
   document.getElementById('tk-type').value=t.type||'';
   document.getElementById('tk-debut').value=t.debut?t.debut.slice(0,16):'';
   document.getElementById('tk-localisation').value=t.localisation||'';
@@ -8299,6 +8352,7 @@ async function ticketSave(){
   }
   const client     = v('tk-client');
   const svcStatut  = v('tk-service-statut');
+  const tkType     = v('tk-type');
   const tkRef      = v('tk-ref');
   const tkRefBck   = v('tk-ref-bck');
   const debut      = v('tk-debut');
@@ -8307,10 +8361,15 @@ async function ticketSave(){
   const contTel    = v('tk-contact-tel');
   const ouvertPar  = v('tk-ouvert-par');
   const destinat   = document.getElementById('tk-destinataire').value;
-  if(!client)    { toast('Client obligatoire','err');            return null; }
-  if(!svcStatut) { toast('Statut du service obligatoire','err');  return null; }
-  if(!tkRef)     { toast('Référence lien obligatoire','err');    return null; }
-  if(!debut)     { toast('Date de début obligatoire','err');     return null; }
+  if(!client)    { toast('Client obligatoire','err');                                         return null; }
+  if(!svcStatut) { toast('Statut du service obligatoire','err');                                return null; }
+  if(!tkType)    { toast((window._tkTypeLabel||'Type de lien')+' obligatoire','err');           return null; }
+  if(!tkRef)     { toast('Référence lien obligatoire','err');                                  return null; }
+  if(!debut)     { toast('Date de début obligatoire','err');                                   return null; }
+  if(window._tkLinkInvalid && (window._tkLinkInvalid.pri || window._tkLinkInvalid.bck)){
+    toast('Corrigez le champ Lien Primaire / Lien backup avant d\'enregistrer','err');
+    return null;
+  }
 
   const editId = document.getElementById('tk-edit-id').value;
   const existing = editId ? (DB.tickets||[]).find(x=>x.id===editId) : null;
