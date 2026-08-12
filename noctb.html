@@ -25,6 +25,26 @@
   window._q=query; window._ord=orderBy;
   window._ref=ref; window._upb=uploadBytesResumable; window._url=getDownloadURL;
   window.dispatchEvent(new Event('fbReady'));
+
+  // ── Connexion secondaire (projet "ddms-architectures") — lecture des liaisons PRI/BCK ──
+  // Utilisée pour l'auto-complétion Lien Primaire / Lien backup dans "🎫 Ouverture de ticket"
+  const cfgPriBck = {
+    apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+    authDomain: "ddms-architectures.firebaseapp.com",
+    projectId: "ddms-architectures",
+    storageBucket: "ddms-architectures.firebasestorage.app",
+    messagingSenderId: "767552965189",
+    appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+  };
+  const appPriBck = initializeApp(cfgPriBck, "pribck");
+  const dbPriBck  = getFirestore(appPriBck);
+  window._pribckData = [];
+  getDocs(collection(dbPriBck, 'pribck_liaisons')).then(snap=>{
+    const arr = [];
+    snap.forEach(d=>arr.push(Object.assign({id:d.id}, d.data())));
+    window._pribckData = arr;
+    window.dispatchEvent(new Event('pribckReady'));
+  }).catch(e=>{ console.warn('Chargement liaisons PRI/BCK :', e); });
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700&family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -781,11 +801,16 @@ async function tkLoadPsiApiKey(){
     const snap = await window._gets(window._col(window._db, TK_CONFIG_COL));
     if(snap.docs.length>0){
       _tkConfigDocId = snap.docs[0].id;
-      window._psiApiKey = snap.docs[0].data().psiApiKey || '';
+      const d = snap.docs[0].data();
+      window._psiApiKey = d.psiApiKey || '';
+      if(d.typeLienLabel) window._tkTypeLabel = d.typeLienLabel;
+      if(Array.isArray(d.typeLienOptions) && d.typeLienOptions.length) window._tkTypeOptions = d.typeLienOptions;
     }
   }catch(e){ console.warn('tkLoadPsiApiKey:', e); }
   const inp = document.getElementById('psi-api-key');
   if(inp && !inp.value) inp.value = window._psiApiKey;
+  tkRenderTypeLienLabel();
+  tkRenderTypeLienSelect();
 }
 
 function tkSavePsiApiKey(val){
@@ -801,6 +826,140 @@ function tkSavePsiApiKey(val){
       }
     }catch(e){ console.warn('tkSavePsiApiKey:', e); }
   }, 600);
+}
+
+// ── Champ « Type de lien » — titre & liste éditables (config, Firestore : noc_config) ──
+const TK_TYPE_LIEN_DEFAULT = ['LSI','FH','FTTH','VSAT','LS','T0','T2'];
+window._tkTypeLabel   = window._tkTypeLabel   || 'Type de lien';
+window._tkTypeOptions = window._tkTypeOptions || TK_TYPE_LIEN_DEFAULT.slice();
+
+function tkEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function tkTypeLienOptions(){
+  return (window._tkTypeOptions && window._tkTypeOptions.length) ? window._tkTypeOptions : TK_TYPE_LIEN_DEFAULT;
+}
+
+function tkRenderTypeLienLabel(){
+  const lbl = document.getElementById('tk-type-label');
+  if(lbl) lbl.textContent = window._tkTypeLabel || 'Type de lien';
+}
+
+function tkRenderTypeLienSelect(){
+  const sel = document.getElementById('tk-type');
+  if(!sel) return;
+  const current = sel.value;
+  const opts = tkTypeLienOptions();
+  sel.innerHTML = '<option value="">— Sélectionner —</option>' + opts.map(o=>`<option value="${tkEsc(o)}">${tkEsc(o)}</option>`).join('');
+  if(opts.includes(current)) sel.value = current;
+}
+
+function tkRenderTypeLienList(){
+  const box = document.getElementById('tlm-list');
+  if(!box) return;
+  const opts = tkTypeLienOptions();
+  box.innerHTML = opts.length ? opts.map((o,i)=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 9px;border:1px solid var(--n5);border-radius:4px;background:var(--n7)">
+      <span style="font-family:var(--mono);font-size:12px;color:var(--n1)">${tkEsc(o)}</span>
+      <button onclick="tkTypeLienRemove(${i})" title="Supprimer" style="background:none;border:none;color:var(--r);cursor:pointer;font-size:13px;padding:2px 4px">🗑</button>
+    </div>`).join('') : '<div style="font-size:11px;color:var(--n4);text-align:center;padding:10px">Aucune valeur</div>';
+}
+
+async function tkTypeLienPersist(){
+  try{
+    const payload = { typeLienLabel: window._tkTypeLabel, typeLienOptions: window._tkTypeOptions };
+    if(_tkConfigDocId){
+      await window._upd(window._doc(window._db,TK_CONFIG_COL,_tkConfigDocId), payload);
+    } else {
+      const r = await window._add(window._col(window._db,TK_CONFIG_COL), payload);
+      _tkConfigDocId = r.id;
+    }
+  }catch(e){ console.warn('tkTypeLienPersist:', e); toast('Erreur enregistrement config: '+e.message,'err'); }
+}
+
+function tkOpenTypeLienManager(){
+  const lblInp = document.getElementById('tlm-label');
+  if(lblInp) lblInp.value = window._tkTypeLabel || 'Type de lien';
+  const newInp = document.getElementById('tlm-new');
+  if(newInp) newInp.value = '';
+  tkRenderTypeLienList();
+  openModal('mo-type-lien');
+}
+
+function tkTypeLienAdd(){
+  const inp = document.getElementById('tlm-new');
+  const val = (inp.value||'').trim().toUpperCase();
+  if(!val) return;
+  if(!window._tkTypeOptions) window._tkTypeOptions = tkTypeLienOptions().slice();
+  if(window._tkTypeOptions.some(o=>String(o).toLowerCase()===val.toLowerCase())){ toast('Cette valeur existe déjà','err'); return; }
+  window._tkTypeOptions.push(val);
+  inp.value='';
+  tkRenderTypeLienList();
+  tkRenderTypeLienSelect();
+  tkTypeLienPersist();
+  toast('Valeur ajoutée ✓','ok');
+}
+
+function tkTypeLienRemove(idx){
+  if(!confirm('Supprimer cette valeur de la liste « '+(window._tkTypeLabel||'Type de lien')+' » ?')) return;
+  window._tkTypeOptions.splice(idx,1);
+  tkRenderTypeLienList();
+  tkRenderTypeLienSelect();
+  tkTypeLienPersist();
+}
+
+function tkTypeLienSaveLabel(){
+  const v = (document.getElementById('tlm-label').value||'').trim();
+  window._tkTypeLabel = v || 'Type de lien';
+  tkRenderTypeLienLabel();
+  tkTypeLienPersist();
+  toast('Titre enregistré ✓','ok');
+  closeModal('mo-type-lien');
+}
+
+// ── Lien Primaire / Lien backup — auto-correspondance (Firestore : pribck_liaisons, projet ddms-architectures) ──
+let _tkLinkLookupTimer = null;
+
+function tkPribckFindByPrimaire(ref){
+  const q = String(ref||'').trim().toLowerCase();
+  if(!q) return null;
+  return (window._pribckData||[]).find(d=>String(d.refPri||'').trim().toLowerCase()===q) || null;
+}
+function tkPribckFindByBackup(ref){
+  const q = String(ref||'').trim().toLowerCase();
+  if(!q) return null;
+  return (window._pribckData||[]).find(d=>String(d.refBck||'').trim().toLowerCase()===q) || null;
+}
+
+function tkLinkAutoLookup(source){
+  clearTimeout(_tkLinkLookupTimer);
+  _tkLinkLookupTimer = setTimeout(()=>{
+    const msgEl = document.getElementById('tk-linkmsg');
+    const priEl = document.getElementById('tk-ref');
+    const bckEl = document.getElementById('tk-ref-bck');
+    if(!priEl || !bckEl) return;
+
+    if(source==='pri'){
+      const val = priEl.value.trim();
+      if(!val){ if(msgEl){msgEl.textContent='';} return; }
+      const m = tkPribckFindByPrimaire(val);
+      if(m){
+        if(m.refBck){
+          bckEl.value = m.refBck;
+          if(msgEl){ msgEl.textContent = '✓ Lien backup trouvé automatiquement : '+m.refBck; msgEl.style.color='var(--g)'; }
+        } else if(msgEl){ msgEl.textContent = '⚠️ Aucun lien backup enregistré pour ce lien primaire'; msgEl.style.color='var(--a)'; }
+      } else if(msgEl){ msgEl.textContent = 'ℹ️ Pas de lien backup trouvé'; msgEl.style.color='var(--n4)'; }
+    } else {
+      const val = bckEl.value.trim();
+      if(!val){ if(msgEl){msgEl.textContent='';} return; }
+      const m = tkPribckFindByBackup(val);
+      if(m){
+        if(m.refPri){
+          priEl.value = m.refPri;
+          if(msgEl){ msgEl.textContent = '✓ Lien primaire trouvé automatiquement : '+m.refPri; msgEl.style.color='var(--g)'; }
+        } else if(msgEl){ msgEl.textContent = 'ℹ️ Correspondance trouvée sans référence primaire associée'; msgEl.style.color='var(--n4)'; }
+      } else if(msgEl){ msgEl.textContent = 'ℹ️ Pas de lien primaire trouvé'; msgEl.style.color='var(--n4)'; }
+    }
+  }, 400);
 }
 
 // Attacher les événements dblclick sur toutes les cellules .sv
@@ -2547,6 +2706,11 @@ async function deleteVip(id){
       <option value="Ouvert" selected>🔴 Ouvert</option>
       <option value="Terminé">🟢 Terminé</option>
     </select>
+    <select id="tk-filter-service" onchange="ticketRender()" style="border:1px solid var(--n5);border-radius:3px;padding:5px 8px;font-size:15px">
+      <option value="">Tous — service</option>
+      <option value="Service disponible">🟢 Service disponible</option>
+      <option value="Pas de service">🔴 Pas de service</option>
+    </select>
     <button class="btn btn-out btn-sm" onclick="ticketExportCSV()" style="gap:5px">📊 Exporter CSV</button>
     <button class="btn btn-out btn-sm" onclick="ticketRemoveDuplicates()" style="gap:5px" title="Détecte et supprime les tickets strictement identiques (même client, référence, dates, statut, notes)">🧹 Supprimer les doublons</button>
   </div>
@@ -2573,18 +2737,25 @@ async function deleteVip(id){
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="fgrp" style="margin:0">
               <label>Client *</label>
-              <input type="text" id="tk-client" placeholder="Ex: SGBCI…" list="tk-client-list" autocomplete="off" oninput="tkClientFilter(this.value)" onfocus="tkClientFocus(this)" onclick="tkClientFocus(this)">
+              <input type="text" id="tk-client" list="tk-client-list" autocomplete="off" oninput="tkClientFilter(this.value)" onfocus="tkClientFocus(this)" onclick="tkClientFocus(this)">
               <datalist id="tk-client-list"></datalist>
             </div>
             <div class="fgrp" style="margin:0">
-              <label>Référence lien *</label>
-              <input type="text" id="tk-ref" placeholder="Ex: BUVPN220252" style="font-family:var(--mono);font-size:15px">
+              <label>Statut du service *</label>
+              <select id="tk-service-statut">
+                <option value="">— Sélectionner —</option>
+                <option value="Service disponible">🟢 Service disponible</option>
+                <option value="Pas de service">🔴 Pas de service</option>
+              </select>
             </div>
           </div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="fgrp" style="margin:0">
-              <label>Type de lien</label>
+              <label style="display:flex;align-items:center;gap:5px">
+                <span id="tk-type-label">Type de lien</span>
+                <span onclick="tkOpenTypeLienManager()" title="Modifier ce champ et sa liste de valeurs" style="cursor:pointer;font-size:11px;color:var(--n4);text-transform:none;letter-spacing:0">✏️</span>
+              </label>
               <select id="tk-type">
                 <option value="">— Sélectionner —</option>
                 <option value="LSI">LSI</option>
@@ -2605,8 +2776,20 @@ async function deleteVip(id){
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="fgrp" style="margin:0">
+              <label>Lien Primaire *</label>
+              <input type="text" id="tk-ref" style="font-family:var(--mono);font-size:15px" oninput="tkLinkAutoLookup('pri')">
+            </div>
+            <div class="fgrp" style="margin:0">
+              <label>Lien backup</label>
+              <input type="text" id="tk-ref-bck" style="font-family:var(--mono);font-size:15px" oninput="tkLinkAutoLookup('bck')">
+            </div>
+          </div>
+          <div id="tk-linkmsg" style="font-size:10.5px;font-weight:600;margin-top:-5px;min-height:13px"></div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="fgrp" style="margin:0">
               <label>Localisation</label>
-              <input type="text" id="tk-localisation" placeholder="Ex: TREICHVILLE…">
+              <input type="text" id="tk-localisation">
             </div>
             <div class="fgrp" style="margin:0">
               <label>Heure de confirmation</label>
@@ -2617,8 +2800,8 @@ async function deleteVip(id){
           <div class="fgrp" style="margin:0">
             <label>Contact client</label>
             <div style="display:flex;gap:6px">
-              <input type="text" id="tk-contact-nom" placeholder="Nom" style="flex:1.2">
-              <input type="text" id="tk-contact-tel" placeholder="Téléphone" style="flex:1;font-family:var(--mono);font-size:15px">
+              <input type="text" id="tk-contact-nom" style="flex:1.2">
+              <input type="text" id="tk-contact-tel" style="flex:1;font-family:var(--mono);font-size:15px">
             </div>
           </div>
 
@@ -3311,6 +3494,38 @@ async function deleteVip(id){
     <div class="modal-foot" style="justify-content:space-between">
       <button class="btn btn-out" onclick="closeModal('mo-ticket')">Annuler</button>
       <button class="btn btn-v" onclick="ticketSaveAndOutlook()">💾 Enregistrer &amp; Générer mail</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ MODALE: GESTION "TYPE DE LIEN" -->
+<div class="overlay" id="mo-type-lien">
+  <div class="modal" style="width:420px">
+    <div class="modal-hdr">
+      <span style="font-size:18px">🏷️</span>
+      <span class="modal-title">Gérer le champ « Type de lien »</span>
+      <button class="modal-close" onclick="closeModal('mo-type-lien')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fgrp">
+        <label>Titre du champ</label>
+        <input type="text" id="tlm-label" placeholder="Type de lien">
+      </div>
+      <div class="fgrp">
+        <label>Ajouter une valeur</label>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="tlm-new" placeholder="Ex: MPLS" style="flex:1;font-family:var(--mono)" onkeydown="if(event.key==='Enter'){event.preventDefault();tkTypeLienAdd();}">
+          <button class="btn btn-v btn-sm" onclick="tkTypeLienAdd()" style="flex-shrink:0">➕ Ajouter</button>
+        </div>
+      </div>
+      <div class="fgrp" style="margin-bottom:0">
+        <label>Valeurs actuelles</label>
+        <div id="tlm-list" style="display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto"></div>
+      </div>
+    </div>
+    <div class="modal-foot" style="justify-content:space-between">
+      <button class="btn btn-out" onclick="closeModal('mo-type-lien')">Fermer</button>
+      <button class="btn btn-v" onclick="tkTypeLienSaveLabel()">💾 Enregistrer le titre</button>
     </div>
   </div>
 </div>
@@ -7134,7 +7349,7 @@ function tkRenderTendances(){
   const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
   const fType   = document.getElementById('tk-filter-type')?.value||'';
   const trendAll = (DB.tickets||[]).filter(t=>{
-    const txt = ((t.client||'')+(t.ref||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
+    const txt = ((t.client||'')+(t.ref||'')+(t.refBackup||'')+(t.serviceStatut||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
     const okSearch = (!search||txt.includes(search));
     const okType   = (!fType||t.type===fType);
     const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
@@ -7308,36 +7523,39 @@ function ticketRender(){
   const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
   const fStatut = document.getElementById('tk-filter-statut')?.value||'';
   const fType   = document.getElementById('tk-filter-type')?.value||'';
+  const fService = document.getElementById('tk-filter-service')?.value||'';
   const all     = DB.tickets||[];
 
-  // ── Filtre unique : période + recherche + statut + type + agent + client ──
+  // ── Filtre unique : période + recherche + statut + type + service + agent + client ──
   // Tous les KPI et la liste se basent sur ce même ensemble filtré.
   const range = tkGetRange();
   const kpiTickets = all.filter(t=>{
-    const txt = ((t.client||'')+(t.ref||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
+    const txt = ((t.client||'')+(t.ref||'')+(t.refBackup||'')+(t.serviceStatut||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
     const okSearch = (!search||txt.includes(search));
     const okStatut = (!fStatut||t.statut===fStatut);
     const okType   = (!fType||t.type===fType);
+    const okService = (!fService||t.serviceStatut===fService);
     let okPeriode;
     if(window._tkPeriode==='tous'){ okPeriode = true; }
     else{ const d = t.debut ? new Date(t.debut) : null; okPeriode = !!d && d>=range.start && d<=range.end; }
     const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
     const okClient = !window._tkClientFilter || (t.client||'').trim() === window._tkClientFilter;
-    return okSearch&&okStatut&&okType&&okPeriode&&okAgent&&okClient;
+    return okSearch&&okStatut&&okType&&okService&&okPeriode&&okAgent&&okClient;
   });
 
   // Ensemble pour "Durée moyenne" : mêmes filtres SAUF le statut (sinon avec le filtre
   // "Ouvert" par défaut, aucun ticket fermé n'apparaîtrait jamais dans ce KPI)
   const kpiTicketsDuree = all.filter(t=>{
-    const txt = ((t.client||'')+(t.ref||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
+    const txt = ((t.client||'')+(t.ref||'')+(t.refBackup||'')+(t.serviceStatut||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
     const okSearch = (!search||txt.includes(search));
     const okType   = (!fType||t.type===fType);
+    const okService = (!fService||t.serviceStatut===fService);
     let okPeriode;
     if(window._tkPeriode==='tous'){ okPeriode = true; }
     else{ const d = t.debut ? new Date(t.debut) : null; okPeriode = !!d && d>=range.start && d<=range.end; }
     const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
     const okClient = !window._tkClientFilter || (t.client||'').trim() === window._tkClientFilter;
-    return okSearch&&okType&&okPeriode&&okAgent&&okClient;
+    return okSearch&&okType&&okService&&okPeriode&&okAgent&&okClient;
   });
 
   // libellé période
@@ -7410,11 +7628,13 @@ function ticketRender(){
     const dotCol = t.statut==='Terminé' ? 'var(--g)' : 'var(--r)';
     const ouvMs  = tkOuvertureMs(t);
     const ouvertureHtml = (t.statut==='Terminé' && ouvMs!==null) ? `<span style="font-size:10px;color:var(--v);font-family:var(--mono)" title="Durée d'ouverture du ticket (excel: création → début NOC)">🎫 ${tkFormatMs(ouvMs)}</span>` : '';
+    const svcHtml = t.serviceStatut ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;flex-shrink:0;background:${t.serviceStatut==='Service disponible'?'var(--gl)':'var(--rl)'};color:${t.serviceStatut==='Service disponible'?'var(--g)':'var(--r)'}">${t.serviceStatut==='Service disponible'?'🟢':'🔴'} ${t.serviceStatut}</span>` : '';
     return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);border-radius:4px;transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
       <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
       <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
         <span style="font-weight:700;font-size:12.5px;color:var(--n1);white-space:nowrap">${t.client||'—'}</span>
-        <span style="font-family:var(--mono);font-size:10.5px;color:var(--n3)">${t.ref||'—'}${t.type?' · '+t.type:''}</span>
+        ${svcHtml}
+        <span style="font-family:var(--mono);font-size:10.5px;color:var(--n3)">${t.ref||'—'}${t.refBackup?' / '+t.refBackup:''}${t.type?' · '+t.type:''}</span>
         <span style="font-size:11px;color:var(--n3)">🕐 ${debut}</span>
         <span class="bp ${cls}" style="flex-shrink:0">${t.statut||'—'}</span>
         ${ouvertureHtml}
@@ -7492,7 +7712,7 @@ function tkClientFilter(val){
 }
 
 // Verrouille tous les champs du formulaire ticket sauf le Statut (édition = statut seul modifiable)
-const TK_FORM_LOCK_IDS = ['tk-client','tk-ref','tk-type','tk-debut','tk-localisation','tk-heure-conf','tk-contact-nom','tk-contact-tel','tk-contact-mail','tk-ouvert-par'];
+const TK_FORM_LOCK_IDS = ['tk-client','tk-service-statut','tk-ref','tk-ref-bck','tk-type','tk-debut','tk-localisation','tk-heure-conf','tk-contact-nom','tk-contact-tel','tk-contact-mail','tk-ouvert-par'];
 
 function tkLockFieldsForEdit(lock){
   TK_FORM_LOCK_IDS.forEach(id=>{
@@ -7520,11 +7740,13 @@ function tkLockFieldsForEdit(lock){
 
 function ticketResetForm(){
   document.getElementById('tk-edit-id').value='';
-  ['tk-client','tk-ref','tk-localisation','tk-heure-conf','tk-contact-nom','tk-contact-tel','tk-contact-mail','tk-ouvert-par'].forEach(id=>{
+  ['tk-client','tk-ref','tk-ref-bck','tk-localisation','tk-heure-conf','tk-contact-nom','tk-contact-tel','tk-contact-mail','tk-ouvert-par'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('tk-type').value='';
+  document.getElementById('tk-service-statut').value='';
   document.getElementById('tk-destinataire').value='';
+  const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent='';
   tkSetDest('');
   const now=new Date(); now.setSeconds(0,0);
   document.getElementById('tk-debut').value=now.toISOString().slice(0,16);
@@ -7536,7 +7758,10 @@ function ticketEditInline(id){
   const t=(DB.tickets||[]).find(x=>x.id===id); if(!t) return;
   document.getElementById('tk-edit-id').value=id;
   document.getElementById('tk-client').value=t.client||'';
+  document.getElementById('tk-service-statut').value=t.serviceStatut||'';
   document.getElementById('tk-ref').value=t.ref||'';
+  document.getElementById('tk-ref-bck').value=t.refBackup||'';
+  const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent='';
   document.getElementById('tk-type').value=t.type||'';
   document.getElementById('tk-debut').value=t.debut?t.debut.slice(0,16):'';
   document.getElementById('tk-localisation').value=t.localisation||'';
@@ -7931,7 +8156,7 @@ function ticketOutlookById(id){
 
 function ticketOpenOutlook(){
   const t={
-    client:v('tk-client'), ref:v('tk-ref'), type:v('tk-type'),
+    client:v('tk-client'), serviceStatut:v('tk-service-statut'), ref:v('tk-ref'), refBackup:v('tk-ref-bck'), type:v('tk-type'),
     debut:v('tk-debut'), localisation:v('tk-localisation'),
     contact_nom:v('tk-contact-nom'), contact_tel:v('tk-contact-tel'), contact_mail:v('tk-contact-mail')
   };
@@ -7979,11 +8204,19 @@ function ticketShowPreview(t, relance){
           <td style="color:#111;font-weight:bold;padding:9px 10px">${t.client||'\u2014'}</td>
         </tr>
         <tr style="border-bottom:1px solid #f2f2f2">
-          <td style="color:#888;padding:9px 10px">R\u00e9f\u00e9rence lien</td>
-          <td style="color:#111;font-weight:bold;padding:9px 10px">${t.ref||'\u2014'}</td>
+          <td style="color:#888;padding:9px 10px">Statut du service</td>
+          <td style="padding:9px 10px"><span style="display:inline-block;padding:2px 10px;border-radius:3px;font-size:12px;font-weight:700;background:${t.serviceStatut==='Service disponible'?'#E8F5EE':(t.serviceStatut==='Pas de service'?'#FBEAEA':'#F2F2F2')};color:${t.serviceStatut==='Service disponible'?'#1A6B3C':(t.serviceStatut==='Pas de service'?'#B22222':'#888')}">${t.serviceStatut?(t.serviceStatut==='Service disponible'?'🟢 ':'🔴 ')+t.serviceStatut:'\u2014'}</span></td>
         </tr>
         <tr style="border-bottom:1px solid #f2f2f2">
-          <td style="color:#888;padding:9px 10px">Type de lien</td>
+          <td style="color:#888;padding:9px 10px">Lien primaire</td>
+          <td style="color:#111;font-weight:bold;padding:9px 10px">${t.ref||'\u2014'}</td>
+        </tr>
+        ${t.refBackup?`<tr style="border-bottom:1px solid #f2f2f2">
+          <td style="color:#888;padding:9px 10px">Lien backup</td>
+          <td style="color:#111;font-weight:bold;padding:9px 10px">${t.refBackup}</td>
+        </tr>`:''}
+        <tr style="border-bottom:1px solid #f2f2f2">
+          <td style="color:#888;padding:9px 10px">${tkEsc(window._tkTypeLabel||'Type de lien')}</td>
           <td style="color:#111;padding:9px 10px">${t.type||'\u2014'}</td>
         </tr>
         <tr style="border-bottom:1px solid #f2f2f2">
@@ -8065,23 +8298,28 @@ async function ticketSave(){
     await new Promise(res => window.addEventListener('fbReady', res, {once:true}));
   }
   const client     = v('tk-client');
+  const svcStatut  = v('tk-service-statut');
   const tkRef      = v('tk-ref');
+  const tkRefBck   = v('tk-ref-bck');
   const debut      = v('tk-debut');
   const localisa   = v('tk-localisation');
   const contNom    = v('tk-contact-nom');
   const contTel    = v('tk-contact-tel');
   const ouvertPar  = v('tk-ouvert-par');
   const destinat   = document.getElementById('tk-destinataire').value;
-  if(!client)    { toast('Client obligatoire','err');           return null; }
-  if(!tkRef)     { toast('Référence lien obligatoire','err');   return null; }
-  if(!debut)     { toast('Date de début obligatoire','err');    return null; }
+  if(!client)    { toast('Client obligatoire','err');            return null; }
+  if(!svcStatut) { toast('Statut du service obligatoire','err');  return null; }
+  if(!tkRef)     { toast('Référence lien obligatoire','err');    return null; }
+  if(!debut)     { toast('Date de début obligatoire','err');     return null; }
 
   const editId = document.getElementById('tk-edit-id').value;
   const existing = editId ? (DB.tickets||[]).find(x=>x.id===editId) : null;
 
   const data = {
     client,
+    serviceStatut : svcStatut,
     ref         : tkRef,
+    refBackup   : tkRefBck,
     type        : v('tk-type'),
     debut,
     localisation: localisa,
@@ -8377,9 +8615,9 @@ async function ticketRemoveDuplicates(){
 function ticketExportCSV(){
   const all = DB.tickets||[];
   if(!all.length){ toast('Aucun ticket à exporter','err'); return; }
-  const cols = ['Client','Référence','Type','Date début','Localisation','Statut','Destinataire','Contact Nom','Contact Tél','Contact Mail','Ouvert par','Notes','Date résolution'];
+  const cols = ['Client','Statut du service','Lien primaire','Lien backup','Type','Date début','Localisation','Statut','Destinataire','Contact Nom','Contact Tél','Contact Mail','Ouvert par','Notes','Date résolution'];
   const rows = all.map(t=>[
-    t.client||'', t.ref||'', t.type||'',
+    t.client||'', t.serviceStatut||'', t.ref||'', t.refBackup||'', t.type||'',
     t.debut ? new Date(t.debut).toLocaleString('fr-FR') : '',
     t.localisation||'', t.statut||'', t.destinataire||'',
     t.contact_nom||'', t.contact_tel||'', t.contact_mail||'',
