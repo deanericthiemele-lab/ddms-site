@@ -919,6 +919,17 @@ function tkTypeLienSaveLabel(){
 // ── Référence lien signalé — identification automatique Primaire / Backup (Firestore : pribck_liaisons, projet ddms-architectures) ──
 let _tkLinkLookupTimer = null;
 
+// Le champ "Statut du service" n'est obligatoire que si la référence a été identifiée
+// comme Primaire ou Backup (correspondance PRI/BCK trouvée) — sinon (lien nominal), il reste facultatif.
+function tkUpdateServiceStatutRequirement(){
+  const role = document.getElementById('tk-ref-role')?.value || '';
+  const sel  = document.getElementById('tk-service-statut');
+  const star = document.getElementById('tk-svc-star');
+  const required = (role==='Primaire' || role==='Backup');
+  if(sel)  sel.toggleAttribute('required', required);
+  if(star) star.style.display = required ? '' : 'none';
+}
+
 function tkPribckFindByPrimaire(ref){
   const q = String(ref||'').trim().toLowerCase();
   if(!q) return null;
@@ -971,6 +982,7 @@ function tkLinkAutoLookup(){
       if(bckEl)  bckEl.value  = '';
       if(roleEl) roleEl.value = '';
       if(msgEl)  msgEl.textContent = '';
+      tkUpdateServiceStatutRequirement();
       return;
     }
 
@@ -981,6 +993,7 @@ function tkLinkAutoLookup(){
       if(roleEl) roleEl.value = 'Primaire';
       if(bckEl)  bckEl.value  = other;
       tkRenderLinkInfo('Primaire', other);
+      tkUpdateServiceStatutRequirement();
       return;
     }
 
@@ -991,6 +1004,7 @@ function tkLinkAutoLookup(){
       if(roleEl) roleEl.value = 'Backup';
       if(bckEl)  bckEl.value  = other;
       tkRenderLinkInfo('Backup', other);
+      tkUpdateServiceStatutRequirement();
       return;
     }
 
@@ -998,6 +1012,7 @@ function tkLinkAutoLookup(){
     if(roleEl) roleEl.value = '';
     if(bckEl)  bckEl.value  = '';
     tkRenderLinkInfo('', '');
+    tkUpdateServiceStatutRequirement();
   }, 400);
 }
 
@@ -2820,7 +2835,7 @@ async function deleteVip(id){
               <input type="hidden" id="tk-ref-role">
             </div>
             <div class="fgrp" style="margin:0">
-              <label>Statut du service *</label>
+              <label>Statut du service <span id="tk-svc-star" style="color:var(--r)">*</span></label>
               <select id="tk-service-statut">
                 <option value="">— Sélectionner —</option>
                 <option value="Service disponible">🟢 Service disponible</option>
@@ -7784,6 +7799,7 @@ function ticketResetForm(){
   document.getElementById('tk-service-statut').value='';
   document.getElementById('tk-destinataire').value='';
   const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent='';
+  tkUpdateServiceStatutRequirement();
   tkSetDest('');
   const now=new Date(); now.setSeconds(0,0);
   document.getElementById('tk-debut').value=now.toISOString().slice(0,16);
@@ -7801,6 +7817,7 @@ function ticketEditInline(id){
   document.getElementById('tk-ref-role').value=t.refRole||'';
   if(t.ref){ tkRenderLinkInfo(t.refRole||'', t.refBackup||''); }
   else { const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent=''; }
+  tkUpdateServiceStatutRequirement();
   document.getElementById('tk-type').value=t.type||'';
   document.getElementById('tk-debut').value=t.debut?t.debut.slice(0,16):'';
   document.getElementById('tk-localisation').value=t.localisation||'';
@@ -8325,7 +8342,7 @@ async function ticketSave(){
   const ouvertPar  = v('tk-ouvert-par');
   const destinat   = document.getElementById('tk-destinataire').value;
   if(!client)    { toast('Client obligatoire','err');                                         return null; }
-  if(!svcStatut) { toast('Statut du service obligatoire','err');                                return null; }
+  if((tkRefRole==='Primaire'||tkRefRole==='Backup') && !svcStatut){ toast('Statut du service obligatoire (lien identifié Primaire/Backup)','err'); return null; }
   if(!tkType)    { toast((window._tkTypeLabel||'Type de lien')+' obligatoire','err');           return null; }
   if(!tkRef)     { toast('Référence lien signalé obligatoire','err');                          return null; }
   if(!debut)     { toast('Date de début obligatoire','err');                                   return null; }
