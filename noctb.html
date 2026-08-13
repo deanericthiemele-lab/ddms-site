@@ -916,9 +916,8 @@ function tkTypeLienSaveLabel(){
   closeModal('mo-type-lien');
 }
 
-// ── Lien Primaire / Lien backup — auto-correspondance (Firestore : pribck_liaisons, projet ddms-architectures) ──
+// ── Référence lien signalé — identification automatique Primaire / Backup (Firestore : pribck_liaisons, projet ddms-architectures) ──
 let _tkLinkLookupTimer = null;
-window._tkLinkInvalid = window._tkLinkInvalid || { pri:false, bck:false };
 
 function tkPribckFindByPrimaire(ref){
   const q = String(ref||'').trim().toLowerCase();
@@ -931,96 +930,76 @@ function tkPribckFindByBackup(ref){
   return (window._pribckData||[]).find(d=>String(d.refBck||'').trim().toLowerCase()===q) || null;
 }
 
-function tkSetLinkFieldState(el, invalid){
-  if(!el) return;
-  el.style.borderColor = invalid ? 'var(--r)' : '';
-  el.style.background   = invalid ? 'var(--rl)' : '';
+// Affiche le message de résultat : rôle du lien signalé + son lien associé (ou l'absence de correspondance)
+function tkRenderLinkInfo(role, other){
+  const msgEl = document.getElementById('tk-linkmsg');
+  if(!msgEl) return;
+  if(role==='Primaire'){
+    if(other){
+      msgEl.innerHTML = '🔵 Ce lien est <b>PRIMAIRE</b> — lien backup associé : <b>'+tkEsc(other)+'</b>';
+      msgEl.style.color = 'var(--g)';
+    } else {
+      msgEl.innerHTML = '🔵 Ce lien est <b>PRIMAIRE</b> — aucun lien backup enregistré pour cette référence';
+      msgEl.style.color = 'var(--a)';
+    }
+  } else if(role==='Backup'){
+    if(other){
+      msgEl.innerHTML = '🟠 Ce lien est <b>BACKUP</b> — lien primaire associé : <b>'+tkEsc(other)+'</b>';
+      msgEl.style.color = 'var(--g)';
+    } else {
+      msgEl.innerHTML = '🟠 Ce lien est <b>BACKUP</b> — aucun lien primaire retrouvé pour cette référence';
+      msgEl.style.color = 'var(--a)';
+    }
+  } else {
+    msgEl.innerHTML = 'ℹ️ Référence introuvable dans la base PRI/BCK — aucun lien associé identifié';
+    msgEl.style.color = 'var(--r)';
+  }
 }
 
-function tkLinkAutoLookup(source){
+function tkLinkAutoLookup(){
   clearTimeout(_tkLinkLookupTimer);
   _tkLinkLookupTimer = setTimeout(()=>{
-    const msgEl = document.getElementById('tk-linkmsg');
-    const priEl = document.getElementById('tk-ref');
-    const bckEl = document.getElementById('tk-ref-bck');
-    if(!priEl || !bckEl) return;
-    if(!window._tkLinkInvalid) window._tkLinkInvalid = {pri:false, bck:false};
+    const refEl  = document.getElementById('tk-ref');
+    const bckEl  = document.getElementById('tk-ref-bck');
+    const roleEl = document.getElementById('tk-ref-role');
+    const msgEl  = document.getElementById('tk-linkmsg');
+    if(!refEl) return;
+    const val = refEl.value.trim();
 
-    if(source==='pri'){
-      const val = priEl.value.trim();
-      window._tkLinkInvalid.pri = false;
-      tkSetLinkFieldState(priEl, false);
-      if(!val){
-        // Champ Primaire vidé → on vide aussi le Backup (couple lié)
-        bckEl.value = '';
-        window._tkLinkInvalid.bck = false;
-        tkSetLinkFieldState(bckEl, false);
-        if(msgEl){msgEl.textContent='';}
-        return;
-      }
-
-      // Cette référence est-elle en réalité un lien BACKUP existant ? → refusé.
-      const asBackup = tkPribckFindByBackup(val);
-      if(asBackup){
-        priEl.value = '';
-        window._tkLinkInvalid.pri = false;
-        tkSetLinkFieldState(priEl, true);
-        setTimeout(()=>tkSetLinkFieldState(priEl, false), 1600);
-        const suffix = asBackup.refPri ? ' (associée au lien primaire '+asBackup.refPri+')' : '';
-        if(msgEl){ msgEl.textContent = '⛔ « '+val+' » est un lien BACKUP'+suffix+' — non autorisé dans Lien Primaire'; msgEl.style.color='var(--r)'; }
-        toast('⛔ Cette référence est un lien BACKUP, pas un lien primaire','err');
-        priEl.focus();
-        return;
-      }
-
-      const m = tkPribckFindByPrimaire(val);
-      if(m){
-        if(m.refBck){
-          bckEl.value = m.refBck;
-          window._tkLinkInvalid.bck = false;
-          tkSetLinkFieldState(bckEl, false);
-          if(msgEl){ msgEl.textContent = '✓ Lien backup trouvé automatiquement : '+m.refBck; msgEl.style.color='var(--g)'; }
-        } else if(msgEl){ msgEl.textContent = '⚠️ Aucun lien backup enregistré pour ce lien primaire'; msgEl.style.color='var(--a)'; }
-      } else if(msgEl){ msgEl.textContent = 'ℹ️ Pas de lien backup trouvé'; msgEl.style.color='var(--r)'; }
-    } else {
-      const val = bckEl.value.trim();
-      window._tkLinkInvalid.bck = false;
-      tkSetLinkFieldState(bckEl, false);
-      if(!val){
-        // Champ Backup vidé → on vide aussi le Primaire (couple lié)
-        priEl.value = '';
-        window._tkLinkInvalid.pri = false;
-        tkSetLinkFieldState(priEl, false);
-        if(msgEl){msgEl.textContent='';}
-        return;
-      }
-
-      // Cette référence est-elle en réalité un lien PRIMAIRE existant ? → refusé.
-      const asPrimaire = tkPribckFindByPrimaire(val);
-      if(asPrimaire){
-        bckEl.value = '';
-        window._tkLinkInvalid.bck = false;
-        tkSetLinkFieldState(bckEl, true);
-        setTimeout(()=>tkSetLinkFieldState(bckEl, false), 1600);
-        const suffix = asPrimaire.refBck ? ' (son backup est '+asPrimaire.refBck+')' : '';
-        if(msgEl){ msgEl.textContent = '⛔ « '+val+' » est un lien PRIMAIRE'+suffix+' — non autorisé dans Lien backup'; msgEl.style.color='var(--r)'; }
-        toast('⛔ Cette référence est un lien primaire, pas un lien backup','err');
-        bckEl.focus();
-        return;
-      }
-
-      const m = tkPribckFindByBackup(val);
-      if(m){
-        if(m.refPri){
-          priEl.value = m.refPri;
-          window._tkLinkInvalid.pri = false;
-          tkSetLinkFieldState(priEl, false);
-          if(msgEl){ msgEl.textContent = '✓ Lien primaire trouvé automatiquement : '+m.refPri; msgEl.style.color='var(--g)'; }
-        } else if(msgEl){ msgEl.textContent = 'ℹ️ Correspondance trouvée sans référence primaire associée'; msgEl.style.color='var(--n4)'; }
-      } else if(msgEl){ msgEl.textContent = 'ℹ️ Pas de lien primaire trouvé'; msgEl.style.color='var(--r)'; }
+    if(!val){
+      if(bckEl)  bckEl.value  = '';
+      if(roleEl) roleEl.value = '';
+      if(msgEl)  msgEl.textContent = '';
+      return;
     }
+
+    // 1) La référence signalée est-elle un lien PRIMAIRE connu ?
+    const asPri = tkPribckFindByPrimaire(val);
+    if(asPri){
+      const other = asPri.refBck||'';
+      if(roleEl) roleEl.value = 'Primaire';
+      if(bckEl)  bckEl.value  = other;
+      tkRenderLinkInfo('Primaire', other);
+      return;
+    }
+
+    // 2) Sinon, est-ce un lien BACKUP connu ?
+    const asBck = tkPribckFindByBackup(val);
+    if(asBck){
+      const other = asBck.refPri||'';
+      if(roleEl) roleEl.value = 'Backup';
+      if(bckEl)  bckEl.value  = other;
+      tkRenderLinkInfo('Backup', other);
+      return;
+    }
+
+    // 3) Référence inconnue de la base PRI/BCK
+    if(roleEl) roleEl.value = '';
+    if(bckEl)  bckEl.value  = '';
+    tkRenderLinkInfo('', '');
   }, 400);
 }
+
 
 // Attacher les événements dblclick sur toutes les cellules .sv
 document.querySelectorAll('.sv[data-key]').forEach(td=>{
@@ -2835,17 +2814,13 @@ async function deleteVip(id){
             </div>
           </div>
 
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-            <div class="fgrp" style="margin:0">
-              <label>Lien Primaire *</label>
-              <input type="text" id="tk-ref" style="font-family:var(--mono);font-size:15px" oninput="tkLinkAutoLookup('pri')">
-            </div>
-            <div class="fgrp" style="margin:0">
-              <label>Lien backup</label>
-              <input type="text" id="tk-ref-bck" style="font-family:var(--mono);font-size:15px" oninput="tkLinkAutoLookup('bck')">
-            </div>
+          <div class="fgrp" style="margin:0">
+            <label>Référence lien signalé *</label>
+            <input type="text" id="tk-ref" style="font-family:var(--mono);font-size:15px" oninput="tkLinkAutoLookup()">
+            <input type="hidden" id="tk-ref-bck">
+            <input type="hidden" id="tk-ref-role">
           </div>
-          <div id="tk-linkmsg" style="font-size:10.5px;font-weight:600;margin-top:-5px;min-height:13px"></div>
+          <div id="tk-linkmsg" style="font-size:11px;font-weight:600;margin-top:5px;min-height:15px;line-height:1.4"></div>
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
             <div class="fgrp" style="margin:0">
@@ -7690,12 +7665,13 @@ function ticketRender(){
     const ouvMs  = tkOuvertureMs(t);
     const ouvertureHtml = (t.statut==='Terminé' && ouvMs!==null) ? `<span style="font-size:10px;color:var(--v);font-family:var(--mono)" title="Durée d'ouverture du ticket (excel: création → début NOC)">🎫 ${tkFormatMs(ouvMs)}</span>` : '';
     const svcHtml = t.serviceStatut ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;flex-shrink:0;background:${t.serviceStatut==='Service disponible'?'var(--gl)':'var(--rl)'};color:${t.serviceStatut==='Service disponible'?'var(--g)':'var(--r)'}">${t.serviceStatut==='Service disponible'?'🟢':'🔴'} ${t.serviceStatut}</span>` : '';
+    const refRoleTag = t.refRole==='Backup' ? '🟠BCK ' : (t.refRole==='Primaire' ? '🔵PRI ' : '');
     return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);border-radius:4px;transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
       <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
       <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
         <span style="font-weight:700;font-size:12.5px;color:var(--n1);white-space:nowrap">${t.client||'—'}</span>
         ${svcHtml}
-        <span style="font-family:var(--mono);font-size:10.5px;color:var(--n3)">${t.ref||'—'}${t.refBackup?' / '+t.refBackup:''}${t.type?' · '+t.type:''}</span>
+        <span style="font-family:var(--mono);font-size:10.5px;color:var(--n3)">${refRoleTag}${t.ref||'—'}${t.refBackup?' / '+t.refBackup:''}${t.type?' · '+t.type:''}</span>
         <span style="font-size:11px;color:var(--n3)">🕐 ${debut}</span>
         <span class="bp ${cls}" style="flex-shrink:0">${t.statut||'—'}</span>
         ${ouvertureHtml}
@@ -7801,16 +7777,13 @@ function tkLockFieldsForEdit(lock){
 
 function ticketResetForm(){
   document.getElementById('tk-edit-id').value='';
-  ['tk-client','tk-ref','tk-ref-bck','tk-localisation','tk-heure-conf','tk-contact-nom','tk-contact-tel','tk-contact-mail','tk-ouvert-par'].forEach(id=>{
+  ['tk-client','tk-ref','tk-ref-bck','tk-ref-role','tk-localisation','tk-heure-conf','tk-contact-nom','tk-contact-tel','tk-contact-mail','tk-ouvert-par'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('tk-type').value='';
   document.getElementById('tk-service-statut').value='';
   document.getElementById('tk-destinataire').value='';
   const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent='';
-  window._tkLinkInvalid = {pri:false, bck:false};
-  tkSetLinkFieldState(document.getElementById('tk-ref'), false);
-  tkSetLinkFieldState(document.getElementById('tk-ref-bck'), false);
   tkSetDest('');
   const now=new Date(); now.setSeconds(0,0);
   document.getElementById('tk-debut').value=now.toISOString().slice(0,16);
@@ -7825,10 +7798,9 @@ function ticketEditInline(id){
   document.getElementById('tk-service-statut').value=t.serviceStatut||'';
   document.getElementById('tk-ref').value=t.ref||'';
   document.getElementById('tk-ref-bck').value=t.refBackup||'';
-  const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent='';
-  window._tkLinkInvalid = {pri:false, bck:false};
-  tkSetLinkFieldState(document.getElementById('tk-ref'), false);
-  tkSetLinkFieldState(document.getElementById('tk-ref-bck'), false);
+  document.getElementById('tk-ref-role').value=t.refRole||'';
+  if(t.ref){ tkRenderLinkInfo(t.refRole||'', t.refBackup||''); }
+  else { const linkMsg=document.getElementById('tk-linkmsg'); if(linkMsg) linkMsg.textContent=''; }
   document.getElementById('tk-type').value=t.type||'';
   document.getElementById('tk-debut').value=t.debut?t.debut.slice(0,16):'';
   document.getElementById('tk-localisation').value=t.localisation||'';
@@ -8223,7 +8195,7 @@ function ticketOutlookById(id){
 
 function ticketOpenOutlook(){
   const t={
-    client:v('tk-client'), serviceStatut:v('tk-service-statut'), ref:v('tk-ref'), refBackup:v('tk-ref-bck'), type:v('tk-type'),
+    client:v('tk-client'), serviceStatut:v('tk-service-statut'), ref:v('tk-ref'), refRole:v('tk-ref-role'), refBackup:v('tk-ref-bck'), type:v('tk-type'),
     debut:v('tk-debut'), localisation:v('tk-localisation'),
     contact_nom:v('tk-contact-nom'), contact_tel:v('tk-contact-tel'), contact_mail:v('tk-contact-mail')
   };
@@ -8275,11 +8247,11 @@ function ticketShowPreview(t, relance){
           <td style="padding:9px 10px"><span style="display:inline-block;padding:2px 10px;border-radius:3px;font-size:12px;font-weight:700;background:${t.serviceStatut==='Service disponible'?'#E8F5EE':(t.serviceStatut==='Pas de service'?'#FBEAEA':'#F2F2F2')};color:${t.serviceStatut==='Service disponible'?'#1A6B3C':(t.serviceStatut==='Pas de service'?'#B22222':'#888')}">${t.serviceStatut?(t.serviceStatut==='Service disponible'?'🟢 ':'🔴 ')+t.serviceStatut:'\u2014'}</span></td>
         </tr>
         <tr style="border-bottom:1px solid #f2f2f2">
-          <td style="color:#888;padding:9px 10px">Lien primaire</td>
+          <td style="color:#888;padding:9px 10px">Référence lien signalé${t.refRole?' <span style="font-weight:400;color:#888">('+t.refRole+')</span>':''}</td>
           <td style="color:#111;font-weight:bold;padding:9px 10px">${t.ref||'\u2014'}</td>
         </tr>
         ${t.refBackup?`<tr style="border-bottom:1px solid #f2f2f2">
-          <td style="color:#888;padding:9px 10px">Lien backup</td>
+          <td style="color:#888;padding:9px 10px">${t.refRole==='Backup'?'Lien primaire associé':'Lien backup associé'}</td>
           <td style="color:#111;font-weight:bold;padding:9px 10px">${t.refBackup}</td>
         </tr>`:''}
         <tr style="border-bottom:1px solid #f2f2f2">
@@ -8369,6 +8341,7 @@ async function ticketSave(){
   const tkType     = v('tk-type');
   const tkRef      = v('tk-ref');
   const tkRefBck   = v('tk-ref-bck');
+  const tkRefRole  = v('tk-ref-role');
   const debut      = v('tk-debut');
   const localisa   = v('tk-localisation');
   const contNom    = v('tk-contact-nom');
@@ -8378,12 +8351,8 @@ async function ticketSave(){
   if(!client)    { toast('Client obligatoire','err');                                         return null; }
   if(!svcStatut) { toast('Statut du service obligatoire','err');                                return null; }
   if(!tkType)    { toast((window._tkTypeLabel||'Type de lien')+' obligatoire','err');           return null; }
-  if(!tkRef)     { toast('Référence lien obligatoire','err');                                  return null; }
+  if(!tkRef)     { toast('Référence lien signalé obligatoire','err');                          return null; }
   if(!debut)     { toast('Date de début obligatoire','err');                                   return null; }
-  if(window._tkLinkInvalid && (window._tkLinkInvalid.pri || window._tkLinkInvalid.bck)){
-    toast('Corrigez le champ Lien Primaire / Lien backup avant d\'enregistrer','err');
-    return null;
-  }
 
   const editId = document.getElementById('tk-edit-id').value;
   const existing = editId ? (DB.tickets||[]).find(x=>x.id===editId) : null;
@@ -8392,6 +8361,7 @@ async function ticketSave(){
     client,
     serviceStatut : svcStatut,
     ref         : tkRef,
+    refRole     : tkRefRole,
     refBackup   : tkRefBck,
     type        : v('tk-type'),
     debut,
@@ -8688,9 +8658,9 @@ async function ticketRemoveDuplicates(){
 function ticketExportCSV(){
   const all = DB.tickets||[];
   if(!all.length){ toast('Aucun ticket à exporter','err'); return; }
-  const cols = ['Client','Statut du service','Lien primaire','Lien backup','Type','Date début','Localisation','Statut','Destinataire','Contact Nom','Contact Tél','Contact Mail','Ouvert par','Notes','Date résolution'];
+  const cols = ['Client','Statut du service','Référence lien signalé','Rôle du lien','Lien associé','Type','Date début','Localisation','Statut','Destinataire','Contact Nom','Contact Tél','Contact Mail','Ouvert par','Notes','Date résolution'];
   const rows = all.map(t=>[
-    t.client||'', t.serviceStatut||'', t.ref||'', t.refBackup||'', t.type||'',
+    t.client||'', t.serviceStatut||'', t.ref||'', t.refRole||'', t.refBackup||'', t.type||'',
     t.debut ? new Date(t.debut).toLocaleString('fr-FR') : '',
     t.localisation||'', t.statut||'', t.destinataire||'',
     t.contact_nom||'', t.contact_tel||'', t.contact_mail||'',
