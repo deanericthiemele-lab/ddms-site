@@ -930,6 +930,14 @@ function tkUpdateServiceStatutRequirement(){
   if(star) star.style.display = required ? '' : 'none';
 }
 
+// Statut de service "effectif" : utilise la valeur saisie si présente, sinon déduit
+// une valeur par défaut à partir du statut du ticket (anciens tickets créés avant
+// l'ajout du champ "Statut du service") — Ouvert → Pas de service, Terminé → Service disponible.
+function tkServiceStatutEffective(t){
+  if(t.serviceStatut) return t.serviceStatut;
+  return t.statut==='Terminé' ? 'Service disponible' : 'Pas de service';
+}
+
 // Priorité opérationnelle du ticket — utilisée partout (liste, mail, CSV, édition) :
 // P1 = pas de service sur lien Primaire/Backup (les 2 liens down)
 // P2 = pas de service sur lien nominal (sans redondance)
@@ -940,8 +948,9 @@ const TK_PRIO_META = {
   3:{lbl:'P3',bg:'var(--gl)',col:'var(--g)',txt:'P3 — Service disponible sur 1/2 lien'}
 };
 function tkPriority(t){
-  if(t.serviceStatut==='Pas de service') return (t.refRole==='Primaire'||t.refRole==='Backup') ? 1 : 2;
-  if(t.serviceStatut==='Service disponible') return 3;
+  const svc = tkServiceStatutEffective(t);
+  if(svc==='Pas de service') return (t.refRole==='Primaire'||t.refRole==='Backup') ? 1 : 2;
+  if(svc==='Service disponible') return 3;
   return 0;
 }
 
@@ -2792,10 +2801,10 @@ async function deleteVip(id){
   </div>
 
   <!-- Layout 2 colonnes -->
-  <div style="display:grid;grid-template-columns:380px 1fr;gap:16px;align-items:stretch">
+  <div style="display:grid;grid-template-columns:380px 1fr;gap:16px;align-items:start">
 
     <!-- ── COLONNE GAUCHE : Formulaire + liste tickets ── -->
-    <div style="display:flex;flex-direction:column;gap:12px">
+    <div id="tk-form-col" style="display:flex;flex-direction:column;gap:12px">
 
       <!-- Formulaire de saisie -->
       <div style="background:#fff;border:1px solid var(--n5);border-radius:6px;overflow:hidden">
@@ -2920,7 +2929,7 @@ async function deleteVip(id){
     </div>
 
     <!-- ── COLONNE DROITE : Liste des tickets (figée) ── -->
-    <div style="background:#fff;border:1px solid var(--n5);border-radius:6px;overflow:hidden;position:sticky;top:12px;display:flex;flex-direction:column">
+    <div id="tk-right-col" style="background:#fff;border:1px solid var(--n5);border-radius:6px;overflow:hidden;position:sticky;top:12px;display:flex;flex-direction:column">
 
       <!-- Entête liste -->
       <div style="padding:10px 14px;border-bottom:1px solid var(--n5);display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;height:54px;box-sizing:border-box">
@@ -4024,7 +4033,7 @@ function nav(el){
   const main = document.getElementById('main');
   if(main) main.scrollTop = 0;
   if(el.dataset.page==='rapport-hebdo') rInitPage();
-  if(el.dataset.page==='tickets-indispo') ticketResetForm();
+  if(el.dataset.page==='tickets-indispo'){ ticketResetForm(); tkSyncListPanelHeight(); }
   if(el.dataset.page==='calendrier') renderCalBascule();
 }
 
@@ -7167,6 +7176,11 @@ function tkSetListPeriode(p){
     if(k===p){ btn.style.background='var(--v)'; btn.style.borderColor='var(--v)'; btn.style.color='#fff'; }
     else      { btn.style.background='#fff';     btn.style.borderColor='var(--n5)'; btn.style.color='var(--n3)'; }
   });
+  // Vue "Aujourd'hui" → filtre Statut par défaut sur Ouvert (tickets actifs du jour).
+  // Vue Semaine/Mois/Tout → filtre Statut sur "Tous" pour que les colonnes Tickets
+  // ouverts / Tickets fermés puissent réellement afficher les deux catégories.
+  const fStatutEl = document.getElementById('tk-filter-statut');
+  if(fStatutEl) fStatutEl.value = (p==='jour') ? 'Ouvert' : '';
   ticketRender();
 }
 
@@ -7184,6 +7198,9 @@ function tkSetCustomRange(){
     if(!btn) return;
     btn.style.background='#fff'; btn.style.borderColor='var(--n5)'; btn.style.color='var(--n3)';
   });
+  // Plage personnalisée = vue "Tickets ouverts / Tickets fermés" → filtre Statut sur "Tous"
+  const fStatutEl = document.getElementById('tk-filter-statut');
+  if(fStatutEl) fStatutEl.value = '';
   ticketRender();
 }
 
@@ -7636,7 +7653,7 @@ function ticketRender(){
     const okSearch = (!search||txt.includes(search));
     const okStatut = (!fStatut||t.statut===fStatut);
     const okType   = (!fType||t.type===fType);
-    const okService = (!fService||t.serviceStatut===fService);
+    const okService = (!fService||tkServiceStatutEffective(t)===fService);
     const okPrio   = (!fPrio||String(tkPriority(t))===fPrio);
     let okPeriode;
     if(window._tkPeriode==='tous'){ okPeriode = true; }
@@ -7652,7 +7669,7 @@ function ticketRender(){
     const txt = ((t.client||'')+(t.ref||'')+(t.refBackup||'')+(t.serviceStatut||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
     const okSearch = (!search||txt.includes(search));
     const okType   = (!fType||t.type===fType);
-    const okService = (!fService||t.serviceStatut===fService);
+    const okService = (!fService||tkServiceStatutEffective(t)===fService);
     const okPrio   = (!fPrio||String(tkPriority(t))===fPrio);
     let okPeriode;
     if(window._tkPeriode==='tous'){ okPeriode = true; }
@@ -7734,7 +7751,22 @@ function ticketRender(){
   }
 
   panel.innerHTML = tkRenderTicketColumns(items);
+  tkSyncListPanelHeight();
 }
+
+// Aligne la hauteur du panneau tickets (colonne droite) sur la hauteur réelle du
+// formulaire (colonne gauche), afin que les 2 tableaux "Pas de service" / "Service
+// disponible" affichent toujours la même hauteur avec leur propre scroll interne.
+function tkSyncListPanelHeight(){
+  const left  = document.getElementById('tk-form-col');
+  const right = document.getElementById('tk-right-col');
+  if(!left || !right) return;
+  requestAnimationFrame(()=>{
+    const h = left.getBoundingClientRect().height;
+    if(h>0) right.style.height = h + 'px';
+  });
+}
+window.addEventListener('resize', tkSyncListPanelHeight);
 
 // Rendu d'une ligne ticket (réutilisé dans les deux colonnes)
 function tkTicketRowHtml(t){
@@ -7773,36 +7805,39 @@ function tkTicketRowHtml(t){
   </div>`;
 }
 
-// Découpe la liste en 2 colonnes : gauche = Pas de service, droite = Service disponible
-// (+ section basse pour les tickets sans statut de service renseigné, cas du lien nominal)
+// Découpe la liste en 2 colonnes.
+// Vue "Aujourd'hui" : gauche = Pas de service, droite = Service disponible (statut du service).
+// Vue "Semaine / Mois / Tout" : gauche = Tickets ouverts, droite = Tickets fermés (statut du ticket).
 function tkRenderTicketColumns(items){
-  const leftItems  = items.filter(t=>t.serviceStatut==='Pas de service');
-  const rightItems = items.filter(t=>t.serviceStatut==='Service disponible');
-  const otherItems = items.filter(t=>!t.serviceStatut);
+  const isDayView = (window._tkListPeriode||'jour') === 'jour';
+  let leftItems, rightItems, leftLbl, rightLbl;
+  if(isDayView){
+    leftItems  = items.filter(t=>tkServiceStatutEffective(t)==='Pas de service');
+    rightItems = items.filter(t=>tkServiceStatutEffective(t)==='Service disponible');
+    leftLbl  = `🔴 Pas de service (${leftItems.length})`;
+    rightLbl = `🟢 Service disponible (${rightItems.length})`;
+  } else {
+    leftItems  = items.filter(t=>t.statut!=='Terminé');
+    rightItems = items.filter(t=>t.statut==='Terminé');
+    leftLbl  = `🔴 Tickets ouverts (${leftItems.length})`;
+    rightLbl = `🟢 Tickets fermés (${rightItems.length})`;
+  }
   // Tri par heure de début, du plus ancien au plus récent, dans chacune des colonnes
   const byDebutAsc = (a,b) => new Date(a.debut||0) - new Date(b.debut||0);
   leftItems.sort(byDebutAsc);
   rightItems.sort(byDebutAsc);
-  otherItems.sort(byDebutAsc);
   const colEmpty = `<div style="text-align:center;padding:24px 10px;color:var(--n4);font-size:12px">Aucun ticket</div>`;
 
   let html = `<div style="display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--n5);border-radius:6px;overflow:hidden;flex:1;min-height:0">
     <div style="border-right:1px solid var(--n5);display:flex;flex-direction:column;min-height:0">
-      <div style="background:var(--rl);color:var(--r);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);flex-shrink:0">🔴 Pas de service (${leftItems.length})</div>
+      <div style="background:var(--rl);color:var(--r);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);flex-shrink:0">${leftLbl}</div>
       <div style="overflow-y:auto;flex:1;min-height:0">${leftItems.length ? leftItems.map(tkTicketRowHtml).join('') : colEmpty}</div>
     </div>
     <div style="display:flex;flex-direction:column;min-height:0">
-      <div style="background:var(--gl);color:var(--g);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);flex-shrink:0">🟢 Service disponible (${rightItems.length})</div>
+      <div style="background:var(--gl);color:var(--g);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);flex-shrink:0">${rightLbl}</div>
       <div style="overflow-y:auto;flex:1;min-height:0">${rightItems.length ? rightItems.map(tkTicketRowHtml).join('') : colEmpty}</div>
     </div>
   </div>`;
-
-  if(otherItems.length){
-    html += `<div style="margin-top:8px;border:1px solid var(--n5);border-radius:6px;overflow:hidden;flex-shrink:0;max-height:180px;display:flex;flex-direction:column">
-      <div style="background:var(--n6);color:var(--n3);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);flex-shrink:0">⚪ Statut du service non renseigné (${otherItems.length})</div>
-      <div style="overflow-y:auto">${otherItems.map(tkTicketRowHtml).join('')}</div>
-    </div>`;
-  }
   return html;
 }
 
