@@ -2781,6 +2781,12 @@ async function deleteVip(id){
       <option value="Service disponible">🟢 Service disponible</option>
       <option value="Pas de service">🔴 Pas de service</option>
     </select>
+    <select id="tk-filter-priorite" onchange="ticketRender()" style="border:1px solid var(--n5);border-radius:3px;padding:5px 8px;font-size:15px">
+      <option value="">Toutes priorités</option>
+      <option value="1">🔴 P1</option>
+      <option value="2">🟠 P2</option>
+      <option value="3">🟢 P3</option>
+    </select>
     <button class="btn btn-out btn-sm" onclick="ticketExportCSV()" style="gap:5px">📊 Exporter CSV</button>
     <button class="btn btn-out btn-sm" onclick="ticketRemoveDuplicates()" style="gap:5px" title="Détecte et supprime les tickets strictement identiques (même client, référence, dates, statut, notes)">🧹 Supprimer les doublons</button>
   </div>
@@ -7597,9 +7603,10 @@ function ticketRender(){
   const fStatut = document.getElementById('tk-filter-statut')?.value||'';
   const fType   = document.getElementById('tk-filter-type')?.value||'';
   const fService = document.getElementById('tk-filter-service')?.value||'';
+  const fPrio   = document.getElementById('tk-filter-priorite')?.value||'';
   const all     = DB.tickets||[];
 
-  // ── Filtre unique : période + recherche + statut + type + service + agent + client ──
+  // ── Filtre unique : période + recherche + statut + type + service + priorité + agent + client ──
   // Tous les KPI et la liste se basent sur ce même ensemble filtré.
   const range = tkGetRange();
   const kpiTickets = all.filter(t=>{
@@ -7608,12 +7615,13 @@ function ticketRender(){
     const okStatut = (!fStatut||t.statut===fStatut);
     const okType   = (!fType||t.type===fType);
     const okService = (!fService||t.serviceStatut===fService);
+    const okPrio   = (!fPrio||String(tkPriority(t))===fPrio);
     let okPeriode;
     if(window._tkPeriode==='tous'){ okPeriode = true; }
     else{ const d = t.debut ? new Date(t.debut) : null; okPeriode = !!d && d>=range.start && d<=range.end; }
     const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
     const okClient = !window._tkClientFilter || (t.client||'').trim() === window._tkClientFilter;
-    return okSearch&&okStatut&&okType&&okService&&okPeriode&&okAgent&&okClient;
+    return okSearch&&okStatut&&okType&&okService&&okPrio&&okPeriode&&okAgent&&okClient;
   });
 
   // Ensemble pour "Durée moyenne" : mêmes filtres SAUF le statut (sinon avec le filtre
@@ -7623,12 +7631,13 @@ function ticketRender(){
     const okSearch = (!search||txt.includes(search));
     const okType   = (!fType||t.type===fType);
     const okService = (!fService||t.serviceStatut===fService);
+    const okPrio   = (!fPrio||String(tkPriority(t))===fPrio);
     let okPeriode;
     if(window._tkPeriode==='tous'){ okPeriode = true; }
     else{ const d = t.debut ? new Date(t.debut) : null; okPeriode = !!d && d>=range.start && d<=range.end; }
     const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
     const okClient = !window._tkClientFilter || (t.client||'').trim() === window._tkClientFilter;
-    return okSearch&&okType&&okService&&okPeriode&&okAgent&&okClient;
+    return okSearch&&okType&&okService&&okPrio&&okPeriode&&okAgent&&okClient;
   });
 
   // libellé période
@@ -7996,13 +8005,30 @@ function tkRenderBilan(kpiTicketsDuree){
       ${sub?`<div style="font-size:12px;color:var(--n3);margin-top:3px">${sub}</div>`:''}
     </div>`;
 
+  // Répartition priorité — sur les tickets Ouvert de l'ensemble filtré
+  const openTickets = all.filter(t=>t.statut==='Ouvert');
+  const p1n = openTickets.filter(t=>tkPriority(t)===1).length;
+  const p2n = openTickets.filter(t=>tkPriority(t)===2).length;
+  const p3n = openTickets.filter(t=>tkPriority(t)===3).length;
+  const prioCard = `
+    <div style="background:#fff;border:1px solid var(--n5);border-top:3px solid #B22222;border-radius:6px;padding:14px 16px">
+      <div style="display:flex;gap:14px;align-items:baseline">
+        <div><span style="font-family:var(--cond);font-size:26px;font-weight:400;color:var(--r)">${p1n}</span> <span style="font-size:11px;font-weight:700;color:var(--r)">P1</span></div>
+        <div><span style="font-family:var(--cond);font-size:26px;font-weight:400;color:var(--a)">${p2n}</span> <span style="font-size:11px;font-weight:700;color:var(--a)">P2</span></div>
+        <div><span style="font-family:var(--cond);font-size:26px;font-weight:400;color:var(--g)">${p3n}</span> <span style="font-size:11px;font-weight:700;color:var(--g)">P3</span></div>
+      </div>
+      <div style="font-size:13px;font-weight:700;color:#000;margin-top:8px">Répartition priorité</div>
+      <div style="font-size:12px;color:var(--n3);margin-top:3px">${openTickets.length} ticket${openTickets.length!==1?'s':''} Ouvert</div>
+    </div>`;
+
   box.innerHTML =
     card('#E05A00', `${totalNOC} <span style="font-size:16px;color:var(--n3)">vs</span> ${totalSAV}`, 'Tickets NOC vs SAV B2B', `<span style="font-size:20px;color:#000">${tauxSAV}%</span>`) +
     card('#7c3aed', nResolues, 'Signalisations résolues', `sur ${totalNOC} ticket${totalNOC!==1?'s':''}`) +
     card('#dc2626', `${reiterations} <span style="font-size:16px;color:var(--n3)">(${tauxReiter}%)</span>`, 'Réitérations', 'référence(s) revenue(s)') +
     card('#2563eb', avgOuverture!==null?tkFormatMs(avgOuverture):'—', "Durée moy d'ouverture (SAV)", `${avecCreation.length} ticket${avecCreation.length!==1?'s':''}${(avecCreation.length-ouvValsCount)>0?` (${avecCreation.length-ouvValsCount} exclu${(avecCreation.length-ouvValsCount)!==1?'s':''})`:''}`) +
     card('#059669', avgRelieve!==null?tkFormatMs(avgRelieve):'—', 'Durée moy de relève', null) +
-    card('#dc2626', `${tauxReiter}%`, 'Taux de réitération', `${reiterations} / ${totalNOC} tickets`);
+    card('#dc2626', `${tauxReiter}%`, 'Taux de réitération', `${reiterations} / ${totalNOC} tickets`) +
+    prioCard;
 }
 
 // KPI "Durée" : durée moyenne d'ouverture de ticket + durée moyenne de l'incident, sur la période sélectionnée
