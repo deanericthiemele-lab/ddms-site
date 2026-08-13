@@ -2953,7 +2953,7 @@ async function deleteVip(id){
       </div>
 
       <!-- Liste tickets (scrollable) -->
-      <div id="tk-list-panel" style="max-height:calc(100vh - 220px);overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:6px">
+      <div id="tk-list-panel" style="padding:8px 10px;display:flex;flex-direction:column;gap:6px">
         <!-- rempli par ticketRender() -->
       </div>
     </div>
@@ -7787,13 +7787,13 @@ function tkRenderTicketColumns(items){
   const colEmpty = `<div style="text-align:center;padding:24px 10px;color:var(--n4);font-size:12px">Aucun ticket</div>`;
 
   let html = `<div style="display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--n5);border-radius:6px;overflow:hidden">
-    <div style="border-right:1px solid var(--n5)">
-      <div style="background:var(--rl);color:var(--r);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);position:sticky;top:0">🔴 Pas de service (${leftItems.length})</div>
-      <div>${leftItems.length ? leftItems.map(tkTicketRowHtml).join('') : colEmpty}</div>
+    <div style="border-right:1px solid var(--n5);display:flex;flex-direction:column;max-height:calc(100vh - 320px)">
+      <div style="background:var(--rl);color:var(--r);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);flex-shrink:0">🔴 Pas de service (${leftItems.length})</div>
+      <div style="overflow-y:auto;flex:1">${leftItems.length ? leftItems.map(tkTicketRowHtml).join('') : colEmpty}</div>
     </div>
-    <div>
-      <div style="background:var(--gl);color:var(--g);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);position:sticky;top:0">🟢 Service disponible (${rightItems.length})</div>
-      <div>${rightItems.length ? rightItems.map(tkTicketRowHtml).join('') : colEmpty}</div>
+    <div style="display:flex;flex-direction:column;max-height:calc(100vh - 320px)">
+      <div style="background:var(--gl);color:var(--g);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);flex-shrink:0">🟢 Service disponible (${rightItems.length})</div>
+      <div style="overflow-y:auto;flex:1">${rightItems.length ? rightItems.map(tkTicketRowHtml).join('') : colEmpty}</div>
     </div>
   </div>`;
 
@@ -7982,15 +7982,7 @@ function tkDureeEntre(debut, fin){
   const start = new Date(debut).getTime();
   const end   = new Date(fin).getTime();
   if(isNaN(start)||isNaN(end)||end<start) return '—';
-  const totalMin = Math.floor((end-start)/60000);
-  const j = Math.floor(totalMin/1440);
-  const h = Math.floor((totalMin%1440)/60);
-  const m = totalMin%60;
-  const parts=[];
-  if(j>0) parts.push(j+'j');
-  if(h>0||j>0) parts.push(String(h).padStart(2,'0')+'h');
-  parts.push(String(m).padStart(2,'0')+'min');
-  return parts.join(' ');
+  return tkFormatMs(tkActiveElapsedMs(start, end)); // temps actif (hors 20h–6h), aucune équipe ne travaille la nuit
 }
 
 // ── Formatage générique d'une durée en ms ──
@@ -8010,22 +8002,26 @@ function tkFormatMs(ms){
 
 // Durée d'ouverture du ticket = date de création EXCEL (colonne P) − date début NOC
 // Nécessite que l'Excel ait été importé (dateCreationExcel renseignée)
+// Calculée en temps ACTIF (hors 20h–6h) : aucune équipe ne travaille la nuit.
 function tkOuvertureMs(t){
   if(!t.debut || !t.dateCreationExcel) return null;
   const start   = new Date(t.debut).getTime();
   const created = new Date(t.dateCreationExcel).getTime();
   if(isNaN(start)||isNaN(created)) return null;
-  return created - start;
+  if(created < start) return created - start; // anomalie (valeur négative) — exclue en aval, pas besoin du calcul actif
+  return tkActiveElapsedMs(start, created);
 }
 
 // Durée de l'incident = date fin EXCEL − date début NOC
 // Uniquement si le ticket est fermé (date fin excel renseignée) — jamais calculé sur "maintenant"
+// Calculée en temps ACTIF (hors 20h–6h) : aucune équipe ne travaille la nuit.
 function tkIncidentMs(t){
   if(!t.debut || !t.fin) return null;
   const start = new Date(t.debut).getTime();
   const end   = new Date(t.fin).getTime();
   if(isNaN(start)||isNaN(end)) return null;
-  return end - start;
+  if(end < start) return end - start; // anomalie — exclue en aval
+  return tkActiveElapsedMs(start, end);
 }
 
 function tkAvgMs(list, fn){
