@@ -7515,17 +7515,39 @@ function tkRenderTendances(){
 // ── Rappel 4h après ouverture de ticket (récurrent jusqu'à statut Terminé) ──
 const TK_RAPPEL_SEUIL_MS = 4*60*60*1000;   // 4h
 const TK_RAPPEL_PRE_MS   = 30*60*1000;     // affiche l'avertissement 30 min avant chaque échéance
+const TK_HEURE_PAUSE_DEBUT = 20; // 20h : le décompte de relance se suspend
+const TK_HEURE_PAUSE_FIN   = 6;  // 06h : le décompte de relance reprend
+
+// Temps écoulé "actif" entre startMs et endMs, en excluant les plages 20h→6h (nuit).
+// Permet de suspendre le décompte des relances la nuit.
+function tkActiveElapsedMs(startMs, endMs){
+  if(endMs<=startMs) return 0;
+  let total = 0;
+  let cursor = new Date(startMs);
+  let guard = 0;
+  while(cursor.getTime() < endMs && guard<400){
+    guard++;
+    const dayStart = new Date(cursor); dayStart.setHours(TK_HEURE_PAUSE_FIN,0,0,0);
+    const dayEnd   = new Date(cursor); dayEnd.setHours(TK_HEURE_PAUSE_DEBUT,0,0,0);
+    const segStart = Math.max(cursor.getTime(), dayStart.getTime());
+    const segEnd   = Math.min(endMs, dayEnd.getTime());
+    if(segEnd > segStart) total += (segEnd - segStart);
+    const nextDay = new Date(cursor); nextDay.setDate(nextDay.getDate()+1); nextDay.setHours(0,0,0,0);
+    cursor = nextDay;
+  }
+  return total;
+}
 
 function tkRappelState(debut, statut, ackCk){
   if(!debut || statut==='Terminé' || statut==='Résolu' || statut==='Fermé') return null;
   const start = new Date(debut).getTime();
   if(isNaN(start)) return null;
   ackCk = ackCk||0;
-  const elapsed = Date.now()-start;
+  const elapsed = tkActiveElapsedMs(start, Date.now()); // temps actif (hors 20h–6h)
   const completed = Math.floor(elapsed/TK_RAPPEL_SEUIL_MS); // nb d'échéances 4h déjà passées
 
   if(completed>=1 && completed>ackCk){
-    const overdueMs = elapsed - TK_RAPPEL_SEUIL_MS; // retard total cumulé depuis la 1ère échéance
+    const overdueMs = elapsed - TK_RAPPEL_SEUIL_MS; // retard total cumulé (temps actif) depuis la 1ère échéance
     const h = Math.floor(overdueMs/3600000), m = Math.floor((overdueMs%3600000)/60000);
     const hm = h>0 ? h+'h'+String(m).padStart(2,'0') : m+'min';
     return {show:true, overdue:true, checkpoint:completed, text:`⏰ Relance dépassée (+${hm} au total)`};
@@ -7738,6 +7760,7 @@ function tkTicketRowHtml(t){
     <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
     <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
       <span title="${tooltip}" style="font-weight:700;font-size:12.5px;color:var(--n1);white-space:nowrap;cursor:help;border-bottom:1px dotted var(--n4)">${t.client||'—'}</span>
+      <span style="font-size:10.5px;color:var(--n3);font-family:var(--mono);white-space:nowrap">🕐 ${debut}</span>
       ${ouvertureHtml}
       ${(t.statut==='Terminé' && t.fin) ? `<span style="font-size:10px;color:var(--n3);font-family:var(--mono)" title="Durée d'indisponibilité">⏱ ${tkDureeEntre(t.debut,t.fin)}</span>` : ''}
       ${tkRappelSpanHtml(t)}
