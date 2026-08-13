@@ -930,6 +930,21 @@ function tkUpdateServiceStatutRequirement(){
   if(star) star.style.display = required ? '' : 'none';
 }
 
+// Priorité opérationnelle du ticket — utilisée partout (liste, mail, CSV, édition) :
+// P1 = pas de service sur lien Primaire/Backup (les 2 liens down)
+// P2 = pas de service sur lien nominal (sans redondance)
+// P3 = service disponible (sur 1 des 2 liens si redondance, ou lien nominal rétabli)
+const TK_PRIO_META = {
+  1:{lbl:'P1',bg:'var(--rl)',col:'var(--r)',txt:'P1 — Pas de service sur les 2 liens'},
+  2:{lbl:'P2',bg:'var(--al)',col:'var(--a)',txt:'P2 — Pas de service sur un lien nominal'},
+  3:{lbl:'P3',bg:'var(--gl)',col:'var(--g)',txt:'P3 — Service disponible sur 1/2 lien'}
+};
+function tkPriority(t){
+  if(t.serviceStatut==='Pas de service') return (t.refRole==='Primaire'||t.refRole==='Backup') ? 1 : 2;
+  if(t.serviceStatut==='Service disponible') return 3;
+  return 0;
+}
+
 function tkPribckFindByPrimaire(ref){
   const q = String(ref||'').trim().toLowerCase();
   if(!q) return null;
@@ -7634,15 +7649,6 @@ function ticketRender(){
   // Liste = même ensemble déjà filtré (période + recherche + statut + type + agent + client)
   const items = kpiTickets.slice();
 
-  // Priorité opérationnelle : P1 = pas de service sur lien Primaire/Backup (les 2 liens down),
-  // P2 = pas de service sur lien nominal (sans redondance), P3 = service disponible.
-  const stPrio = { 1:{lbl:'P1',bg:'var(--rl)',col:'var(--r)'}, 2:{lbl:'P2',bg:'var(--al)',col:'var(--a)'}, 3:{lbl:'P3',bg:'var(--gl)',col:'var(--g)'} };
-  function tkPriority(t){
-    if(t.serviceStatut==='Pas de service') return (t.refRole==='Primaire'||t.refRole==='Backup') ? 1 : 2;
-    if(t.serviceStatut==='Service disponible') return 3;
-    return 0;
-  }
-
   // Tri : tickets Ouvert d'abord, triés systématiquement par priorité P1 > P2 > P3 ;
   // à priorité égale (ou tickets Terminé), on garde le tri par rappel actif puis date.
   items.sort((a,b)=>{
@@ -7706,7 +7712,7 @@ function ticketRender(){
     const svcHtml = t.serviceStatut ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;flex-shrink:0;background:${t.serviceStatut==='Service disponible'?'var(--gl)':'var(--rl)'};color:${t.serviceStatut==='Service disponible'?'var(--g)':'var(--r)'};${(t.serviceStatut==='Pas de service'&&t.statut!=='Terminé')?'animation:blink 1.4s infinite':''}">${t.serviceStatut==='Service disponible'?'🟢':'🔴'} ${t.serviceStatut}</span>` : '';
     const refRoleTag = t.refRole==='Backup' ? '🟠BCK ' : (t.refRole==='Primaire' ? '🔵PRI ' : '');
     const prio = tkPriority(t);
-    const prioHtml = prio ? `<span title="${prio===1?'P1 — Pas de service, lien avec redondance (Primaire/Backup)':prio===2?'P2 — Pas de service, lien nominal sans redondance':'P3 — Service disponible'}" style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:${stPrio[prio].bg};color:${stPrio[prio].col}">${stPrio[prio].lbl}</span>` : `<span style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:var(--n6);color:var(--n4)">—</span>`;
+    const prioHtml = prio ? `<span title="${TK_PRIO_META[prio].txt}" style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:${TK_PRIO_META[prio].bg};color:${TK_PRIO_META[prio].col}">${TK_PRIO_META[prio].lbl}</span>` : `<span style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:var(--n6);color:var(--n4)">—</span>`;
     return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);border-radius:4px;transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
       ${prioHtml}
       <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
@@ -8262,6 +8268,10 @@ function ticketShowPreview(t, relance){
           <td style="color:#888;width:44%;padding:9px 10px">Client</td>
           <td style="color:#111;font-weight:bold;padding:9px 10px">${t.client||'\u2014'}</td>
         </tr>
+        ${(()=>{ const p=tkPriority(t); if(!p) return ''; const m=TK_PRIO_META[p]; const bg={1:'#FBEAEA',2:'#FDF5E0',3:'#E8F5EE'}[p]; const col={1:'#B22222',2:'#B07700',3:'#1A6B3C'}[p]; return `<tr style="border-bottom:1px solid #f2f2f2">
+          <td style="color:#888;padding:9px 10px">Priorité</td>
+          <td style="padding:9px 10px"><span style="display:inline-block;padding:2px 10px;border-radius:3px;font-size:12px;font-weight:700;background:${bg};color:${col}">${m.txt}</span></td>
+        </tr>`; })()}
         <tr style="border-bottom:1px solid #f2f2f2">
           <td style="color:#888;padding:9px 10px">Statut du service</td>
           <td style="padding:9px 10px"><span style="display:inline-block;padding:2px 10px;border-radius:3px;font-size:12px;font-weight:700;background:${t.serviceStatut==='Service disponible'?'#E8F5EE':(t.serviceStatut==='Pas de service'?'#FBEAEA':'#F2F2F2')};color:${t.serviceStatut==='Service disponible'?'#1A6B3C':(t.serviceStatut==='Pas de service'?'#B22222':'#888')}">${t.serviceStatut?(t.serviceStatut==='Service disponible'?'🟢 ':'🔴 ')+t.serviceStatut:'\u2014'}</span></td>
@@ -8338,7 +8348,8 @@ function tkOpenMailto(){
   const mailTo = t.destinataire==='Qualité & Performance'
     ? 'qualite.performance.b2b.oci@orange.com'
     : 'assistancetechniqueb2b.oci@orange.com';
-  const subj = encodeURIComponent((window._tkPreviewRelance?'RELANCE — ':'') + 'Indisponibilité du lien ' + (t.ref||'') + ' — ' + (t.client||''));
+  const pfx = tkPriority(t)===1 ? '[P1] ' : '';
+  const subj = encodeURIComponent(pfx + (window._tkPreviewRelance?'RELANCE — ':'') + 'Indisponibilité du lien ' + (t.ref||'') + ' — ' + (t.client||''));
   const href = 'mailto:' + mailTo + '?subject=' + subj;
   let fr = document.getElementById('_mailto_frame');
   if(!fr){
@@ -8678,9 +8689,9 @@ async function ticketRemoveDuplicates(){
 function ticketExportCSV(){
   const all = DB.tickets||[];
   if(!all.length){ toast('Aucun ticket à exporter','err'); return; }
-  const cols = ['Client','Statut du service','Référence lien signalé','Rôle du lien','Lien associé','Type','Date début','Localisation','Statut','Destinataire','Contact Nom','Contact Tél','Contact Mail','Ouvert par','Notes','Date résolution'];
+  const cols = ['Priorité','Client','Statut du service','Référence lien signalé','Rôle du lien','Lien associé','Type','Date début','Localisation','Statut','Destinataire','Contact Nom','Contact Tél','Contact Mail','Ouvert par','Notes','Date résolution'];
   const rows = all.map(t=>[
-    t.client||'', t.serviceStatut||'', t.ref||'', t.refRole||'', t.refBackup||'', t.type||'',
+    (TK_PRIO_META[tkPriority(t)]?.lbl)||'', t.client||'', t.serviceStatut||'', t.ref||'', t.refRole||'', t.refBackup||'', t.type||'',
     t.debut ? new Date(t.debut).toLocaleString('fr-FR') : '',
     t.localisation||'', t.statut||'', t.destinataire||'',
     t.contact_nom||'', t.contact_tel||'', t.contact_mail||'',
