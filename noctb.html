@@ -7711,37 +7711,71 @@ function ticketRender(){
     return;
   }
 
-  panel.innerHTML = items.map(t=>{
-    const cls   = TK_STATUT_CLS[t.statut]||'bp-prog';
-    const debut = t.debut ? new Date(t.debut).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
-    const fin   = t.fin ? new Date(t.fin).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
-    const dotCol = t.statut==='Terminé' ? 'var(--g)' : 'var(--r)';
-    const ouvMs  = tkOuvertureMs(t);
-    const ouvertureHtml = (t.statut==='Terminé' && ouvMs!==null) ? `<span style="font-size:10px;color:var(--v);font-family:var(--mono)" title="Durée d'ouverture du ticket (excel: création → début NOC)">🎫 ${tkFormatMs(ouvMs)}</span>` : '';
-    const svcHtml = t.serviceStatut ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;flex-shrink:0;background:${t.serviceStatut==='Service disponible'?'var(--gl)':'var(--rl)'};color:${t.serviceStatut==='Service disponible'?'var(--g)':'var(--r)'};${(t.serviceStatut==='Pas de service'&&t.statut!=='Terminé')?'animation:blink 1.4s infinite':''}">${t.serviceStatut==='Service disponible'?'🟢':'🔴'} ${t.serviceStatut}</span>` : '';
-    const refRoleTag = t.refRole==='Backup' ? '🟠BCK ' : (t.refRole==='Primaire' ? '🔵PRI ' : '');
-    const prio = tkPriority(t);
-    const prioHtml = prio ? `<span title="${TK_PRIO_META[prio].txt}" style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:${TK_PRIO_META[prio].bg};color:${TK_PRIO_META[prio].col}">${TK_PRIO_META[prio].lbl}</span>` : `<span style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:var(--n6);color:var(--n4)">—</span>`;
-    return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);border-radius:4px;transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
-      ${prioHtml}
-      <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
-      <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
-        <span style="font-weight:700;font-size:12.5px;color:var(--n1);white-space:nowrap">${t.client||'—'}</span>
-        ${svcHtml}
-        <span style="font-family:var(--mono);font-size:10.5px;color:var(--n3)">${refRoleTag}${t.ref||'—'}${t.refBackup?' / '+t.refBackup:''}${t.type?' · '+t.type:''}</span>
-        <span style="font-size:11px;color:var(--n3)">🕐 ${debut}</span>
-        <span class="bp ${cls}" style="flex-shrink:0">${t.statut||'—'}</span>
-        ${ouvertureHtml}
-        ${(t.statut==='Terminé' && t.fin) ? `<span style="font-size:10px;color:var(--n3);font-family:var(--mono)" title="Durée d'indisponibilité">⏱ ${tkDureeEntre(t.debut,t.fin)}</span>` : ''}
-        ${tkRappelSpanHtml(t)}
-      </div>
-      <div style="display:flex;gap:3px;flex-shrink:0">
-        <button class="btn btn-sm btn-out" onclick="ticketOutlookById('${t.id}')" style="padding:2px 6px;font-size:10px;color:#0072C6;border-color:#0072C6" title="Envoyer mail AT">📧</button>
-        <button class="btn btn-sm btn-out" onclick="ticketEditInline('${t.id}')" style="padding:2px 6px;font-size:10px" title="Modifier">✏️</button>
-        <button class="btn btn-sm btn-r" onclick="ticketDelete('${t.id}')" style="padding:2px 6px;font-size:10px" title="Supprimer">🗑</button>
-      </div>
+  panel.innerHTML = tkRenderTicketColumns(items);
+}
+
+// Rendu d'une ligne ticket (réutilisé dans les deux colonnes)
+function tkTicketRowHtml(t){
+  const debut = t.debut ? new Date(t.debut).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+  const dotCol = t.statut==='Terminé' ? 'var(--g)' : 'var(--r)';
+  const ouvMs  = tkOuvertureMs(t);
+  const ouvertureHtml = (t.statut==='Terminé' && ouvMs!==null) ? `<span style="font-size:10px;color:var(--v);font-family:var(--mono)" title="Durée d'ouverture du ticket (excel: création → début NOC)">🎫 ${tkFormatMs(ouvMs)}</span>` : '';
+  const refRoleTag = t.refRole==='Backup' ? '🟠 BACKUP' : (t.refRole==='Primaire' ? '🔵 PRIMAIRE' : '');
+  const prio = tkPriority(t);
+  const prioHtml = prio ? `<span title="${TK_PRIO_META[prio].txt}" style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:${TK_PRIO_META[prio].bg};color:${TK_PRIO_META[prio].col}">${TK_PRIO_META[prio].lbl}</span>` : `<span style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:var(--n6);color:var(--n4)">—</span>`;
+
+  // Détail (référence, type, heure, statut) déplacé en info-bulle au survol du nom du client
+  const tooltip = tkEsc([
+    refRoleTag,
+    (t.ref||'—') + (t.refBackup ? ' / '+t.refBackup : ''),
+    t.type ? 'Type : '+t.type : '',
+    '🕐 '+debut,
+    'Statut : '+(t.statut||'—')
+  ].filter(Boolean).join('\n'));
+
+  return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
+    ${prioHtml}
+    <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
+    <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
+      <span title="${tooltip}" style="font-weight:700;font-size:12.5px;color:var(--n1);white-space:nowrap;cursor:help;border-bottom:1px dotted var(--n4)">${t.client||'—'}</span>
+      ${ouvertureHtml}
+      ${(t.statut==='Terminé' && t.fin) ? `<span style="font-size:10px;color:var(--n3);font-family:var(--mono)" title="Durée d'indisponibilité">⏱ ${tkDureeEntre(t.debut,t.fin)}</span>` : ''}
+      ${tkRappelSpanHtml(t)}
+    </div>
+    <div style="display:flex;gap:3px;flex-shrink:0">
+      <button class="btn btn-sm btn-out" onclick="ticketOutlookById('${t.id}')" style="padding:2px 6px;font-size:10px;color:#0072C6;border-color:#0072C6" title="Envoyer mail AT">📧</button>
+      <button class="btn btn-sm btn-out" onclick="ticketEditInline('${t.id}')" style="padding:2px 6px;font-size:10px" title="Modifier">✏️</button>
+      <button class="btn btn-sm btn-r" onclick="ticketDelete('${t.id}')" style="padding:2px 6px;font-size:10px" title="Supprimer">🗑</button>
+    </div>
+  </div>`;
+}
+
+// Découpe la liste en 2 colonnes : gauche = Pas de service, droite = Service disponible
+// (+ section basse pour les tickets sans statut de service renseigné, cas du lien nominal)
+function tkRenderTicketColumns(items){
+  const leftItems  = items.filter(t=>t.serviceStatut==='Pas de service');
+  const rightItems = items.filter(t=>t.serviceStatut==='Service disponible');
+  const otherItems = items.filter(t=>!t.serviceStatut);
+  const colEmpty = `<div style="text-align:center;padding:24px 10px;color:var(--n4);font-size:12px">Aucun ticket</div>`;
+
+  let html = `<div style="display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--n5);border-radius:6px;overflow:hidden">
+    <div style="border-right:1px solid var(--n5)">
+      <div style="background:var(--rl);color:var(--r);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);position:sticky;top:0">🔴 Pas de service (${leftItems.length})</div>
+      <div>${leftItems.length ? leftItems.map(tkTicketRowHtml).join('') : colEmpty}</div>
+    </div>
+    <div>
+      <div style="background:var(--gl);color:var(--g);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5);position:sticky;top:0">🟢 Service disponible (${rightItems.length})</div>
+      <div>${rightItems.length ? rightItems.map(tkTicketRowHtml).join('') : colEmpty}</div>
+    </div>
+  </div>`;
+
+  if(otherItems.length){
+    html += `<div style="margin-top:8px;border:1px solid var(--n5);border-radius:6px;overflow:hidden">
+      <div style="background:var(--n6);color:var(--n3);font-size:11px;font-weight:800;padding:7px 10px;border-bottom:1px solid var(--n5)">⚪ Statut du service non renseigné (${otherItems.length})</div>
+      <div>${otherItems.map(tkTicketRowHtml).join('')}</div>
     </div>`;
-  }).join('');
+  }
+  return html;
 }
 
 // ── Clients mémorisés (Firestore) ──────────────────────────────────
