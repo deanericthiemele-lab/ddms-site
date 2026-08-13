@@ -7627,8 +7627,25 @@ function ticketRender(){
   // Liste = même ensemble déjà filtré (période + recherche + statut + type + agent + client)
   const items = kpiTickets.slice();
 
-  // Tri : tickets en alerte (rappel actif) d'abord, du plus ancien au plus récent
+  // Priorité opérationnelle : P1 = pas de service sur lien Primaire/Backup (les 2 liens down),
+  // P2 = pas de service sur lien nominal (sans redondance), P3 = service disponible.
+  const stPrio = { 1:{lbl:'P1',bg:'var(--rl)',col:'var(--r)'}, 2:{lbl:'P2',bg:'var(--al)',col:'var(--a)'}, 3:{lbl:'P3',bg:'var(--gl)',col:'var(--g)'} };
+  function tkPriority(t){
+    if(t.serviceStatut==='Pas de service') return (t.refRole==='Primaire'||t.refRole==='Backup') ? 1 : 2;
+    if(t.serviceStatut==='Service disponible') return 3;
+    return 0;
+  }
+
+  // Tri : tickets Ouvert d'abord, triés systématiquement par priorité P1 > P2 > P3 ;
+  // à priorité égale (ou tickets Terminé), on garde le tri par rappel actif puis date.
   items.sort((a,b)=>{
+    const aOpen = a.statut==='Ouvert', bOpen = b.statut==='Ouvert';
+    if(aOpen && !bOpen) return -1;
+    if(!aOpen && bOpen) return 1;
+    if(aOpen && bOpen){
+      const pa = tkPriority(a)||9, pb = tkPriority(b)||9;
+      if(pa!==pb) return pa-pb;
+    }
     const stA = tkRappelState(a.debut, a.statut, a.rappelAckCk||0);
     const stB = tkRappelState(b.debut, b.statut, b.rappelAckCk||0);
     const aActive = !!(stA && stA.show);
@@ -7679,9 +7696,12 @@ function ticketRender(){
     const dotCol = t.statut==='Terminé' ? 'var(--g)' : 'var(--r)';
     const ouvMs  = tkOuvertureMs(t);
     const ouvertureHtml = (t.statut==='Terminé' && ouvMs!==null) ? `<span style="font-size:10px;color:var(--v);font-family:var(--mono)" title="Durée d'ouverture du ticket (excel: création → début NOC)">🎫 ${tkFormatMs(ouvMs)}</span>` : '';
-    const svcHtml = t.serviceStatut ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;flex-shrink:0;background:${t.serviceStatut==='Service disponible'?'var(--gl)':'var(--rl)'};color:${t.serviceStatut==='Service disponible'?'var(--g)':'var(--r)'}">${t.serviceStatut==='Service disponible'?'🟢':'🔴'} ${t.serviceStatut}</span>` : '';
+    const svcHtml = t.serviceStatut ? `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;flex-shrink:0;background:${t.serviceStatut==='Service disponible'?'var(--gl)':'var(--rl)'};color:${t.serviceStatut==='Service disponible'?'var(--g)':'var(--r)'};${(t.serviceStatut==='Pas de service'&&t.statut!=='Terminé')?'animation:blink 1.4s infinite':''}">${t.serviceStatut==='Service disponible'?'🟢':'🔴'} ${t.serviceStatut}</span>` : '';
     const refRoleTag = t.refRole==='Backup' ? '🟠BCK ' : (t.refRole==='Primaire' ? '🔵PRI ' : '');
+    const prio = tkPriority(t);
+    const prioHtml = prio ? `<span title="${prio===1?'P1 — Pas de service, lien avec redondance (Primaire/Backup)':prio===2?'P2 — Pas de service, lien nominal sans redondance':'P3 — Service disponible'}" style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:${stPrio[prio].bg};color:${stPrio[prio].col}">${stPrio[prio].lbl}</span>` : `<span style="flex-shrink:0;width:24px;text-align:center;font-size:10px;font-weight:800;padding:2px 0;border-radius:3px;background:var(--n6);color:var(--n4)">—</span>`;
     return `<div style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-bottom:1px solid var(--n6);border-radius:4px;transition:.12s" onmouseover="this.style.background='var(--n6)'" onmouseout="this.style.background=''">
+      ${prioHtml}
       <span style="width:7px;height:7px;border-radius:50%;background:${dotCol};flex-shrink:0"></span>
       <div style="flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px">
         <span style="font-weight:700;font-size:12.5px;color:var(--n1);white-space:nowrap">${t.client||'—'}</span>
