@@ -7472,12 +7472,28 @@ function tkRenderTendances(){
 
   // Fenêtre par défaut selon la période, du plus ancien au plus récent (gauche → droite)
   // Décalée par window._tkTrendOffset (0 = fenêtre la plus récente, +1 = période précédente, etc.)
-  const sortedDesc = Object.keys(buckets).sort((a,b)=>a<b?1:-1); // plus récent en tête
+  // Génère une séquence CONTINUE de périodes (même les semaines/mois/jours sans ticket, affichés à 0)
+  // au lieu de ne garder que les clés présentes dans `buckets` — sinon les périodes vides sont
+  // silencieusement sautées et l'axe (ex: S26, S28, S30…) devient trompeur.
+  function tkTrendShiftDate(d, u, n){
+    const nd = new Date(d);
+    if(u==='jour') nd.setDate(nd.getDate()+n);
+    else if(u==='semaine') nd.setDate(nd.getDate()+n*7);
+    else nd.setMonth(nd.getMonth()+n);
+    return nd;
+  }
   const trendOffset = window._tkTrendOffset||0;
-  const windowKeys = sortedDesc.slice(trendOffset, trendOffset+count).reverse(); // fenêtre visible, chronologique
+  const mostRecentAnchor = tkTrendShiftDate(new Date(), unit, -trendOffset*count);
+  const windowKeys = [];
+  for(let i=count-1; i>=0; i--){
+    windowKeys.push(tkTrendBucketKey(tkTrendShiftDate(mostRecentAnchor, unit, -i), unit));
+  }
+  const bucketOf = k => buckets[k] || {noc:0, sav:0, resolu:0, ouv:[], rel:[]};
   const xLabels = windowKeys.map(k=>tkTrendBucketLabel(k,unit));
   const avgOf = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
 
+  // "Période suivante" désactivée dès que la fenêtre la plus récente possible est atteinte
+  // (offset 0 = fenêtre se terminant sur la période actuelle)
   // Désactive la flèche "période suivante" (sur les 3 graphes) quand on est déjà sur la fenêtre la plus récente
   ['tk-trend-nav-next-1','tk-trend-nav-next-2','tk-trend-nav-next-3','tk-trend-nav-next-4'].forEach(id=>{
     const b = document.getElementById(id);
@@ -7486,8 +7502,8 @@ function tkRenderTendances(){
 
   // Chart 4 : Tickets envoyés NOC vs Incidents résolus (barres groupées)
   if(box4){
-    const nocVals2 = windowKeys.map(k=>buckets[k].noc);
-    const resoluVals = windowKeys.map(k=>buckets[k].resolu);
+    const nocVals2 = windowKeys.map(k=>bucketOf(k).noc);
+    const resoluVals = windowKeys.map(k=>bucketOf(k).resolu);
     box4.innerHTML = tkBuildTrendChart({xLabels, isDuration:false, series:[
       {label:'Tickets NOC', color:'#E05A00', values:nocVals2, type:'bar'},
       {label:'Incidents résolus', color:'#7c3aed', values:resoluVals, type:'bar'}
@@ -7496,8 +7512,8 @@ function tkRenderTendances(){
 
   // Chart 1 : Tickets NOC vs SAV B2B
   if(box1){
-    const nocVals = windowKeys.map(k=>buckets[k].noc);
-    const savVals = windowKeys.map(k=>buckets[k].sav);
+    const nocVals = windowKeys.map(k=>bucketOf(k).noc);
+    const savVals = windowKeys.map(k=>bucketOf(k).sav);
     box1.innerHTML = tkBuildTrendChart({xLabels, isDuration:false, series:[
       {label:'Tickets NOC', color:'#E05A00', values:nocVals},
       {label:'Confirmés SAV B2B', color:'#2563eb', values:savVals}
@@ -7506,7 +7522,7 @@ function tkRenderTendances(){
 
   // Chart 2 : Évolution durée ouverture SAV (barres + tendance linéaire, sans les jours vides)
   if(box2){
-    const rawVals = windowKeys.map(k=>avgOf(buckets[k].ouv));
+    const rawVals = windowKeys.map(k=>avgOf(bucketOf(k).ouv));
     const keepIdx = rawVals.map((v,i)=>v!==null?i:-1).filter(i=>i>=0);
     const compactLabels = keepIdx.map(i=>xLabels[i]);
     const vals = keepIdx.map(i=>rawVals[i]);
@@ -7518,7 +7534,7 @@ function tkRenderTendances(){
 
   // Chart 3 : Évolution durée de relève (barres + tendance linéaire, sans les jours vides)
   if(box3){
-    const rawVals = windowKeys.map(k=>avgOf(buckets[k].rel));
+    const rawVals = windowKeys.map(k=>avgOf(bucketOf(k).rel));
     const keepIdx = rawVals.map((v,i)=>v!==null?i:-1).filter(i=>i>=0);
     const compactLabels = keepIdx.map(i=>xLabels[i]);
     const vals = keepIdx.map(i=>rawVals[i]);
