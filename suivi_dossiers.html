@@ -1041,11 +1041,509 @@ function renderMain(){
  if(typeof updateDmrCauses==="function") updateDmrCauses();
 }
 
-function getCurrentFilteredDossiers(){
+function filtrerEtAfficher(){
+ const q=document.getElementById("searchInput").value.toLowerCase();
+ const mois=document.getElementById("moisFilter").value.toLowerCase();
+ const tbody=document.querySelector("#tableDossiers tbody");
+ const rows=[];
+ let cpt=0;
+ const lastMonday = getLastMonday();
+ dossiersGlobal.forEach(r=>{
+  const id=(r["ID DOSSIER"]||"").toString().trim();
+  const statut = window._getStatut ? window._getStatut(id) : "";
+  const _d=parseDate(r["DATE CREATION DOSSIER"]);
+  const _moisFr=_d?_d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}):"";
+  const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+statut+" "+_moisFr).toLowerCase();
+  const statsFil = window._statutFilterSelected || new Set();
+  const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
+  const statutOk=statsFil.size===0||statsFil.has(statut);
+  const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
+  const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
+  const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
+  const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? window._getCategorieStatut(statut)!=="suspendu" : true);
+  let fraicheurOk = true;
+  if(window._filtreFraicheurActif){
+   const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
+   const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
+   fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+  }
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk){
+   cpt++;
+   rows.push(`<tr>
+    <td>${r["CLIENT"]||""}</td>
+    <td>${r["ID DOSSIER"]||""}</td>
+    <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
+    <td class="num">${daysBetween(r["DATE CREATION DOSSIER"])}</td>
+    <td>${r["ETAPE"]||""}</td>
+    <td>${makeStatutInput(id)}</td>
+    <td>${makeSolutionInput(id)}</td>
+    <td>${r["TYPE ABONNEMENT"]||""}</td>
+    <td>${r["SUPPORT"]||""}</td>
+    <td>${r["ADR. GEO"]||""}</td>
+   </tr>`);
+  }
+ });
+ tbody.innerHTML=rows.join("");
+ const catLabel = window._categorieFiltreActive==="encours" ? " (En cours)" : window._categorieFiltreActive==="suspendu" ? " (Suspendus)" : "";
+ const fraicheurLabel = window._filtreFraicheurActif==="ajour" ? " (À jour)" : window._filtreFraicheurActif==="retard" ? " (En retard)" : "";
+ const typeLabel = window._filtreTypeActif==="LS" ? " (LS)" : window._filtreTypeActif==="LSI" ? " (LSI)" : window._filtreTypeActif==="NUM" ? " (Numérique)" : "";
+ const delaiLabel = window._filtreDelaiActif==="dd" ? " (Dans les délais)" : window._filtreDelaiActif==="hd" ? " (Hors délais)" : "";
+ document.getElementById("resume").textContent="Dossiers : "+cpt+catLabel+fraicheurLabel+typeLabel+delaiLabel;
+ peuplerDepuisFirebase();
+ attachStatutListeners();
+ attachSolutionListeners();
+ syncStatutFilter();
+ _updateTypeSpansUI();
+ updateDelaiCounts();
+ _updateDelaiSpansUI();
+ if(typeof updateCatCounts==="function") updateCatCounts();
+ if(typeof updateDmrCauses==="function") updateDmrCauses();
+}
+document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
+document.getElementById("moisFilter").addEventListener("change", filtrerEtAfficher);
+// statutFilter géré par le dropdown custom multi-sélection
+
+// ── Filtre catégorie : En cours / Suspendus ──
+window._categorieFiltreActive = null;
+// ── Filtre fraîcheur : badges "à jour" / "en retard" ──
+window._filtreFraicheurActif = null;
+// ── Filtre type d'abonnement : LS / LSI / Numérique ──
+window._filtreTypeActif = null;
+// ── Filtre délai : dans les délais (DD) / hors délais (HD) ──
+window._filtreDelaiActif = null;
+// ── Marqueur de surbrillance exclusif pour le bloc DMR & Causes ──
+window._dmrHighlightActive = null;
+window._dmrCauseFilter = null;
+// ── DD/HD par produit : exclut les suspendus (traités à part via "Susp") ──
+window._filtreExclureSuspendu = false;
+function _clearAllFiltres(){
+ window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
+ window._filtreTypeActif = null;
+ window._filtreDelaiActif = null;
+ window._dmrHighlightActive = null;
+ window._dmrCauseFilter = null;
+ window._filtreExclureSuspendu = false;
+ if(window._statutFilterSelected) window._statutFilterSelected.clear();
+ if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
+}
+function _noStatutFilter(){
+ return !window._statutFilterSelected || window._statutFilterSelected.size===0;
+}
+function _updateCatButtonsUI(){
+ const btnEC = document.getElementById("btnCatEnCours");
+ const btnSU = document.getElementById("btnCatSuspendus");
+ const btnTous = document.getElementById("btnCatTous");
+ if(!btnEC||!btnSU||!btnTous) return;
+ const noStatut = _noStatutFilter();
+ const ecActive = window._categorieFiltreActive==="encours" && noStatut && !window._filtreDelaiActif && !window._filtreTypeActif;
+ const suActive = window._categorieFiltreActive==="suspendu" && noStatut && !window._filtreDelaiActif && !window._filtreTypeActif;
+ btnEC.style.background = ecActive ? "#dcfce7" : "transparent";
+ btnEC.style.outline = ecActive ? "2px solid #16a34a" : "none";
+ btnSU.style.background = suActive ? "#fee2e2" : "transparent";
+ btnSU.style.outline = suActive ? "2px solid #dc2626" : "none";
+ btnTous.style.display = (window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreTypeActif || window._filtreDelaiActif || !noStatut) ? "inline-block" : "none";
+}
+function _updateTypeSpansUI(){
+ const spLS = document.getElementById("typeLS");
+ const spLSI = document.getElementById("typeLSI");
+ const spNUM = document.getElementById("typeNUM");
+ if(!spLS||!spLSI||!spNUM) return;
+ const noStatut = _noStatutFilter();
+ [["LS",spLS],["LSI",spLSI],["NUM",spNUM]].forEach(([key,el])=>{
+  const active = window._filtreTypeActif===key && noStatut;
+  el.style.background = active ? "#dbeafe" : "transparent";
+  el.style.outline = active ? "2px solid #2563eb" : "none";
+ });
+}
+document.getElementById("typeLS").addEventListener("click", function(){
+ const activer = window._filtreTypeActif !== "LS";
+ _clearAllFiltres();
+ if(activer) window._filtreTypeActif = "LS";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("typeLSI").addEventListener("click", function(){
+ const activer = window._filtreTypeActif !== "LSI";
+ _clearAllFiltres();
+ if(activer) window._filtreTypeActif = "LSI";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("typeNUM").addEventListener("click", function(){
+ const activer = window._filtreTypeActif !== "NUM";
+ _clearAllFiltres();
+ if(activer) window._filtreTypeActif = "NUM";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+
+// ── Compteurs et filtre délai (DD / HD) ──
+function updateDelaiCounts(){
+ let dd=0, hd=0;
+ (dossiersGlobal||[]).forEach(r=>{
+  if(estDansDelai(r)) dd++; else hd++;
+ });
+ const elDD = document.getElementById("delaiDD");
+ const elHD = document.getElementById("delaiHD");
+ const total = dd+hd;
+ const pctDD = total ? Math.round(dd/total*1000)/10 : 0;
+ const pctHD = total ? Math.round(hd/total*1000)/10 : 0;
+ if(elDD) elDD.textContent = "Dossiers dans les délais : "+dd+" ("+pctDD+"%)";
+ if(elHD) elHD.textContent = "Dossiers hors délais : "+hd+" ("+pctHD+"%)";
+
+ // DD/HD sous chaque produit (LS / LSI / Numérique) — exclut les suspendus, comptés à part dans "Susp"
+ [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM"]].forEach(([type,ddId,hdId,suId])=>{
+  let tdd=0, thd=0, tsu=0;
+  (dossiersGlobal||[]).forEach(r=>{
+   if(matchTypeAbo(r, type)){
+    const id=(r["ID DOSSIER"]||"").toString().trim();
+    const statut = window._getStatut ? window._getStatut(id) : "";
+    const isSuspendu = window._getCategorieStatut ? window._getCategorieStatut(statut)==="suspendu" : false;
+    if(isSuspendu){ tsu++; }
+    else if(estDansDelai(r)) tdd++; else thd++;
+   }
+  });
+  const elTDD = document.getElementById(ddId);
+  const elTHD = document.getElementById(hdId);
+  const elTSU = document.getElementById(suId);
+  if(elTDD) elTDD.textContent = "DD : "+tdd;
+  if(elTHD) elTHD.textContent = "HD : "+thd;
+  if(elTSU) elTSU.textContent = "Susp : "+tsu;
+ });
+}
+function _updateDelaiSpansUI(){
+ const elDD = document.getElementById("delaiDD");
+ const elHD = document.getElementById("delaiHD");
+ const noStatut = _noStatutFilter();
+ const ddTopActive = window._filtreDelaiActif==="dd" && !window._categorieFiltreActive && !window._filtreTypeActif && noStatut && !window._dmrHighlightActive;
+ const hdTopActive = window._filtreDelaiActif==="hd" && !window._categorieFiltreActive && !window._filtreTypeActif && noStatut && !window._dmrHighlightActive;
+ if(elDD) elDD.style.background = ddTopActive ? "#dcfce7" : "transparent";
+ if(elDD) elDD.style.outline = ddTopActive ? "2px solid #16a34a" : "none";
+ if(elHD) elHD.style.background = hdTopActive ? "#fee2e2" : "transparent";
+ if(elHD) elHD.style.outline = hdTopActive ? "2px solid #dc2626" : "none";
+ [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM"]].forEach(([type,ddId,hdId,suId])=>{
+  const elTDD = document.getElementById(ddId);
+  const elTHD = document.getElementById(hdId);
+  const elTSU = document.getElementById(suId);
+  const ddActive = window._filtreTypeActif===type && window._filtreDelaiActif==="dd" && window._filtreExclureSuspendu && noStatut;
+  const hdActive = window._filtreTypeActif===type && window._filtreDelaiActif==="hd" && window._filtreExclureSuspendu && noStatut;
+  const suActive = window._filtreTypeActif===type && window._categorieFiltreActive==="suspendu" && noStatut;
+  if(elTDD) elTDD.style.background = ddActive ? "#dcfce7" : "transparent";
+  if(elTDD) elTDD.style.outline = ddActive ? "2px solid #16a34a" : "none";
+  if(elTHD) elTHD.style.background = hdActive ? "#fee2e2" : "transparent";
+  if(elTHD) elTHD.style.outline = hdActive ? "2px solid #dc2626" : "none";
+  if(elTSU) elTSU.style.background = suActive ? "#fecaca" : "transparent";
+  if(elTSU) elTSU.style.outline = suActive ? "2px solid #b91c1c" : "none";
+ });
+}
+function _toggleTypeDelai(type, delai){
+ const same = window._filtreTypeActif===type && window._filtreDelaiActif===delai && window._filtreExclureSuspendu;
+ _clearAllFiltres();
+ if(!same){
+  window._filtreTypeActif = type;
+  window._filtreDelaiActif = delai;
+  window._filtreExclureSuspendu = true;
+ }
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+}
+function _toggleTypeSuspendu(type){
+ const same = window._filtreTypeActif===type && window._categorieFiltreActive==="suspendu";
+ _clearAllFiltres();
+ if(!same){
+  window._filtreTypeActif = type;
+  window._categorieFiltreActive = "suspendu";
+ }
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+}
+document.getElementById("typeSuspendu_LS").addEventListener("click", function(){ _toggleTypeSuspendu("LS"); });
+document.getElementById("typeSuspendu_LSI").addEventListener("click", function(){ _toggleTypeSuspendu("LSI"); });
+document.getElementById("typeSuspendu_NUM").addEventListener("click", function(){ _toggleTypeSuspendu("NUM"); });
+document.getElementById("delaiHD").addEventListener("click", function(){
+ const activer = window._filtreDelaiActif !== "hd";
+ _clearAllFiltres();
+ if(activer) window._filtreDelaiActif = "hd";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("typeDelaiHD_LS").addEventListener("click", function(){ _toggleTypeDelai("LS","hd"); });
+document.getElementById("typeDelaiHD_LSI").addEventListener("click", function(){ _toggleTypeDelai("LSI","hd"); });
+document.getElementById("typeDelaiHD_NUM").addEventListener("click", function(){ _toggleTypeDelai("NUM","hd"); });
+/* ── Bloc réutilisable "Statut global (en cours et suspendus)" — utilisé dans le rapport ET dans le popup rapide ──
+   filtreCat: null = affiche les deux catégories (rapport complet) ; "encours" ou "suspendu" = affiche uniquement cette catégorie (popup rapide)
+   hideTitle: true = n'affiche pas le <h4> interne (utile quand le titre est déjà affiché ailleurs, ex. popup) */
+function buildStatutGlobalHTML(filtreCat, hideTitle){
+ const statutCounts = {}, statutAgeSum = {};
+ let sansStatut = 0, sansStatutAgeSum = 0;
+ (dossiersGlobal||[]).forEach(r=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
+  const s = window._getStatut ? window._getStatut(id) : "";
+  const age = daysBetween(r["DATE CREATION DOSSIER"]);
+  if(s && s.trim()!==""){
+   statutCounts[s] = (statutCounts[s]||0)+1;
+   statutAgeSum[s] = (statutAgeSum[s]||0)+age;
+  } else {
+   sansStatut++;
+   sansStatutAgeSum += age;
+  }
+ });
+ const statutsSorted = Object.entries(statutCounts).sort((a,b)=>b[1]-a[1]);
+
+ let enCoursTotalG = 0, suspendusTotalG = 0;
+ let enCoursAgeSumG = 0, suspendusAgeSumG = 0;
+ const enCoursDetail = [], suspendusDetail = [];
+ statutsSorted.forEach(([s,n])=>{
+  const age = statutAgeSum[s];
+  const categorie = window._getCategorieStatut ? window._getCategorieStatut(s) : "encours";
+  if(categorie === "suspendu"){
+   suspendusTotalG += n; suspendusAgeSumG += age;
+   suspendusDetail.push([s,n,age]);
+  } else {
+   enCoursTotalG += n; enCoursAgeSumG += age;
+   enCoursDetail.push([s,n,age]);
+  }
+ });
+ const globalTotalG = enCoursTotalG + suspendusTotalG + sansStatut;
+ const maxGlobalCat = Math.max(enCoursTotalG, suspendusTotalG, 1);
+ const afficherEnCours = filtreCat !== "suspendu";
+ const afficherSuspendu = filtreCat !== "encours";
+ const afficherSansStatut = !filtreCat; // "sans statut" ne concerne ni l'une ni l'autre catégorie précisément
+ const masquerResume = !!filtreCat; // vue mono-catégorie (popup) : on masque la ligne total en gras
+ // Échelle des barres : en vue mono-catégorie, on cale sur le plus gros statut du détail (pas le total)
+ // pour que les longueurs de barres restent lisibles et proportionnées.
+ const maxDetailEnCours = enCoursDetail.length ? Math.max(...enCoursDetail.map(d=>d[1])) : 1;
+ const maxDetailSuspendu = suspendusDetail.length ? Math.max(...suspendusDetail.map(d=>d[1])) : 1;
+ const echelleEnCours = masquerResume ? Math.max(maxDetailEnCours,1) : maxGlobalCat;
+ const echelleSuspendu = masquerResume ? Math.max(maxDetailSuspendu,1) : maxGlobalCat;
+ const titre = filtreCat==="suspendu" ? "📋 Dossiers suspendus" : filtreCat==="encours" ? "📋 Dossiers en cours" : "📋 Statut global (en cours et suspendus)";
+
+ return `<div class="rap-nosplit">${hideTitle ? "" : `<h4 style="font-size:13px;color:#555;margin:0 0 8px;">${titre}</h4>`}
+   ${globalTotalG ? `<div class="rap-bar-row" style="margin-bottom:8px;">
+     <div class="rap-bar-label"></div>
+     <div class="rap-bar-track" style="background:none;"></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col rap-bar-col-head">Volume</div>
+       <div class="rap-bar-col rap-bar-col-head">%</div>
+       <div class="rap-bar-col rap-bar-col-head">Âge moy.</div>
+     </div>
+   </div>
+   ${afficherEnCours ? `${masquerResume ? "" : `<div class="rap-bar-row">
+     <div class="rap-bar-label"><b>🟢 En cours</b></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(enCoursTotalG/echelleEnCours*100)}%;background:#16a34a;"></div></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col"><b>${enCoursTotalG}</b></div>
+       <div class="rap-bar-col">${globalTotalG?Math.round(enCoursTotalG/globalTotalG*1000)/10:0}%</div>
+       <div class="rap-bar-col">${enCoursTotalG?Math.round(enCoursAgeSumG/enCoursTotalG):0} j</div>
+     </div>
+   </div>`}
+   ${enCoursDetail.map(([s,n,age])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/echelleEnCours*100)}%;background:#86efac;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col">${n}</div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(age/n)} j</div>
+       </div>
+     </div>`).join("")}` : ""}
+   ${afficherSuspendu ? `${masquerResume ? "" : `<div class="rap-bar-row" style="margin-top:6px;">
+     <div class="rap-bar-label"><b>🔴 Suspendus</b></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(suspendusTotalG/echelleSuspendu*100)}%;background:#dc2626;"></div></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col"><b>${suspendusTotalG}</b></div>
+       <div class="rap-bar-col">${globalTotalG?Math.round(suspendusTotalG/globalTotalG*1000)/10:0}%</div>
+       <div class="rap-bar-col">${suspendusTotalG?Math.round(suspendusAgeSumG/suspendusTotalG):0} j</div>
+     </div>
+   </div>`}
+   ${suspendusDetail.map(([s,n,age])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/echelleSuspendu*100)}%;background:#fca5a5;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col">${n}</div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(n/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(age/n)} j</div>
+       </div>
+     </div>`).join("")}` : ""}
+   ${(afficherSansStatut && sansStatut) ? `<div class="rap-bar-row" style="margin-top:6px;">
+       <div class="rap-bar-label" style="color:#888;">Sans statut</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxGlobalCat*100)}%;background:#ccc;"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col"><b>${sansStatut}</b></div>
+         <div class="rap-bar-col">${globalTotalG?Math.round(sansStatut/globalTotalG*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(sansStatutAgeSum/sansStatut)} j</div>
+       </div>
+     </div>` : ""}
+   ` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
+ </div>`;
+}
+
+window._popupStatutGlobalCat = "suspendu";
+function ouvrirPopupStatutGlobal(categorie){
+ const popup = document.getElementById("popupStatutGlobal");
+ const body = document.getElementById("statutGlobalBody");
+ const titreEl = document.getElementById("popupStatutGlobalTitre");
+ if(!popup || !body) return;
+ window._popupStatutGlobalCat = categorie || "suspendu";
+ const total = (dossiersGlobal||[]).reduce((acc,r)=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
+  const statut = window._getStatut ? window._getStatut(id) : "";
+  if(!statut || statut.trim()==="") return acc;
+  const c = window._getCategorieStatut ? window._getCategorieStatut(statut) : "encours";
+  return c===window._popupStatutGlobalCat ? acc+1 : acc;
+ }, 0);
+ if(titreEl) titreEl.textContent = (window._popupStatutGlobalCat==="suspendu" ? "📋 Dossiers suspendus" : "📋 Dossiers en cours") + ` (${total})`;
+ body.innerHTML = buildStatutGlobalHTML(window._popupStatutGlobalCat, true);
+ popup.style.display = "flex";
+}
+function fermerPopupStatutGlobal(){
+ const popup = document.getElementById("popupStatutGlobal");
+ if(popup) popup.style.display = "none";
+}
+
+document.getElementById("btnExportStatutGlobal").addEventListener("click", function(){
+ const cat = window._popupStatutGlobalCat || "suspendu";
+ const parActeur = {}; // porteur -> lignes
+ (dossiersGlobal||[]).forEach(r=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
+  const statut = window._getStatut ? window._getStatut(id) : "";
+  if(!statut || statut.trim()==="") return;
+  const categorieStatut = window._getCategorieStatut ? window._getCategorieStatut(statut) : "encours";
+  if(categorieStatut !== cat) return;
+  const porteur = (window._porteurParStatut && window._porteurParStatut[statut]) || "Non attribué";
+  if(!parActeur[porteur]) parActeur[porteur] = [];
+  parActeur[porteur].push({
+   "CLIENT": r["CLIENT"]||"",
+   "ID DOSSIER": r["ID DOSSIER"]||"",
+   "DURÉE (j)": daysBetween(r["DATE CREATION DOSSIER"]),
+   "STATUT": statut
+  });
+ });
+
+ const acteursTries = Object.keys(parActeur).sort((a,b)=>a.localeCompare(b));
+ const wb = XLSX.utils.book_new();
+ let totalGlobal = 0;
+ const nomsUtilises = new Set();
+ acteursTries.forEach(acteur=>{
+  const rows = parActeur[acteur];
+  totalGlobal += rows.length;
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Nom d'onglet = acteur + total, max 31 caractères, sans \ / ? * [ ] :
+  let base = `${acteur} (${rows.length})`.replace(/[\\\/\?\*\[\]:]/g,"-").slice(0,31);
+  let nomOnglet = base, i = 2;
+  while(nomsUtilises.has(nomOnglet)){ nomOnglet = base.slice(0, 28) + "~" + i; i++; }
+  nomsUtilises.add(nomOnglet);
+  XLSX.utils.book_append_sheet(wb, ws, nomOnglet);
+ });
+ if(!acteursTries.length){
+  const ws = XLSX.utils.json_to_sheet([]);
+  XLSX.utils.book_append_sheet(wb, ws, "Aucun dossier");
+ }
+ const nomCategorie = cat==="suspendu" ? "suspendus" : "en_cours";
+ XLSX.writeFile(wb, `dossiers_${nomCategorie}_total_${totalGlobal}.xlsx`);
+});
+
+document.getElementById("btnCatEnCours").addEventListener("click", function(){
+ const activer = window._categorieFiltreActive !== "encours";
+ _clearAllFiltres();
+ if(activer) window._categorieFiltreActive = "encours";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("btnCatSuspendus").addEventListener("click", function(){
+ const activer = window._categorieFiltreActive !== "suspendu";
+ _clearAllFiltres();
+ if(activer) window._categorieFiltreActive = "suspendu";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+ if(activer) ouvrirPopupStatutGlobal("suspendu");
+});
+document.getElementById("btnCatTous").addEventListener("click", function(){
+ _clearAllFiltres();
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+
+// ── DD/HD sous En cours / Suspendus ──
+function _toggleCatDelai(cat, delai){
+ const same = window._categorieFiltreActive===cat && window._filtreDelaiActif===delai;
+ _clearAllFiltres();
+ if(!same){
+  window._categorieFiltreActive = cat;
+  window._filtreDelaiActif = delai;
+ }
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+}
+document.getElementById("catDelaiHD_encours").addEventListener("click", function(){ _toggleCatDelai("encours","hd"); });
+document.getElementById("catDelaiHD_suspendu").addEventListener("click", function(){ _toggleCatDelai("suspendu","hd"); });
+
+// ── Compteurs En cours / Suspendus + DD/HD par catégorie ──
+function updateCatCounts(){
+ let nEC=0, nSU=0, ecDD=0, ecHD=0, suDD=0, suHD=0;
+ (dossiersGlobal||[]).forEach(r=>{
+  const id=(r["ID DOSSIER"]||"").toString().trim();
+  const statut = window._getStatut ? window._getStatut(id) : "";
+  if(!statut || statut.trim()==="") return;
+  const cat = window._getCategorieStatut ? window._getCategorieStatut(statut) : "encours";
+  const dd = estDansDelai(r);
+  if(cat==="suspendu"){
+   nSU++;
+   if(dd) suDD++; else suHD++;
+  } else {
+   nEC++;
+   if(dd) ecDD++; else ecHD++;
+  }
+ });
+ const btnEC = document.getElementById("btnCatEnCours");
+ const btnSU = document.getElementById("btnCatSuspendus");
+ if(btnEC) btnEC.textContent = "🟢 En cours : "+nEC;
+ if(btnSU) btnSU.textContent = "🔴 Suspendus : "+nSU;
+ const setTxt = (id,label,val)=>{ const el=document.getElementById(id); if(el) el.textContent = label+" : "+val; };
+ setTxt("catDelaiDD_encours","DD",ecDD);
+ setTxt("catDelaiHD_encours","HD",ecHD);
+ setTxt("catDelaiDD_suspendu","DD",suDD);
+ setTxt("catDelaiHD_suspendu","HD",suHD);
+ _updateCatDelaiSpansUI();
+}
+function _updateCatDelaiSpansUI(){
+ const noStatut = _noStatutFilter();
+ [["encours","catDelaiDD_encours","catDelaiHD_encours"],["suspendu","catDelaiDD_suspendu","catDelaiHD_suspendu"]].forEach(([cat,ddId,hdId])=>{
+  const elDD = document.getElementById(ddId);
+  const elHD = document.getElementById(hdId);
+  const ddActive = window._categorieFiltreActive===cat && window._filtreDelaiActif==="dd" && noStatut && !window._dmrHighlightActive;
+  const hdActive = window._categorieFiltreActive===cat && window._filtreDelaiActif==="hd" && noStatut && !window._dmrHighlightActive;
+  if(elDD) elDD.style.background = ddActive ? "#dcfce7" : "transparent";
+  if(elDD) elDD.style.outline = ddActive ? "2px solid #16a34a" : "none";
+  if(elHD) elHD.style.background = hdActive ? "#fee2e2" : "transparent";
+  if(elHD) elHD.style.outline = hdActive ? "2px solid #dc2626" : "none";
+ });
+}
+
+// ── Bloc DMR & Causes ──
+function _causeIsActive(statut, mode){
+ return window._dmrHighlightActive === ("cause:"+mode+":"+statut);
+}
+function _toggleCauseFilter(statut, mode){
+ const isActive = _causeIsActive(statut, mode);
+ if(isActive){
+  window._dmrHighlightActive = null;
+  if(window._statutFilterSelected) window._statutFilterSelected.clear();
+ } else {
+  window._statutFilterSelected = new Set([statut]);
+  window._dmrHighlightActive = "cause:"+mode+":"+statut;
+ }
+ if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+}
+function _getDmrFilteredRows(){
  const q=(document.getElementById("searchInput")?.value||"").toLowerCase();
  const mois=(document.getElementById("moisFilter")?.value||"").toLowerCase();
- const lastMonday=getLastMonday();
  const statsFil=window._statutFilterSelected||new Set();
+ const lastMonday=getLastMonday();
  return (dossiersGlobal||[]).filter(r=>{
   const id=(r["ID DOSSIER"]||"").toString().trim();
   const statut=window._getStatut ? window._getStatut(id) : "";
@@ -1057,141 +1555,61 @@ function getCurrentFilteredDossiers(){
   const catOk=!window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
   const typeOk=!window._filtreTypeActif || matchTypeAbo(r,window._filtreTypeActif);
   const delaiOk=!window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
-  const exclureSuspenduOk=!window._filtreExclureSuspendu || (window._getCategorieStatut ? window._getCategorieStatut(statut)!=="suspendu" : true);
+  const exclureOk=!window._filtreExclureSuspendu || (window._getCategorieStatut ? window._getCategorieStatut(statut)!=="suspendu" : true);
   let fraicheurOk=true;
   if(window._filtreFraicheurActif){
    const updatedAt=window._getStatutDate ? window._getStatutDate(id) : "";
-   const estAJour=statut.trim()!=="" && updatedAt && new Date(updatedAt)>=lastMonday;
-   fraicheurOk=window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+   const ajour=statut.trim()!=="" && updatedAt && new Date(updatedAt)>=lastMonday;
+   fraicheurOk=window._filtreFraicheurActif==="ajour" ? ajour : !ajour;
   }
-  return txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk;
+  return txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&delaiOk&&exclureOk&&fraicheurOk;
  });
 }
-
-function filtrerEtAfficher(){
- const filtered=getCurrentFilteredDossiers();
- window._currentFilteredDossiers=filtered.slice();
- const tbody=document.querySelector("#tableDossiers tbody");
- const rows=filtered.map(r=>{
-  const id=(r["ID DOSSIER"]||"").toString().trim();
-  return `<tr>
-   <td>${r["CLIENT"]||""}</td>
-   <td>${r["ID DOSSIER"]||""}</td>
-   <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
-   <td class="num">${daysBetween(r["DATE CREATION DOSSIER"])}</td>
-   <td>${r["ETAPE"]||""}</td>
-   <td>${makeStatutInput(id)}</td>
-   <td>${makeSolutionInput(id)}</td>
-   <td>${r["TYPE ABONNEMENT"]||""}</td>
-   <td>${r["SUPPORT"]||""}</td>
-   <td>${r["ADR. GEO"]||""}</td>
-  </tr>`;
- });
- tbody.innerHTML=rows.join("");
- const catLabel=window._categorieFiltreActive==="encours"?" (En cours)":window._categorieFiltreActive==="suspendu"?" (Suspendus)":"";
- const fraicheurLabel=window._filtreFraicheurActif==="ajour"?" (À jour)":window._filtreFraicheurActif==="retard"?" (En retard)":"";
- const typeLabel=window._filtreTypeActif==="LS"?" (LS)":window._filtreTypeActif==="LSI"?" (LSI)":window._filtreTypeActif==="NUM"?" (Numérique)":"";
- const delaiLabel=window._filtreDelaiActif==="dd"?" (Dans les délais)":window._filtreDelaiActif==="hd"?" (Hors délais)":"";
- document.getElementById("resume").textContent="Dossiers : "+filtered.length+catLabel+fraicheurLabel+typeLabel+delaiLabel;
- peuplerDepuisFirebase();
- attachStatutListeners();
- attachSolutionListeners();
- syncStatutFilter();
- _updateTypeSpansUI();
- updateDelaiCounts();
- _updateDelaiSpansUI();
- if(typeof updateCatCounts==="function") updateCatCounts();
- if(typeof updateDmrCauses==="function") updateDmrCauses();
+function _renderDmrCausesList(obj,el,total,mode){
+ if(!el)return;
+ const sorted=Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,5);
+ if(!sorted.length){el.innerHTML="";return;}
+ el.innerHTML=sorted.map(([st,n])=>{
+  const pct=total?Math.round(n/total*1000)/10:0;
+  const safe=String(st).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const active=_causeIsActive(st,mode);
+  const bg=active?(mode==="suspendu"?"background:#fee2e2;":"background:#fff3e0;"):"";
+  const outline=active?(mode==="suspendu"?"outline:1.5px solid #dc2626;":"outline:1.5px solid #b45309;"):"";
+  return `<div class="dmr-cause-row" data-statut="${safe}" data-mode="${mode}" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span>${safe}</span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
+ }).join("");
+ el.querySelectorAll(".dmr-cause-row").forEach(row=>row.addEventListener("click",function(){_toggleCauseFilter(this.dataset.statut,this.dataset.mode);}));
 }
-
 function updateDmrCauses(){
- const data=(window._currentFilteredDossiers||getCurrentFilteredDossiers()).slice();
- const scope=window._filtreTypeActif;
- const delaiScope=window._filtreDelaiActif;
- const catScope=window._categorieFiltreActive;
- const dmrEl=document.getElementById("dmrValeur");
- const hdEl=document.getElementById("ageMoyenHorsDelais");
- const suEl=document.getElementById("ageMoyenSuspendu");
- const causesSuEl=document.getElementById("causesSuspendus");
- const causesHdEl=document.getElementById("causesHorsDelais");
- const titreEl=document.getElementById("dmrCausesTitre");
- const block=document.getElementById("dmrCausesBlock");
- const statusCount=(window._statutFilterSelected||new Set()).size;
- const hasFocused=!!(scope||delaiScope||catScope||statusCount);
- if(block){block.style.width=hasFocused?"50%":"100%";block.style.boxSizing="border-box";}
- if(titreEl){
-  const label=scope==="LS"?" (LS)":scope==="LSI"?" (LSI)":scope==="NUM"?" (Numérique)":"";
-  const delaiLabel=delaiScope==="dd"?" · Dans les délais":delaiScope==="hd"?" · Hors délais":"";
-  const catLabel=catScope==="suspendu"?" · Suspendus":catScope==="encours"?" · En cours":"";
-  titreEl.textContent="⏱ DMR & Causes"+label+delaiLabel+catLabel;
- }
- if(!dmrEl) return;
- // Reset visibility/content before applying the current context.
- if(hdEl){hdEl.textContent="-";hdEl.parentElement.style.display="";}
- if(suEl){suEl.textContent="-";suEl.parentElement.style.display="";}
- if(causesSuEl){causesSuEl.innerHTML="";causesSuEl.parentElement.style.display="";}
- if(causesHdEl){causesHdEl.innerHTML="";causesHdEl.parentElement.style.display="";}
- // Contextuel : une sélection HD affiche uniquement le bloc HD ; une sélection Susp uniquement Susp.
- if(delaiScope==="hd" && !catScope){
-  if(suEl) suEl.parentElement.style.display="none";
-  if(causesSuEl) causesSuEl.parentElement.style.display="none";
+ const scope=window._filtreTypeActif, delaiScope=window._filtreDelaiActif, catScope=window._categorieFiltreActive;
+ const rows=_getDmrFilteredRows();
+ const dmrEl=document.getElementById("dmrValeur"), hdEl=document.getElementById("ageMoyenHorsDelais"), suEl=document.getElementById("ageMoyenSuspendu");
+ const causesSuEl=document.getElementById("causesSuspendus"), causesHdEl=document.getElementById("causesHorsDelais"), titreEl=document.getElementById("dmrCausesTitre");
+ const hdMetric=document.getElementById("dmrAgeHorsDelais"), suMetric=document.getElementById("dmrAgeSuspendus");
+ if(!dmrEl)return;
+ const label=scope==="LS"?" (LS)":scope==="LSI"?" (LSI)":scope==="NUM"?" (Numérique)":"";
+ const context=delaiScope==="hd"?" - Hors délais":catScope==="suspendu"?" - Suspendus":"";
+ if(titreEl){titreEl.textContent="⏱ DMR & Causes"+label+context;titreEl.title="Cliquer sur le titre pour réinitialiser";}
+ const avg=a=>a.length?Math.round(a.reduce((x,r)=>x+daysBetween(r["DATE CREATION DOSSIER"]),0)/a.length)+" j":"-";
+ const dmrNum=rows.length?Math.round(rows.reduce((x,r)=>x+daysBetween(r["DATE CREATION DOSSIER"]),0)/rows.length):null;
+ dmrEl.textContent=dmrNum===null?"-":dmrNum+" j"; dmrEl.style.color=dmrNum!==null&&dmrNum<=OBJECTIF_DMR?"#16a34a":"#dc2626";
+ const hdRows=rows.filter(r=>!estDansDelai(r));
+ const suRows=rows.filter(r=>{const id=(r["ID DOSSIER"]||"").toString().trim(),st=window._getStatut?window._getStatut(id):"";return st&&window._getCategorieStatut&&window._getCategorieStatut(st)==="suspendu";});
+ const causeMap=a=>{const o={};a.forEach(r=>{const id=(r["ID DOSSIER"]||"").toString().trim(),st=window._getStatut?window._getStatut(id):"";if(st)o[st]=(o[st]||0)+1;});return o;};
+ if(hdMetric)hdMetric.style.display="";if(suMetric)suMetric.style.display="";if(hdEl)hdEl.style.display="";if(suEl)suEl.style.display="";
+ const suCol=causesSuEl?.closest("div[style*='min-width']"),hdCol=causesHdEl?.closest("div[style*='min-width']");
+ if(suCol){suCol.style.display="";suCol.style.flex="1";suCol.style.minWidth="240px";}if(hdCol){hdCol.style.display="";hdCol.style.flex="1";hdCol.style.minWidth="240px";}
+ if(delaiScope==="hd"){
+  if(suMetric)suMetric.style.display="none";if(suEl)suEl.style.display="none";if(suCol)suCol.style.display="none";
+  if(hdCol){hdCol.style.display="";hdCol.style.flex="0 0 calc(50% - 14px)";hdCol.style.minWidth="0";}
+  if(hdEl)hdEl.textContent=avg(rows);_renderDmrCausesList(causeMap(rows),causesHdEl,rows.length,"hd");if(causesSuEl)causesSuEl.innerHTML="";return;
  }
  if(catScope==="suspendu"){
-  if(hdEl) hdEl.parentElement.style.display="none";
-  if(causesHdEl) causesHdEl.parentElement.style.display="none";
+  if(hdMetric)hdMetric.style.display="none";if(hdEl)hdEl.style.display="none";if(hdCol)hdCol.style.display="none";
+  if(suCol){suCol.style.display="";suCol.style.flex="0 0 calc(50% - 14px)";suCol.style.minWidth="0";}
+  if(suEl)suEl.textContent=avg(rows);_renderDmrCausesList(causeMap(rows),causesSuEl,rows.length,"suspendu");if(causesHdEl)causesHdEl.innerHTML="";return;
  }
- if(delaiScope==="dd" && !catScope){
-  if(hdEl) hdEl.parentElement.style.display="none";
-  if(suEl) suEl.parentElement.style.display="none";
-  if(causesHdEl) causesHdEl.parentElement.style.display="none";
-  if(causesSuEl) causesSuEl.parentElement.style.display="none";
- }
- if(!data.length){dmrEl.textContent="-";return;}
- const totalAge=data.reduce((sum,r)=>sum+daysBetween(r["DATE CREATION DOSSIER"]),0);
- const dmr=Math.round(totalAge/data.length);
- dmrEl.textContent=dmr+" j";
- dmrEl.style.color=dmr<=OBJECTIF_DMR?"#16a34a":"#dc2626";
- let sumHD=0,nHD=0,sumSU=0,nSU=0;
- const causesSuspendus={},causesHorsDelais={};
- data.forEach(r=>{
-  const id=(r["ID DOSSIER"]||"").toString().trim();
-  const statut=window._getStatut?window._getStatut(id):"";
-  const age=daysBetween(r["DATE CREATION DOSSIER"]);
-  const dd=estDansDelai(r);
-  const cat=statut&&window._getCategorieStatut?window._getCategorieStatut(statut):"encours";
-  if(!dd){sumHD+=age;nHD++;if(statut) causesHorsDelais[statut]=(causesHorsDelais[statut]||0)+1;}
-  if(cat==="suspendu"){sumSU+=age;nSU++;if(statut) causesSuspendus[statut]=(causesSuspendus[statut]||0)+1;}
- });
- if(hdEl) hdEl.textContent=nHD?Math.round(sumHD/nHD)+" j":"-";
- if(suEl) suEl.textContent=nSU?Math.round(sumSU/nSU)+" j":"-";
- function renderCauses(obj,el,total,mode){
-  if(!el) return;
-  const sorted=Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  if(!sorted.length){el.innerHTML="";return;}
-  el.innerHTML=sorted.map(([st,n])=>{
-   const pct=total?Math.round(n/total*1000)/10:0;
-   const safe=String(st).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-   const active=_causeIsActive(st,mode);
-   const bg=active?(mode==="suspendu"?"background:#fee2e2;":"background:#fff3e0;"):"";
-   const outline=active?(mode==="suspendu"?"outline:1.5px solid #dc2626;":"outline:1.5px solid #b45309;"):"";
-   return `<div class="dmr-cause-row" data-statut="${encodeURIComponent(String(st))}" data-mode="${mode}" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span>${safe}</span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
-  }).join("");
-  el.querySelectorAll(".dmr-cause-row").forEach(row=>row.addEventListener("click",function(){_toggleCauseFilter(decodeURIComponent(this.dataset.statut),this.dataset.mode);}));
- }
- // IMPORTANT : les causes sont comptées uniquement dans les lignes du tableau.
- if(catScope==="suspendu") renderCauses(causesSuspendus,causesSuEl,nSU,"suspendu");
- else if(delaiScope==="hd") renderCauses(causesHorsDelais,causesHdEl,nHD,"hd");
- else if(!delaiScope){
-  renderCauses(causesSuspendus,causesSuEl,nSU,"suspendu");
-  renderCauses(causesHorsDelais,causesHdEl,nHD,"hd");
- }
- const dmrActive=window._dmrHighlightActive==="dmr";
- const hdActive=window._dmrHighlightActive==="hd";
- const suActive=window._dmrHighlightActive==="su";
- dmrEl.style.background=dmrActive?"#fff3e0":"transparent";
- dmrEl.style.outline=dmrActive?"1.5px solid #b45309":"none";
- if(hdEl){hdEl.style.background=hdActive?"#fff3e0":"transparent";hdEl.style.outline=hdActive?"1.5px solid #b45309":"none";}
- if(suEl){suEl.style.background=suActive?"#fee2e2":"transparent";suEl.style.outline=suActive?"1.5px solid #dc2626":"none";}
+ if(hdEl)hdEl.textContent=avg(hdRows);if(suEl)suEl.textContent=avg(suRows);
+ _renderDmrCausesList(causeMap(suRows),causesSuEl,suRows.length,"suspendu");_renderDmrCausesList(causeMap(hdRows),causesHdEl,hdRows.length,"hd");
 }
 
 document.getElementById("dmrCausesTitre").addEventListener("click", function(){
