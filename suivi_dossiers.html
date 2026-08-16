@@ -444,7 +444,7 @@ td.num{text-align:right}
   </div>
  </div>
 </div>
-<div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;margin:10px 0 6px;">Analyse des causes</div>
+<div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;margin:10px 0 6px;">Analyse des causes hors délais et suspendus</div>
 <div id="dmrCausesBlock" style="border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:10px;background:#fafafa;font-size:12.5px;">
   <div id="dmrCausesTitre" style="font-weight:700;margin-bottom:10px;color:#333;cursor:pointer;" title="Cliquer pour réinitialiser les filtres et afficher tous les dossiers"></div>
   <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:14px;">
@@ -1190,22 +1190,23 @@ function updateDelaiCounts(){
  if(elDD) elDD.textContent = "Dossiers dans les délais : "+dd+" ("+pctDD+"%)";
  if(elHD) elHD.textContent = "Dossiers hors délais : "+hd+" ("+pctHD+"%)";
 
- // DD/HD sous chaque produit (LS / LSI / Numérique) — exclut les suspendus, comptés à part dans "Susp"
+ // Détails par produit : périmètre STRICTEMENT égal aux "Dossiers hors délais".
+ const horsDelais59 = (dossiersGlobal||[]).filter(r => !estDansDelai(r));
  [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM"]].forEach(([type,ddId,hdId,suId])=>{
    let thd=0, tsu=0;
-  (dossiersGlobal||[]).forEach(r=>{
-   if(matchTypeAbo(r, type)){
-    const id=(r["ID DOSSIER"]||"").toString().trim();
-    const statut = window._getStatut ? window._getStatut(id) : "";
-    const isSuspendu = window._getCategorieStatut ? window._getCategorieStatut(statut)==="suspendu" : false;
-    if(isSuspendu){ tsu++; }
-     else if(!estDansDelai(r)) thd++;
-   }
-  });
-  const elTHD = document.getElementById(hdId);
-  const elTSU = document.getElementById(suId);
-  if(elTHD) elTHD.textContent = "HD : "+thd;
-  if(elTSU) elTSU.textContent = "Susp : "+tsu;
+   horsDelais59.forEach(r=>{
+     if(matchTypeAbo(r, type)){
+       const id=(r["ID DOSSIER"]||"").toString().trim();
+       const statut = window._getStatut ? window._getStatut(id) : "";
+       const isSuspendu = window._getCategorieStatut ? window._getCategorieStatut(statut)==="suspendu" : false;
+       if(isSuspendu) tsu++;
+       else thd++;
+     }
+   });
+   const elTHD = document.getElementById(hdId);
+   const elTSU = document.getElementById(suId);
+   if(elTHD) elTHD.textContent = "HD : "+thd;
+   if(elTSU) elTSU.textContent = "Susp : "+tsu;
  });
 }
 function _updateDelaiSpansUI(){
@@ -1240,11 +1241,14 @@ function _toggleTypeDelai(type, delai){
  filtrerEtAfficher();
 }
 function _toggleTypeSuspendu(type){
- const same = window._filtreTypeActif===type && window._categorieFiltreActive==="suspendu";
+ const same = window._filtreTypeActif===type &&
+              window._categorieFiltreActive==="suspendu" &&
+              window._filtreDelaiActif==="hd";
  _clearAllFiltres();
  if(!same){
   window._filtreTypeActif = type;
   window._categorieFiltreActive = "suspendu";
+  window._filtreDelaiActif = "hd";
  }
  _updateCatButtonsUI();
  filtrerEtAfficher();
@@ -1553,9 +1557,14 @@ function updateDmrCauses(){
  const delaiScope = window._filtreDelaiActif;
  const catScope = window._categorieFiltreActive;
  const causeFilter = window._dmrCauseFilter;
+ const statsFil = window._statutFilterSelected || new Set();
+ const q=(document.getElementById("searchInput")?.value||"").toLowerCase();
+ const mois=(document.getElementById("moisFilter")?.value||"").toLowerCase();
+ const lastMonday=getLastMonday();
 
- // Même périmètre que le tableau pour les filtres principaux.
- let data = (dossiersGlobal||[]).filter(r=>{
+ // IMPORTANT : le bloc Analyse des causes utilise exactement le même
+ // périmètre que le tableau, y compris Produit + HD/Susp + cause.
+ const data = (dossiersGlobal||[]).filter(r=>{
    const id=(r["ID DOSSIER"]||"").toString().trim();
    const statut=window._getStatut ? window._getStatut(id) : "";
    const typeOk=!scope || matchTypeAbo(r,scope);
@@ -1567,8 +1576,19 @@ function updateDmrCauses(){
    const exclureOk=!window._filtreExclureSuspendu ||
       (window._getCategorieStatut ?
        window._getCategorieStatut(statut)!=="suspendu" : true);
+   const statutOk=statsFil.size===0 || statsFil.has(statut);
+   const _d=parseDate(r["DATE CREATION DOSSIER"]);
+   const _moisFr=_d?_d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}):"";
+   const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+statut+" "+_moisFr).toLowerCase();
+   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
+   let fraicheurOk=true;
+   if(window._filtreFraicheurActif){
+     const updatedAt=window._getStatutDate?window._getStatutDate(id):"";
+     const estAJour=statut.trim()!=="" && updatedAt && new Date(updatedAt)>=lastMonday;
+     fraicheurOk=window._filtreFraicheurActif==="ajour"?estAJour:!estAJour;
+   }
    const causeOk=!causeFilter || statut===causeFilter.statut;
-   return typeOk && delaiOk && catOk && exclureOk && causeOk;
+   return txt.includes(q) && moisOk && typeOk && delaiOk && catOk && exclureOk && statutOk && fraicheurOk && causeOk;
  });
 
  const dmrEl=document.getElementById("dmrValeur");
@@ -1586,16 +1606,13 @@ function updateDmrCauses(){
  const suCol=causesSuEl.parentElement;
  const hdCol=causesHdEl.parentElement;
 
- const label=scope==="LS"?" (LS)":scope==="LSI"?" (LSI)":scope==="NUM"?" (Numérique)":"";
- const ctx=delaiScope==="hd"?" - Hors délais":catScope==="suspendu"?" - Suspendus":"";
- if(titreEl){
-   titreEl.textContent="";
- }
+ if(titreEl) titreEl.textContent="";
 
  const avgAge=rows=>{
    if(!rows.length) return "-";
    return Math.round(rows.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/rows.length)+" j";
  };
+
  const renderCauses=(rows,el,mode)=>{
    if(!el) return;
    const counts={};
@@ -1619,12 +1636,14 @@ function updateDmrCauses(){
    });
  };
 
- // DMR = exactement le portefeuille courant.
- const dmr=data.length?Math.round(data.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/data.length):null;
+ const dmr=data.length
+   ? Math.round(data.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/data.length)
+   : null;
  dmrEl.textContent=dmr===null?"-":dmr+" j";
  dmrEl.style.color=dmr!==null&&dmr<=OBJECTIF_DMR?"#16a34a":"#dc2626";
 
- // Context HD: uniquement le volume HD sélectionné.
+ // Une sélection HD par produit : uniquement les HD du produit,
+ // hors suspendus, et uniquement leurs causes.
  if(delaiScope==="hd"){
    hdMetric.style.display="";
    suMetric.style.display="none";
@@ -1634,12 +1653,12 @@ function updateDmrCauses(){
    hdCol.style.minWidth="0";
    hdEl.textContent=avgAge(data);
    suEl.textContent="";
-   renderCauses(data,causesHdEl,"hd");
    causesSuEl.innerHTML="";
+   renderCauses(data,causesHdEl,"hd");
    return;
  }
 
- // Context Suspendus: uniquement le volume suspendu sélectionné.
+ // Une sélection Suspendus par produit : uniquement les suspendus du produit.
  if(catScope==="suspendu"){
    hdMetric.style.display="none";
    suMetric.style.display="";
@@ -1649,12 +1668,12 @@ function updateDmrCauses(){
    suCol.style.minWidth="0";
    suEl.textContent=avgAge(data);
    hdEl.textContent="";
-   renderCauses(data,causesSuEl,"suspendu");
    causesHdEl.innerHTML="";
+   renderCauses(data,causesSuEl,"suspendu");
    return;
  }
 
- // Vue générale: les deux analyses séparées, pleine largeur.
+ // Vue générale : les deux analyses.
  hdMetric.style.display="";
  suMetric.style.display="";
  hdCol.style.display="";
@@ -1671,12 +1690,12 @@ function updateDmrCauses(){
    return st && window._getCategorieStatut &&
           window._getCategorieStatut(st)==="suspendu";
  });
+
  hdEl.textContent=avgAge(hdData);
  suEl.textContent=avgAge(suData);
  renderCauses(suData,causesSuEl,"suspendu");
  renderCauses(hdData,causesHdEl,"hd");
 }
-
 
 document.getElementById("dmrCausesTitre").addEventListener("click", function(){
  _clearAllFiltres();
