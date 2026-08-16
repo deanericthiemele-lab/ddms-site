@@ -1592,6 +1592,11 @@ function updateDmrCauses(){
  // IMPORTANT : le bloc Analyse des causes utilise exactement le même
  // périmètre que le tableau, y compris Produit + HD/Susp + cause.
  const data = getAnalyseCausesSelectionRows();
+ const hasFilter = !!(scope || delaiScope || catScope || statsFil.size>0);
+ // Le DMR reste calculé sur l'ENSEMBLE des 132 dossiers tant qu'aucun filtre
+ // n'est actif (vue par défaut) ; dès qu'un filtre est sélectionné, il se
+ // recalcule sur ce sous-ensemble exact (même règle pour tous les boutons).
+ const dmrData = hasFilter ? data : (dossiersGlobal||[]);
  const dmrEl=document.getElementById("dmrValeur");
  const hdEl=document.getElementById("ageMoyenHorsDelais");
  const suEl=document.getElementById("ageMoyenSuspendu");
@@ -1637,8 +1642,8 @@ function updateDmrCauses(){
    });
  };
 
- const dmr=data.length
-   ? Math.round(data.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/data.length)
+ const dmr=dmrData.length
+   ? Math.round(dmrData.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/dmrData.length)
    : null;
  dmrEl.textContent=dmr===null?"-":dmr+" j";
  dmrEl.style.color=dmr!==null&&dmr<=OBJECTIF_DMR?"#16a34a":"#dc2626";
@@ -1684,7 +1689,12 @@ function updateDmrCauses(){
  hdCol.style.minWidth="240px";
  suCol.style.minWidth="240px";
 
- const hdData=data.filter(r=>!estDansDelai(r));
+ const hdData=data.filter(r=>{
+   const id=(r["ID DOSSIER"]||"").toString().trim();
+   const st=window._getStatut?window._getStatut(id):"";
+   const susp=!!(window._getCategorieStatut && window._getCategorieStatut(st)==="suspendu");
+   return !susp && !estDansDelai(r);
+ });
  const suData=data.filter(r=>{
    const id=(r["ID DOSSIER"]||"").toString().trim();
    const st=window._getStatut?window._getStatut(id):"";
