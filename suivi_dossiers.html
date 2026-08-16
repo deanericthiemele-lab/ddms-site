@@ -1119,6 +1119,7 @@ window._filtreDelaiActif = null;
 window._dmrHighlightActive = null;
 // ── DD/HD par produit : exclut les suspendus (traités à part via "Susp") ──
 window._filtreExclureSuspendu = false;
+window._dmrCauseFilter = null;
 function _clearAllFiltres(){
  window._categorieFiltreActive = null;
  window._filtreFraicheurActif = null;
@@ -1126,6 +1127,7 @@ function _clearAllFiltres(){
  window._filtreDelaiActif = null;
  window._dmrHighlightActive = null;
  window._filtreExclureSuspendu = false;
+ window._dmrCauseFilter = null;
  if(window._statutFilterSelected) window._statutFilterSelected.clear();
  if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
 }
@@ -1530,13 +1532,26 @@ function _causeIsActive(statut, mode){
 }
 function _toggleCauseFilter(statut, mode){
  const isActive = _causeIsActive(statut, mode);
- _clearAllFiltres();
- if(!isActive){
+
+ if(isActive){
+  // Retire uniquement la cause : le produit et HD/Suspendus restent sélectionnés.
+  window._dmrCauseFilter = null;
+  window._dmrHighlightActive = null;
+  if(window._statutFilterSelected) window._statutFilterSelected.clear();
+  if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
+ } else {
+  // IMPORTANT : conserver les sélections déjà faites au-dessus.
+  // Exemple : LSI + Suspendus + Trans saturée reste LSI + Suspendus + Trans saturée.
+  window._dmrCauseFilter = { statut: statut, mode: mode };
+  window._dmrHighlightActive = "cause:"+mode+":"+statut;
+
+  if(!window._filtreTypeActif){
+    // Si une cause est choisie sans produit, on conserve le comportement global.
+  }
+
+  // Le tableau suit aussi la cause sélectionnée.
   window._statutFilterSelected = new Set([statut]);
   if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
-  if(mode==="suspendu") window._categorieFiltreActive = "suspendu";
-  else window._filtreDelaiActif = "hd";
-  window._dmrHighlightActive = "cause:"+mode+":"+statut;
  }
  _updateCatButtonsUI();
  filtrerEtAfficher();
@@ -1550,7 +1565,15 @@ function updateDmrCauses(){
  if(scope) data = data.filter(r => matchTypeAbo(r, scope));
 
  // Base datasets always remain independent.
- const allData = data.slice();
+ const causeFilter = window._dmrCauseFilter;
+ const matchesCause = r => {
+   if(!causeFilter) return true;
+   const id = (r["ID DOSSIER"] || "").toString().trim();
+   const statut = window._getStatut ? window._getStatut(id) : "";
+   return statut === causeFilter.statut;
+ };
+
+ const allData = data.filter(matchesCause);
  const hdData = allData.filter(r => !estDansDelai(r));
  const suData = allData.filter(r => {
    const id = (r["ID DOSSIER"] || "").toString().trim();
