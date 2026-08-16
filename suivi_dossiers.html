@@ -1223,7 +1223,7 @@ function _updateDelaiSpansUI(){
  const elHD = document.getElementById("delaiHD");
  const noStatut = _noStatutFilter();
  const ddTopActive = window._filtreDelaiActif==="dd" && !window._categorieFiltreActive && !window._filtreTypeActif && noStatut && !window._dmrHighlightActive;
- const hdTopActive = window._filtreDelaiActif==="hd" && !window._categorieFiltreActive && !window._filtreTypeActif && noStatut && !window._dmrHighlightActive;
+ const hdTopActive = window._filtreDelaiActif==="hd" && !window._categorieFiltreActive && !window._filtreTypeActif && !window._filtreExclureSuspendu && noStatut && !window._dmrHighlightActive;
  if(elDD) elDD.style.background = ddTopActive ? "#dcfce7" : "transparent";
  if(elDD) elDD.style.outline = ddTopActive ? "2px solid #16a34a" : "none";
  if(elHD) elHD.style.background = hdTopActive ? "#fee2e2" : "transparent";
@@ -1252,20 +1252,19 @@ function _toggleTypeDelai(type, delai){
 function _toggleTypeSuspendu(type){
  const same = window._filtreTypeActif===type &&
               window._categorieFiltreActive==="suspendu" &&
-              window._filtreDelaiActif==="hd";
+              !window._filtreDelaiActif;
  _clearAllFiltres();
  if(!same){
   window._filtreTypeActif = type;
   window._categorieFiltreActive = "suspendu";
-  window._filtreDelaiActif = "hd";
  }
  _updateCatButtonsUI();
  filtrerEtAfficher();
 }
 document.getElementById("btnCatHorsDelais").addEventListener("click", function(){
- const activer = window._filtreDelaiActif !== "hd" || window._categorieFiltreActive;
+ const activer = window._filtreDelaiActif !== "hd" || window._categorieFiltreActive || !window._filtreExclureSuspendu;
  _clearAllFiltres();
- if(activer) window._filtreDelaiActif = "hd";
+ if(activer){ window._filtreDelaiActif = "hd"; window._filtreExclureSuspendu = true; }
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
@@ -1506,6 +1505,7 @@ function updateCatCounts(){
  const btnHD = document.getElementById("btnCatHorsDelais");
  if(btnHD){
    const active = window._filtreDelaiActif==="hd" &&
+                  window._filtreExclureSuspendu &&
                   !window._categorieFiltreActive &&
                   !window._filtreTypeActif &&
                   _noStatutFilter();
@@ -1553,29 +1553,30 @@ function _toggleCauseFilter(statut, mode){
 }
 
 function getAnalyseCausesSelectionRows(){
+ // Base "problème" par défaut : hors délais non-suspendus + tous les suspendus (59)
  const rows59=(dossiersGlobal||[]).filter(r=>{
   const id=(r["ID DOSSIER"]||"").toString().trim();
   const statut=window._getStatut?window._getStatut(id):"";
   const susp=!!(window._getCategorieStatut && window._getCategorieStatut(statut)==="suspendu");
   return susp || !estDansDelai(r);
  });
- let rows=rows59;
- if(window._filtreTypeActif) rows=rows.filter(r=>matchTypeAbo(r,window._filtreTypeActif));
- if(window._categorieFiltreActive==="suspendu"){
-  rows=rows.filter(r=>{
-   const id=(r["ID DOSSIER"]||"").toString().trim();
-   const statut=window._getStatut?window._getStatut(id):"";
-   return !!(window._getCategorieStatut && window._getCategorieStatut(statut)==="suspendu");
-  });
- }else if(window._filtreDelaiActif==="hd"){
-  rows=rows.filter(r=>{
-   const id=(r["ID DOSSIER"]||"").toString().trim();
-   const statut=window._getStatut?window._getStatut(id):"";
-   const susp=!!(window._getCategorieStatut && window._getCategorieStatut(statut)==="suspendu");
-   return !susp && !estDansDelai(r);
-  });
- }
- return rows;
+ const statsFil = window._statutFilterSelected || new Set();
+ const hasFilter = window._filtreTypeActif || window._filtreDelaiActif || window._categorieFiltreActive || statsFil.size>0;
+ if(!hasFilter) return rows59;
+
+ // Un filtre est actif : on applique EXACTEMENT le même prédicat que le tableau
+ // (catOk/typeOk/delaiOk/exclureSuspenduOk/statutOk), pour garantir que le nombre
+ // de dossiers analysés ici corresponde toujours à ce qui est affiché dans le tableau.
+ return (dossiersGlobal||[]).filter(r=>{
+  const id=(r["ID DOSSIER"]||"").toString().trim();
+  const statut=window._getStatut?window._getStatut(id):"";
+  const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
+  const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
+  const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
+  const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? window._getCategorieStatut(statut)!=="suspendu" : true);
+  const statutOk = statsFil.size===0 || statsFil.has(statut);
+  return catOk && typeOk && delaiOk && exclureSuspenduOk && statutOk;
+ });
 }
 
 
