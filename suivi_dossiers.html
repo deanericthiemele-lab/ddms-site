@@ -420,12 +420,12 @@ td.num{text-align:right}
 <div id="catCoursSuspendusBlock" style="border:1px solid #ddd;border-radius:8px;padding:10px 16px;margin-top:6px;margin-bottom:10px;background:#fafafa;display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;">
  <div class="cat-col">
   <div id="btnCatHorsDelais" style="font-size:13px;font-weight:700;color:#dc2626;padding:2px 6px;border-radius:4px;cursor:pointer;">
-   🔴 Hors délais : <span id="horsDelaisNonSuspendusCount">0</span>
+   🔴 Hors délais : <span id="horsDelaisNonSuspendusCount">0</span> <span id="horsDelaisNonSuspendusPct" style="font-size:11px;font-weight:600;color:#888;">(0%)</span>
   </div>
  </div>
  <div class="cat-col">
   <button id="btnCatSuspendus" style="background:none;border:1px solid transparent;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:700;color:#dc2626;">
-   🔴 Suspendus : <span id="suspendusHorsDelaisCount">0</span>
+   🔴 Suspendus : <span id="suspendusHorsDelaisCount">0</span> <span id="suspendusHorsDelaisPct" style="font-size:11px;font-weight:600;color:#888;">(0%)</span>
   </button>
  </div>
  <button id="btnCatTous" style="background:none;border:1px solid #ccc;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;color:#6b7280;display:none;align-self:center;">✕ Tous</button>
@@ -1210,8 +1210,15 @@ function updateDelaiCounts(){
 
  const hdSep=document.getElementById("horsDelaisNonSuspendusCount");
  const suSep=document.getElementById("suspendusHorsDelaisCount");
+ const hdSepPct=document.getElementById("horsDelaisNonSuspendusPct");
+ const suSepPct=document.getElementById("suspendusHorsDelaisPct");
+ const totalGlobal=(dossiersGlobal||[]).length;
+ const pctHdSep = totalGlobal ? Math.round(horsDelaisNonSuspendus.length/totalGlobal*1000)/10 : 0;
+ const pctSuSep = totalGlobal ? Math.round(suspendus59.length/totalGlobal*1000)/10 : 0;
  if(hdSep) hdSep.textContent=horsDelaisNonSuspendus.length;
  if(suSep) suSep.textContent=suspendus59.length;
+ if(hdSepPct) hdSepPct.textContent="("+pctHdSep+"%)";
+ if(suSepPct) suSepPct.textContent="("+pctSuSep+"%)";
 
  [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM"]].forEach(([type,ddId,hdId,suId])=>{
   let thd=0,tsu=0;
@@ -2190,6 +2197,35 @@ document.getElementById("btnExport").onclick=()=>{
  suffixe += window._filtreFraicheurActif==="ajour" ? "_a_jour" : window._filtreFraicheurActif==="retard" ? "_en_retard" : "";
  suffixe += window._filtreTypeActif ? "_"+window._filtreTypeActif.toLowerCase() : "";
  suffixe += window._filtreDelaiActif==="dd" ? "_dans_delais" : window._filtreDelaiActif==="hd" ? "_hors_delais" : "";
+
+ // Cas particulier : filtre "Suspendus" uniquement (rien d'autre) → un onglet par porteur.
+ const suspendusUniquement = window._categorieFiltreActive==="suspendu" &&
+  !window._filtreTypeActif && !window._filtreDelaiActif && !window._filtreFraicheurActif && statsFil.size===0 && !q && !mois;
+ if(suspendusUniquement){
+  const parActeur = {};
+  dataExport.forEach(row=>{
+   const porteur = (window._porteurParStatut && window._porteurParStatut[row["STATUT"]]) || "Non attribué";
+   if(!parActeur[porteur]) parActeur[porteur] = [];
+   parActeur[porteur].push(row);
+  });
+  const acteursTries = Object.keys(parActeur).sort((a,b)=>a.localeCompare(b));
+  const nomsUtilises = new Set();
+  acteursTries.forEach(acteur=>{
+   const rows = parActeur[acteur];
+   const wsActeur = XLSX.utils.json_to_sheet(rows);
+   let base = `${acteur} (${rows.length})`.replace(/[\\\/\?\*\[\]:]/g,"-").slice(0,31);
+   let nomOnglet = base, i = 2;
+   while(nomsUtilises.has(nomOnglet)){ nomOnglet = base.slice(0, 28) + "~" + i; i++; }
+   nomsUtilises.add(nomOnglet);
+   XLSX.utils.book_append_sheet(wb, wsActeur, nomOnglet);
+  });
+  if(!acteursTries.length){
+   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([]), "Aucun dossier");
+  }
+  XLSX.writeFile(wb,"export_dossiers_suspendus_par_porteur.xlsx");
+  return;
+ }
+
  XLSX.utils.book_append_sheet(wb,ws,"Export");
  XLSX.writeFile(wb,"export_dossiers"+suffixe+".xlsx");
 };
