@@ -1557,9 +1557,18 @@ function updateDmrCauses(){
  const scope = window._filtreTypeActif;
  const delaiScope = window._filtreDelaiActif;
  const catScope = window._categorieFiltreActive;
- let data = dossiersGlobal||[];
- if(scope) data = data.filter(r=>matchTypeAbo(r, scope));
- if(delaiScope) data = data.filter(r=> delaiScope==="dd" ? estDansDelai(r) : !estDansDelai(r));
+
+ // Base = tous les dossiers, éventuellement limité au type LS / LSI / Numérique.
+ let baseData = dossiersGlobal||[];
+ if(scope) baseData = baseData.filter(r=>matchTypeAbo(r, scope));
+
+ // Data réellement sélectionnée par les filtres actifs.
+ let data = baseData.slice();
+
+ if(delaiScope){
+  data = data.filter(r=> delaiScope==="dd" ? estDansDelai(r) : !estDansDelai(r));
+ }
+
  if(window._filtreExclureSuspendu){
   data = data.filter(r=>{
    const id=(r["ID DOSSIER"]||"").toString().trim();
@@ -1567,97 +1576,172 @@ function updateDmrCauses(){
    return window._getCategorieStatut ? window._getCategorieStatut(statut)!=="suspendu" : true;
   });
  }
+
  if(catScope){
   data = data.filter(r=>{
    const id=(r["ID DOSSIER"]||"").toString().trim();
    const statut = window._getStatut ? window._getStatut(id) : "";
-   return statut && window._getCategorieStatut && window._getCategorieStatut(statut)===catScope;
+   return statut && window._getCategorieStatut &&
+          window._getCategorieStatut(statut)===catScope;
   });
  }
+
  const dmrEl = document.getElementById("dmrValeur");
  const hdEl = document.getElementById("ageMoyenHorsDelais");
  const suEl = document.getElementById("ageMoyenSuspendu");
  const causesSuEl = document.getElementById("causesSuspendus");
  const causesHdEl = document.getElementById("causesHorsDelais");
  const titreEl = document.getElementById("dmrCausesTitre");
+
  if(titreEl){
-  const label = scope==="LS" ? " (LS)" : scope==="LSI" ? " (LSI)" : scope==="NUM" ? " (Numérique)" : "";
-  const delaiLabel = delaiScope==="dd" ? " · Dans les délais" : delaiScope==="hd" ? " · Hors délais" : "";
-  const catLabel = catScope==="suspendu" ? " · Suspendus" : catScope==="encours" ? " · En cours" : "";
+  const label = scope==="LS" ? " (LS)" :
+                scope==="LSI" ? " (LSI)" :
+                scope==="NUM" ? " (Numérique)" : "";
+  const delaiLabel = delaiScope==="dd" ? " · Dans les délais" :
+                     delaiScope==="hd" ? " · Hors délais" : "";
+  const catLabel = catScope==="suspendu" ? " · Suspendus" :
+                   catScope==="encours" ? " · En cours" : "";
   titreEl.textContent = "⏱ DMR & Causes"+label+delaiLabel+catLabel;
  }
- if(!dmrEl || !data.length){
-  if(dmrEl) dmrEl.textContent = "-";
-  if(hdEl) hdEl.textContent = "-";
-  if(suEl) suEl.textContent = "-";
-  if(causesSuEl) causesSuEl.innerHTML = '<span style="color:#999;">Aucune donnée</span>';
-  if(causesHdEl) causesHdEl.innerHTML = '<span style="color:#999;">Aucune donnée</span>';
-  return;
- }
- // DMR estimé = ancienneté moyenne du portefeuille actuel (en cours)
+
+ // Remise à zéro systématique avant recalcul.
+ if(dmrEl) dmrEl.textContent = "-";
+ if(hdEl) hdEl.textContent = "-";
+ if(suEl) suEl.textContent = "-";
+ if(causesSuEl) causesSuEl.innerHTML = '<span style="color:#999;">Aucune donnée</span>';
+ if(causesHdEl) causesHdEl.innerHTML = '<span style="color:#999;">Aucune donnée</span>';
+
+ if(!dmrEl || !data.length) return;
+
+ // DMR = ancienneté moyenne des dossiers actuellement sélectionnés.
  const totalAge = data.reduce((s,r)=>s+daysBetween(r["DATE CREATION DOSSIER"]),0);
  const dmr = Math.round(totalAge/data.length);
  dmrEl.textContent = dmr+" j";
  dmrEl.style.color = dmr<=OBJECTIF_DMR ? "#16a34a" : "#dc2626";
 
  let sumHD=0,nHD=0,sumSU=0,nSU=0;
- const causesSuspendus = {}, causesHorsDelais = {};
- let totalHorsDelais = 0;
+ const causesSuspendus = {};
+ const causesHorsDelais = {};
+
  data.forEach(r=>{
   const id=(r["ID DOSSIER"]||"").toString().trim();
   const statut = window._getStatut ? window._getStatut(id) : "";
   const age = daysBetween(r["DATE CREATION DOSSIER"]);
   const dd = estDansDelai(r);
-  if(!dd){ sumHD+=age; nHD++; totalHorsDelais++; }
-  if(statut && statut.trim()!==""){
-   const cat = window._getCategorieStatut ? window._getCategorieStatut(statut) : "encours";
+  const cat = statut && window._getCategorieStatut
+    ? window._getCategorieStatut(statut)
+    : "";
+
+  // Dans les délais : uniquement DMR, pas de causes HD/Susp.
+  if(delaiScope==="dd") return;
+
+  // Filtre Suspendus : uniquement les indicateurs/cause des suspendus.
+  if(catScope==="suspendu"){
    if(cat==="suspendu"){
-    sumSU+=age; nSU++;
-    causesSuspendus[statut] = (causesSuspendus[statut]||0)+1;
+    sumSU += age;
+    nSU++;
+    if(statut) causesSuspendus[statut] = (causesSuspendus[statut]||0)+1;
    }
-   if(!dd) causesHorsDelais[statut] = (causesHorsDelais[statut]||0)+1;
+   return;
+  }
+
+  // Filtre Hors délais : uniquement les indicateurs/cause hors délais.
+  if(delaiScope==="hd"){
+   if(!dd){
+    sumHD += age;
+    nHD++;
+    if(statut) causesHorsDelais[statut] = (causesHorsDelais[statut]||0)+1;
+   }
+   return;
+  }
+
+  // Vue En cours : pas de suspendus dans les données sélectionnées.
+  if(catScope==="encours"){
+   if(!dd){
+    sumHD += age;
+    nHD++;
+    if(statut) causesHorsDelais[statut] = (causesHorsDelais[statut]||0)+1;
+   }
+   return;
+  }
+
+  // Vue générale / filtre uniquement LS, LSI ou Numérique :
+  // on calcule séparément Hors délais et Suspendus.
+  if(!dd){
+   sumHD += age;
+   nHD++;
+  }
+
+  if(cat==="suspendu"){
+   sumSU += age;
+   nSU++;
+   if(statut) causesSuspendus[statut] = (causesSuspendus[statut]||0)+1;
+  }
+
+  if(!dd && statut){
+   causesHorsDelais[statut] = (causesHorsDelais[statut]||0)+1;
   }
  });
- hdEl.textContent = nHD ? Math.round(sumHD/nHD)+" j" : "-";
- suEl.textContent = nSU ? Math.round(sumSU/nSU)+" j" : "-";
+
+ if(delaiScope==="hd" || catScope==="encours" || (!delaiScope && !catScope)){
+  hdEl.textContent = nHD ? Math.round(sumHD/nHD)+" j" : "-";
+ }
+
+ if(catScope==="suspendu" || (!delaiScope && !catScope)){
+  suEl.textContent = nSU ? Math.round(sumSU/nSU)+" j" : "-";
+ }
 
  function renderCauses(obj, el, total, mode){
   const sorted = Object.entries(obj).sort((a,b)=>b[1]-a[1]).slice(0,5);
   if(!el) return;
-  if(!sorted.length){ el.innerHTML = '<span style="color:#999;">Aucune donnée</span>'; return; }
+  if(!sorted.length){
+   el.innerHTML = '<span style="color:#999;">Aucune donnée</span>';
+   return;
+  }
+
   el.innerHTML = sorted.map(([s,n])=>{
    const pct = total ? Math.round(n/total*1000)/10 : 0;
-   const safe = String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+   const safe = String(s)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;");
    const active = _causeIsActive(s, mode);
-   const bg = active ? (mode==="suspendu" ? "background:#fee2e2;" : "background:#fff3e0;") : "";
-   const outline = active ? (mode==="suspendu" ? "outline:1.5px solid #dc2626;" : "outline:1.5px solid #b45309;") : "";
+   const bg = active
+    ? (mode==="suspendu" ? "background:#fee2e2;" : "background:#fff3e0;")
+    : "";
+   const outline = active
+    ? (mode==="suspendu" ? "outline:1.5px solid #dc2626;" : "outline:1.5px solid #b45309;")
+    : "";
+
    return `<div class="dmr-cause-row" data-statut="${safe}" data-mode="${mode}" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span>${safe}</span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
   }).join("");
+
   el.querySelectorAll(".dmr-cause-row").forEach(row=>{
    row.addEventListener("click", function(){
     _toggleCauseFilter(this.dataset.statut, this.dataset.mode);
    });
   });
  }
- renderCauses(causesSuspendus, causesSuEl, nSU, "suspendu");
- renderCauses(causesHorsDelais, causesHdEl, totalHorsDelais, "hd");
 
- // Surbrillance des 3 valeurs cliquables (DMR / Âge Hors délais / Âge Suspendus) — exclusive selon l'élément réellement cliqué
+ // Chaque colonne affiche uniquement sa propre catégorie.
+ renderCauses(causesSuspendus, causesSuEl, nSU, "suspendu");
+ renderCauses(causesHorsDelais, causesHdEl, nHD, "hd");
+
  const dmrActive = window._dmrHighlightActive === "dmr";
  const hdActive = window._dmrHighlightActive === "hd";
  const suHdActive = window._dmrHighlightActive === "su";
+
  dmrEl.style.background = dmrActive ? "#fff3e0" : "transparent";
  dmrEl.style.outline = dmrActive ? "1.5px solid #b45309" : "none";
  hdEl.style.background = hdActive ? "#fff3e0" : "transparent";
  hdEl.style.outline = hdActive ? "1.5px solid #b45309" : "none";
  suEl.style.background = suHdActive ? "#fee2e2" : "transparent";
  suEl.style.outline = suHdActive ? "1.5px solid #dc2626" : "none";
- dmrEl.style.borderRadius = "4px";
- dmrEl.style.padding = "1px 4px";
- hdEl.style.borderRadius = "4px";
- hdEl.style.padding = "1px 4px";
- suEl.style.borderRadius = "4px";
- suEl.style.padding = "1px 4px";
+
+ [dmrEl,hdEl,suEl].forEach(el=>{
+  el.style.borderRadius = "4px";
+  el.style.padding = "1px 4px";
+ });
 }
 
 document.getElementById("dmrCausesTitre").addEventListener("click", function(){
