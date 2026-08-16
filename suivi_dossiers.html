@@ -247,6 +247,36 @@ window._saveOption = async function(val) {
 };
 </script>
 
+<!-- Firebase Firestore — PDA Comités (projet ddms-architectures, synchronisé avec pda_2_.html) -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const pdaConfig = {
+  apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+  authDomain: "ddms-architectures.firebaseapp.com",
+  projectId: "ddms-architectures",
+  storageBucket: "ddms-architectures.firebasestorage.app",
+  messagingSenderId: "767552965189",
+  appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+};
+
+const pdaApp = initializeApp(pdaConfig, "pdaApp");
+const pdaDb = getFirestore(pdaApp);
+window._pdaDb = pdaDb;
+window._pdaCol = collection;
+window._pdaAdd = addDoc;
+window._pdaUpdate = updateDoc;
+window._pdaDelete = deleteDoc;
+window._pdaDoc = doc;
+window._pdaOnSnapshot = onSnapshot;
+window._pdaQuery = query;
+window._pdaWhere = where;
+window._pdaGetDocs = getDocs;
+window._pdaReady = true;
+if(typeof window._pdaInit === "function") window._pdaInit();
+</script>
+
 <style>
 body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
 button{background:#d3d3d3;border:none;padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer;margin-right:6px}
@@ -330,6 +360,36 @@ td.num{text-align:right}
 <button onclick="location.href='livraison.html'">Dossiers livrés</button>
 <button id="btnNettoyage" style="display:none;">Dossiers à geler</button>
 <button id="btnRapport" style="background:#7c3aed;color:white;">📊 Rapport</button>
+<button id="btnPDA" style="background:#003366;color:white;">📋 PDA</button>
+
+<!-- ═══ POPUP PDA — Plan d'Actions (Comités / Production) ═══ -->
+<div id="pdaBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center;">
+ <div style="background:#fff;border-radius:12px;padding:18px 20px;width:100%;max-width:640px;max-height:82vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:Arial,Helvetica,sans-serif;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+   <div style="font-size:15px;font-weight:700;color:#111;">📋 Plan d'Actions (PDA) — Production</div>
+   <button id="pdaClose" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;line-height:1;">✕</button>
+  </div>
+  <div id="pdaError" style="display:none;background:#ffebee;border:1px solid #ffcdd2;color:#c62828;padding:6px 10px;border-radius:6px;font-size:12px;margin-bottom:8px;"></div>
+
+  <div style="overflow-x:auto;">
+   <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <thead>
+     <tr style="background:#f7f9fb;">
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Délai</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Action</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Porteur</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Statut</th>
+      <th style="border-bottom:1px solid #dde2ea;"></th>
+     </tr>
+    </thead>
+    <tbody id="pdaRows"></tbody>
+   </table>
+  </div>
+
+  <button id="pdaAddBtn" style="margin-top:10px;background:#003366;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">+ Ajouter une action</button>
+  <div id="pdaSyncing" style="display:none;font-size:11px;color:#888;margin-top:6px;">Synchronisation…</div>
+ </div>
+</div>
 
 <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
 <h1 id="resume" style="margin:0;">Dossiers : 0</h1>
@@ -2383,5 +2443,168 @@ function exporterRapportPDF(){
   restaurerBouton();
  });
 }
+</script>
+
+<!-- ═══ Logique PDA — Plan d'Actions (Comités / Production) ═══ -->
+<script>
+const PDA_COMITE = "Comité mensuel"; // mappé sur le libellé "Production" dans le portail Comités
+let _pdaUnsub = null;
+let _pdaActions = [];
+
+function _pdaTodayISO(){
+ const d = new Date();
+ const mm = String(d.getMonth()+1).padStart(2,"0");
+ const dd = String(d.getDate()).padStart(2,"0");
+ return d.getFullYear()+"-"+mm+"-"+dd;
+}
+function _pdaStatusColor(status){
+ if(status==="Terminé") return "color:#2e7d32;background:#e8f5e9;";
+ if(status==="En cours") return "color:#185FA5;background:#E6F1FB;";
+ return "color:#607d8b;background:#eceff1;";
+}
+function _pdaShowError(msg){
+ const el = document.getElementById("pdaError");
+ el.textContent = "⚠️ " + msg;
+ el.style.display = "block";
+}
+function _pdaSyncing(on){
+ document.getElementById("pdaSyncing").style.display = on ? "block" : "none";
+}
+
+function pdaOpen(){
+ document.getElementById("pdaBackdrop").style.display = "flex";
+ document.getElementById("pdaError").style.display = "none";
+ if(window._pdaReady){ _pdaSubscribe(); }
+ else { window._pdaInit = _pdaSubscribe; }
+}
+function pdaClose(){
+ document.getElementById("pdaBackdrop").style.display = "none";
+}
+document.getElementById("btnPDA").addEventListener("click", pdaOpen);
+document.getElementById("pdaClose").addEventListener("click", pdaClose);
+document.getElementById("pdaBackdrop").addEventListener("click", function(e){
+ if(e.target === this) pdaClose();
+});
+
+function _pdaSubscribe(){
+ if(!window._pdaDb) return;
+ if(_pdaUnsub) _pdaUnsub();
+ _pdaSyncing(true);
+ try{
+  const q = window._pdaQuery(window._pdaCol(window._pdaDb, "pda_actions"), window._pdaWhere("comite","==",PDA_COMITE));
+  _pdaUnsub = window._pdaOnSnapshot(q, function(snap){
+   _pdaActions = snap.docs.map(d=>Object.assign({_id:d.id}, d.data()));
+   _pdaActions.sort((a,b)=>{
+    const da = a.date || "9999", db_ = b.date || "9999";
+    return da < db_ ? -1 : da > db_ ? 1 : 0;
+   });
+   _pdaSyncing(false);
+   _pdaRenderRows();
+  }, function(err){
+   _pdaSyncing(false);
+   _pdaShowError("Synchronisation : " + err.message);
+  });
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Firebase : " + err.message);
+ }
+}
+
+function _pdaRenderRows(){
+ const tbody = document.getElementById("pdaRows");
+ if(!_pdaActions.length){
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;padding:16px 6px;font-size:12px;">Aucune action. Cliquez sur « + Ajouter une action ».</td></tr>';
+  return;
+ }
+ tbody.innerHTML = _pdaActions.map(a=>{
+  const statusVal = a.status || "En cours";
+  const badgeStyle = _pdaStatusColor(statusVal);
+  const dateVal = a.date || _pdaTodayISO();
+  return `<tr data-id="${a._id}" style="border-bottom:1px solid #f0f2f5;">
+   <td style="padding:5px 6px;">
+    <input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;width:128px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-action" value="${(a.action||"").replace(/"/g,'&quot;')}" placeholder="Action…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:140px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-porteur" value="${(a.porteur||"").replace(/"/g,'&quot;')}" placeholder="Porteur" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:95px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <select class="pda-f-status" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;${badgeStyle}">
+     <option value="En cours" ${statusVal!=="Terminé"?"selected":""}>En cours</option>
+     <option value="Terminé" ${statusVal==="Terminé"?"selected":""}>Réalisé</option>
+    </select>
+   </td>
+   <td style="padding:5px 6px;white-space:nowrap;">
+    <button class="pda-save-btn" title="Enregistrer" style="background:none;border:none;cursor:pointer;font-size:14px;">💾</button>
+    <button class="pda-del-btn" title="Supprimer" style="background:none;border:none;cursor:pointer;font-size:14px;">🗑</button>
+   </td>
+  </tr>`;
+ }).join("");
+
+ tbody.querySelectorAll(".pda-save-btn").forEach(btn=>{
+  btn.addEventListener("click", function(){ _pdaSaveRow(this.closest("tr")); });
+ });
+ tbody.querySelectorAll(".pda-del-btn").forEach(btn=>{
+  btn.addEventListener("click", function(){ _pdaDeleteRow(this.closest("tr").dataset.id); });
+ });
+ tbody.querySelectorAll(".pda-f-status").forEach(sel=>{
+  sel.addEventListener("change", function(){
+   this.setAttribute("style", "font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;"+_pdaStatusColor(this.value));
+  });
+ });
+}
+
+async function _pdaSaveRow(tr){
+ const id = tr.dataset.id;
+ const date = tr.querySelector(".pda-f-date").value || _pdaTodayISO();
+ const action = tr.querySelector(".pda-f-action").value.trim();
+ const porteur = tr.querySelector(".pda-f-porteur").value.trim();
+ const status = tr.querySelector(".pda-f-status").value;
+ if(!action){ alert("Le champ Action est requis."); return; }
+ try{
+  _pdaSyncing(true);
+  await window._pdaUpdate(window._pdaDoc(window._pdaDb, "pda_actions", id), { date, action, porteur, status });
+  _pdaSyncing(false);
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Enregistrement : " + err.message);
+ }
+}
+
+async function _pdaDeleteRow(id){
+ if(!confirm("Supprimer cette action ?")) return;
+ try{
+  _pdaSyncing(true);
+  await window._pdaDelete(window._pdaDoc(window._pdaDb, "pda_actions", id));
+  _pdaSyncing(false);
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Suppression : " + err.message);
+ }
+}
+
+document.getElementById("pdaAddBtn").addEventListener("click", async function(){
+ if(!window._pdaDb){ alert("Connexion PDA en cours, réessayez dans un instant."); return; }
+ try{
+  _pdaSyncing(true);
+  await window._pdaAdd(window._pdaCol(window._pdaDb, "pda_actions"), {
+   comite: PDA_COMITE,
+   date: _pdaTodayISO(),
+   action: "",
+   porteur: "",
+   status: "En cours",
+   objectif: "",
+   comment: "",
+   important: false,
+   createdAt: Date.now()
+  });
+  _pdaSyncing(false);
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Ajout : " + err.message);
+ }
+});
 </script>
 </html>
