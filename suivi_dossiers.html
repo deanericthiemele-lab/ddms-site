@@ -337,10 +337,18 @@ td.num{text-align:right}
 <button id="btnCatSuspendus" style="background:#dc2626;color:white;border:none;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;">🔴 Suspendus</button>
 <button id="btnCatTous" style="background:#6b7280;color:white;border:none;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;display:none;">✕ Tous</button>
 </div>
+<div class="subresume" id="delaiResume" style="margin-top:2px;">
+ <span id="delaiDD" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;">Dossiers dans les délais : 0</span> |
+ <span id="delaiHD" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;">Dossiers hors délais : 0</span>
+</div>
 <div class="subresume" id="subresume">
  <span id="typeLS" style="cursor:pointer;padding:2px 6px;border-radius:4px;">LS : 0</span> |
  <span id="typeLSI" style="cursor:pointer;padding:2px 6px;border-radius:4px;">LSI : 0</span> |
  <span id="typeNUM" style="cursor:pointer;padding:2px 6px;border-radius:4px;">Numérique : 0</span>
+</div>
+<div class="subresume" id="typeDelaiResume" style="margin-top:2px;display:none;">
+ <span id="typeDelaiDD" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;font-size:11px;">DD : 0</span> |
+ <span id="typeDelaiHD" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;font-size:11px;">HD : 0</span>
 </div>
 <div id="statutsCoverage" style="border:1px solid #ccc;border-radius:6px;padding:6px 10px;font-size:13px;margin-bottom:10px;background:#f9f9f9;color:#555;">
   📊 <span style="font-weight:700;color:#000;">Mis à jour des statuts : <strong id="statutsRenseignes">0</strong> / <strong id="statutsTotal">0</strong></span>
@@ -580,6 +588,10 @@ function daysBetween(date){
  const d=parseDate(date);
  if(!d) return 0;
  return Math.floor((today-d)/(1000*60*60*24));
+}
+const OBJECTIF_DMR = 40; // Objectif interne : délai moyen de raccordement ≤ 40 jours
+function estDansDelai(r){
+ return daysBetween(r["DATE CREATION DOSSIER"]) <= OBJECTIF_DMR;
 }
 
 const pipeFiles=["pipe.xlsx"];
@@ -902,6 +914,8 @@ function renderMain(){
  attachStatutListeners();
  attachSolutionListeners();
  syncStatutFilter();
+ if(typeof updateDelaiCounts==="function") updateDelaiCounts();
+ if(typeof _updateDelaiSpansUI==="function") _updateDelaiSpansUI();
 }
 
 function filtrerEtAfficher(){
@@ -922,13 +936,14 @@ function filtrerEtAfficher(){
   const statutOk=statsFil.size===0||statsFil.has(statut);
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
+  const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk){
    cpt++;
    rows.push(`<tr>
     <td>${r["CLIENT"]||""}</td>
@@ -948,12 +963,15 @@ function filtrerEtAfficher(){
  const catLabel = window._categorieFiltreActive==="encours" ? " (En cours)" : window._categorieFiltreActive==="suspendu" ? " (Suspendus)" : "";
  const fraicheurLabel = window._filtreFraicheurActif==="ajour" ? " (À jour)" : window._filtreFraicheurActif==="retard" ? " (En retard)" : "";
  const typeLabel = window._filtreTypeActif==="LS" ? " (LS)" : window._filtreTypeActif==="LSI" ? " (LSI)" : window._filtreTypeActif==="NUM" ? " (Numérique)" : "";
- document.getElementById("resume").textContent="Dossiers : "+cpt+catLabel+fraicheurLabel+typeLabel;
+ const delaiLabel = window._filtreDelaiActif==="dd" ? " (Dans les délais)" : window._filtreDelaiActif==="hd" ? " (Hors délais)" : "";
+ document.getElementById("resume").textContent="Dossiers : "+cpt+catLabel+fraicheurLabel+typeLabel+delaiLabel;
  peuplerDepuisFirebase();
  attachStatutListeners();
  attachSolutionListeners();
  syncStatutFilter();
  _updateTypeSpansUI();
+ updateDelaiCounts();
+ _updateDelaiSpansUI();
 }
 document.getElementById("searchInput").addEventListener("keyup", filtrerEtAfficher);
 document.getElementById("moisFilter").addEventListener("change", filtrerEtAfficher);
@@ -965,6 +983,8 @@ window._categorieFiltreActive = null;
 window._filtreFraicheurActif = null;
 // ── Filtre type d'abonnement : LS / LSI / Numérique ──
 window._filtreTypeActif = null;
+// ── Filtre délai : dans les délais (DD) / hors délais (HD) ──
+window._filtreDelaiActif = null;
 function _updateCatButtonsUI(){
  const btnEC = document.getElementById("btnCatEnCours");
  const btnSU = document.getElementById("btnCatSuspendus");
@@ -1003,6 +1023,81 @@ document.getElementById("typeLSI").addEventListener("click", function(){
 document.getElementById("typeNUM").addEventListener("click", function(){
  const activer = window._filtreTypeActif !== "NUM";
  window._filtreTypeActif = activer ? "NUM" : null;
+ window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+
+// ── Compteurs et filtre délai (DD / HD) ──
+function updateDelaiCounts(){
+ let dd=0, hd=0;
+ (dossiersGlobal||[]).forEach(r=>{
+  if(estDansDelai(r)) dd++; else hd++;
+ });
+ const elDD = document.getElementById("delaiDD");
+ const elHD = document.getElementById("delaiHD");
+ if(elDD) elDD.textContent = "Dossiers dans les délais : "+dd;
+ if(elHD) elHD.textContent = "Dossiers hors délais : "+hd;
+
+ const typeDelaiResume = document.getElementById("typeDelaiResume");
+ if(window._filtreTypeActif){
+  let tdd=0, thd=0;
+  (dossiersGlobal||[]).forEach(r=>{
+   if(matchTypeAbo(r, window._filtreTypeActif)){
+    if(estDansDelai(r)) tdd++; else thd++;
+   }
+  });
+  const elTDD = document.getElementById("typeDelaiDD");
+  const elTHD = document.getElementById("typeDelaiHD");
+  if(elTDD) elTDD.textContent = "DD : "+tdd;
+  if(elTHD) elTHD.textContent = "HD : "+thd;
+  if(typeDelaiResume) typeDelaiResume.style.display = "block";
+ } else {
+  if(typeDelaiResume) typeDelaiResume.style.display = "none";
+ }
+}
+function _updateDelaiSpansUI(){
+ const elDD = document.getElementById("delaiDD");
+ const elHD = document.getElementById("delaiHD");
+ if(elDD) elDD.style.background = window._filtreDelaiActif==="dd" ? "#dcfce7" : "transparent";
+ if(elDD) elDD.style.outline = window._filtreDelaiActif==="dd" ? "2px solid #16a34a" : "none";
+ if(elHD) elHD.style.background = window._filtreDelaiActif==="hd" ? "#fee2e2" : "transparent";
+ if(elHD) elHD.style.outline = window._filtreDelaiActif==="hd" ? "2px solid #dc2626" : "none";
+ const elTDD = document.getElementById("typeDelaiDD");
+ const elTHD = document.getElementById("typeDelaiHD");
+ if(elTDD) elTDD.style.background = window._filtreDelaiActif==="dd" ? "#dcfce7" : "transparent";
+ if(elTDD) elTDD.style.outline = window._filtreDelaiActif==="dd" ? "2px solid #16a34a" : "none";
+ if(elTHD) elTHD.style.background = window._filtreDelaiActif==="hd" ? "#fee2e2" : "transparent";
+ if(elTHD) elTHD.style.outline = window._filtreDelaiActif==="hd" ? "2px solid #dc2626" : "none";
+}
+document.getElementById("delaiDD").addEventListener("click", function(){
+ const activer = window._filtreDelaiActif !== "dd";
+ window._filtreDelaiActif = activer ? "dd" : null;
+ window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("delaiHD").addEventListener("click", function(){
+ const activer = window._filtreDelaiActif !== "hd";
+ window._filtreDelaiActif = activer ? "hd" : null;
+ window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("typeDelaiDD").addEventListener("click", function(){
+ const activer = window._filtreDelaiActif !== "dd";
+ window._filtreDelaiActif = activer ? "dd" : null;
+ window._categorieFiltreActive = null;
+ window._filtreFraicheurActif = null;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("typeDelaiHD").addEventListener("click", function(){
+ const activer = window._filtreDelaiActif !== "hd";
+ window._filtreDelaiActif = activer ? "hd" : null;
  window._categorieFiltreActive = null;
  window._filtreFraicheurActif = null;
  _updateCatButtonsUI();
