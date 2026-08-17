@@ -456,14 +456,10 @@ td.num{text-align:right}
  </div>
  <button id="btnCatTous" style="background:none;border:1px solid #ccc;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;color:#6b7280;display:none;align-self:center;">✕ Tous</button>
 </div>
-<div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;margin:10px 0 6px;">Analyse des causes hors délais et suspendus</div>
+<div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;margin:10px 0 6px;">Analyse des causes</div>
 <div id="dmrCausesBlock" style="border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:10px;background:#fafafa;font-size:12.5px;">
   <div id="dmrCausesTitre" style="font-weight:700;margin-bottom:10px;color:#333;"></div>
   <div style="display:flex;gap:28px;flex-wrap:wrap;margin-bottom:14px;">
-    <div>
-      <div style="color:#666;font-size:11px;">DMR (objectif ≤ 40j)</div>
-      <div id="dmrValeur" style="font-size:17px;font-weight:800;cursor:pointer;" title="Cliquer pour afficher les 132 dossiers">-</div>
-    </div>
     <div>
       <div style="color:#666;font-size:11px;">Âge moyen — Hors délais</div>
       <div id="ageMoyenHorsDelais" style="font-size:17px;font-weight:800;color:#b45309;cursor:pointer;" title="Cliquer pour filtrer les dossiers hors délais">-</div>
@@ -475,11 +471,11 @@ td.num{text-align:right}
   </div>
   <div style="display:flex;gap:28px;flex-wrap:wrap;">
     <div style="min-width:240px;flex:1;">
-      <div style="font-weight:700;color:#dc2626;margin-bottom:5px;">Causes principales — Suspendus</div>
+      <div style="font-weight:700;color:#dc2626;margin-bottom:5px;">Top 5 Causes principales — Suspendus</div>
       <div id="causesSuspendus" style="font-size:12px;"></div>
     </div>
     <div style="min-width:240px;flex:1;">
-      <div style="font-weight:700;color:#b45309;margin-bottom:5px;">Causes principales — Hors délais</div>
+      <div style="font-weight:700;color:#b45309;margin-bottom:5px;">Top 5 Causes principales — Hors délais</div>
       <div id="causesHorsDelais" style="font-size:12px;"></div>
     </div>
   </div>
@@ -1615,19 +1611,13 @@ function updateDmrCauses(){
  // IMPORTANT : le bloc Analyse des causes utilise exactement le même
  // périmètre que le tableau, y compris Produit + HD/Susp + cause.
  const data = getAnalyseCausesSelectionRows();
- const hasFilter = !!(scope || delaiScope || catScope || window._filtreFraicheurActif || statsFil.size>0 || q || mois);
- // Le DMR reste calculé sur l'ENSEMBLE des 132 dossiers tant qu'aucun filtre
- // n'est actif (vue par défaut) ; dès qu'un filtre est sélectionné, il se
- // recalcule sur ce sous-ensemble exact (même règle pour tous les boutons).
- const dmrData = hasFilter ? data : (dossiersGlobal||[]);
- const dmrEl=document.getElementById("dmrValeur");
  const hdEl=document.getElementById("ageMoyenHorsDelais");
  const suEl=document.getElementById("ageMoyenSuspendu");
  const causesSuEl=document.getElementById("causesSuspendus");
  const causesHdEl=document.getElementById("causesHorsDelais");
  const titreEl=document.getElementById("dmrCausesTitre");
  const block=document.getElementById("dmrCausesBlock");
- if(!dmrEl||!hdEl||!suEl||!causesSuEl||!causesHdEl||!block) return;
+ if(!hdEl||!suEl||!causesSuEl||!causesHdEl||!block) return;
 
  const hdMetric=hdEl.parentElement;
  const suMetric=suEl.parentElement;
@@ -1665,15 +1655,9 @@ function updateDmrCauses(){
    });
  };
 
- const dmr=dmrData.length
-   ? Math.round(dmrData.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/dmrData.length)
-   : null;
- dmrEl.textContent=dmr===null?"-":dmr+" j";
- dmrEl.style.color=dmr!==null&&dmr<=OBJECTIF_DMR?"#16a34a":"#dc2626";
-
- // Une sélection HD par produit : uniquement les HD du produit,
- // hors suspendus, et uniquement leurs causes.
- if(delaiScope==="hd"){
+ // Une sélection HD PAR PRODUIT (ex: LS + Hors délais) : uniquement les HD
+ // de ce produit, hors suspendus, et uniquement leurs causes.
+ if(delaiScope==="hd" && scope){
    hdMetric.style.display="";
    suMetric.style.display="none";
    suCol.style.display="none";
@@ -1687,8 +1671,9 @@ function updateDmrCauses(){
    return;
  }
 
- // Une sélection Suspendus par produit : uniquement les suspendus du produit.
- if(catScope==="suspendu"){
+ // Une sélection Suspendus PAR PRODUIT (ex: LS + Suspendus) : uniquement les
+ // suspendus de ce produit.
+ if(catScope==="suspendu" && scope){
    hdMetric.style.display="none";
    suMetric.style.display="";
    hdCol.style.display="none";
@@ -1702,7 +1687,8 @@ function updateDmrCauses(){
    return;
  }
 
- // Vue générale : les deux analyses.
+ // Clic sur "Hors délais" ou "Suspendus" au niveau global (sans produit) :
+ // Analyse des causes affiche TOUJOURS les deux colonnes.
  hdMetric.style.display="";
  suMetric.style.display="";
  hdCol.style.display="";
@@ -1712,13 +1698,34 @@ function updateDmrCauses(){
  hdCol.style.minWidth="240px";
  suCol.style.minWidth="240px";
 
- const hdData=data.filter(r=>{
+ // Les deux colonnes utilisent une base qui ignore volontairement le filtre
+ // HD/Susp global (pour toujours montrer les deux analyses), mais respecte
+ // recherche / mois / fraîcheur / statut sélectionné.
+ const dataBoth=(dossiersGlobal||[]).filter(r=>{
+  const id=(r["ID DOSSIER"]||"").toString().trim();
+  const statut=window._getStatut?window._getStatut(id):"";
+  const _d=parseDate(r["DATE CREATION DOSSIER"]);
+  const _moisFr=_d?_d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"}):"";
+  const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+statut+" "+_moisFr).toLowerCase();
+  const moisOk = !mois || _moisFr.toLowerCase().includes(mois);
+  const typeOk = !scope || matchTypeAbo(r, scope);
+  const statutOk = statsFil.size===0 || statsFil.has(statut);
+  let fraicheurOk = true;
+  if(window._filtreFraicheurActif){
+   const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
+   const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
+   fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+  }
+  return txt.includes(q) && moisOk && typeOk && statutOk && fraicheurOk;
+ });
+
+ const hdData=dataBoth.filter(r=>{
    const id=(r["ID DOSSIER"]||"").toString().trim();
    const st=window._getStatut?window._getStatut(id):"";
    const susp=!!(window._getCategorieStatut && window._getCategorieStatut(st)==="suspendu");
    return !susp && !estDansDelai(r);
  });
- const suData=data.filter(r=>{
+ const suData=dataBoth.filter(r=>{
    const id=(r["ID DOSSIER"]||"").toString().trim();
    const st=window._getStatut?window._getStatut(id):"";
    return st && window._getCategorieStatut &&
@@ -1731,13 +1738,6 @@ function updateDmrCauses(){
  renderCauses(hdData,causesHdEl,"hd");
 }
 
-document.getElementById("dmrValeur").addEventListener("click", function(){
- _clearAllFiltres();
- window._filtreDelaiActif = "hd";
- window._dmrHighlightActive = "dmr";
- _updateCatButtonsUI();
- filtrerEtAfficher();
-});
 document.getElementById("ageMoyenHorsDelais").addEventListener("click", function(){
  window._categorieFiltreActive = null;
  window._filtreDelaiActif = "hd";
