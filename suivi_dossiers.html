@@ -454,7 +454,6 @@ td.num{text-align:right}
    🔴 Suspendus : <span id="suspendusHorsDelaisCount">0</span> <span id="suspendusHorsDelaisPct" style="font-size:11px;font-weight:600;color:#888;">(0%)</span>
   </button>
  </div>
- <button id="btnCatTous" style="background:none;border:1px solid #ccc;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:700;color:#6b7280;display:none;align-self:center;">✕ Tous</button>
 </div>
 <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;margin:10px 0 6px;">Analyse des causes</div>
 <div id="dmrCausesBlock" style="border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:10px;background:#fafafa;font-size:12.5px;">
@@ -1148,13 +1147,11 @@ function _noStatutFilter(){
 }
 function _updateCatButtonsUI(){
  const btnSU = document.getElementById("btnCatSuspendus");
- const btnTous = document.getElementById("btnCatTous");
- if(!btnSU||!btnTous) return;
+ if(!btnSU) return;
  const noStatut = _noStatutFilter();
 const suActive = window._categorieFiltreActive==="suspendu" && noStatut && !window._filtreDelaiActif && !window._filtreTypeActif;
 btnSU.style.background = suActive ? "#fee2e2" : "transparent";
  btnSU.style.outline = suActive ? "2px solid #dc2626" : "none";
- btnTous.style.display = (window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreTypeActif || window._filtreDelaiActif || !noStatut) ? "inline-block" : "none";
 }
 function _updateTypeSpansUI(){
  const spLS = document.getElementById("typeLS");
@@ -1250,15 +1247,11 @@ function _updateDelaiSpansUI(){
  if(elDD) elDD.style.outline = ddTopActive ? "2px solid #16a34a" : "none";
  if(elHD) elHD.style.background = hdTopActive ? "#fee2e2" : "transparent";
  if(elHD) elHD.style.outline = hdTopActive ? "2px solid #dc2626" : "none";
- // DD par produit ne s'affiche qu'en vue par défaut (aucun filtre actif) :
- // dès qu'on regarde Hors délais / Suspendus / un produit / une cause, DD n'a
- // plus de sens dans ce périmètre et doit être masqué.
- const vueParDefaut = !window._filtreTypeActif && !window._filtreDelaiActif && !window._categorieFiltreActive && noStatut;
+ // DD par produit reste TOUJOURS visible, quel que soit le filtre actif —
+ // c'est un simple indicateur, non cliquable (cursor:default, aucun listener).
  [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM"]].forEach(([type,ddId,hdId,suId])=>{
-  const elTDD = document.getElementById(ddId);
   const elTHD = document.getElementById(hdId);
   const elTSU = document.getElementById(suId);
-  if(elTDD) elTDD.style.display = vueParDefaut ? "inline-block" : "none";
   const hdActive = window._filtreTypeActif===type && window._filtreDelaiActif==="hd" && window._filtreExclureSuspendu && noStatut;
   const suActive = window._filtreTypeActif===type && window._categorieFiltreActive==="suspendu" && noStatut;
   if(elTHD) elTHD.style.background = hdActive ? "#fee2e2" : "transparent";
@@ -1481,11 +1474,6 @@ document.getElementById("btnCatSuspendus").addEventListener("click", function(){
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
-document.getElementById("btnCatTous").addEventListener("click", function(){
- _clearAllFiltres();
- _updateCatButtonsUI();
- filtrerEtAfficher();
-});
 
 // ── DD/HD sous En cours / Suspendus ──
 function _toggleCatDelai(cat, delai){
@@ -1608,9 +1596,8 @@ function updateDmrCauses(){
  const mois=(document.getElementById("moisFilter")?.value||"").toLowerCase();
  const lastMonday=getLastMonday();
 
- // IMPORTANT : le bloc Analyse des causes utilise exactement le même
- // périmètre que le tableau, y compris Produit + HD/Susp + cause.
- const data = getAnalyseCausesSelectionRows();
+ // IMPORTANT : Analyse des causes suit uniquement le produit sélectionné
+ // (LS/LSI/Numérique), jamais le sous-filtre HD/Susp qui n'affecte que le tableau.
  const hdEl=document.getElementById("ageMoyenHorsDelais");
  const suEl=document.getElementById("ageMoyenSuspendu");
  const causesSuEl=document.getElementById("causesSuspendus");
@@ -1655,40 +1642,9 @@ function updateDmrCauses(){
    });
  };
 
- // Une sélection HD PAR PRODUIT (ex: LS + Hors délais) : uniquement les HD
- // de ce produit, hors suspendus, et uniquement leurs causes.
- if(delaiScope==="hd" && scope){
-   hdMetric.style.display="";
-   suMetric.style.display="none";
-   suCol.style.display="none";
-   hdCol.style.display="";
-   hdCol.style.flex="0 0 calc(50% - 14px)";
-   hdCol.style.minWidth="0";
-   hdEl.textContent=avgAge(data);
-   suEl.textContent="";
-   causesSuEl.innerHTML="";
-   renderCauses(data,causesHdEl,"hd");
-   return;
- }
-
- // Une sélection Suspendus PAR PRODUIT (ex: LS + Suspendus) : uniquement les
- // suspendus de ce produit.
- if(catScope==="suspendu" && scope){
-   hdMetric.style.display="none";
-   suMetric.style.display="";
-   hdCol.style.display="none";
-   suCol.style.display="";
-   suCol.style.flex="0 0 calc(50% - 14px)";
-   suCol.style.minWidth="0";
-   suEl.textContent=avgAge(data);
-   hdEl.textContent="";
-   causesHdEl.innerHTML="";
-   renderCauses(data,causesSuEl,"suspendu");
-   return;
- }
-
- // Clic sur "Hors délais" ou "Suspendus" au niveau global (sans produit) :
- // Analyse des causes affiche TOUJOURS les deux colonnes.
+ // Analyse des causes : toujours les DEUX colonnes, scopées uniquement au
+ // produit sélectionné (LS/LSI/Numérique) si un produit est actif — jamais
+ // narrowée davantage par HD/Susp (qui n'affecte QUE le tableau).
  hdMetric.style.display="";
  suMetric.style.display="";
  hdCol.style.display="";
