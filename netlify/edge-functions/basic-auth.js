@@ -1,5 +1,7 @@
 export default async (request, context) => {
-  return new Response("Test OK");
+  const validUser = Netlify.env.get("BASIC_AUTH_USER");
+  const validPass = Netlify.env.get("BASIC_AUTH_PASS");
+  return new Response("User attendu: " + validUser);
 };
 
 export const config = { path: "/*" };
