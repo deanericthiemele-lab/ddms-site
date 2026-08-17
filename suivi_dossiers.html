@@ -434,6 +434,7 @@ td.num{text-align:right}
  <div class="type-col" style="min-width:170px;">
 <span id="typeLS" style="cursor:pointer;padding:2px 6px;border-radius:4px;display:inline-block;">LS : 0</span>
   <div style="font-size:11px;margin-top:2px;padding-left:6px;">
+   <span id="typeDelaiDD_LS" style="cursor:default;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;display:inline-block;min-width:44px;">DD : 0</span>
    <span id="typeDelaiHD_LS" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;display:inline-block;min-width:44px;">HD : 0</span>
    <span id="typeSuspendu_LS" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#b91c1c;font-weight:700;display:inline-block;min-width:60px;">Susp : 0</span>
   </div>
@@ -441,6 +442,7 @@ td.num{text-align:right}
  <div class="type-col" style="min-width:180px;">
   <span id="typeLSI" style="cursor:pointer;padding:2px 6px;border-radius:4px;display:inline-block;">LSI : 0</span>
   <div style="font-size:11px;margin-top:2px;padding-left:6px;">
+   <span id="typeDelaiDD_LSI" style="cursor:default;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;display:inline-block;min-width:44px;">DD : 0</span>
    <span id="typeDelaiHD_LSI" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;display:inline-block;min-width:44px;">HD : 0</span>
    <span id="typeSuspendu_LSI" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#b91c1c;font-weight:700;display:inline-block;min-width:60px;">Susp : 0</span>
   </div>
@@ -448,6 +450,7 @@ td.num{text-align:right}
  <div class="type-col" style="min-width:200px;">
   <span id="typeNUM" style="cursor:pointer;padding:2px 6px;border-radius:4px;display:inline-block;">Numérique : 0</span>
   <div style="font-size:11px;margin-top:2px;padding-left:6px;">
+   <span id="typeDelaiDD_NUM" style="cursor:default;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;display:inline-block;min-width:44px;">DD : 0</span>
    <span id="typeDelaiHD_NUM" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;display:inline-block;min-width:44px;">HD : 0</span>
    <span id="typeSuspendu_NUM" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#b91c1c;font-weight:700;display:inline-block;min-width:60px;">Susp : 0</span>
   </div>
@@ -696,6 +699,10 @@ td.num{text-align:right}
 
 <script>
 let dossiersGlobal=[], dossiersNettoyage=[];
+// Filet de sécurité : le module Firebase (plus haut) définit window._statutOptions
+// de façon DIFFÉRÉE (type="module"), donc ce script classique peut s'exécuter avant.
+// On garantit ici un tableau valide dès le départ pour éviter tout crash.
+if(!window._statutOptions) window._statutOptions = [];
 
 function parseDate(v){
  if(!v) return null;
@@ -1221,15 +1228,18 @@ function updateDelaiCounts(){
  if(suSepPct) suSepPct.textContent="("+pctSuSep+"%)";
 
  [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM"]].forEach(([type,ddId,hdId,suId])=>{
-  let thd=0,tsu=0;
-  horsDelais59.forEach(r=>{
+  let tdd=0,thd=0,tsu=0;
+  (dossiersGlobal||[]).forEach(r=>{
    if(matchTypeAbo(r,type)){
     if(isRowSuspendu(r)) tsu++;
-    else if(!estDansDelai(r)) thd++;
+    else if(estDansDelai(r)) tdd++;
+    else thd++;
    }
   });
+  const elTDD=document.getElementById(ddId);
   const elTHD=document.getElementById(hdId);
   const elTSU=document.getElementById(suId);
+  if(elTDD) elTDD.textContent="DD : "+tdd;
   if(elTHD) elTHD.textContent="HD : "+thd;
   if(elTSU) elTSU.textContent="Susp : "+tsu;
  });
@@ -1244,11 +1254,18 @@ function _updateDelaiSpansUI(){
  if(elDD) elDD.style.outline = ddTopActive ? "2px solid #16a34a" : "none";
  if(elHD) elHD.style.background = hdTopActive ? "#fee2e2" : "transparent";
  if(elHD) elHD.style.outline = hdTopActive ? "2px solid #dc2626" : "none";
+ // DD par produit ne s'affiche qu'en vue par défaut (aucun filtre actif) :
+ // dès qu'on regarde Hors délais / Suspendus / un produit / une cause, DD n'a
+ // plus de sens dans ce périmètre et doit être masqué.
+ const vueParDefaut = !window._filtreTypeActif && !window._filtreDelaiActif && !window._categorieFiltreActive && noStatut;
  [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM"]].forEach(([type,ddId,hdId,suId])=>{
+  const elTDD = document.getElementById(ddId);
   const elTHD = document.getElementById(hdId);
   const elTSU = document.getElementById(suId);
-const hdActive = window._filtreTypeActif===type && window._filtreDelaiActif==="hd" && window._filtreExclureSuspendu && noStatut;
-  const suActive = window._filtreTypeActif===type && window._categorieFiltreActive==="suspendu" && noStatut;if(elTHD) elTHD.style.background = hdActive ? "#fee2e2" : "transparent";
+  if(elTDD) elTDD.style.display = vueParDefaut ? "inline-block" : "none";
+  const hdActive = window._filtreTypeActif===type && window._filtreDelaiActif==="hd" && window._filtreExclureSuspendu && noStatut;
+  const suActive = window._filtreTypeActif===type && window._categorieFiltreActive==="suspendu" && noStatut;
+  if(elTHD) elTHD.style.background = hdActive ? "#fee2e2" : "transparent";
   if(elTHD) elTHD.style.outline = hdActive ? "2px solid #dc2626" : "none";
   if(elTSU) elTSU.style.background = suActive ? "#fecaca" : "transparent";
   if(elTSU) elTSU.style.outline = suActive ? "2px solid #b91c1c" : "none";
