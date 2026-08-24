@@ -167,7 +167,7 @@
 <body>
 <div class="page-header">
   <div>
-    <h1>📄 Résiliations</h1>
+    <h1>📄 Résiliations <button id="btn-reset-tous" onclick="reinitialiserTout()" style="font-size:11.5px;padding:5px 12px;font-weight:500;">🔄 Réinitialiser</button></h1>
     <p class="subtitle">Portail de suivi des résiliations B2B — vue consolidée</p>
   </div>
   <a href="index.html"><button>⬅ Retour</button></a>
@@ -178,8 +178,8 @@
     <span style="font-size:12px;color:var(--text-muted);font-weight:600;">Période :</span>
     <button class="btn-periode" data-periode="jour">Jour</button>
     <button class="btn-periode" data-periode="semaine">Semaine</button>
-    <button class="btn-periode" data-periode="mois">Mois</button>
-    <button class="btn-periode active" data-periode="annee">Année</button>
+    <button class="btn-periode active" data-periode="mois">Mois</button>
+    <button class="btn-periode" data-periode="annee">Année</button>
     <div id="periode-controls" style="display:flex;gap:6px;align-items:center;"></div>
   </div>
 </div>
@@ -320,7 +320,7 @@ function parseRecurent(row) {
 }
 
 // ── Gestion de la période (Jour / Semaine N° / Mois / Année, sélectionnables) ─
-let periodeActuelle = 'annee';
+let periodeActuelle = 'mois';
 
 // Calcul du n° de semaine ISO-8601 d'une date
 function getISOWeek(date) {
@@ -387,7 +387,7 @@ function labelPeriode(periode) {
   if (periode === 'jour') return "du " + formatDateFR(periodeEtat.jour);
   if (periode === 'semaine') return "de la semaine " + periodeEtat.semaineNum + " / " + periodeEtat.semaineAnnee;
   if (periode === 'mois') return "de " + moisNoms[periodeEtat.mois] + " " + periodeEtat.annee;
-  return periodeEtat.annee.toString();
+  return "en " + periodeEtat.annee;
 }
 
 // Années présentes dans les données (pour peupler les sélecteurs)
@@ -453,33 +453,30 @@ function renderPeriodeControls() {
   }
 }
 
-// ── Badges header (Mois en cours / Montant > 1M / Motif QoS) ──────────
-function afficherBadgesHeader() {
-  const data = (typeof dataFiltre !== 'undefined' && dataFiltre && dataFiltre.length) ? dataFiltre : dataGlobal;
+// ── Badges header (Résiliés période sélectionnée / Montant > 1M / Motif QoS) ──
+function afficherBadgesHeader(data) {
   const cont = document.getElementById("badges-header");
   if (!cont) return;
-  if (!data || !data.length) { cont.innerHTML = ""; return; }
-
-  const now = new Date();
-  const moisNoms = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-
-  const dossiersMois = data.filter(r => {
-    const d = getDateFromCell(r["Date résiliation "] || r["Date résiliation"]);
-    return d && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  });
+  if (!data || !data.length) {
+    cont.innerHTML = '<div class="badge-header badge-mois">📅 Résiliés : 0</div>' +
+      '<div class="badge-header badge-montant">💰 Résiliés &gt; 1 000 000 : 0</div>' +
+      '<div class="badge-header badge-qos">🛠️ Motif QoS : 0</div>';
+    window._badgeMoisCourant = []; window._badgeMontant1M = []; window._badgeQoS = [];
+    return;
+  }
 
   const dossiersMontant = data.filter(r => parseRecurent(r) > 1000000);
-
   const dossiersQoS = data.filter(r => String(r["Motif de résiliation"] || "").toUpperCase().includes("QOS"));
   const pctQoS = data.length ? (Math.round((dossiersQoS.length / data.length) * 1000) / 10) : 0;
 
-  window._badgeMoisCourant = dossiersMois;
+  window._badgeMoisCourant = data;
   window._badgeMontant1M = dossiersMontant;
   window._badgeQoS = dossiersQoS;
 
+  const label = labelPeriode(periodeActuelle);
+
   cont.innerHTML =
-    '<div class="badge-header badge-mois" onclick="afficherPopupBadge(\'mois\')">📅 Mois : ' + dossiersMois.length +
-      ' <span style="font-weight:400;opacity:.85;">(' + moisNoms[now.getMonth()] + ')</span></div>' +
+    '<div class="badge-header badge-mois" onclick="afficherPopupBadge(\'mois\')">📅 Résiliés ' + label + ' : ' + data.length + '</div>' +
     '<div class="badge-header badge-montant" onclick="afficherPopupBadge(\'montant\')">💰 Montant &gt; 1 000 000 : ' + dossiersMontant.length + '</div>' +
     '<div class="badge-header badge-qos" onclick="afficherPopupBadge(\'qos\')">🛠️ Motif QoS : ' + dossiersQoS.length +
       ' <span style="font-weight:400;opacity:.85;">(' + pctQoS + '% du total)</span></div>';
@@ -487,9 +484,9 @@ function afficherBadgesHeader() {
 
 function afficherPopupBadge(type) {
   let rows, titre;
-  if (type === 'mois') { rows = window._badgeMoisCourant || []; titre = "Résiliations du mois en cours"; }
-  else if (type === 'montant') { rows = window._badgeMontant1M || []; titre = "Résiliations - Récurent &gt; 1 000 000 FCFA"; }
-  else { rows = window._badgeQoS || []; titre = "Résiliations - Motif QoS"; }
+  if (type === 'mois') { rows = window._badgeMoisCourant || []; titre = "Résiliations " + labelPeriode(periodeActuelle); }
+  else if (type === 'montant') { rows = window._badgeMontant1M || []; titre = "Résiliations - Récurent &gt; 1 000 000 FCFA (" + labelPeriode(periodeActuelle) + ")"; }
+  else { rows = window._badgeQoS || []; titre = "Résiliations - Motif QoS (" + labelPeriode(periodeActuelle) + ")"; }
 
   if (!rows.length) { alert("Aucun dossier trouvé."); return; }
 
@@ -508,15 +505,15 @@ function afficherPopupBadge(type) {
 }
 
 function mettreAJourAffichage() {
-  afficherKPI2026(dataFiltre);
-  afficherTableauMensuel(dataFiltre);
-  afficherBadgesHeader();
   mettreAJourPeriode();
 }
 
 function mettreAJourPeriode() {
   renderPeriodeControls();
   const periodeData = filtrerParPeriode(dataFiltre, periodeActuelle);
+  afficherBadgesHeader(periodeData);
+  afficherKPI2026(periodeData);
+  afficherTableauMensuel(periodeData);
 
   let totalTrie = [...periodeData].sort((a, b) => {
     let da = getDateFromCell(a["Date résiliation "] || a["Date résiliation"]);
@@ -557,8 +554,9 @@ function mettreAJourPeriode() {
         "Liste totale des résiliations " + label + " (" + filtered.length + ") - Total Récurent : " +
         Math.round(recFiltre).toLocaleString("fr-FR") + " FCFA";
 
-      // Mettre à jour Résiliations par motif
+      // Mettre à jour Résiliations par motif + badges
       afficherTableauParMotif(filtered);
+      afficherBadgesHeader(filtered);
     };
   }
 
@@ -572,6 +570,35 @@ function mettreAJourPeriode() {
       mettreAJourPeriode();
     };
   });
+}
+
+// ── Réinitialisation globale : libère tous les filtres et recharge toutes les données ──
+function reinitialiserTout() {
+  // Réinitialiser les données filtrées (recherche globale)
+  dataFiltre = dataGlobal;
+  const searchGlobal = document.getElementById("search");
+  if (searchGlobal) searchGlobal.value = "";
+
+  // Réinitialiser la recherche du tableau total
+  const searchTab = document.getElementById("search-tableau");
+  if (searchTab) searchTab.value = "";
+
+  // Réinitialiser la période sur "Mois en cours"
+  const now = new Date();
+  periodeActuelle = 'mois';
+  periodeEtat = {
+    annee: now.getFullYear(),
+    mois: now.getMonth(),
+    semaineNum: getISOWeek(now),
+    semaineAnnee: now.getFullYear(),
+    jour: new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  };
+  document.querySelectorAll('#periode-selector .btn-periode').forEach(b => b.classList.remove('active'));
+  const btnMois = document.querySelector('#periode-selector .btn-periode[data-periode="mois"]');
+  if (btnMois) btnMois.classList.add('active');
+
+  // Tout réafficher à partir des données complètes
+  mettreAJourAffichage();
 }
 
 function afficherKPI2026(data) {
