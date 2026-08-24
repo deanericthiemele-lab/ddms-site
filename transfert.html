@@ -168,6 +168,15 @@
       return headers[0] || '';
     }
 
+    function guessIdColumn(headers){
+      const prefs = ['ID DOSSIER','N° DOSSIER','NUMERO DOSSIER','NUM DOSSIER','ID_DOSSIER'];
+      const map = headers.reduce((acc,h)=>{ acc[h.toUpperCase()] = h; return acc; },{});
+      for(const p of prefs){ if(map[p]) return map[p]; }
+      for(const h of headers){ if(h.toUpperCase().includes('ID') && h.toUpperCase().includes('DOSSIER')) return h; }
+      for(const h of headers){ if(h.toUpperCase().includes('DOSSIER')) return h; }
+      return headers[0] || '';
+    }
+
     function guessTypeColumn(headers){
       const prefs = ['TYPE','CATEGORIE','MOUVEMENT','ACTION','NATURE','OPERATION'];
       const map = headers.reduce((acc,h)=>{ acc[h.toUpperCase()] = h; return acc; },{});
@@ -248,10 +257,79 @@
         pill.innerHTML = '<strong>' + type.charAt(0).toUpperCase() + type.slice(1) + ':</strong> ' + count;
         vol.appendChild(pill);
       });
-      const total = document.createElement('span');
-      total.className = 'pill';
-      total.innerHTML = '<strong>Total lignes:</strong> ' + rows.length;
-      vol.appendChild(total);
+      const DATE_COL = "DATE CREATION DOSSIER";
+      const now = Date.now();
+      let sumAge = 0, cntAge = 0; const over10 = [];
+      rows.forEach(function(r){
+        const d = toDate(r[DATE_COL]);
+        if(!d || d.getTime() === 0) return;
+        const age = Math.floor((now - d.getTime()) / 86400000);
+        if(age < 0) return;
+        sumAge += age; cntAge++;
+        if(age > 10) over10.push(r);
+      });
+      const avgAge = cntAge ? Math.round(sumAge / cntAge) : 0;
+
+      const totalLine = document.createElement('span');
+      totalLine.style.cssText = 'font-size:19px;font-weight:800;color:#111827;margin-left:4px;display:inline-flex;align-items:center;gap:10px;white-space:nowrap;';
+      totalLine.innerHTML =
+        rows.length + ' dossiers' +
+        ' <span style="color:#d1d5db;font-weight:400;">|</span> ' +
+        avgAge + 'j Age moyen' +
+        ' <span style="color:#d1d5db;font-weight:400;">|</span> ' +
+        '<span id="oldDossiersLink" style="color:#dc2626;cursor:pointer;text-decoration:underline;text-underline-offset:3px;">Dossiers &gt; 10j (' + over10.length + ')</span>';
+      vol.appendChild(totalLine);
+
+      const oldLink = document.getElementById('oldDossiersLink');
+      if(oldLink) oldLink.addEventListener('click', function(){ openOldDossiersPopup(over10); });
+    }
+
+    function openOldDossiersPopup(rows){
+      const idCol = guessIdColumn(state.headers);
+      const clientCol = guessClientColumn(state.headers);
+      const cols = [idCol, 'DATE CREATION DOSSIER', 'TYPE OPERATION TM', clientCol];
+      const labels = ['ID Dossier', 'Date création', 'Type opération TM', 'Nom client'];
+
+      const header = document.getElementById('popup-etape-header');
+      const title  = document.getElementById('popup-etape-title');
+      const body   = document.getElementById('popup-etape-body');
+      const modal  = document.getElementById('popup-etape');
+      const box    = modal.querySelector(':scope > div');
+
+      header.style.cssText = 'padding:14px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#dc2626,#1e293b);';
+      title.textContent = '⏳ Dossiers > 10 jours — ' + rows.length + ' dossier' + (rows.length > 1 ? 's' : '');
+      if (box) box.style.maxWidth = '760px';
+
+      const sorted = rows.slice().sort(function(a,b){ return toDate(a['DATE CREATION DOSSIER']) - toDate(b['DATE CREATION DOSSIER']); });
+
+      const tbl = document.createElement('table');
+      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      hr.style.cssText = 'background:#f3f4f6;position:sticky;top:0;z-index:1;';
+      labels.forEach(function(l){
+        const th = document.createElement('th');
+        th.style.cssText = 'padding:8px 8px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;font-size:12px;color:#374151;';
+        th.textContent = l; hr.appendChild(th);
+      });
+      thead.appendChild(hr); tbl.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      sorted.forEach(function(r, i){
+        const tr = document.createElement('tr');
+        tr.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
+        cols.forEach(function(h, j){
+          const td = document.createElement('td');
+          td.style.cssText = 'padding:6px 8px;border-bottom:1px dashed #e5e7eb;white-space:nowrap;';
+          let v = r[h]; if (v == null) v = '';
+          if (j === 0) td.style.fontWeight = '700';
+          td.textContent = String(v); tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      body.innerHTML = ''; body.appendChild(tbl);
+      modal.style.display = 'flex';
     }
 
     function parseWorkbook(arrayBuffer) {
@@ -393,6 +471,8 @@
 
       header.style.cssText = 'padding:14px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,' + color + ',#1e293b);';
       title.textContent = '🔄 Étape : ' + etapeLabel + ' — ' + rows.length + ' dossier' + (rows.length > 1 ? 's' : '');
+      var box0 = document.getElementById('popup-etape').querySelector(':scope > div');
+      if (box0) box0.style.maxWidth = '1100px';
 
       var cols = state.headers;
       var tbl = document.createElement('table');
