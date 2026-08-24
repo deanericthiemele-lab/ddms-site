@@ -6,7 +6,7 @@
 <title>NOC B2B — Espace Pilotage OCI</title>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, setDoc, getDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, setDoc, getDoc, query, orderBy, onSnapshot, where } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
   import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-storage.js";
   const cfg = {
     apiKey:"AIzaSyC4zvX8M3dyiGLjwQxYYensN2xYBgME_Mc",
@@ -24,6 +24,7 @@
   window._doc=doc; window._upd=updateDoc; window._del=deleteDoc;
   window._set=setDoc; window._getDoc=getDoc;
   window._q=query; window._ord=orderBy;
+  window._onSnap=onSnapshot; window._where=where;
   window._ref=ref; window._upb=uploadBytesResumable; window._url=getDownloadURL;
   window.dispatchEvent(new Event('fbReady'));
 
@@ -39,6 +40,7 @@
   };
   const appPriBck = initializeApp(cfgPriBck, "pribck");
   const dbPriBck  = getFirestore(appPriBck);
+  window._dbPriBck = dbPriBck;
   window._pribckData = [];
   getDocs(collection(dbPriBck, 'pribck_liaisons')).then(snap=>{
     const arr = [];
@@ -513,6 +515,7 @@ function applyRole(){
   <div class="si" data-page="tickets-indispo" onclick="nav(this)"><span class="si-ico">🎫</span>Ouverture de ticket<span class="si-badge" id="b-tickets">0</span></div>
   <div class="si" data-page="rapport-journalier" onclick="nav(this)"><span class="si-ico">📅</span>Rapport journalier</div>
   <div class="si" data-page="contacts" onclick="nav(this)"><span class="si-ico">📋</span>Contact client</div>
+  <div class="si" data-page="pda" onclick="nav(this)"><span class="si-ico">📌</span>PDA</div>
 
 </div>
 
@@ -1972,6 +1975,190 @@ async function deleteContact(id){
 
 </script>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════ PAGE: PDA (Plan d'Actions — Comité ASM) -->
+<div class="page" id="page-pda">
+<div class="ph">
+  <div><div class="ph-title">📌 Plan d'Actions (PDA)</div><div class="ph-sub">Comité ASM — partagé avec le portail PDA Comités et ASM Knowledge</div></div>
+  <div class="ph-sp"></div>
+  <button class="btn btn-v btn-sm" onclick="pdaAsmAddAction()">＋ Ajouter une action</button>
+</div>
+<div id="pdaAsmSyncing" style="display:none;font-size:11px;color:var(--n4);margin-bottom:8px;">Synchronisation…</div>
+<div id="pdaAsmErrorBox" style="display:none;background:#fdecea;border:1px solid #f5c2c0;color:#c0392b;padding:6px 10px;border-radius:4px;font-size:12px;margin-bottom:10px;"></div>
+<div class="tbl-wrap">
+  <table>
+    <thead><tr>
+      <th style="width:130px;">Délai</th><th>Action</th><th style="width:110px;">Porteur</th><th style="width:110px;">Statut</th><th>Commentaire</th><th style="width:70px;"></th>
+    </tr></thead>
+    <tbody id="pdaRows"></tbody>
+  </table>
+</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// PDA — Plan d'Actions (partagé avec asm.html / pda.html)
+// Même collection Firestore "pda_actions" (projet ddms-architectures),
+// filtrée sur comite === "ASM"
+// ═══════════════════════════════════════════════════════════
+const PDA_ASM_COMITE = "ASM";
+let _pdaAsmUnsub = null;
+let _pdaAsmActions = [];
+let _pdaAsmSubscribed = false;
+
+function _pdaAsmTodayISO(){
+  const dte = new Date();
+  const mm = String(dte.getMonth()+1).padStart(2,"0");
+  const dd = String(dte.getDate()).padStart(2,"0");
+  return dte.getFullYear()+"-"+mm+"-"+dd;
+}
+function _pdaAsmStatusColor(status){
+  if(status==="Terminé") return "color:#2e7d32;background:#e8f5e9;";
+  if(status==="En cours") return "color:#185FA5;background:#E6F1FB;";
+  return "color:#607d8b;background:#eceff1;";
+}
+function _pdaAsmSyncing(on){
+  const el=document.getElementById("pdaAsmSyncing"); if(el) el.style.display = on ? "block" : "none";
+}
+function _pdaAsmShowError(msg){
+  const el=document.getElementById("pdaAsmErrorBox"); if(!el) return;
+  el.textContent = "⚠️ " + msg; el.style.display = "block";
+}
+
+function pdaAsmSubscribe(){
+  if(!window._dbPriBck || !window._onSnap){ return; }
+  if(_pdaAsmUnsub) _pdaAsmUnsub();
+  _pdaAsmSyncing(true);
+  try{
+    const q = window._q(window._col(window._dbPriBck, "pda_actions"), window._where("comite","==",PDA_ASM_COMITE));
+    _pdaAsmUnsub = window._onSnap(q, function(snap){
+      _pdaAsmActions = snap.docs.map(d=>Object.assign({_id:d.id}, d.data()));
+      _pdaAsmActions.sort((a,b)=>{
+        const da = a.date || "9999", db_ = b.date || "9999";
+        return da < db_ ? -1 : da > db_ ? 1 : 0;
+      });
+      _pdaAsmSyncing(false);
+      pdaAsmRenderRows();
+    }, function(err){
+      _pdaAsmSyncing(false);
+      _pdaAsmShowError("Synchronisation : " + err.message);
+    });
+  } catch(err){
+    _pdaAsmSyncing(false);
+    _pdaAsmShowError("Firebase : " + err.message);
+  }
+}
+
+function pdaAsmRenderRows(){
+  const tbody = document.getElementById("pdaRows");
+  if(!tbody) return;
+  const visibles = _pdaAsmActions.filter(a=>a.status!=="Terminé");
+  if(!visibles.length){
+    tbody.innerHTML = '<tr><td colspan="6" class="empty"><div class="empty-ico">📌</div><div class="empty-txt">Aucune action en cours. Cliquez sur « ＋ Ajouter une action ».</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = visibles.map(a=>{
+    const statusVal = a.status || "En cours";
+    const badgeStyle = _pdaAsmStatusColor(statusVal);
+    const dateVal = a.date || _pdaAsmTodayISO();
+    return `<tr data-id="${a._id}">
+      <td><input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;width:118px;"></td>
+      <td><input type="text" class="pda-f-action" value="${(a.action||"").replace(/"/g,'&quot;')}" placeholder="Action…" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:100%;min-width:160px;"></td>
+      <td><input type="text" class="pda-f-porteur" value="${(a.porteur||"").replace(/"/g,'&quot;')}" placeholder="Porteur" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:95px;"></td>
+      <td><select class="pda-f-status" style="font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;font-weight:600;${badgeStyle}">
+        <option value="En cours" ${statusVal!=="Terminé"?"selected":""}>En cours</option>
+        <option value="Terminé" ${statusVal==="Terminé"?"selected":""}>Réalisé</option>
+      </select></td>
+      <td><input type="text" class="pda-f-comment" value="${(a.comment||"").replace(/"/g,'&quot;')}" placeholder="Commentaire" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:100%;min-width:120px;"></td>
+      <td style="white-space:nowrap;">
+        <button class="btn btn-sm btn-out" title="Enregistrer" onclick="pdaAsmSaveRow(this.closest('tr'))">💾</button>
+        <button class="btn btn-sm btn-out" title="Supprimer" onclick="pdaAsmDeleteRow(this.closest('tr').dataset.id)">🗑</button>
+      </td>
+    </tr>`;
+  }).join("");
+
+  tbody.querySelectorAll(".pda-f-status").forEach(sel=>{
+    sel.addEventListener("change", function(){
+      this.setAttribute("style", "font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;font-weight:600;"+_pdaAsmStatusColor(this.value));
+    });
+  });
+}
+
+async function pdaAsmSaveRow(tr){
+  if(APP_ROLE==='visitor'){toast('🔒 Accès lecture seule — connexion admin requise','err');return;}
+  const id = tr.dataset.id;
+  const date = tr.querySelector(".pda-f-date").value || _pdaAsmTodayISO();
+  const action = tr.querySelector(".pda-f-action").value.trim();
+  const porteur = tr.querySelector(".pda-f-porteur").value.trim();
+  const status = tr.querySelector(".pda-f-status").value;
+  const comment = tr.querySelector(".pda-f-comment").value.trim();
+  if(!action){ toast("Le champ Action est requis","err"); return; }
+  try{
+    _pdaAsmSyncing(true);
+    await window._upd(window._doc(window._dbPriBck, "pda_actions", id), { date, action, porteur, status, comment });
+    _pdaAsmSyncing(false);
+    toast("Action enregistrée ✓","ok");
+    if(status==="Terminé"){
+      const idx = _pdaAsmActions.findIndex(a=>a._id===id);
+      if(idx>-1) _pdaAsmActions[idx].status = "Terminé";
+      pdaAsmRenderRows();
+    }
+  } catch(err){
+    _pdaAsmSyncing(false);
+    _pdaAsmShowError("Enregistrement : " + err.message);
+  }
+}
+
+async function pdaAsmDeleteRow(id){
+  if(APP_ROLE!=='superadmin'){toast('🔒 Suppression réservée au Super Admin','err');return;}
+  if(!confirm("Supprimer cette action ?")) return;
+  try{
+    _pdaAsmSyncing(true);
+    await window._del(window._doc(window._dbPriBck, "pda_actions", id));
+    _pdaAsmSyncing(false);
+    toast("Action supprimée ✓","ok");
+  } catch(err){
+    _pdaAsmSyncing(false);
+    _pdaAsmShowError("Suppression : " + err.message);
+  }
+}
+
+async function pdaAsmAddAction(){
+  if(APP_ROLE==='visitor'){toast('🔒 Accès lecture seule — connexion admin requise','err');return;}
+  if(!window._dbPriBck){ toast("Connexion PDA en cours, réessayez dans un instant.","err"); return; }
+  try{
+    _pdaAsmSyncing(true);
+    await window._add(window._col(window._dbPriBck, "pda_actions"), {
+      comite: PDA_ASM_COMITE,
+      date: _pdaAsmTodayISO(),
+      action: "",
+      porteur: "",
+      status: "En cours",
+      objectif: "",
+      comment: "",
+      important: false,
+      createdAt: Date.now()
+    });
+    _pdaAsmSyncing(false);
+  } catch(err){
+    _pdaAsmSyncing(false);
+    _pdaAsmShowError("Ajout : " + err.message);
+  }
+}
+
+// S'abonner dès que la connexion secondaire (projet ddms-architectures) est prête.
+// "pribckReady" est le signal normal ; "fbReady" + setTimeout(0) sert de filet de sécurité
+// si le chargement des liaisons PRI/BCK échoue (window._dbPriBck est déjà défini à ce moment-là).
+window.addEventListener('pribckReady', function(){
+  if(!_pdaAsmSubscribed){ _pdaAsmSubscribed = true; pdaAsmSubscribe(); }
+});
+window.addEventListener('fbReady', function(){
+  setTimeout(function(){
+    if(window._dbPriBck && !_pdaAsmSubscribed){ _pdaAsmSubscribed = true; pdaAsmSubscribe(); }
+  }, 0);
+});
+if(window._dbPriBck && !_pdaAsmSubscribed){ _pdaAsmSubscribed = true; pdaAsmSubscribe(); }
+</script>
 
 <!-- ═══════════════════════════════════════════════════════ PAGE: ROADMAP -->
 <div class="page" id="page-roadmap">

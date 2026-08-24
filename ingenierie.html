@@ -846,6 +846,7 @@ document.addEventListener("DOMContentLoaded", function() {
     <div class="si" data-page="prevision" onclick="switchPage('prevision')"><span class="si-ico">📈</span>Prévision de coupures</div>
     <div class="si" data-page="carte" onclick="ouvrirMapIncident()"><span class="si-ico">🗺️</span>Map Incident</div>
     <div class="si" data-page="pribck" onclick="switchPage('pribck', this)"><span class="si-ico">🔍</span>Recherche PRI et BCK</div>
+    <div class="si" data-page="pda" onclick="switchPage('pda', this)"><span class="si-ico">📋</span>PDA</div>
    </div>
 
    <div id="main">
@@ -916,6 +917,32 @@ document.addEventListener("DOMContentLoaded", function() {
             onfocus="this.style.boxShadow='0 1px 10px rgba(0,0,0,.16)'" onblur="this.style.boxShadow='0 1px 6px rgba(0,0,0,.08)'"/>
           <div id="pribck-results" style="position:absolute;top:calc(100% + 8px);left:0;right:0;background:#fff;border:1px solid var(--n5);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.14);max-height:420px;overflow:auto;z-index:10;"></div>
         </div>
+      </div>
+    </div>
+
+    <!-- ===== PAGE PDA (Plan d'Actions — Comité QoS et Perf) ===== -->
+    <div class="page" id="page-pda">
+      <div class="ph">
+        <div class="ph-title">📋 Plan d'Actions (PDA)</div>
+      </div>
+      <div style="font-size:12px;color:var(--n3);margin:-10px 0 14px;">Comité QoS et Perf — partagé avec le portail PDA Comités</div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:12px;">
+        <button class="btn btn-v" id="pdaAddBtn" onclick="pdaAddAction()">＋ Ajouter une action</button>
+      </div>
+      <div id="pdaSyncing" style="display:none;font-size:11px;color:var(--n3);margin-bottom:8px;">Synchronisation…</div>
+      <div id="pdaErrorBox" style="display:none;background:#fdecea;border:1px solid #f5c2c0;color:#c0392b;padding:6px 10px;border-radius:4px;font-size:12px;margin-bottom:10px;"></div>
+      <div class="tbl-wrap">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#f7f9fb;">
+            <th style="text-align:left;padding:8px 10px;font-size:10.5px;color:#666;text-transform:uppercase;border-bottom:1px solid var(--n5);width:130px;">Délai</th>
+            <th style="text-align:left;padding:8px 10px;font-size:10.5px;color:#666;text-transform:uppercase;border-bottom:1px solid var(--n5);">Action</th>
+            <th style="text-align:left;padding:8px 10px;font-size:10.5px;color:#666;text-transform:uppercase;border-bottom:1px solid var(--n5);width:110px;">Porteur</th>
+            <th style="text-align:left;padding:8px 10px;font-size:10.5px;color:#666;text-transform:uppercase;border-bottom:1px solid var(--n5);width:110px;">Statut</th>
+            <th style="text-align:left;padding:8px 10px;font-size:10.5px;color:#666;text-transform:uppercase;border-bottom:1px solid var(--n5);">Commentaire</th>
+            <th style="border-bottom:1px solid var(--n5);width:70px;"></th>
+          </tr></thead>
+          <tbody id="pdaRows"></tbody>
+        </table>
       </div>
     </div>
 
@@ -11459,6 +11486,153 @@ function exporterNDsDeuxMoisExcel() {
       XLSX.utils.book_append_sheet(wb, ws, 'Liaisons PRI BCK');
       XLSX.writeFile(wb, 'liaisons_pri_bck.xlsx');
     }
+
+    // ═══ Logique PDA — Plan d'Actions (Comités / QoS et Perf) ═══
+    // Réutilise la connexion Firestore compat "dbPriBck" (projet ddms-architectures) déjà établie plus haut
+    const PDA_COMITE = "QoS et Perf";
+    let _pdaUnsub = null;
+    let _pdaActions = [];
+    let _pdaLoaded = false;
+
+    function _pdaTodayISO(){
+      const dte = new Date();
+      const mm = String(dte.getMonth()+1).padStart(2,"0");
+      const dd = String(dte.getDate()).padStart(2,"0");
+      return dte.getFullYear()+"-"+mm+"-"+dd;
+    }
+    function _pdaStatusColor(status){
+      if(status==="Terminé") return "color:#2e7d32;background:#e8f5e9;";
+      if(status==="En cours") return "color:#185FA5;background:#E6F1FB;";
+      return "color:#607d8b;background:#eceff1;";
+    }
+    function _pdaSyncing(on){
+      const el=document.getElementById("pdaSyncing"); if(el) el.style.display = on ? "block" : "none";
+    }
+    function _pdaShowError(msg){
+      const el=document.getElementById("pdaErrorBox"); if(!el) return;
+      el.textContent = "⚠️ " + msg; el.style.display = "block";
+    }
+
+    function pdaSubscribe(){
+      if(_pdaLoaded) return;
+      _pdaLoaded = true;
+      if(!dbPriBck){ _pdaShowError("Firebase non connecté."); return; }
+      if(_pdaUnsub) _pdaUnsub();
+      _pdaSyncing(true);
+      try{
+        _pdaUnsub = dbPriBck.collection("pda_actions").where("comite","==",PDA_COMITE).onSnapshot(function(snap){
+          _pdaActions = snap.docs.map(d=>Object.assign({_id:d.id}, d.data()));
+          _pdaActions.sort((a,b)=>{
+            const da = a.date || "9999", db_ = b.date || "9999";
+            return da < db_ ? -1 : da > db_ ? 1 : 0;
+          });
+          _pdaSyncing(false);
+          pdaRenderRows();
+        }, function(err){
+          _pdaSyncing(false);
+          _pdaShowError("Synchronisation : " + err.message);
+        });
+      } catch(err){
+        _pdaSyncing(false);
+        _pdaShowError("Firebase : " + err.message);
+      }
+    }
+
+    function pdaRenderRows(){
+      const tbody = document.getElementById("pdaRows");
+      if(!tbody) return;
+      const visibles = _pdaActions.filter(a=>a.status!=="Terminé");
+      if(!visibles.length){
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:16px 6px;font-size:12px;">Aucune action en cours. Cliquez sur « ＋ Ajouter une action ».</td></tr>';
+        return;
+      }
+      tbody.innerHTML = visibles.map(a=>{
+        const statusVal = a.status || "En cours";
+        const badgeStyle = _pdaStatusColor(statusVal);
+        const dateVal = a.date || _pdaTodayISO();
+        return `<tr data-id="${a._id}" style="border-bottom:1px solid #f0f2f5;">
+          <td style="padding:6px 8px;"><input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;width:128px;"></td>
+          <td style="padding:6px 8px;"><input type="text" class="pda-f-action" value="${(a.action||"").replace(/"/g,'&quot;')}" placeholder="Action…" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:100%;min-width:160px;"></td>
+          <td style="padding:6px 8px;"><input type="text" class="pda-f-porteur" value="${(a.porteur||"").replace(/"/g,'&quot;')}" placeholder="Porteur" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:95px;"></td>
+          <td style="padding:6px 8px;"><select class="pda-f-status" style="font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;font-weight:600;${badgeStyle}">
+            <option value="En cours" ${statusVal!=="Terminé"?"selected":""}>En cours</option>
+            <option value="Terminé" ${statusVal==="Terminé"?"selected":""}>Réalisé</option>
+          </select></td>
+          <td style="padding:6px 8px;"><input type="text" class="pda-f-comment" value="${(a.comment||"").replace(/"/g,'&quot;')}" placeholder="Commentaire" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:100%;min-width:120px;"></td>
+          <td style="padding:6px 8px;white-space:nowrap;">
+            <button title="Enregistrer" onclick="pdaSaveRow(this.closest('tr'))" style="background:none;border:none;cursor:pointer;font-size:14px;">💾</button>
+            <button title="Supprimer" onclick="pdaDeleteRow(this.closest('tr').dataset.id)" style="background:none;border:none;cursor:pointer;font-size:14px;">🗑</button>
+          </td>
+        </tr>`;
+      }).join("");
+
+      tbody.querySelectorAll(".pda-f-status").forEach(sel=>{
+        sel.addEventListener("change", function(){
+          this.setAttribute("style", "font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;font-weight:600;"+_pdaStatusColor(this.value));
+        });
+      });
+    }
+
+    async function pdaSaveRow(tr){
+      const id = tr.dataset.id;
+      const date = tr.querySelector(".pda-f-date").value || _pdaTodayISO();
+      const action = tr.querySelector(".pda-f-action").value.trim();
+      const porteur = tr.querySelector(".pda-f-porteur").value.trim();
+      const status = tr.querySelector(".pda-f-status").value;
+      const comment = tr.querySelector(".pda-f-comment").value.trim();
+      if(!action){ alert("Le champ Action est requis."); return; }
+      try{
+        _pdaSyncing(true);
+        await dbPriBck.collection("pda_actions").doc(id).update({ date, action, porteur, status, comment });
+        _pdaSyncing(false);
+        if(status==="Terminé"){
+          const idx = _pdaActions.findIndex(a=>a._id===id);
+          if(idx>-1) _pdaActions[idx].status = "Terminé";
+          pdaRenderRows();
+        }
+      } catch(err){
+        _pdaSyncing(false);
+        _pdaShowError("Enregistrement : " + err.message);
+      }
+    }
+
+    async function pdaDeleteRow(id){
+      if(!confirm("Supprimer cette action ?")) return;
+      try{
+        _pdaSyncing(true);
+        await dbPriBck.collection("pda_actions").doc(id).delete();
+        _pdaSyncing(false);
+      } catch(err){
+        _pdaSyncing(false);
+        _pdaShowError("Suppression : " + err.message);
+      }
+    }
+
+    async function pdaAddAction(){
+      if(!dbPriBck){ alert("Connexion PDA en cours, réessayez dans un instant."); return; }
+      try{
+        _pdaSyncing(true);
+        await dbPriBck.collection("pda_actions").add({
+          comite: PDA_COMITE,
+          date: _pdaTodayISO(),
+          action: "",
+          porteur: "",
+          status: "En cours",
+          objectif: "",
+          comment: "",
+          important: false,
+          createdAt: Date.now()
+        });
+        _pdaSyncing(false);
+      } catch(err){
+        _pdaSyncing(false);
+        _pdaShowError("Ajout : " + err.message);
+      }
+    }
+
+    // Charger le PDA au premier affichage de l'onglet (comme les autres outils "lazy")
+    _lazyMap.pda = '__lazyInitPda';
+    window.__lazyInitPda = pdaSubscribe;
   </script>
 </body>
 </html>
