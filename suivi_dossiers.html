@@ -103,6 +103,109 @@ window._getStatutDate = function(id) {
   return entry.updatedAt || "";
 };
 
+// ── Dates de projet (début/fin) — pour calculer les "Projets en retard" ──
+window._projetDates = {};
+onValue(ref(db, "projet_dates"), (snapshot) => {
+  window._projetDates = snapshot.val() || {};
+  if(typeof window.updateDelaiCounts === "function") window.updateDelaiCounts();
+  if(typeof window.updateDmrCauses === "function") window.updateDmrCauses();
+  if(typeof window.filtrerEtAfficher === "function") window.filtrerEtAfficher();
+});
+window._getProjetDates = function(id) {
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  return window._projetDates[safeKey] || null;
+};
+window._saveProjetDates = async function(id, dateDebut, dateFin, notify) {
+  if(!id) return;
+  if(notify === undefined) notify = true;
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  const entry = { dateDebut: dateDebut || "", dateFin: dateFin || "" };
+  try {
+    await set(ref(db, "projet_dates/" + safeKey), entry);
+    window._projetDates[safeKey] = entry;
+    if(notify){
+      if(typeof window.updateDelaiCounts === "function") window.updateDelaiCounts();
+      if(typeof window.updateDmrCauses === "function") window.updateDmrCauses();
+      if(typeof window.filtrerEtAfficher === "function") window.filtrerEtAfficher();
+    }
+  } catch(e) {
+    console.error("Erreur Firebase projet_dates:", e);
+  }
+};
+// Un projet est "en retard" si sa date de fin est dépassée (fin de journée incluse)
+window._isProjetEnRetardById = function(id) {
+  const statut = window._getStatut ? window._getStatut(id) : "";
+  if(!(window._getCategorieStatut && window._getCategorieStatut(statut)==="projet")) return false;
+  const dates = window._getProjetDates ? window._getProjetDates(id) : null;
+  if(!dates || !dates.dateFin) return false;
+  const fin = new Date(dates.dateFin);
+  if(isNaN(fin)) return false;
+  fin.setHours(23,59,59,999);
+  return Date.now() > fin.getTime();
+};
+
+// Popup de saisie des dates début/fin de projet
+window._pendingProjetId = null;
+window._pendingProjetClient = null;
+window._openProjetDatesPopup = function(id){
+  window._pendingProjetId = id;
+  window._pendingProjetClient = null;
+  const rows = window.dossiersGlobal || [];
+  const row = rows.find(r => (r["ID DOSSIER"]||"").toString().trim() === id);
+  if(row) window._pendingProjetClient = (row["CLIENT"]||"").toString().trim();
+  const existing = window._getProjetDates ? (window._getProjetDates(id) || {}) : {};
+  const labelEl = document.getElementById("projetDatesLabel");
+  const debutEl = document.getElementById("projetDateDebutInput");
+  const finEl = document.getElementById("projetDateFinInput");
+  const appliquerToutEl = document.getElementById("projetDatesAppliquerTout");
+  const popupEl = document.getElementById("popupProjetDates");
+  if(labelEl) labelEl.textContent = "Dossier : " + id + (window._pendingProjetClient ? " (" + window._pendingProjetClient + ")" : "");
+  if(debutEl) debutEl.value = existing.dateDebut || "";
+  if(finEl) finEl.value = existing.dateFin || "";
+  if(appliquerToutEl) appliquerToutEl.checked = false;
+  if(popupEl) popupEl.style.display = "flex";
+};
+window._closeProjetDatesPopup = async function(annule){
+  const id = window._pendingProjetId;
+  const client = window._pendingProjetClient;
+  const popupEl = document.getElementById("popupProjetDates");
+  if(annule || !id){
+    if(popupEl) popupEl.style.display = "none";
+    window._pendingProjetId = null;
+    window._pendingProjetClient = null;
+    return;
+  }
+  const debutEl = document.getElementById("projetDateDebutInput");
+  const finEl = document.getElementById("projetDateFinInput");
+  const appliquerToutEl = document.getElementById("projetDatesAppliquerTout");
+  const dateDebut = debutEl ? debutEl.value : "";
+  const dateFin = finEl ? finEl.value : "";
+  if(!dateDebut || !dateFin){
+    alert("Merci de renseigner la date de début ET la date de fin du projet.");
+    return; // popup reste ouverte tant que les 2 dates ne sont pas remplies
+  }
+  const appliquerTout = !!(appliquerToutEl && appliquerToutEl.checked);
+  if(appliquerTout && client && window._saveProjetDates){
+    // Applique les mêmes dates à tous les dossiers du même client (même projet)
+    const rows = window.dossiersGlobal || [];
+    const ids = rows
+      .filter(r => (r["CLIENT"]||"").toString().trim() === client)
+      .map(r => (r["ID DOSSIER"]||"").toString().trim())
+      .filter(Boolean);
+    for(const dId of ids){
+      await window._saveProjetDates(dId, dateDebut, dateFin, false);
+    }
+    if(typeof window.updateDelaiCounts === "function") window.updateDelaiCounts();
+    if(typeof window.updateDmrCauses === "function") window.updateDmrCauses();
+    if(typeof window.filtrerEtAfficher === "function") window.filtrerEtAfficher();
+  } else if(window._saveProjetDates){
+    await window._saveProjetDates(id, dateDebut, dateFin);
+  }
+  if(popupEl) popupEl.style.display = "none";
+  window._pendingProjetId = null;
+  window._pendingProjetClient = null;
+};
+
 window._saveSolution = async function(id, val) {
   if(!id) return;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
@@ -427,10 +530,29 @@ td.num{text-align:right}
 <div style="display:flex;align-items:flex-start;gap:22px;margin-top:10px;flex-wrap:wrap;">
 <h1 id="resume" style="margin:0;">Dossiers : 0</h1>
 <div class="subresume" id="delaiResume" style="margin-top:2px;">
- <span id="delaiDD" style="cursor:default;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;">Dossiers dans les délais : 0</span> |
+ <span id="delaiDD" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;">Dossiers dans les délais : 0</span> |
  <span id="delaiHD" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;">Dossiers hors délais : 0</span> |
- <button id="btnCatProjets" style="background:none;border:none;padding:2px 6px;border-radius:4px;cursor:pointer;font-weight:700;color:#7c3aed;font-size:inherit;font-family:inherit;">🟣 Projets : <span id="projetsHorsDelaisCount">0</span> <span id="projetsHorsDelaisPct" style="font-size:11px;font-weight:600;color:#888;">(0%)</span></button>
+ <button id="btnCatSuspendus" style="background:none;border:none;padding:2px 6px;border-radius:4px;cursor:pointer;font-weight:700;color:#dc2626;font-size:inherit;font-family:inherit;">🔴 Dossiers suspendus : <span id="suspendusHorsDelaisCount">0</span> <span id="suspendusHorsDelaisPct">(0%)</span></button> |
+ <button id="btnCatProjets" style="background:none;border:none;padding:2px 6px;border-radius:4px;cursor:pointer;font-weight:700;color:#7c3aed;font-size:inherit;font-family:inherit;">🟣 Projets : <span id="projetsHorsDelaisCount">0</span> <span id="projetsHorsDelaisPct">(0%)</span></button>
 </div>
+</div>
+<div class="subresume" id="ageMoyenResume" style="display:flex;gap:0;flex-wrap:wrap;padding:8px;border:1px solid #ccc;border-radius:6px;margin-bottom:10px;">
+ <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenDDCol">
+  <div style="font-size:11px;color:#666;">Âge moyen</div>
+  <div id="ageMoyenDD" style="font-size:17px;font-weight:800;color:#16a34a;">-</div>
+ </div>
+ <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenHDCol">
+  <div style="font-size:11px;color:#666;">Âge moyen</div>
+  <div id="ageMoyenHorsDelais" style="font-size:17px;font-weight:800;color:#dc2626;">-</div>
+ </div>
+ <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenSuspenduCol">
+  <div style="font-size:11px;color:#666;">Âge moyen</div>
+  <div id="ageMoyenSuspendu" style="font-size:17px;font-weight:800;color:#dc2626;">-</div>
+ </div>
+ <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenProjetCol">
+  <div style="font-size:11px;color:#666;">Âge moyen</div>
+  <div id="ageMoyenProjet" style="font-size:17px;font-weight:800;color:#7c3aed;">-</div>
+ </div>
 </div>
 <div class="subresume" id="subresume" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
  <div class="type-col" style="min-width:170px;">
@@ -461,28 +583,7 @@ td.num{text-align:right}
   </div>
  </div>
 </div>
-<div id="detailsHorsDelaisTitle" style="font-size:14px;font-weight:700;color:#dc2626;margin:10px 0 6px;">Détails des hors délais</div>
-<div id="catCoursSuspendusBlock" style="border:1px solid #ddd;border-radius:8px;padding:10px 16px;margin-top:6px;margin-bottom:10px;background:#fafafa;display:flex;align-items:flex-start;gap:28px;flex-wrap:wrap;">
- <div class="cat-col">
-  <div id="btnCatHorsDelais" style="font-size:13px;font-weight:700;color:#dc2626;padding:2px 6px;border-radius:4px;cursor:pointer;">
-   🔴 Hors délais : <span id="horsDelaisNonSuspendusCount">0</span> <span id="horsDelaisNonSuspendusPct" style="font-size:11px;font-weight:600;color:#888;">(0%)</span>
-  </div>
-  <div style="margin-top:6px;padding:2px 6px;">
-   <div style="color:#666;font-size:11px;">Âge moyen</div>
-   <div id="ageMoyenHorsDelais" style="font-size:17px;font-weight:800;color:#b45309;cursor:pointer;" title="Cliquer pour filtrer les dossiers hors délais">-</div>
-  </div>
- </div>
- <div class="cat-col">
-  <button id="btnCatSuspendus" style="background:none;border:1px solid transparent;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:700;color:#dc2626;">
-   🔴 Suspendus : <span id="suspendusHorsDelaisCount">0</span> <span id="suspendusHorsDelaisPct" style="font-size:11px;font-weight:600;color:#888;">(0%)</span>
-  </button>
-  <div style="margin-top:6px;padding:2px 6px;">
-   <div style="color:#666;font-size:11px;">Âge moyen</div>
-   <div id="ageMoyenSuspendu" style="font-size:17px;font-weight:800;color:#dc2626;cursor:pointer;" title="Cliquer pour filtrer les dossiers suspendus">-</div>
-  </div>
- </div>
-</div>
-<div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;margin:10px 0 6px;">Analyse des causes</div>
+<div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;margin:10px 0 6px;">Analyse des retards</div>
 <div id="dmrCausesBlock" style="border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:10px;background:#fafafa;font-size:12.5px;">
   <div id="dmrCausesTitre" style="font-weight:700;margin-bottom:10px;color:#333;"></div>
   <div style="display:flex;gap:28px;flex-wrap:wrap;">
@@ -495,7 +596,7 @@ td.num{text-align:right}
       <div id="causesSuspendus" style="font-size:12px;"></div>
     </div>
     <div style="min-width:240px;flex:1;">
-      <div style="font-weight:700;color:#7c3aed;margin-bottom:5px;">Top 5 Causes principales — Projets <span id="causesProjetsTotal" style="font-weight:700;color:#888;"></span></div>
+      <div style="font-weight:700;color:#7c3aed;margin-bottom:5px;">Top 5 Causes principales — Projets en retard <span id="causesProjetsTotal" style="font-weight:700;color:#888;"></span></div>
       <div id="causesProjets" style="font-size:12px;"></div>
     </div>
   </div>
@@ -658,6 +759,30 @@ td.num{text-align:right}
  </div>
 </div>
 
+<!-- Popup Dates de projet (début/fin), déclenché quand STATUT contient "projet" -->
+<div class="popup" id="popupProjetDates">
+ <div class="popup-content" style="width:360px;">
+  <div class="popup-header">
+   <h2>🟣 Dates du projet</h2>
+   <span class="close" onclick="window._closeProjetDatesPopup(true)">✕</span>
+  </div>
+  <p id="projetDatesLabel" style="font-size:13px;margin-bottom:10px;color:#333;"></p>
+  <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Date début</label>
+  <input type="date" id="projetDateDebutInput" style="width:100%;padding:6px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;margin-bottom:12px;box-sizing:border-box;"/>
+  <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">Date fin (prévue)</label>
+  <input type="date" id="projetDateFinInput" style="width:100%;padding:6px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;margin-bottom:12px;box-sizing:border-box;"/>
+  <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#333;cursor:pointer;margin-bottom:14px;">
+   <input type="checkbox" id="projetDatesAppliquerTout" style="width:15px;height:15px;cursor:pointer;accent-color:#7c3aed;"/>
+   Appliquer les mêmes dates à tout le projet (même client)
+  </label>
+  <p style="font-size:11px;color:#7c3aed;margin-bottom:14px;">Une fois la date de fin dépassée, ce dossier sera compté "en retard" et la justification (colonne Cause du retard) deviendra obligatoire.</p>
+  <div style="text-align:right;display:flex;justify-content:flex-end;gap:8px;">
+   <button onclick="window._closeProjetDatesPopup(true)" style="background:#e5e7eb;color:#333;">Annuler</button>
+   <button onclick="window._closeProjetDatesPopup(false)" style="background:#7c3aed;color:white;">Valider</button>
+  </div>
+ </div>
+</div>
+
 <!-- Popup Statut global (en cours et suspendus) -->
 <div class="popup" id="popupStatutGlobal">
  <div class="popup-content" style="width:520px;max-height:75vh;overflow-y:auto;">
@@ -792,8 +917,12 @@ function makeSolutionInput(id){
  const val = window._getSolution ? window._getSolution(id) : "";
  const safeId = id.replace(/"/g,"&quot;");
  const safeVal = val.replace(/"/g,"&quot;");
+ const obligatoire = window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false;
+ const vide = !val || !val.trim();
+ const styleObligatoire = (obligatoire && vide) ? "border:2px solid #dc2626;background:#fee2e2;" : "border:1px solid #bbb;";
+ const placeholder = (obligatoire && vide) ? "⚠ Cause de retard obligatoire..." : "Cause du retard...";
  return `<div class="statut-cell">
-  <input class="solution-input" data-id="${safeId}" data-field="solution" maxlength="80" value="${safeVal}" placeholder="Cause du retard..." autocomplete="off" style="background:#e8f4fd;width:160px;padding:4px 6px;border:1px solid #bbb;border-radius:4px;font-size:13px;"/>
+  <input class="solution-input" data-id="${safeId}" data-field="solution" data-obligatoire="${obligatoire?'1':'0'}" maxlength="80" value="${safeVal}" placeholder="${placeholder}" autocomplete="off" style="background:#e8f4fd;width:160px;padding:4px 6px;${styleObligatoire}border-radius:4px;font-size:13px;"/>
  </div>`;
 }
 
@@ -831,6 +960,15 @@ function openDropdown(inp){
    inp.dispatchEvent(new Event("change", {bubbles:true}));
   });
  });
+}
+
+function _maybeAskProjetDates(id, val){
+ if(!id || !val) return;
+ if(!val.toLowerCase().includes("projet")) return;
+ const existing = window._getProjetDates ? window._getProjetDates(id) : null;
+ if(!existing || !existing.dateFin){
+  if(window._openProjetDatesPopup) window._openProjetDatesPopup(id);
+ }
 }
 
 function attachStatutListeners(){
@@ -881,6 +1019,7 @@ function attachStatutListeners(){
       await window._saveStatut(self.dataset.id, val);
       if(val && window._saveOption) window._saveOption(val);
      }
+     _maybeAskProjetDates(self.dataset.id, val);
      const label = self.parentNode ? self.parentNode.querySelector(".statut-date-label") : null;
      if(label){
       const {text, cls} = formatStatutDate(new Date().toISOString());
@@ -899,6 +1038,7 @@ function attachStatutListeners(){
     await window._saveStatut(id,val);
     if(window._saveOption) window._saveOption(val);
    }
+   _maybeAskProjetDates(id, val);
    this.classList.add("saved");
    const label = this.parentNode ? this.parentNode.querySelector(".statut-date-label") : null;
    if(label){
@@ -931,15 +1071,30 @@ function attachSolutionListeners(){
    const val=this.value.slice(0,80);
    this.value=val;
    if(window._saveSolution) await window._saveSolution(id, val);
-   this.style.borderColor="#22c55e";
-   setTimeout(()=>this.style.borderColor="#bbb",1000);
+   const obligatoire = window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false;
+   if(obligatoire && !val.trim()){
+    this.style.borderColor="#dc2626";
+    this.style.background="#fee2e2";
+    alert("Ce dossier est un projet en retard : la cause du retard est obligatoire.");
+   } else {
+    this.style.borderColor="#22c55e";
+    this.style.background="#e8f4fd";
+    setTimeout(()=>{ this.style.borderColor="#bbb"; },1000);
+   }
   });
   inp.addEventListener("blur", async function(){
    const id=this.dataset.id;
    const val=this.value.slice(0,80);
    if(window._saveSolution) await window._saveSolution(id, val);
-   this.style.borderColor="#22c55e";
-   setTimeout(()=>this.style.borderColor="#bbb",1000);
+   const obligatoire = window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false;
+   if(obligatoire && !val.trim()){
+    this.style.borderColor="#dc2626";
+    this.style.background="#fee2e2";
+   } else {
+    this.style.borderColor="#22c55e";
+    this.style.background="#e8f4fd";
+    setTimeout(()=>{ this.style.borderColor="#bbb"; },1000);
+   }
   });
  });
 }
@@ -954,6 +1109,7 @@ async function loadPipe(){
    const ws=wb.Sheets[wb.SheetNames[0]];
    const raw=XLSX.utils.sheet_to_json(ws,{raw:true});
    dossiersGlobal=dedupeById(raw);
+   window.dossiersGlobal = dossiersGlobal; // exposé pour accès depuis le script module (popup dates projet)
    window._dossiersRecColKey = undefined;
    renderMain();
    return;
@@ -1103,15 +1259,16 @@ function filtrerEtAfficher(){
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
-  const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? window._getCategorieStatut(statut)!=="suspendu" : true);
+  const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
   const causeRetardOk = !window._filtreCauseRetard || ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard);
+  const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk){
    cpt++;
    rows.push(`<tr>
     <td>${r["CLIENT"]||""}</td>
@@ -1171,6 +1328,7 @@ function _clearAllFiltres(){
  window._dmrCauseFilter = null;
  window._filtreCauseRetard = null;
  window._filtreExclureSuspendu = false;
+ window._filtreProjetRetardActif = false;
  if(window._statutFilterSelected) window._statutFilterSelected.clear();
  if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
 }
@@ -1187,15 +1345,21 @@ function _noStatutFilter(){
 function _updateCatButtonsUI(){
  const btnSU = document.getElementById("btnCatSuspendus");
  const btnPR = document.getElementById("btnCatProjets");
+ const btnPRR = document.getElementById("btnCatProjetsRetard");
  if(!btnSU) return;
  const noStatut = _noStatutFilter();
 const suActive = window._categorieFiltreActive==="suspendu" && noStatut && !window._filtreDelaiActif && !window._filtreTypeActif;
 btnSU.style.background = suActive ? "#fee2e2" : "transparent";
  btnSU.style.outline = suActive ? "2px solid #dc2626" : "none";
  if(btnPR){
-  const prActive = window._categorieFiltreActive==="projet" && noStatut && !window._filtreDelaiActif && !window._filtreTypeActif;
+  const prActive = window._categorieFiltreActive==="projet" && !window._filtreProjetRetardActif && noStatut && !window._filtreDelaiActif && !window._filtreTypeActif;
   btnPR.style.background = prActive ? "#ede9fe" : "transparent";
   btnPR.style.outline = prActive ? "2px solid #7c3aed" : "none";
+ }
+ if(btnPRR){
+  const prrActive = window._categorieFiltreActive==="projet" && window._filtreProjetRetardActif && noStatut && !window._filtreDelaiActif && !window._filtreTypeActif;
+  btnPRR.style.background = prrActive ? "#ede9fe" : "transparent";
+  btnPRR.style.outline = prrActive ? "2px solid #7c3aed" : "none";
  }
 }
 function _updateTypeSpansUI(){
@@ -1231,10 +1395,11 @@ document.getElementById("typeNUM").addEventListener("click", function(){
 
 // ── Compteurs et filtre délai (DD / HD) ──
 function updateDelaiCounts(){
- // Les Projets sont mis de côté : ils ne comptent ni dans "Dossiers dans les
- // délais / hors délais", ni dans le détail Hors délais / Suspendus (qui
- // doivent se répartir sur 100% à eux deux). Ils sont affichés séparément,
- // avec leur propre % calculé sur le total général des dossiers.
+ // Les 4 catégories (Dans les délais / Hors délais / Suspendus / Projets)
+ // suivent désormais la MÊME logique : Suspendus et Projets sont mis de
+ // côté avec leur propre % calculé sur le total général ; "Dans les délais"
+ // et "Hors délais" se répartissent sur 100% entre eux, sur le reste
+ // (dossiers ni suspendus ni projets).
  const isRowSuspendu = r => {
   const id=(r["ID DOSSIER"]||"").toString().trim();
   const statut=window._getStatut ? window._getStatut(id) : "";
@@ -1248,50 +1413,45 @@ function updateDelaiCounts(){
  const totalGlobal=(dossiersGlobal||[]).length;
  const suspendus59=(dossiersGlobal||[]).filter(isRowSuspendu);
  const projets59=(dossiersGlobal||[]).filter(isRowProjet);
- const horsDelaisNonSuspendus=(dossiersGlobal||[]).filter(r=>!estDansDelai(r)&&!isRowSuspendu(r)&&!isRowProjet(r));
- const horsDelaisSansProjet=horsDelaisNonSuspendus.concat(suspendus59); // ne comprend PAS les projets
+ const autres=(dossiersGlobal||[]).filter(r=>!isRowSuspendu(r)&&!isRowProjet(r));
+ const enDelai=autres.filter(r=>estDansDelai(r));
+ const horsDelaisNonSuspendus=autres.filter(r=>!estDansDelai(r));
 
- const totalSansProjet = totalGlobal - projets59.length;
- const dd = totalSansProjet - horsDelaisSansProjet.length;
- const hd = horsDelaisSansProjet.length;
+ const dd = enDelai.length;
+ const hd = horsDelaisNonSuspendus.length;
  const elDD = document.getElementById("delaiDD");
  const elHD = document.getElementById("delaiHD");
- const pctDD = totalSansProjet ? Math.round(dd/totalSansProjet*1000)/10 : 0;
- const pctHD = totalSansProjet ? Math.round(hd/totalSansProjet*1000)/10 : 0;
+ const pctDD = autres.length ? Math.round(dd/autres.length*1000)/10 : 0;
+ const pctHD = autres.length ? Math.round(hd/autres.length*1000)/10 : 0;
  if(elDD) elDD.textContent = "Dossiers dans les délais : "+dd+" ("+pctDD+"%)";
  if(elHD) elHD.textContent = "Dossiers hors délais : "+hd+" ("+pctHD+"%)";
 
- const hdSep=document.getElementById("horsDelaisNonSuspendusCount");
  const suSep=document.getElementById("suspendusHorsDelaisCount");
  const projSep=document.getElementById("projetsHorsDelaisCount");
- const hdSepPct=document.getElementById("horsDelaisNonSuspendusPct");
  const suSepPct=document.getElementById("suspendusHorsDelaisPct");
  const projSepPct=document.getElementById("projetsHorsDelaisPct");
- // % de "Hors délais"/"Suspendus" calculés uniquement l'un par rapport à
- // l'autre (sans les projets), pour que les deux sommeient à 100%.
- const totalHorsDelaisSansProjet=horsDelaisSansProjet.length;
- const pctHdSep = totalHorsDelaisSansProjet ? Math.round(horsDelaisNonSuspendus.length/totalHorsDelaisSansProjet*1000)/10 : 0;
- const pctSuSep = totalHorsDelaisSansProjet ? Math.round(suspendus59.length/totalHorsDelaisSansProjet*1000)/10 : 0;
- // % des projets calculé sur le total général de dossiers (mis à part, donc
- // hors de la répartition Hors délais/Suspendus).
+ // % de "Suspendus"/"Projets" calculés sur le total général de dossiers,
+ // exactement comme "Dans les délais"/"Hors délais" le sont sur leur propre
+ // base — même logique appliquée aux 4 catégories.
+ const pctSuSep = totalGlobal ? Math.round(suspendus59.length/totalGlobal*1000)/10 : 0;
  const pctProjSep = totalGlobal ? Math.round(projets59.length/totalGlobal*1000)/10 : 0;
- if(hdSep) hdSep.textContent=horsDelaisNonSuspendus.length;
  if(suSep) suSep.textContent=suspendus59.length;
  if(projSep) projSep.textContent=projets59.length;
- if(hdSepPct) hdSepPct.textContent="("+pctHdSep+"%)";
  if(suSepPct) suSepPct.textContent="("+pctSuSep+"%)";
  if(projSepPct) projSepPct.textContent="("+pctProjSep+"%)";
 
- // Âge moyen par catégorie : calculé sur la MÊME base non filtrée que les
- // compteurs ci-dessus (horsDelaisNonSuspendus/suspendus59/projets59), pour
- // rester cohérent avec eux quel que soit l'état de la recherche/des filtres.
+ // Âge moyen pour chacune des 4 catégories, sur la MÊME base non filtrée
+ // que les compteurs ci-dessus, pour rester cohérent quel que soit l'état
+ // de la recherche/des filtres.
  const avgAgeGlobal = rowsArr => {
    if(!rowsArr.length) return "-";
    return Math.round(rowsArr.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/rowsArr.length)+" j";
  };
+ const ageDDEl=document.getElementById("ageMoyenDD");
  const ageHdEl=document.getElementById("ageMoyenHorsDelais");
  const ageSuEl=document.getElementById("ageMoyenSuspendu");
  const ageProjEl=document.getElementById("ageMoyenProjet");
+ if(ageDDEl) ageDDEl.textContent=avgAgeGlobal(enDelai);
  if(ageHdEl) ageHdEl.textContent=avgAgeGlobal(horsDelaisNonSuspendus);
  if(ageSuEl) ageSuEl.textContent=avgAgeGlobal(suspendus59);
  if(ageProjEl) ageProjEl.textContent=avgAgeGlobal(projets59);
@@ -1321,8 +1481,8 @@ function _updateDelaiSpansUI(){
  const elDD = document.getElementById("delaiDD");
  const elHD = document.getElementById("delaiHD");
  const noStatut = _noStatutFilter();
- const ddTopActive = window._filtreDelaiActif==="dd" && !window._categorieFiltreActive && !window._filtreTypeActif && noStatut && !window._dmrHighlightActive;
- const hdTopActive = window._filtreDelaiActif==="hd" && !window._categorieFiltreActive && !window._filtreTypeActif && !window._filtreExclureSuspendu && noStatut && !window._dmrHighlightActive;
+ const ddTopActive = window._filtreDelaiActif==="dd" && window._filtreExclureSuspendu && !window._categorieFiltreActive && !window._filtreTypeActif && noStatut && !window._dmrHighlightActive;
+ const hdTopActive = window._filtreDelaiActif==="hd" && window._filtreExclureSuspendu && !window._categorieFiltreActive && !window._filtreTypeActif && noStatut && !window._dmrHighlightActive;
  if(elDD) elDD.style.background = ddTopActive ? "#dcfce7" : "transparent";
  if(elDD) elDD.style.outline = ddTopActive ? "2px solid #16a34a" : "none";
  if(elHD) elHD.style.background = hdTopActive ? "#fee2e2" : "transparent";
@@ -1355,7 +1515,7 @@ function _toggleTypeSuspendu(type){
  _updateCatButtonsUI();
  filtrerEtAfficher();
 }
-document.getElementById("btnCatHorsDelais").addEventListener("click", function(){
+document.getElementById("btnCatHorsDelais")?.addEventListener("click", function(){
  _clearAllFiltres();
  window._filtreDelaiActif = "hd";
  window._filtreExclureSuspendu = true;
@@ -1365,9 +1525,17 @@ document.getElementById("btnCatHorsDelais").addEventListener("click", function()
 document.getElementById("typeSuspendu_LS").addEventListener("click", function(){ _toggleTypeSuspendu("LS"); });
 document.getElementById("typeSuspendu_LSI").addEventListener("click", function(){ _toggleTypeSuspendu("LSI"); });
 document.getElementById("typeSuspendu_NUM").addEventListener("click", function(){ _toggleTypeSuspendu("NUM"); });
+document.getElementById("delaiDD").addEventListener("click", function(){
+ _clearAllFiltres();
+ window._filtreDelaiActif = "dd";
+ window._filtreExclureSuspendu = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
 document.getElementById("delaiHD").addEventListener("click", function(){
  _clearAllFiltres();
  window._filtreDelaiActif = "hd";
+ window._filtreExclureSuspendu = true;
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
@@ -1560,6 +1728,46 @@ document.getElementById("btnCatProjets").addEventListener("click", function(){
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
+document.getElementById("btnCatProjetsRetard")?.addEventListener("click", function(){
+ _clearAllFiltres();
+ window._categorieFiltreActive = "projet";
+ window._filtreProjetRetardActif = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("ageMoyenProjetRetard")?.addEventListener("click", function(){
+ _clearAllFiltres();
+ window._categorieFiltreActive = "projet";
+ window._filtreProjetRetardActif = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("ageMoyenDDCol")?.addEventListener("click", function(){
+ _clearAllFiltres();
+ window._filtreDelaiActif = "dd";
+ window._filtreExclureSuspendu = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("ageMoyenHDCol")?.addEventListener("click", function(){
+ _clearAllFiltres();
+ window._filtreDelaiActif = "hd";
+ window._filtreExclureSuspendu = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("ageMoyenSuspenduCol")?.addEventListener("click", function(){
+ _clearAllFiltres();
+ window._categorieFiltreActive = "suspendu";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("ageMoyenProjetCol")?.addEventListener("click", function(){
+ _clearAllFiltres();
+ window._categorieFiltreActive = "projet";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
 
 // ── DD/HD sous En cours / Suspendus ──
 function _toggleCatDelai(cat, delai){
@@ -1612,15 +1820,26 @@ function _toggleCauseFilter(statut, mode){
  // seul le bouton "Réinitialiser" remet la page à zéro.
  window._dmrCauseFilter = { statut: statut, mode: mode };
  window._dmrHighlightActive = "cause:"+mode+":"+statut;
- if(mode==="suspendu" || mode==="projet"){
+ if(mode==="suspendu"){
   window._categorieFiltreActive = mode;
   window._filtreDelaiActif = null;
   window._filtreExclureSuspendu = false;
   window._filtreCauseRetard = null;
+  window._filtreProjetRetardActif = false;
   if(window._statutFilterSelected){
     window._statutFilterSelected.clear();
     window._statutFilterSelected.add(statut);
   }
+ } else if(mode==="projet"){
+  // "Projets en retard" : la cause vient de la colonne CAUSE REEL DE RETARD
+  // (texte libre), pas du STATUT — on filtre comme pour "hd" mais restreint
+  // aux projets en retard.
+  window._categorieFiltreActive = "projet";
+  window._filtreProjetRetardActif = true;
+  window._filtreDelaiActif = null;
+  window._filtreExclureSuspendu = false;
+  window._filtreCauseRetard = statut;
+  if(window._statutFilterSelected) window._statutFilterSelected.clear();
  } else {
   // mode "hd" : la cause vient désormais de la colonne CAUSE REEL DE RETARD
   // (texte libre), donc on filtre sur cette valeur et non plus sur le STATUT.
@@ -1664,7 +1883,7 @@ function getAnalyseCausesSelectionRows(){
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
-  const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? window._getCategorieStatut(statut)!=="suspendu" : true);
+  const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
   const statutOk = statsFil.size===0 || statsFil.has(statut);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
@@ -1717,9 +1936,10 @@ function updateDmrCauses(){
    const counts={};
    rows.forEach(r=>{
      const id=(r["ID DOSSIER"]||"").toString().trim();
-     // "Hors délais" : la cause vient de la colonne CAUSE REEL DE RETARD
-     // (texte libre saisi par le NOC). "Suspendus"/"Projets" : la cause reste le STATUT.
-     const st=mode==="hd"
+     // "Hors délais" et "Projets en retard" : la cause vient de la colonne
+     // CAUSE REEL DE RETARD (texte libre saisi par le NOC, obligatoire pour
+     // les projets en retard). "Suspendus" : la cause reste le STATUT.
+     const st=(mode==="hd"||mode==="projet")
        ? (window._getSolution ? (window._getSolution(id)||"").trim() : "")
        : (window._getStatut ? window._getStatut(id) : "");
      if(st) counts[st]=(counts[st]||0)+1;
@@ -1786,9 +2006,7 @@ function updateDmrCauses(){
  });
  const projData=dataBoth.filter(r=>{
    const id=(r["ID DOSSIER"]||"").toString().trim();
-   const st=window._getStatut?window._getStatut(id):"";
-   return st && window._getCategorieStatut &&
-          window._getCategorieStatut(st)==="projet";
+   return window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false;
  });
 
  // Note : l'"Âge moyen" par catégorie (Hors délais / Suspendus / Projets) est
@@ -1984,6 +2202,7 @@ document.getElementById("fileInput").addEventListener("change",e=>{
   const ws=wb.Sheets[wb.SheetNames[0]];
   const raw=XLSX.utils.sheet_to_json(ws,{raw:true});
   dossiersGlobal=dedupeById(raw);
+  window.dossiersGlobal = dossiersGlobal; // exposé pour accès depuis le script module (popup dates projet)
    window._dossiersRecColKey = undefined;
   renderMain();
  };
@@ -2251,7 +2470,7 @@ document.getElementById("btnExport").onclick=()=>{
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
-  const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? window._getCategorieStatut(statut)!=="suspendu" : true);
+  const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
