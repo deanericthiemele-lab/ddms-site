@@ -422,7 +422,8 @@ td.num{text-align:right}
 <h1 id="resume" style="margin:0;">Dossiers : 0</h1>
 <div class="subresume" id="delaiResume" style="margin-top:2px;">
  <span id="delaiDD" style="cursor:default;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;">Dossiers dans les délais : 0</span> |
- <span id="delaiHD" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;">Dossiers hors délais : 0</span>
+ <span id="delaiHD" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;">Dossiers hors délais : 0</span> |
+ <button id="btnCatProjets" style="background:none;border:none;padding:2px 6px;border-radius:4px;cursor:pointer;font-weight:700;color:#7c3aed;font-size:inherit;font-family:inherit;">🟣 Projets : <span id="projetsHorsDelaisCount">0</span></button>
 </div>
 </div>
 <div class="subresume" id="subresume" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
@@ -472,15 +473,6 @@ td.num{text-align:right}
   <div style="margin-top:6px;padding:2px 6px;">
    <div style="color:#666;font-size:11px;">Âge moyen</div>
    <div id="ageMoyenSuspendu" style="font-size:17px;font-weight:800;color:#dc2626;cursor:pointer;" title="Cliquer pour filtrer les dossiers suspendus">-</div>
-  </div>
- </div>
- <div class="cat-col">
-  <button id="btnCatProjets" style="background:none;border:1px solid transparent;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:700;color:#7c3aed;">
-   🟣 Projets : <span id="projetsHorsDelaisCount">0</span> <span id="projetsHorsDelaisPct" style="font-size:11px;font-weight:600;color:#888;">(0%)</span>
-  </button>
-  <div style="margin-top:6px;padding:2px 6px;">
-   <div style="color:#666;font-size:11px;">Âge moyen</div>
-   <div id="ageMoyenProjet" style="font-size:17px;font-weight:800;color:#7c3aed;cursor:pointer;" title="Cliquer pour filtrer les dossiers projets">-</div>
   </div>
  </div>
 </div>
@@ -1236,10 +1228,10 @@ document.getElementById("typeNUM").addEventListener("click", function(){
 
 // ── Compteurs et filtre délai (DD / HD) ──
 function updateDelaiCounts(){
- // 59 = hors délais non suspendus/non projets + tous les suspendus + tous les
- // projets (peu importe leur ancienneté). "Dossiers dans les délais" /
- // "Dossiers hors délais" doivent être calculés sur cette MÊME logique pour
- // rester cohérents avec "Détails des hors délais".
+ // Les Projets sont mis de côté : ils ne comptent ni dans "Dossiers dans les
+ // délais / hors délais", ni dans le détail Hors délais / Suspendus (qui
+ // doivent se répartir sur 100% à eux deux). Ils sont affichés séparément,
+ // avec leur propre % calculé sur le total général des dossiers.
  const isRowSuspendu = r => {
   const id=(r["ID DOSSIER"]||"").toString().trim();
   const statut=window._getStatut ? window._getStatut(id) : "";
@@ -1250,18 +1242,19 @@ function updateDelaiCounts(){
   const statut=window._getStatut ? window._getStatut(id) : "";
   return !!(window._getCategorieStatut && window._getCategorieStatut(statut)==="projet");
  };
+ const totalGlobal=(dossiersGlobal||[]).length;
  const suspendus59=(dossiersGlobal||[]).filter(isRowSuspendu);
  const projets59=(dossiersGlobal||[]).filter(isRowProjet);
  const horsDelaisNonSuspendus=(dossiersGlobal||[]).filter(r=>!estDansDelai(r)&&!isRowSuspendu(r)&&!isRowProjet(r));
- const horsDelais59=horsDelaisNonSuspendus.concat(suspendus59).concat(projets59);
+ const horsDelaisSansProjet=horsDelaisNonSuspendus.concat(suspendus59); // ne comprend PAS les projets
 
- const dd = (dossiersGlobal||[]).length - horsDelais59.length;
- const hd = horsDelais59.length;
+ const totalSansProjet = totalGlobal - projets59.length;
+ const dd = totalSansProjet - horsDelaisSansProjet.length;
+ const hd = horsDelaisSansProjet.length;
  const elDD = document.getElementById("delaiDD");
  const elHD = document.getElementById("delaiHD");
- const total = dd+hd;
- const pctDD = total ? Math.round(dd/total*1000)/10 : 0;
- const pctHD = total ? Math.round(hd/total*1000)/10 : 0;
+ const pctDD = totalSansProjet ? Math.round(dd/totalSansProjet*1000)/10 : 0;
+ const pctHD = totalSansProjet ? Math.round(hd/totalSansProjet*1000)/10 : 0;
  if(elDD) elDD.textContent = "Dossiers dans les délais : "+dd+" ("+pctDD+"%)";
  if(elHD) elHD.textContent = "Dossiers hors délais : "+hd+" ("+pctHD+"%)";
 
@@ -1271,16 +1264,20 @@ function updateDelaiCounts(){
  const hdSepPct=document.getElementById("horsDelaisNonSuspendusPct");
  const suSepPct=document.getElementById("suspendusHorsDelaisPct");
  const projSepPct=document.getElementById("projetsHorsDelaisPct");
- const totalHorsDelais59=horsDelais59.length;
- const pctHdSep = totalHorsDelais59 ? Math.round(horsDelaisNonSuspendus.length/totalHorsDelais59*1000)/10 : 0;
- const pctSuSep = totalHorsDelais59 ? Math.round(suspendus59.length/totalHorsDelais59*1000)/10 : 0;
- const pctProjSep = totalHorsDelais59 ? Math.round(projets59.length/totalHorsDelais59*1000)/10 : 0;
+ // % de "Hors délais"/"Suspendus" calculés uniquement l'un par rapport à
+ // l'autre (sans les projets), pour que les deux sommeient à 100%.
+ const totalHorsDelaisSansProjet=horsDelaisSansProjet.length;
+ const pctHdSep = totalHorsDelaisSansProjet ? Math.round(horsDelaisNonSuspendus.length/totalHorsDelaisSansProjet*1000)/10 : 0;
+ const pctSuSep = totalHorsDelaisSansProjet ? Math.round(suspendus59.length/totalHorsDelaisSansProjet*1000)/10 : 0;
+ // % des projets calculé sur le total général de dossiers (mis à part, donc
+ // hors de la répartition Hors délais/Suspendus).
+ const pctProjSep = totalGlobal ? Math.round(projets59.length/totalGlobal*1000)/10 : 0;
  if(hdSep) hdSep.textContent=horsDelaisNonSuspendus.length;
  if(suSep) suSep.textContent=suspendus59.length;
  if(projSep) projSep.textContent=projets59.length;
  if(hdSepPct) hdSepPct.textContent="("+pctHdSep+"%)";
  if(suSepPct) suSepPct.textContent="("+pctSuSep+"%)";
- if(projSepPct) projSepPct.textContent="("+pctProjSep+"%)";
+ if(projSepPct) projSepPct.textContent="("+pctProjSep+"% du total)";
 
  // Âge moyen par catégorie : calculé sur la MÊME base non filtrée que les
  // compteurs ci-dessus (horsDelaisNonSuspendus/suspendus59/projets59), pour
