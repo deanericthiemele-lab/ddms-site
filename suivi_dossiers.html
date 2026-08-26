@@ -915,10 +915,17 @@ function makeStatutInput(id){
  const {text:dateLabel, cls:dateCls} = formatStatutDate(ts);
  const safeId = id.replace(/"/g,"&quot;");
  const safeVal = val.replace(/"/g,"&quot;");
+ const estProjet = val.toLowerCase().includes("projet");
+ const enRetard = window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false;
+ const iconDates = estProjet
+  ? `<span class="projet-dates-icon" data-id="${safeId}" title="${enRetard ? '⚠ Date de fin dépassée — cliquer pour modifier les dates' : 'Modifier les dates du projet'}" style="cursor:pointer;font-size:13px;white-space:nowrap;">📅${enRetard ? '<span style="color:#dc2626;font-weight:800;">!</span>' : ''}</span>`
+  : '';
  return `<div class="statut-cell">
-  <input class="statut-input" data-id="${safeId}" data-field="statut" maxlength="80" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>
+  <div style="display:flex;align-items:center;gap:4px;">
+   <input class="statut-input" data-id="${safeId}" data-field="statut" maxlength="80" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>${iconDates}
+  </div>
   <div class="statut-dropdown"></div>
-  <span class="statut-date-label ${dateCls}">${dateLabel}</span>
+  <span class="statut-date-label ${estProjet ? '' : dateCls}">${estProjet ? '' : dateLabel}</span>
  </div>`;
 }
 
@@ -948,6 +955,18 @@ function closeAllDropdowns(){
 
 document.addEventListener("click", function(e){
  if(!e.target.closest(".statut-cell")) closeAllDropdowns();
+});
+
+// Icône 📅 dans la cellule STATUT (délégué car les lignes sont reconstruites
+// à chaque filtre) : rouvre le popup de dates du projet, même si des dates
+// ont déjà été enregistrées (permet de les modifier après coup).
+document.addEventListener("click", function(e){
+ const icon = e.target.closest(".projet-dates-icon");
+ if(!icon) return;
+ e.stopPropagation();
+ closeAllDropdowns();
+ const id = icon.dataset.id;
+ if(id && window._openProjetDatesPopup) window._openProjetDatesPopup(id);
 });
 
 function openDropdown(inp){
@@ -1044,11 +1063,16 @@ function attachStatutListeners(){
       if(val && window._saveOption) window._saveOption(val);
      }
      _maybeAskProjetDates(self.dataset.id, val);
-     const label = self.parentNode ? self.parentNode.querySelector(".statut-date-label") : null;
+     const label = self.closest(".statut-cell") ? self.closest(".statut-cell").querySelector(".statut-date-label") : null;
      if(label){
-      const {text, cls} = formatStatutDate(new Date().toISOString());
-      label.textContent = text;
-      label.className = "statut-date-label " + cls;
+      if(val.toLowerCase().includes("projet")){
+       label.textContent = "";
+       label.className = "statut-date-label";
+      } else {
+       const {text, cls} = formatStatutDate(new Date().toISOString());
+       label.textContent = text;
+       label.className = "statut-date-label " + cls;
+      }
      }
     }
     // Avant de sortir du champ STATUT : si c'est un projet en retard et que
@@ -1067,12 +1091,17 @@ function attachStatutListeners(){
    }
    _maybeAskProjetDates(id, val);
    this.classList.add("saved");
-   const label = this.parentNode ? this.parentNode.querySelector(".statut-date-label") : null;
+   const label = this.closest(".statut-cell") ? this.closest(".statut-cell").querySelector(".statut-date-label") : null;
    if(label){
-    const now = new Date();
-    const {text, cls} = formatStatutDate(now.toISOString());
-    label.textContent = text;
-    label.className = "statut-date-label " + cls;
+    if(val.toLowerCase().includes("projet")){
+     label.textContent = "";
+     label.className = "statut-date-label";
+    } else {
+     const now = new Date();
+     const {text, cls} = formatStatutDate(now.toISOString());
+     label.textContent = text;
+     label.className = "statut-date-label " + cls;
+    }
    }
    setTimeout(()=>this.classList.remove("saved"),1000);
   });
@@ -1183,11 +1212,16 @@ function peuplerDepuisFirebase(){
    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
    inp.value = val;
    inp._prevVal = val;
-   const label = inp.parentNode ? inp.parentNode.querySelector(".statut-date-label") : null;
-   if(label && entry && typeof entry === "object" && entry.updatedAt){
-    const {text, cls} = window._formatStatutDate ? window._formatStatutDate(entry.updatedAt) : {text:"màj : "+entry.updatedAt, cls:""};
-    label.textContent = text;
-    label.className = "statut-date-label " + cls;
+   const label = inp.closest(".statut-cell") ? inp.closest(".statut-cell").querySelector(".statut-date-label") : null;
+   if(label){
+    if(val && val.toLowerCase().includes("projet")){
+     label.textContent = "";
+     label.className = "statut-date-label";
+    } else if(entry && typeof entry === "object" && entry.updatedAt){
+     const {text, cls} = window._formatStatutDate ? window._formatStatutDate(entry.updatedAt) : {text:"màj : "+entry.updatedAt, cls:""};
+     label.textContent = text;
+     label.className = "statut-date-label " + cls;
+    }
    }
   }
  });
@@ -1293,9 +1327,13 @@ function filtrerEtAfficher(){
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
+   // Les projets sont à part : le badge "Mis à jour des statuts" ne les
+   // compte pas, donc le filtre correspondant ne doit pas non plus les
+   // inclure dans le tableau (même logique partout).
+   const estProjetLigne = !!(window._getCategorieStatut && window._getCategorieStatut(statut)==="projet");
    const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
-   fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+   fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
   if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk){
    cpt++;
@@ -1923,9 +1961,13 @@ function getAnalyseCausesSelectionRows(){
   const statutOk = statsFil.size===0 || statsFil.has(statut);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
+   // Les projets sont à part : le badge "Mis à jour des statuts" ne les
+   // compte pas, donc le filtre correspondant ne doit pas non plus les
+   // inclure dans le tableau (même logique partout).
+   const estProjetLigne = !!(window._getCategorieStatut && window._getCategorieStatut(statut)==="projet");
    const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
-   fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+   fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
   return txt.includes(q) && moisOk && catOk && typeOk && delaiOk && exclureSuspenduOk && statutOk && fraicheurOk;
  });
@@ -2021,9 +2063,13 @@ function updateDmrCauses(){
   const statutOk = statsFil.size===0 || statsFil.has(statut);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
+   // Les projets sont à part : le badge "Mis à jour des statuts" ne les
+   // compte pas, donc le filtre correspondant ne doit pas non plus les
+   // inclure dans le tableau (même logique partout).
+   const estProjetLigne = !!(window._getCategorieStatut && window._getCategorieStatut(statut)==="projet");
    const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
-   fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+   fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
   return txt.includes(q) && moisOk && typeOk && statutOk && fraicheurOk;
  });
@@ -2092,10 +2138,21 @@ document.getElementById("ageMoyenProjet")?.addEventListener("click", function(){
 const origOnValue = window._statutOptions;
 
 window.updateStatutsCoverage = function updateStatutsCoverage(){
-  const total = dossiersGlobal.length;
+  // Les projets sont mis à part : ils ne comptent pas dans "Mis à jour des
+  // statuts" (ni dans le total, ni dans à jour/en retard), même logique que
+  // partout ailleurs sur la page.
+  const isRowProjetId = (id) => {
+    const statut = window._getStatut ? window._getStatut(id) : "";
+    return !!(window._getCategorieStatut && window._getCategorieStatut(statut)==="projet");
+  };
+  const dossiersSansProjet = (dossiersGlobal||[]).filter(r=>{
+    const id=(r["ID DOSSIER"]||"").toString().trim();
+    return !isRowProjetId(id);
+  });
+  const total = dossiersSansProjet.length;
   // Compter depuis Firebase directement : seulement les IDs qui sont dans dossiersGlobal
   const idsGlobal = new Set(
-    dossiersGlobal.map(r=>(r["ID DOSSIER"]||"").toString().trim().replace(/[.#$\[\]/]/g,"_"))
+    dossiersSansProjet.map(r=>(r["ID DOSSIER"]||"").toString().trim().replace(/[.#$\[\]/]/g,"_"))
   );
   const allStatuts = window._statuts || {};
   const lastMonday = getLastMonday();
@@ -2116,7 +2173,7 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
   const pctEl = document.getElementById("statutsPct");
   const outlineAJour = window._filtreFraicheurActif==="ajour" ? "outline:2px solid #15803d;" : "";
   const outlineRetard = window._filtreFraicheurActif==="retard" ? "outline:2px solid #b91c1c;" : "";
-  pctEl.innerHTML = `<span id="badgeAJour" title="Cliquer pour filtrer : statuts mis à jour depuis le dernier lundi" style="background:#dcfce7;color:#15803d;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;cursor:pointer;${outlineAJour}">✅ ${respecteRegle} à jour (depuis lundi)</span> <span id="badgeRetard" title="Cliquer pour filtrer : statuts non mis à jour depuis le dernier lundi" style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;margin-left:4px;cursor:pointer;${outlineRetard}">❌ ${nonRespecte} en retard</span>`;
+  pctEl.innerHTML = `<span id="badgeAJour" title="Cliquer pour filtrer : statuts mis à jour depuis le dernier lundi (hors projets)" style="background:#dcfce7;color:#15803d;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;cursor:pointer;${outlineAJour}">✅ ${respecteRegle} à jour (depuis lundi et hors projets)</span> <span id="badgeRetard" title="Cliquer pour filtrer : statuts non mis à jour depuis le dernier lundi (hors projets)" style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;margin-left:4px;cursor:pointer;${outlineRetard}">❌ ${nonRespecte} en retard</span>`;
   const badgeAJour = document.getElementById("badgeAJour");
   const badgeRetard = document.getElementById("badgeRetard");
   if(badgeAJour) badgeAJour.onclick = function(){
@@ -2509,9 +2566,13 @@ document.getElementById("btnExport").onclick=()=>{
   const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
+   // Les projets sont à part : le badge "Mis à jour des statuts" ne les
+   // compte pas, donc le filtre correspondant ne doit pas non plus les
+   // inclure dans le tableau (même logique partout).
+   const estProjetLigne = !!(window._getCategorieStatut && window._getCategorieStatut(statut)==="projet");
    const updatedAt = window._getStatutDate ? window._getStatutDate(id) : "";
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
-   fraicheurOk = window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour;
+   fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
   if(txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&fraicheurOk&&delaiOk&&exclureSuspenduOk){
    dataExport.push({
