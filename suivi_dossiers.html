@@ -186,6 +186,28 @@ window._isProjetEnRetardById = function(id) {
   return Date.now() > fin.getTime();
 };
 
+// Normalisation "intelligente" du nom client pour regrouper le même projet
+// même si le nom est saisi différemment (casse, accents, sigle légèrement
+// différent) : ex. BOA / BOACI, SGCI / SGBCI doivent être reconnus comme le
+// même client pour "appliquer à tout le projet".
+window._normalizeClientKey = function(raw){
+  if(!raw) return "";
+  let s = String(raw).toUpperCase();
+  try { s = s.normalize("NFD").replace(/\p{Diacritic}+/gu, ""); } catch(e){}
+  s = s.replace(/[.,()\/\-_]/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+  // Retire un suffixe pays/forme sociale collé en fin de mot (BOACI -> BOA,
+  // SGCI -> SG, SGBCI -> SGB) avant de regrouper les sigles connus.
+  s = s.replace(/\bCI$/, "").trim();
+  s = s.replace(/\b(SA|SARL|SAU|GROUPE|GROUP)\b/g, " ").replace(/\s+/g, " ").trim();
+  // Alias connus : mêmes entités sous des sigles/anciennes raisons sociales
+  // différentes.
+  const alias = { "SG":"SGCI", "SGB":"SGCI", "SGCI":"SGCI",
+                   "BOA":"BOA" };
+  if(alias[s]) return alias[s];
+  return s;
+};
+
 // Popup de saisie des dates début/fin de projet
 window._pendingProjetId = null;
 window._pendingProjetClient = null;
@@ -228,10 +250,12 @@ window._closeProjetDatesPopup = async function(annule){
   }
   const appliquerTout = !!(appliquerToutEl && appliquerToutEl.checked);
   if(appliquerTout && client && window._saveProjetDates){
-    // Applique les mêmes dates à tous les dossiers du même client (même projet)
+    // Applique les mêmes dates à tous les dossiers du même client (même
+    // projet), avec correspondance intelligente (casse/accents/sigles).
+    const clientKey = window._normalizeClientKey(client);
     const rows = window.dossiersGlobal || [];
     const ids = rows
-      .filter(r => (r["CLIENT"]||"").toString().trim() === client)
+      .filter(r => window._normalizeClientKey((r["CLIENT"]||"").toString().trim()) === clientKey)
       .map(r => (r["ID DOSSIER"]||"").toString().trim())
       .filter(Boolean);
     for(const dId of ids){
@@ -246,6 +270,36 @@ window._closeProjetDatesPopup = async function(annule){
   if(popupEl) popupEl.style.display = "none";
   window._pendingProjetId = null;
   window._pendingProjetClient = null;
+};
+
+// Vide les dates (Réinitialiser) — respecte la même case "appliquer à tout
+// le projet" que Valider, avec la même correspondance client intelligente.
+window._resetProjetDates = async function(){
+  const id = window._pendingProjetId;
+  const client = window._pendingProjetClient;
+  if(!id) return;
+  const debutEl = document.getElementById("projetDateDebutInput");
+  const finEl = document.getElementById("projetDateFinInput");
+  const appliquerToutEl = document.getElementById("projetDatesAppliquerTout");
+  if(debutEl) debutEl.value = "";
+  if(finEl) finEl.value = "";
+  const appliquerTout = !!(appliquerToutEl && appliquerToutEl.checked);
+  if(appliquerTout && client && window._saveProjetDates){
+    const clientKey = window._normalizeClientKey(client);
+    const rows = window.dossiersGlobal || [];
+    const ids = rows
+      .filter(r => window._normalizeClientKey((r["CLIENT"]||"").toString().trim()) === clientKey)
+      .map(r => (r["ID DOSSIER"]||"").toString().trim())
+      .filter(Boolean);
+    for(const dId of ids){
+      await window._saveProjetDates(dId, "", "", false);
+    }
+    if(typeof window.updateDelaiCounts === "function") window.updateDelaiCounts();
+    if(typeof window.updateDmrCauses === "function") window.updateDmrCauses();
+    if(typeof window.filtrerEtAfficher === "function") window.filtrerEtAfficher();
+  } else if(window._saveProjetDates){
+    await window._saveProjetDates(id, "", "");
+  }
 };
 
 window._saveSolution = async function(id, val) {
@@ -461,7 +515,7 @@ td.num{text-align:right}
 .statut-date-label{font-size:10px;font-style:italic;min-height:13px;line-height:1.2;color:#888;}
 .statut-date-label.outdated{color:#dc2626;font-weight:bold;}
 .statut-date-label.ok{color:#16a34a;}
-.statut-date-label.inchange{color:#2563eb;font-weight:bold;background:#dbeafe;padding:0 3px;border-radius:3px;}
+.statut-date-label.inchange{color:#2563eb;font-weight:bold;}
 .statut-inchange-label{display:inline-flex;align-items:center;gap:3px;font-size:9.5px;color:#2563eb;cursor:pointer;margin-left:4px;font-style:normal;white-space:nowrap;}
 .statut-inchange-label input{width:11px;height:11px;cursor:pointer;accent-color:#2563eb;margin:0;}
 .statut-dropdown{position:absolute;top:100%;left:0;z-index:999;background:#fff;border:1px solid #bbb;border-radius:4px;box-shadow:0 3px 8px rgba(0,0,0,0.15);min-width:180px;max-height:220px;overflow-y:auto;display:none;}
@@ -593,18 +647,22 @@ td.num{text-align:right}
  <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenDDCol">
   <div style="font-size:11px;color:#666;">Âge moyen</div>
   <div id="ageMoyenDD" style="font-size:17px;font-weight:800;color:#16a34a;">-</div>
+  <div id="ageMoyenDD60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">(0 &gt; 60j ; 0%)</div>
  </div>
  <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenHDCol">
   <div style="font-size:11px;color:#666;">Âge moyen</div>
   <div id="ageMoyenHorsDelais" style="font-size:17px;font-weight:800;color:#dc2626;">-</div>
+  <div id="ageMoyenHD60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">(0 &gt; 60j ; 0%)</div>
  </div>
  <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenSuspenduCol">
   <div style="font-size:11px;color:#666;">Âge moyen</div>
   <div id="ageMoyenSuspendu" style="font-size:17px;font-weight:800;color:#dc2626;">-</div>
+  <div id="ageMoyenSuspendu60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">(0 &gt; 60j ; 0%)</div>
  </div>
  <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenProjetCol">
   <div style="font-size:11px;color:#666;">Âge moyen</div>
   <div id="ageMoyenProjet" style="font-size:17px;font-weight:800;color:#7c3aed;">-</div>
+  <div id="ageMoyenProjet60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">(0 &gt; 60j ; 0%)</div>
  </div>
 </div>
 <div class="subresume" id="subresume" style="display:flex;flex-wrap:wrap;align-items:flex-start;">
@@ -830,9 +888,12 @@ td.num{text-align:right}
    Appliquer les mêmes dates à tout le projet (même client)
   </label>
   <p style="font-size:11px;color:#7c3aed;margin-bottom:14px;">Une fois la date de fin dépassée, ce dossier sera compté "en retard" et la justification (colonne Cause du retard) deviendra obligatoire.</p>
-  <div style="text-align:right;display:flex;justify-content:flex-end;gap:8px;">
-   <button onclick="window._closeProjetDatesPopup(true)" style="background:#e5e7eb;color:#333;">Annuler</button>
-   <button onclick="window._closeProjetDatesPopup(false)" style="background:#7c3aed;color:white;">Valider</button>
+  <div style="text-align:right;display:flex;justify-content:space-between;gap:8px;">
+   <button onclick="window._resetProjetDates()" style="background:#fee2e2;color:#b91c1c;">🗑 Réinitialiser</button>
+   <div style="display:flex;gap:8px;">
+    <button onclick="window._closeProjetDatesPopup(true)" style="background:#e5e7eb;color:#333;">Annuler</button>
+    <button onclick="window._closeProjetDatesPopup(false)" style="background:#7c3aed;color:white;">Valider</button>
+   </div>
   </div>
  </div>
 </div>
@@ -1454,6 +1515,7 @@ function filtrerEtAfficher(){
   const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
   const causeRetardOk = !window._filtreCauseRetard || ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard);
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
+  const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    // Les projets sont à part : le badge "Mis à jour des statuts" ne les
@@ -1464,7 +1526,7 @@ function filtrerEtAfficher(){
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk){
    cpt++;
    rows.push(`<tr>
     <td class="num">${cpt}</td>
@@ -1526,6 +1588,7 @@ function _clearAllFiltres(){
  window._filtreCauseRetard = null;
  window._filtreExclureSuspendu = false;
  window._filtreProjetRetardActif = false;
+ window._filtreDureeMinActif = false;
  if(window._statutFilterSelected) window._statutFilterSelected.clear();
  if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
  // Vide aussi la recherche texte et le filtre mois : un clic sur un badge
@@ -1658,6 +1721,20 @@ function updateDelaiCounts(){
  if(ageHdEl) ageHdEl.textContent=avgAgeGlobal(horsDelaisNonSuspendus);
  if(ageSuEl) ageSuEl.textContent=avgAgeGlobal(suspendus59);
  if(ageProjEl) ageProjEl.textContent=avgAgeGlobal(projets59);
+
+ // Dossiers de + de 60 jours (DURÉE (j)) dans chaque section, avec leur %
+ // du total de CETTE section — affiché juste sous l'âge moyen.
+ const setPlus60 = (elId, rowsArr) => {
+  const el = document.getElementById(elId);
+  if(!el) return;
+  const plus60 = rowsArr.filter(r => daysBetween(r["DATE CREATION DOSSIER"]) > 60);
+  const pct = rowsArr.length ? Math.round(plus60.length/rowsArr.length*1000)/10 : 0;
+  el.textContent = "(" + plus60.length + " > 60j ; " + pct + "%)";
+ };
+ setPlus60("ageMoyenDD60", enDelai);
+ setPlus60("ageMoyenHD60", horsDelaisNonSuspendus);
+ setPlus60("ageMoyenSuspendu60", suspendus59);
+ setPlus60("ageMoyenProjet60", projets59);
 
  [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS","typeCaGlobal_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI","typeCaGlobal_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM","typeCaGlobal_NUM"]].forEach(([type,ddId,hdId,suId,caId])=>{
   let tdd=0,thd=0,tsu=0,caGlobal=0;
@@ -1971,6 +2048,40 @@ document.getElementById("ageMoyenProjetCol")?.addEventListener("click", function
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
+document.getElementById("ageMoyenDD60")?.addEventListener("click", function(e){
+ e.stopPropagation();
+ _clearAllFiltres();
+ window._filtreDelaiActif = "dd";
+ window._filtreExclureSuspendu = true;
+ window._filtreDureeMinActif = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("ageMoyenHD60")?.addEventListener("click", function(e){
+ e.stopPropagation();
+ _clearAllFiltres();
+ window._filtreDelaiActif = "hd";
+ window._filtreExclureSuspendu = true;
+ window._filtreDureeMinActif = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("ageMoyenSuspendu60")?.addEventListener("click", function(e){
+ e.stopPropagation();
+ _clearAllFiltres();
+ window._categorieFiltreActive = "suspendu";
+ window._filtreDureeMinActif = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+document.getElementById("ageMoyenProjet60")?.addEventListener("click", function(e){
+ e.stopPropagation();
+ _clearAllFiltres();
+ window._categorieFiltreActive = "projet";
+ window._filtreDureeMinActif = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
 
 // ── DD/HD sous En cours / Suspendus ──
 function _toggleCatDelai(cat, delai){
@@ -2227,9 +2338,10 @@ function updateDmrCauses(){
  const suTotalEl=document.getElementById("causesSuspendusTotal");
  const hdTotalEl=document.getElementById("causesHorsDelaisTotal");
  const projTotalEl=document.getElementById("causesProjetsTotal");
- if(suTotalEl) suTotalEl.textContent="("+suData.length+")";
- if(hdTotalEl) hdTotalEl.textContent="("+hdData.length+")";
- if(projTotalEl) projTotalEl.textContent="("+projData.length+")";
+ const totalGeneral=(dossiersGlobal||[]).length;
+ if(suTotalEl) suTotalEl.textContent="("+suData.length+"/"+totalGeneral+")";
+ if(hdTotalEl) hdTotalEl.textContent="("+hdData.length+"/"+totalGeneral+")";
+ if(projTotalEl) projTotalEl.textContent="("+projData.length+"/"+totalGeneral+")";
  renderCauses(suData,causesSuEl,"suspendu");
  renderCauses(hdData,causesHdEl,"hd");
  if(causesProjEl) renderCauses(projData,causesProjEl,"projet");
@@ -2307,7 +2419,7 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
       }
     }
   });
-  document.getElementById("statutsRenseignes").textContent = renseignes;
+  document.getElementById("statutsRenseignes").textContent = respecteRegle;
   document.getElementById("statutsTotal").textContent = total;
   const nonRespecte = total - respecteRegle - inchangeCount;
   const pctEl = document.getElementById("statutsPct");
