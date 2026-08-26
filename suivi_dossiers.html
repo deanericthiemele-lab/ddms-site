@@ -562,29 +562,29 @@ td.num{text-align:right}
   <div id="ageMoyenProjet" style="font-size:17px;font-weight:800;color:#7c3aed;">-</div>
  </div>
 </div>
-<div class="subresume" id="subresume" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;">
- <div class="type-col" style="min-width:170px;">
+<div class="subresume" id="subresume" style="display:flex;flex-wrap:wrap;align-items:flex-start;">
+ <div class="type-col" style="flex:1;min-width:170px;text-align:center;">
 <span id="typeLS" style="cursor:pointer;padding:2px 6px;border-radius:4px;display:inline-block;">LS : 0</span>
   <span id="typeCaGlobal_LS" style="font-size:11px;color:#888;font-weight:600;">CA : -</span>
-  <div style="font-size:11px;margin-top:2px;padding-left:6px;">
+  <div style="font-size:11px;margin-top:2px;text-align:center;">
    <span id="typeDelaiDD_LS" style="cursor:default;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;display:inline-block;min-width:44px;">DD : 0</span>
    <span id="typeDelaiHD_LS" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;display:inline-block;min-width:44px;">HD : 0</span>
    <span id="typeSuspendu_LS" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#b91c1c;font-weight:700;display:inline-block;min-width:60px;">Susp : 0</span>
   </div>
  </div>
- <div class="type-col" style="min-width:180px;">
+ <div class="type-col" style="flex:1;min-width:180px;text-align:center;border-left:1px solid #ddd;">
   <span id="typeLSI" style="cursor:pointer;padding:2px 6px;border-radius:4px;display:inline-block;">LSI : 0</span>
   <span id="typeCaGlobal_LSI" style="font-size:11px;color:#888;font-weight:600;">CA : -</span>
-  <div style="font-size:11px;margin-top:2px;padding-left:6px;">
+  <div style="font-size:11px;margin-top:2px;text-align:center;">
    <span id="typeDelaiDD_LSI" style="cursor:default;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;display:inline-block;min-width:44px;">DD : 0</span>
    <span id="typeDelaiHD_LSI" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;display:inline-block;min-width:44px;">HD : 0</span>
    <span id="typeSuspendu_LSI" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#b91c1c;font-weight:700;display:inline-block;min-width:60px;">Susp : 0</span>
   </div>
  </div>
- <div class="type-col" style="min-width:200px;">
+ <div class="type-col" style="flex:1;min-width:200px;text-align:center;border-left:1px solid #ddd;">
   <span id="typeNUM" style="cursor:pointer;padding:2px 6px;border-radius:4px;display:inline-block;">Numérique : 0</span>
   <span id="typeCaGlobal_NUM" style="font-size:11px;color:#888;font-weight:600;">CA : -</span>
-  <div style="font-size:11px;margin-top:2px;padding-left:6px;">
+  <div style="font-size:11px;margin-top:2px;text-align:center;">
    <span id="typeDelaiDD_NUM" style="cursor:default;padding:2px 6px;border-radius:4px;color:#16a34a;font-weight:700;display:inline-block;min-width:44px;">DD : 0</span>
    <span id="typeDelaiHD_NUM" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#dc2626;font-weight:700;display:inline-block;min-width:44px;">HD : 0</span>
    <span id="typeSuspendu_NUM" style="cursor:pointer;padding:2px 6px;border-radius:4px;color:#b91c1c;font-weight:700;display:inline-block;min-width:60px;">Susp : 0</span>
@@ -658,6 +658,7 @@ td.num{text-align:right}
 <table id="tableDossiers">
 <thead>
 <tr>
+<th>N°</th>
 <th>CLIENT</th>
 <th>ID DOSSIER</th>
 <th>DATE CREATION DOSSIER</th>
@@ -979,6 +980,16 @@ function _maybeAskProjetDates(id, val){
  }
 }
 
+function _maybeWarnCauseObligatoire(id, val){
+ if(!id || !val) return;
+ if(!val.toLowerCase().includes("projet")) return;
+ if(!(window._isProjetEnRetardById && window._isProjetEnRetardById(id))) return;
+ const cause = window._getSolution ? (window._getSolution(id)||"").trim() : "";
+ if(!cause){
+  alert("Ce dossier est un projet en retard : la cause du retard (colonne CAUSE REEL DE RETARD) est obligatoire.");
+ }
+}
+
 function attachStatutListeners(){
  ensureDatalist();
  document.querySelectorAll(".statut-input").forEach(inp=>{
@@ -991,6 +1002,11 @@ function attachStatutListeners(){
   inp._prevVal = inp.value; // _prevVal = valeur actuelle (Firebase ou vide)
   inp.addEventListener("click", function(){
    openDropdown(this);
+   // Le dossier a déjà "projet" comme statut mais n'a jamais eu ses dates
+   // renseignées (ex. dossier existant avant l'ajout de cette fonctionnalité)
+   // → on redemande les dates dès qu'on clique dans le champ, sans attendre
+   // un changement de valeur.
+   _maybeAskProjetDates(this.dataset.id, this.value);
   });
   inp.addEventListener("input", function(){
    // Filtrer le dropdown selon la saisie
@@ -1035,6 +1051,9 @@ function attachStatutListeners(){
       label.className = "statut-date-label " + cls;
      }
     }
+    // Avant de sortir du champ STATUT : si c'est un projet en retard et que
+    // la cause du retard n'est pas remplie, on prévient — obligatoire.
+    _maybeWarnCauseObligatoire(self.dataset.id, val);
    }, 200);
   });
   inp.addEventListener("change", async function(){
@@ -1279,6 +1298,7 @@ function filtrerEtAfficher(){
   if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk){
    cpt++;
    rows.push(`<tr>
+    <td class="num">${cpt}</td>
     <td>${r["CLIENT"]||""}</td>
     <td>${r["ID DOSSIER"]||""}</td>
     <td>${formatDate(r["DATE CREATION DOSSIER"])}</td>
