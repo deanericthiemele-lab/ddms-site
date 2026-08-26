@@ -1947,6 +1947,76 @@ document.getElementById("typeDelaiDD_NUM").addEventListener("click", function(){
 /* ── Bloc réutilisable "Statut global (en cours et suspendus)" — utilisé dans le rapport ET dans le popup rapide ──
    filtreCat: null = affiche les deux catégories (rapport complet) ; "encours" ou "suspendu" = affiche uniquement cette catégorie (popup rapide)
    hideTitle: true = n'affiche pas le <h4> interne (utile quand le titre est déjà affiché ailleurs, ex. popup) */
+// ── Répartition détaillée par catégorie réelle (Dans les délais / Hors
+// délais / Suspendus / Projets), avec le détail par statut sous chacune —
+// même logique de catégorisation que le tableau principal (isRowSuspendu/
+// isRowProjet/estDansDelai), pour rester cohérent avec le reste de la page.
+function buildStatutParCategorieHTML(){
+ const groupes = {
+  dd:   { label:"🟢 Dans les délais", color:"#16a34a", light:"#86efac", total:0, ageSum:0, detail:{}, detailAge:{} },
+  hd:   { label:"🔴 Hors délais",      color:"#dc2626", light:"#fca5a5", total:0, ageSum:0, detail:{}, detailAge:{} },
+  susp: { label:"🟠 Suspendus",        color:"#b91c1c", light:"#fca5a5", total:0, ageSum:0, detail:{}, detailAge:{} },
+  proj: { label:"🟣 Projets",          color:"#7c3aed", light:"#c4b5fd", total:0, ageSum:0, detail:{}, detailAge:{} }
+ };
+ (dossiersGlobal||[]).forEach(r=>{
+  const id = (r["ID DOSSIER"]||"").toString().trim();
+  const s = window._getStatut ? window._getStatut(id) : "";
+  const cat = window._getCategorieStatut ? window._getCategorieStatut(s) : "encours";
+  const age = daysBetween(r["DATE CREATION DOSSIER"]);
+  let cle;
+  if(cat==="projet") cle="proj";
+  else if(cat==="suspendu") cle="susp";
+  else if(age<=OBJECTIF_DMR) cle="dd";
+  else cle="hd";
+  const g = groupes[cle];
+  g.total += 1; g.ageSum += age;
+  const label = (s && s.trim()!=="") ? s : "Sans statut";
+  g.detail[label] = (g.detail[label]||0)+1;
+  g.detailAge[label] = (g.detailAge[label]||0)+age;
+ });
+ const grandTotal = groupes.dd.total + groupes.hd.total + groupes.susp.total + groupes.proj.total;
+ const maxGroupe = Math.max(groupes.dd.total, groupes.hd.total, groupes.susp.total, groupes.proj.total, 1);
+
+ const rendreGroupe = (g) => {
+  const detailSorted = Object.entries(g.detail).sort((a,b)=>b[1]-a[1]);
+  return `<div class="rap-bar-row" style="margin-top:6px;">
+     <div class="rap-bar-label"><b>${g.label}</b></div>
+     <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(g.total/maxGroupe*100)}%;background:${g.color};"></div></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col"><b>${g.total}</b></div>
+       <div class="rap-bar-col">${grandTotal?Math.round(g.total/grandTotal*1000)/10:0}%</div>
+       <div class="rap-bar-col">${g.total?Math.round(g.ageSum/g.total):0} j</div>
+     </div>
+   </div>
+   ${detailSorted.map(([s,n])=>`
+     <div class="rap-bar-row">
+       <div class="rap-bar-label" style="padding-left:16px;color:#555;">${s}</div>
+       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxGroupe*100)}%;background:${g.light};"></div></div>
+       <div class="rap-bar-cols">
+         <div class="rap-bar-col">${n}</div>
+         <div class="rap-bar-col">${grandTotal?Math.round(n/grandTotal*1000)/10:0}%</div>
+         <div class="rap-bar-col">${Math.round(g.detailAge[s]/n)} j</div>
+       </div>
+     </div>`).join("")}`;
+ };
+
+ return `<div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Répartition par statut des dossiers en cours</h4>
+   ${grandTotal ? `<div class="rap-bar-row" style="margin-bottom:8px;">
+     <div class="rap-bar-label"></div>
+     <div class="rap-bar-track" style="background:none;"></div>
+     <div class="rap-bar-cols">
+       <div class="rap-bar-col rap-bar-col-head">Volume</div>
+       <div class="rap-bar-col rap-bar-col-head">%</div>
+       <div class="rap-bar-col rap-bar-col-head">Âge moy.</div>
+     </div>
+   </div>
+   ${rendreGroupe(groupes.dd)}
+   ${rendreGroupe(groupes.hd)}
+   ${rendreGroupe(groupes.susp)}
+   ${rendreGroupe(groupes.proj)}` : `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>`}
+ </div>`;
+}
+
 function buildStatutGlobalHTML(filtreCat, hideTitle){
  const statutCounts = {}, statutAgeSum = {};
  let sansStatut = 0, sansStatutAgeSum = 0;
@@ -3455,11 +3525,11 @@ function genererRapportKPI(){
  html += `<div class="rap-section"><h3>🚚 Livraison de la période</h3><div class="rap-kpi-grid rap-nosplit">
    ${kpiCard("Mis en service", totalMES, colorObjectifVolume, subObjectifVolume)}
    ${kpiCard("DMR — délai moyen de raccordement", dmrMoyen!==null?`${dmrMoyen} j`:"-", dmrCouleur, `Objectif : ${OBJECTIF_DMR} jours` + (dmrMoyen!==null?(dmrMoyen<=OBJECTIF_DMR?" ✅ respecté":" ⚠️ dépassé"):""))}
+   ${kpiCard("CA total (frais + récurrent)", fmtMontantRap(caLivre), "#F2790A")}
    ${kpiCard("Frais de mise en service", fmtMontantRap(fraisMSTotal), "#F2790A")}
    ${kpiCard("Récurrent mensuel généré", fmtMontantRap(recurrentTotal), "#F2790A")}
-   ${kpiCard("CA total (frais + récurrent)", fmtMontantRap(caLivre), "#F2790A")}
  </div>
- <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Par produit — Livré (période)</h4>
+ <div class="rap-nosplit" style="margin-top:14px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📦 Produits livrés</h4>
    ${produitLivresSorted.length ? `<table class="rap-top10"><thead><tr><th>Produit</th><th>CA</th><th>Dans délais</th><th>Hors délais</th></tr></thead><tbody>
     ${produitLivresSorted.map(([p,v])=>`<tr><td>${p}</td><td><b>${fmtMontantRap(v.ca)}</b></td><td style="color:#16a34a;">${v.dans}</td><td style="color:#dc2626;">${v.hors}</td></tr>`).join("")}
    </tbody></table>` : `<p style="color:#999;font-size:12px;">Aucune livraison sur la période.</p>`}
@@ -3479,39 +3549,7 @@ function genererRapportKPI(){
    <p style="color:#999;font-size:11px;margin-top:8px;">« Dans/hors délais » compare l'ancienneté du dossier à l'objectif de ${OBJECTIF_DMR} jours.</p>
  </div>
 
- <div class="rap-nosplit" style="margin-top:18px;"><h4 style="font-size:13px;color:#555;margin:0 0 8px;">📋 Répartition par statut</h4>
-   ${(statutsSorted.length || sansStatut) ? `<div class="rap-bar-row" style="margin-bottom:8px;">
-     <div class="rap-bar-label"></div>
-     <div class="rap-bar-track" style="background:none;"></div>
-     <div class="rap-bar-cols">
-       <div class="rap-bar-col rap-bar-col-head">Volume</div>
-       <div class="rap-bar-col rap-bar-col-head">%</div>
-       <div class="rap-bar-col rap-bar-col-head">Âge moy.</div>
-     </div>
-   </div>` : ""}
-   ${statutsSorted.length ? statutsSorted.map(([s,n])=>`
-     <div class="rap-bar-row">
-       <div class="rap-bar-label">${s}</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(n/maxStatut*100)}%;background:#F2790A;"></div></div>
-       <div class="rap-bar-cols">
-         <div class="rap-bar-col"><b>${n}</b></div>
-         <div class="rap-bar-col">${encoursTotal?Math.round(n/encoursTotal*1000)/10:0}%</div>
-         <div class="rap-bar-col">${Math.round(statutAgeSum[s]/n)} j</div>
-       </div>
-     </div>`).join("") : ""}
-   ${sansStatut ? `<div class="rap-bar-row">
-       <div class="rap-bar-label">Sans statut</div>
-       <div class="rap-bar-track"><div class="rap-bar-fill" style="width:${Math.round(sansStatut/maxStatut*100)}%;background:#aaa;"></div></div>
-       <div class="rap-bar-cols">
-         <div class="rap-bar-col"><b>${sansStatut}</b></div>
-         <div class="rap-bar-col">${encoursTotal?Math.round(sansStatut/encoursTotal*1000)/10:0}%</div>
-         <div class="rap-bar-col">${Math.round(sansStatutAgeSum/sansStatut)} j</div>
-       </div>
-     </div>` : ""}
-   ${(!statutsSorted.length && !sansStatut) ? `<p style="color:#999;font-size:12px;">Aucun dossier en cours chargé.</p>` : ""}
- </div>
-
- ${buildStatutGlobalHTML()}
+ ${buildStatutParCategorieHTML()}
  </div>`;
 
  /* ════════ BLOC 5 — TOP 10 ════════ */
