@@ -647,22 +647,20 @@ td.num{text-align:right}
  <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenDDCol">
   <div style="font-size:11px;color:#666;">Âge moyen</div>
   <div id="ageMoyenDD" style="font-size:17px;font-weight:800;color:#16a34a;">-</div>
-  <div id="ageMoyenDD60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">(0 &gt; 60j ; 0%)</div>
  </div>
  <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenHDCol">
   <div style="font-size:11px;color:#666;">Âge moyen</div>
   <div id="ageMoyenHorsDelais" style="font-size:17px;font-weight:800;color:#dc2626;">-</div>
-  <div id="ageMoyenHD60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">(0 &gt; 60j ; 0%)</div>
+  <div id="ageMoyenHD60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">&gt; 60 (0)</div>
  </div>
  <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenSuspenduCol">
   <div style="font-size:11px;color:#666;">Âge moyen</div>
   <div id="ageMoyenSuspendu" style="font-size:17px;font-weight:800;color:#dc2626;">-</div>
-  <div id="ageMoyenSuspendu60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">(0 &gt; 60j ; 0%)</div>
+  <div id="ageMoyenSuspendu60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">&gt; 60 (0)</div>
  </div>
  <div style="flex:1;min-width:140px;text-align:center;cursor:pointer;" id="ageMoyenProjetCol">
   <div style="font-size:11px;color:#666;">Âge moyen</div>
   <div id="ageMoyenProjet" style="font-size:17px;font-weight:800;color:#7c3aed;">-</div>
-  <div id="ageMoyenProjet60" style="font-size:10.5px;color:#888;cursor:pointer;margin-top:2px;">(0 &gt; 60j ; 0%)</div>
  </div>
 </div>
 <div class="subresume" id="subresume" style="display:flex;flex-wrap:wrap;align-items:flex-start;">
@@ -1722,19 +1720,17 @@ function updateDelaiCounts(){
  if(ageSuEl) ageSuEl.textContent=avgAgeGlobal(suspendus59);
  if(ageProjEl) ageProjEl.textContent=avgAgeGlobal(projets59);
 
- // Dossiers de + de 60 jours (DURÉE (j)) dans chaque section, avec leur %
- // du total de CETTE section — affiché juste sous l'âge moyen.
- const setPlus60 = (elId, rowsArr) => {
+ // Dossiers de + de 60 jours (DURÉE (j)) : uniquement Hors délais/Suspendus
+ // ("Dans les délais" est exclu : objectif DMR ≤ 40j, donc toujours à zéro ;
+ // "Projets" n'a plus cet indicateur non plus).
+ const setPlus60Volume = (elId, rowsArr) => {
   const el = document.getElementById(elId);
   if(!el) return;
   const plus60 = rowsArr.filter(r => daysBetween(r["DATE CREATION DOSSIER"]) > 60);
-  const pct = rowsArr.length ? Math.round(plus60.length/rowsArr.length*1000)/10 : 0;
-  el.textContent = "(" + plus60.length + " > 60j ; " + pct + "%)";
+  el.textContent = "> 60 (" + plus60.length + ")";
  };
- setPlus60("ageMoyenDD60", enDelai);
- setPlus60("ageMoyenHD60", horsDelaisNonSuspendus);
- setPlus60("ageMoyenSuspendu60", suspendus59);
- setPlus60("ageMoyenProjet60", projets59);
+ setPlus60Volume("ageMoyenHD60", horsDelaisNonSuspendus);
+ setPlus60Volume("ageMoyenSuspendu60", suspendus59);
 
  [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS","typeCaGlobal_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI","typeCaGlobal_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM","typeCaGlobal_NUM"]].forEach(([type,ddId,hdId,suId,caId])=>{
   let tdd=0,thd=0,tsu=0,caGlobal=0;
@@ -2048,15 +2044,6 @@ document.getElementById("ageMoyenProjetCol")?.addEventListener("click", function
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
-document.getElementById("ageMoyenDD60")?.addEventListener("click", function(e){
- e.stopPropagation();
- _clearAllFiltres();
- window._filtreDelaiActif = "dd";
- window._filtreExclureSuspendu = true;
- window._filtreDureeMinActif = true;
- _updateCatButtonsUI();
- filtrerEtAfficher();
-});
 document.getElementById("ageMoyenHD60")?.addEventListener("click", function(e){
  e.stopPropagation();
  _clearAllFiltres();
@@ -2070,14 +2057,6 @@ document.getElementById("ageMoyenSuspendu60")?.addEventListener("click", functio
  e.stopPropagation();
  _clearAllFiltres();
  window._categorieFiltreActive = "suspendu";
- window._filtreDureeMinActif = true;
- _updateCatButtonsUI();
- filtrerEtAfficher();
-});
-document.getElementById("ageMoyenProjet60")?.addEventListener("click", function(e){
- e.stopPropagation();
- _clearAllFiltres();
- window._categorieFiltreActive = "projet";
  window._filtreDureeMinActif = true;
  _updateCatButtonsUI();
  filtrerEtAfficher();
@@ -2338,10 +2317,9 @@ function updateDmrCauses(){
  const suTotalEl=document.getElementById("causesSuspendusTotal");
  const hdTotalEl=document.getElementById("causesHorsDelaisTotal");
  const projTotalEl=document.getElementById("causesProjetsTotal");
- const totalGeneral=(dossiersGlobal||[]).length;
- if(suTotalEl) suTotalEl.textContent="("+suData.length+"/"+totalGeneral+")";
- if(hdTotalEl) hdTotalEl.textContent="("+hdData.length+"/"+totalGeneral+")";
- if(projTotalEl) projTotalEl.textContent="("+projData.length+"/"+totalGeneral+")";
+ if(suTotalEl) suTotalEl.textContent="("+suData.length+")";
+ if(hdTotalEl) hdTotalEl.textContent="("+hdData.length+")";
+ if(projTotalEl) projTotalEl.textContent="("+projData.length+")";
  renderCauses(suData,causesSuEl,"suspendu");
  renderCauses(hdData,causesHdEl,"hd");
  if(causesProjEl) renderCauses(projData,causesProjEl,"projet");
