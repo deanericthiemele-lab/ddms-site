@@ -226,6 +226,11 @@ onValue(ref(db, "statut_porteurs"), (snapshot) => {
     }
   });
   if(typeof window._refreshOptionsList === "function") window._refreshOptionsList();
+  // Les catégories (suspendu/projet) viennent d'arriver ou de changer : il faut
+  // recalculer tous les compteurs qui en dépendent, sinon "Projets"/"Suspendus"
+  // restent figés à 0 tant qu'aucune autre action ne déclenche un recalcul.
+  if(typeof _tryRenderAfterFirebase === "function") _tryRenderAfterFirebase();
+  if(typeof filtrerEtAfficher === "function") filtrerEtAfficher();
 });
 
 window._savePorteurStatut = async function(statut, porteur, categorie) {
@@ -1277,6 +1282,20 @@ function updateDelaiCounts(){
  if(suSepPct) suSepPct.textContent="("+pctSuSep+"%)";
  if(projSepPct) projSepPct.textContent="("+pctProjSep+"%)";
 
+ // Âge moyen par catégorie : calculé sur la MÊME base non filtrée que les
+ // compteurs ci-dessus (horsDelaisNonSuspendus/suspendus59/projets59), pour
+ // rester cohérent avec eux quel que soit l'état de la recherche/des filtres.
+ const avgAgeGlobal = rowsArr => {
+   if(!rowsArr.length) return "-";
+   return Math.round(rowsArr.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/rowsArr.length)+" j";
+ };
+ const ageHdEl=document.getElementById("ageMoyenHorsDelais");
+ const ageSuEl=document.getElementById("ageMoyenSuspendu");
+ const ageProjEl=document.getElementById("ageMoyenProjet");
+ if(ageHdEl) ageHdEl.textContent=avgAgeGlobal(horsDelaisNonSuspendus);
+ if(ageSuEl) ageSuEl.textContent=avgAgeGlobal(suspendus59);
+ if(ageProjEl) ageProjEl.textContent=avgAgeGlobal(projets59);
+
  [["LS","typeDelaiDD_LS","typeDelaiHD_LS","typeSuspendu_LS","typeCaGlobal_LS"],["LSI","typeDelaiDD_LSI","typeDelaiHD_LSI","typeSuspendu_LSI","typeCaGlobal_LSI"],["NUM","typeDelaiDD_NUM","typeDelaiHD_NUM","typeSuspendu_NUM","typeCaGlobal_NUM"]].forEach(([type,ddId,hdId,suId,caId])=>{
   let tdd=0,thd=0,tsu=0,caGlobal=0;
   (dossiersGlobal||[]).forEach(r=>{
@@ -1772,9 +1791,10 @@ function updateDmrCauses(){
           window._getCategorieStatut(st)==="projet";
  });
 
- hdEl.textContent=avgAge(hdData);
- suEl.textContent=avgAge(suData);
- if(projEl) projEl.textContent=avgAge(projData);
+ // Note : l'"Âge moyen" par catégorie (Hors délais / Suspendus / Projets) est
+ // désormais calculé dans updateDelaiCounts() sur la base non filtrée, pour
+ // rester cohérent avec les compteurs affichés juste au-dessus. On ne le
+ // recalcule plus ici avec le sous-ensemble filtré par la recherche/le mois.
  const suTotalEl=document.getElementById("causesSuspendusTotal");
  const hdTotalEl=document.getElementById("causesHorsDelaisTotal");
  const projTotalEl=document.getElementById("causesProjetsTotal");
