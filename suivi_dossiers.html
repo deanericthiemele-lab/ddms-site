@@ -103,6 +103,48 @@ window._getStatutDate = function(id) {
   return entry.updatedAt || "";
 };
 
+// ── "Statut inchangé" : le NOC coche pour confirmer qu'un statut en retard
+// (non mis à jour depuis lundi) est toujours valide, SANS toucher à la date
+// de mise à jour réelle. Compte à part dans "Mis à jour des statuts". La
+// confirmation vaut pour la semaine en cours (comme la règle "depuis lundi") :
+// une confirmation d'une semaine précédente ne compte plus la semaine suivante.
+window._statutInchange = {};
+onValue(ref(db, "statut_inchange"), (snapshot) => {
+  window._statutInchange = snapshot.val() || {};
+  if(typeof window.peuplerDepuisFirebase === "function") window.peuplerDepuisFirebase();
+  if(typeof window.updateStatutsCoverage === "function") window.updateStatutsCoverage();
+});
+window._getStatutInchangeAt = function(id) {
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  const entry = window._statutInchange[safeKey];
+  if(!entry) return "";
+  return (typeof entry === "object" && entry !== null) ? (entry.checkedAt || "") : "";
+};
+window._isStatutInchangeValide = function(id, lastMonday) {
+  const at = window._getStatutInchangeAt(id);
+  if(!at) return false;
+  const d = new Date(at);
+  if(isNaN(d)) return false;
+  return d >= lastMonday;
+};
+window._setStatutInchange = async function(id, checked) {
+  if(!id) return;
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  try {
+    if(checked){
+      const entry = { checkedAt: new Date().toISOString() };
+      await set(ref(db, "statut_inchange/" + safeKey), entry);
+      window._statutInchange[safeKey] = entry;
+    } else {
+      await set(ref(db, "statut_inchange/" + safeKey), null);
+      delete window._statutInchange[safeKey];
+    }
+    if(typeof window.updateStatutsCoverage === "function") window.updateStatutsCoverage();
+  } catch(e) {
+    console.error("Erreur Firebase statut_inchange:", e);
+  }
+};
+
 // ── Dates de projet (début/fin) — pour calculer les "Projets en retard" ──
 window._projetDates = {};
 onValue(ref(db, "projet_dates"), (snapshot) => {
@@ -419,6 +461,9 @@ td.num{text-align:right}
 .statut-date-label{font-size:10px;font-style:italic;min-height:13px;line-height:1.2;color:#888;}
 .statut-date-label.outdated{color:#dc2626;font-weight:bold;}
 .statut-date-label.ok{color:#16a34a;}
+.statut-date-label.inchange{color:#2563eb;font-weight:bold;background:#dbeafe;padding:0 3px;border-radius:3px;}
+.statut-inchange-label{display:inline-flex;align-items:center;gap:3px;font-size:9.5px;color:#2563eb;cursor:pointer;margin-left:4px;font-style:normal;white-space:nowrap;}
+.statut-inchange-label input{width:11px;height:11px;cursor:pointer;accent-color:#2563eb;margin:0;}
 .statut-dropdown{position:absolute;top:100%;left:0;z-index:999;background:#fff;border:1px solid #bbb;border-radius:4px;box-shadow:0 3px 8px rgba(0,0,0,0.15);min-width:180px;max-height:220px;overflow-y:auto;display:none;}
 .statut-dropdown.open{display:block;}
 .statut-dropdown-item{padding:6px 10px;font-size:13px;cursor:pointer;white-space:nowrap;}
@@ -920,12 +965,33 @@ function makeStatutInput(id){
  const iconDates = estProjet
   ? `<span class="projet-dates-icon" data-id="${safeId}" title="${enRetard ? '⚠ Date de fin dépassée — cliquer pour modifier les dates' : 'Modifier les dates du projet'}" style="cursor:pointer;font-size:13px;white-space:nowrap;">📅${enRetard ? '<span style="color:#dc2626;font-weight:800;">!</span>' : ''}</span>`
   : '';
+
+ // Bloc date/statut inchangé — n'a de sens que pour les dossiers non-projet
+ // qui ont un statut renseigné. "Statut inchangé" ne modifie jamais la date
+ // de mise à jour réelle : c'est une confirmation NOC séparée, valable
+ // uniquement pour la semaine en cours (comme "à jour depuis lundi").
+ let dateBlockHtml = '';
+ if(!estProjet){
+  const lastMonday = getLastMonday();
+  const estAJour = dateCls === "ok";
+  const inchangeValide = (!estAJour && window._isStatutInchangeValide) ? window._isStatutInchangeValide(id, lastMonday) : false;
+  if(inchangeValide){
+   dateBlockHtml = `<span class="statut-date-label inchange">${dateLabel} — Statut inchangé</span>
+    <label class="statut-inchange-label"><input type="checkbox" class="statut-inchange-checkbox" data-id="${safeId}" checked/>inchangé</label>`;
+  } else {
+   dateBlockHtml = `<span class="statut-date-label ${dateCls}">${dateLabel}</span>`;
+   if(!estAJour && val.trim()!==""){
+    dateBlockHtml += `<label class="statut-inchange-label"><input type="checkbox" class="statut-inchange-checkbox" data-id="${safeId}"/>inchangé</label>`;
+   }
+  }
+ }
+
  return `<div class="statut-cell">
   <div style="display:flex;align-items:center;gap:4px;">
    <input class="statut-input" data-id="${safeId}" data-field="statut" maxlength="80" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>${iconDates}
   </div>
   <div class="statut-dropdown"></div>
-  <span class="statut-date-label ${estProjet ? '' : dateCls}">${estProjet ? '' : dateLabel}</span>
+  ${dateBlockHtml}
  </div>`;
 }
 
@@ -967,6 +1033,32 @@ document.addEventListener("click", function(e){
  closeAllDropdowns();
  const id = icon.dataset.id;
  if(id && window._openProjetDatesPopup) window._openProjetDatesPopup(id);
+});
+
+// Case à cocher "inchangé" dans la cellule STATUT (délégué, lignes
+// reconstruites à chaque filtre) : ne touche jamais à la date de mise à
+// jour réelle, bascule juste le label en bleu et recompte le badge du haut.
+document.addEventListener("click", function(e){
+ const cb = e.target.closest(".statut-inchange-checkbox");
+ if(!cb) return;
+ e.stopPropagation();
+ const id = cb.dataset.id;
+ const checked = cb.checked;
+ const cell = cb.closest(".statut-cell");
+ const label = cell ? cell.querySelector(".statut-date-label") : null;
+ if(label){
+  if(checked){
+   // Retire le " — Statut inchangé" éventuel déjà présent avant de le rajouter,
+   // pour éviter de le dupliquer si on décoche/recoche plusieurs fois.
+   const baseText = label.textContent.replace(/ — Statut inchangé$/,"");
+   label.textContent = baseText + " — Statut inchangé";
+   label.className = "statut-date-label inchange";
+  } else {
+   label.textContent = label.textContent.replace(/ — Statut inchangé$/,"");
+   label.className = "statut-date-label outdated";
+  }
+ }
+ if(id && window._setStatutInchange) window._setStatutInchange(id, checked);
 });
 
 function openDropdown(inp){
@@ -1063,7 +1155,8 @@ function attachStatutListeners(){
       if(val && window._saveOption) window._saveOption(val);
      }
      _maybeAskProjetDates(self.dataset.id, val);
-     const label = self.closest(".statut-cell") ? self.closest(".statut-cell").querySelector(".statut-date-label") : null;
+     const cell = self.closest(".statut-cell");
+     const label = cell ? cell.querySelector(".statut-date-label") : null;
      if(label){
       if(val.toLowerCase().includes("projet")){
        label.textContent = "";
@@ -1074,6 +1167,11 @@ function attachStatutListeners(){
        label.className = "statut-date-label " + cls;
       }
      }
+     // Le statut vient réellement de changer : toute confirmation "inchangé"
+     // précédente n'a plus de sens, on la retire (affichage + Firebase).
+     const oldInchangeLabel = cell ? cell.querySelector(".statut-inchange-label") : null;
+     if(oldInchangeLabel) oldInchangeLabel.remove();
+     if(window._setStatutInchange && window._getStatutInchangeAt && window._getStatutInchangeAt(self.dataset.id)) window._setStatutInchange(self.dataset.id, false);
     }
     // Avant de sortir du champ STATUT : si c'est un projet en retard et que
     // la cause du retard n'est pas remplie, on prévient — obligatoire.
@@ -1091,7 +1189,8 @@ function attachStatutListeners(){
    }
    _maybeAskProjetDates(id, val);
    this.classList.add("saved");
-   const label = this.closest(".statut-cell") ? this.closest(".statut-cell").querySelector(".statut-date-label") : null;
+   const cell = this.closest(".statut-cell");
+   const label = cell ? cell.querySelector(".statut-date-label") : null;
    if(label){
     if(val.toLowerCase().includes("projet")){
      label.textContent = "";
@@ -1103,6 +1202,9 @@ function attachStatutListeners(){
      label.className = "statut-date-label " + cls;
     }
    }
+   const oldInchangeLabel = cell ? cell.querySelector(".statut-inchange-label") : null;
+   if(oldInchangeLabel) oldInchangeLabel.remove();
+   if(window._setStatutInchange && window._getStatutInchangeAt && window._getStatutInchangeAt(id)) window._setStatutInchange(id, false);
    setTimeout(()=>this.classList.remove("saved"),1000);
   });
  });
@@ -1212,15 +1314,42 @@ function peuplerDepuisFirebase(){
    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
    inp.value = val;
    inp._prevVal = val;
-   const label = inp.closest(".statut-cell") ? inp.closest(".statut-cell").querySelector(".statut-date-label") : null;
+   const cell = inp.closest(".statut-cell");
+   const label = cell ? cell.querySelector(".statut-date-label") : null;
+   const estProjet = val && val.toLowerCase().includes("projet");
    if(label){
-    if(val && val.toLowerCase().includes("projet")){
+    if(estProjet){
      label.textContent = "";
      label.className = "statut-date-label";
     } else if(entry && typeof entry === "object" && entry.updatedAt){
      const {text, cls} = window._formatStatutDate ? window._formatStatutDate(entry.updatedAt) : {text:"màj : "+entry.updatedAt, cls:""};
-     label.textContent = text;
-     label.className = "statut-date-label " + cls;
+     const estAJour = cls === "ok";
+     const lastMonday = (typeof getLastMonday === "function") ? getLastMonday() : null;
+     const inchangeValide = (!estAJour && lastMonday && window._isStatutInchangeValide) ? window._isStatutInchangeValide(id, lastMonday) : false;
+     let oldCheckbox = cell.querySelector(".statut-inchange-label");
+     if(inchangeValide){
+      label.textContent = text + " — Statut inchangé";
+      label.className = "statut-date-label inchange";
+      if(oldCheckbox){
+       const cb = oldCheckbox.querySelector("input");
+       if(cb) cb.checked = true;
+      } else if(val.trim()!==""){
+       label.insertAdjacentHTML("afterend", `<label class="statut-inchange-label"><input type="checkbox" class="statut-inchange-checkbox" data-id="${id.replace(/"/g,'&quot;')}" checked/>inchangé</label>`);
+      }
+     } else {
+      label.textContent = text;
+      label.className = "statut-date-label " + cls;
+      if(!estAJour && val.trim()!==""){
+       if(oldCheckbox){
+        const cb = oldCheckbox.querySelector("input");
+        if(cb) cb.checked = false;
+       } else {
+        label.insertAdjacentHTML("afterend", `<label class="statut-inchange-label"><input type="checkbox" class="statut-inchange-checkbox" data-id="${id.replace(/"/g,'&quot;')}"/>inchangé</label>`);
+       }
+      } else if(oldCheckbox){
+       oldCheckbox.remove();
+      }
+     }
     }
    }
   }
@@ -2158,27 +2287,46 @@ window.updateStatutsCoverage = function updateStatutsCoverage(){
   const lastMonday = getLastMonday();
   let renseignes = 0;
   let respecteRegle = 0;
+  let inchangeCount = 0;
   idsGlobal.forEach(key=>{
     const s = allStatuts[key];
     const val = (s && typeof s === "object") ? (s.value || "") : (s || "");
     const updatedAt = (s && typeof s === "object") ? s.updatedAt : null;
     if(val.trim() !== ""){
       renseignes++;
-      if(updatedAt && new Date(updatedAt) >= lastMonday) respecteRegle++;
+      const estAJour = updatedAt && new Date(updatedAt) >= lastMonday;
+      if(estAJour){
+       respecteRegle++;
+      } else {
+       // Accès direct par safeKey (déjà la bonne clé dans statut_inchange,
+       // même espace de clés que statuts_dossiers) — plus robuste qu'une
+       // reconstruction d'ID.
+       const entryInchange = window._statutInchange ? window._statutInchange[key] : null;
+       const atInchange = (entryInchange && typeof entryInchange === "object") ? entryInchange.checkedAt : null;
+       if(atInchange && new Date(atInchange) >= lastMonday) inchangeCount++;
+      }
     }
   });
   document.getElementById("statutsRenseignes").textContent = renseignes;
   document.getElementById("statutsTotal").textContent = total;
-  const nonRespecte = total - respecteRegle;
+  const nonRespecte = total - respecteRegle - inchangeCount;
   const pctEl = document.getElementById("statutsPct");
   const outlineAJour = window._filtreFraicheurActif==="ajour" ? "outline:2px solid #15803d;" : "";
   const outlineRetard = window._filtreFraicheurActif==="retard" ? "outline:2px solid #b91c1c;" : "";
-  pctEl.innerHTML = `<span id="badgeAJour" title="Cliquer pour filtrer : statuts mis à jour depuis le dernier lundi (hors projets)" style="background:#dcfce7;color:#15803d;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;cursor:pointer;${outlineAJour}">✅ ${respecteRegle} à jour (depuis lundi et hors projets)</span> <span id="badgeRetard" title="Cliquer pour filtrer : statuts non mis à jour depuis le dernier lundi (hors projets)" style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;margin-left:4px;cursor:pointer;${outlineRetard}">❌ ${nonRespecte} en retard</span>`;
+  const outlineInchange = window._filtreFraicheurActif==="inchange" ? "outline:2px solid #2563eb;" : "";
+  pctEl.innerHTML = `<span id="badgeAJour" title="Cliquer pour filtrer : statuts mis à jour depuis le dernier lundi (hors projets)" style="background:#dcfce7;color:#15803d;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;cursor:pointer;${outlineAJour}">✅ ${respecteRegle} à jour (depuis lundi et hors projets)</span> <span id="badgeInchange" title="Cliquer pour filtrer : statuts confirmés inchangés cette semaine" style="background:#dbeafe;color:#2563eb;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;margin-left:4px;cursor:pointer;${outlineInchange}">🔵 ${inchangeCount} statut inchangé</span> <span id="badgeRetard" title="Cliquer pour filtrer : statuts non mis à jour depuis le dernier lundi (hors projets)" style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:1px 6px;font-size:11px;font-weight:normal;margin-left:4px;cursor:pointer;${outlineRetard}">❌ ${nonRespecte} en retard</span>`;
   const badgeAJour = document.getElementById("badgeAJour");
+  const badgeInchange = document.getElementById("badgeInchange");
   const badgeRetard = document.getElementById("badgeRetard");
   if(badgeAJour) badgeAJour.onclick = function(){
    if(typeof _clearAllFiltres==="function") _clearAllFiltres();
    window._filtreFraicheurActif = "ajour";
+   if(typeof _updateCatButtonsUI==="function") _updateCatButtonsUI();
+   filtrerEtAfficher();
+  };
+  if(badgeInchange) badgeInchange.onclick = function(){
+   if(typeof _clearAllFiltres==="function") _clearAllFiltres();
+   window._filtreFraicheurActif = "inchange";
    if(typeof _updateCatButtonsUI==="function") _updateCatButtonsUI();
    filtrerEtAfficher();
   };
