@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Transfert - Recherche dynamique (Clair)</title>
+  <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, where } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  const pdaConfig = {
+    apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+    authDomain: "ddms-architectures.firebaseapp.com",
+    projectId: "ddms-architectures",
+    storageBucket: "ddms-architectures.firebasestorage.app",
+    messagingSenderId: "767552965189",
+    appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+  };
+  const pdaApp = initializeApp(pdaConfig, "pdaApp");
+  const pdaDb = getFirestore(pdaApp);
+  window._pdaDb = pdaDb;
+  window._pdaCol = collection;
+  window._pdaAdd = addDoc;
+  window._pdaUpdate = updateDoc;
+  window._pdaDelete = deleteDoc;
+  window._pdaDoc = doc;
+  window._pdaOnSnapshot = onSnapshot;
+  window._pdaQuery = query;
+  window._pdaWhere = where;
+  window._pdaReady = true;
+  if(typeof window._pdaInit === "function") window._pdaInit();
+  </script>
+  <style>
+    :root { --bg:#ffffff; --card:#f7f8fa; --text:#111827; --muted:#6b7280; --accent:#0ea5e9; }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:24px; background:var(--bg); color:var(--text); font-family:Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    h1 { font-size:20px; margin:0 0 12px; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+    .btn { padding:10px 14px; border-radius:12px; border:1px solid #e5e7eb; background:#ffffff; color:var(--text); cursor:pointer; font-weight:600; }
+    .btn:hover { background:#f3f4f6; }
+    .btn.accent { background:#e6f6ff; border-color:#bae6fd; color:#0c4a6e; }
+    .input { padding:10px 12px; border-radius:12px; border:1px solid #e5e7eb; background:#ffffff; color:#111827; min-width:240px; }
+    .file { display:inline-block; }
+    .status { font-size:16px; font-weight:600; color:var(--muted); margin-left:auto; display:none; }
+    .card { background:var(--card); border:1px solid #e5e7eb; border-radius:16px; padding:12px; margin-bottom:12px; }
+    table { width:100%; border-collapse:separate; border-spacing:0; background:#ffffff; }
+    thead th { position:sticky; top:0; background:#f3f4f6; color:#111827; text-align:left; padding:10px; font-size:12px; border-bottom:1px solid #e5e7eb; z-index:1; }
+    tbody td { padding:10px; border-bottom:1px dashed #e5e7eb; font-size:13px; color:#1f2937; }
+    tbody tr:hover { background:#f9fafb; }
+    .table-wrap { max-height:72vh; overflow:auto; border-radius:12px; border:1px solid #e5e7eb; }
+    .hidden { display:none !important; }
+    .pill { font-size:12px; padding:4px 10px; border:1px solid #e5e7eb; border-radius:999px; color:#374151; background:#ffffff; }
+    .footer { margin-top:10px; font-size:12px; color:#4b5563; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .metrics { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 12px; }
+    .metrics .pill strong { margin-right:6px; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
+  </style>
+</head>
+<body>
+  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px;">
+    <h1 style="margin:0;">🔄 Transfert / Modification de ligne</h1>
+    <div id="volumes" class="metrics" style="margin:0;"></div>
+  </div>
+  <div class="toolbar">
+    <button class="btn" id="backBtn" title="Retour vers l'index">⟵ Retour</button>
+    <button class="btn accent" onclick="pdaOpen()" title="Plan d'Actions (PDA) — Production">📋 PDA</button>
+    <label class="file btn" for="fileInput">📂 Parcourir</label>
+    <input id="fileInput" class="sr-only" type="file" accept=".xlsx,.xls,.csv" />
+    <input id="searchInput" class="input" type="search" placeholder="Recherche globale sur tous les champs…" />
+    <span id="meta" class="status"></span>
+  </div>
+
+
+  <!-- Étape courante -->
+  <div class="card" id="etapeCard">
+    <h2 style="font-size:15px;margin:0 0 10px;display:flex;align-items:center;gap:8px;">
+      🔄 Étape courante
+      <span id="etape-badge" style="font-size:11px;font-weight:400;color:#6b7280;background:#f3f4f6;border-radius:20px;padding:2px 10px;"></span>
+    </h2>
+    <div id="etape-empty" style="color:#9ca3af;font-size:13px;padding:8px 0;">📂 Chargez un fichier via <strong>Parcourir</strong> pour afficher la répartition par étape.</div>
+    <div id="etape-bars" style="display:none;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;"></div>
+    <div id="etape-pills" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+  </div>
+
+  <!-- Popup détail étape -->
+  <div id="popup-etape" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:flex-start;overflow-y:auto;">
+    <div style="background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,0.2);width:96%;max-width:1100px;margin:32px auto 40px;display:flex;flex-direction:column;overflow:hidden;">
+      <div id="popup-etape-header" style="padding:14px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <span id="popup-etape-title" style="color:white;font-size:15px;font-weight:700;"></span>
+        <button id="popup-etape-close" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.5);color:white;border-radius:50%;width:28px;height:28px;font-size:15px;cursor:pointer;line-height:1;">✕</button>
+      </div>
+      <div id="popup-etape-body" style="overflow:auto;max-height:78vh;"></div>
+    </div>
+  </div>
+
+
+
+  <div class="card">
+    <!-- Volumes déplacés à côté du titre -->
+
+    <div id="tableInfo" class="footer">
+      <span class="pill" id="countPill">0 lignes</span>
+      <span class="pill" id="colsPill">0 colonnes</span>
+      <span id="sourcePill" class="pill">source: transfert.xlsx</span>
+    </div>
+
+    <div class="table-wrap" id="tableWrap">
+      <table id="dataTable">
+        <thead><tr id="theadRow"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+    const state = { rows: [], headers: [], lastSource: 'transfert.xlsx' };
+    const els = {
+      backBtn: document.getElementById('backBtn'),
+      fileInput: document.getElementById('fileInput'),
+      searchInput: document.getElementById('searchInput'),
+      theadRow: document.getElementById('theadRow'),
+      tbody: document.getElementById('tbody'),
+      meta: document.getElementById('meta'),
+      countPill: document.getElementById('countPill'),
+      colsPill: document.getElementById('colsPill'),
+      sourcePill: document.getElementById('sourcePill'),
+    };
+
+    els.backBtn.onclick = () => { window.location.href = 'index.html'; };
+    els.fileInput.onchange = async (e) => {
+      const f = e.target.files?.[0]; if (!f) return;
+      state.lastSource = f.name; els.sourcePill.textContent = 'source: ' + f.name;
+      const buf = await f.arrayBuffer(); parseWorkbook(buf);
+    };
+    els.searchInput.addEventListener('input', () => applyFilter(els.searchInput.value));
+
+    function setMeta(text) { els.meta.textContent = text; }
+
+    function buildTable(headers, rows) {
+      els.theadRow.innerHTML = '';
+      headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; els.theadRow.appendChild(th); });
+      const frag = document.createDocumentFragment();
+      rows.forEach(obj => {
+        const tr = document.createElement('tr');
+        headers.forEach(h => { const td = document.createElement('td'); let v = obj?.[h]; if (v==null) v=''; td.textContent = String(v); tr.appendChild(td); });
+        frag.appendChild(tr);
+      });
+      els.tbody.innerHTML = ''; els.tbody.appendChild(frag);
+      els.countPill.textContent = rows.length + ' lignes'; els.colsPill.textContent = headers.length + ' colonnes';
+    }
+
+    function applyFilter(q) {
+      const term = q.trim().toLowerCase(); let visible = 0;
+      for (const tr of els.tbody.rows) {
+        let hit = false;
+        for (const td of tr.cells) { if (td.textContent.toLowerCase().includes(term)) { hit = true; break; } }
+        tr.style.display = hit ? '' : 'none'; if (hit) visible++;
+      }
+      els.countPill.textContent = visible + ' lignes';
+    }
+
+    function toDate(v){
+      if(v===null || v===undefined || v==='') return new Date(0);
+      if(typeof v === 'number' && XLSX?.SSF?.parse_date_code){
+        const d = XLSX.SSF.parse_date_code(v);
+        if(d) return new Date(Date.UTC(d.y, (d.m||1)-1, d.d||1, d.H||0, d.M||0, d.S||0));
+      }
+      const s = String(v).trim();
+      // Format DD/MM/YYYY HH:MM:SS ou DD/MM/YYYY
+      const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+      if(m){
+        const dd = parseInt(m[1],10), mm = parseInt(m[2],10)-1;
+        const yy = parseInt(m[3].length===2 ? '20'+m[3] : m[3],10);
+        const hh = m[4] ? parseInt(m[4],10) : 0;
+        const mi = m[5] ? parseInt(m[5],10) : 0;
+        const ss = m[6] ? parseInt(m[6],10) : 0;
+        return new Date(yy, mm, dd, hh, mi, ss);
+      }
+      const t = new Date(s);
+      if(!isNaN(t)) return t;
+      return new Date(0);
+    }
+
+    const TOP_WHITELIST = new Set([
+      'DGI','ANSUT','SIB','BACI','BIAO','BNI','SGCI','ECOBANK','DGTCP','LONACI','CANAL+',
+      'PRESIDENCE','DOUANE','BOLLORE','FER','BAD','SOLIBRA','CNPS','AMBASSADE USA','FFCI'
+    ]);
+
+    function guessClientColumn(headers){
+      const prefs = ['CLIENT','NOM CLIENT','CLIENT NAME','ENTREPRISE','SOCIETE','CUSTOMER','COMPTE','ACCOUNT'];
+      const map = headers.reduce((acc,h)=>{ acc[h.toUpperCase()] = h; return acc; },{});
+      for(const p of prefs){ if(map[p]) return map[p]; }
+      for(const h of headers){ if(h.toUpperCase().includes('CLIENT')) return h; }
+      return headers[0] || '';
+    }
+
+    function guessIdColumn(headers){
+      const prefs = ['ID DOSSIER','N° DOSSIER','NUMERO DOSSIER','NUM DOSSIER','ID_DOSSIER'];
+      const map = headers.reduce((acc,h)=>{ acc[h.toUpperCase()] = h; return acc; },{});
+      for(const p of prefs){ if(map[p]) return map[p]; }
+      for(const h of headers){ if(h.toUpperCase().includes('ID') && h.toUpperCase().includes('DOSSIER')) return h; }
+      for(const h of headers){ if(h.toUpperCase().includes('DOSSIER')) return h; }
+      return headers[0] || '';
+    }
+
+    function guessTypeColumn(headers){
+      const prefs = ['TYPE','CATEGORIE','MOUVEMENT','ACTION','NATURE','OPERATION'];
+      const map = headers.reduce((acc,h)=>{ acc[h.toUpperCase()] = h; return acc; },{});
+      for(const p of prefs){ if(map[p]) return map[p]; }
+      return null;
+    }
+
+    function stripAccents(str){
+      try { return str.normalize('NFD').replace(/\p{Diacritic}+/gu,''); } catch(e){ return str; }
+    }
+
+    function normalizeClient(raw){
+      if(!raw) return '';
+      let s = String(raw).toUpperCase();
+      s = stripAccents(s);
+      s = s.replace(/\./g,' ').replace(/[(),]/g,' ');
+      s = s.replace(/\bSA\b/g,' ').replace(/\bCI\b/g,' ').replace(/COTE D IVOIRE/g,' ');
+      s = s.replace(/GROUPE|GROUP|HOLDING|MINISTERE DES|MINISTERE DE|MINISTERE DU|MINISTERE DES/g,' ');
+      s = s.replace(/\s+/g,' ').trim();
+      if(/BOLLORE/.test(s)) return 'BOLLORE';
+      if(/CANAL\s*\+|CANAL PLUS/.test(s)) return 'CANAL+';
+      if(/DOUANES?/.test(s)) return 'DOUANE';
+      if(/AMBASSADE/.test(s) && /(USA|ETATS? UNIS)/.test(s)) return 'AMBASSADE USA';
+      if(/^SIB(\s|$)/.test(s)) return 'SIB';
+      if(/^BNI(\s|$)/.test(s)) return 'BNI';
+      if(/^BIAO(\s|$)/.test(s)) return 'BIAO';
+      if(/^SGCI(\s|$)/.test(s)) return 'SGCI';
+      if(/^ECOBANK(\s|$)/.test(s)) return 'ECOBANK';
+      if(/^DGTCP(\s|$)/.test(s)) return 'DGTCP';
+      if(/^LONACI(\s|$)/.test(s)) return 'LONACI';
+      if(/^BACI(\s|$)/.test(s)) return 'BACI';
+      if(/^DGI(\s|$)/.test(s)) return 'DGI';
+      if(/^ANSUT(\s|$)/.test(s)) return 'ANSUT';
+      if(/^FER(\s|$)/.test(s)) return 'FER';
+      if(/^BAD(\s|$)/.test(s)) return 'BAD';
+      if(/^SOLIBRA(\s|$)/.test(s)) return 'SOLIBRA';
+      if(/^CNPS(\s|$)/.test(s)) return 'CNPS';
+      if(/^PRESIDENCE(\s|$)/.test(s)) return 'PRESIDENCE';
+      if(/^FFCI(\s|$)/.test(s)) return 'FFCI';
+      return s;
+    }
+
+    function classifyRow(row, typeCol){
+      const inspect = (val) => String(val||'').toLowerCase();
+      if(typeCol){
+        const v = inspect(row[typeCol]);
+        if(v.includes('transf')) return 'TRANSFERT';
+        if(v.includes('modif')) return 'MODIFICATION';
+      }
+      for(const k of Object.keys(row)){
+        const v = inspect(row[k]);
+        if(v.includes('transf')) return 'TRANSFERT';
+        if(v.includes('modif')) return 'MODIFICATION';
+      }
+      return 'INCONNU';
+    }
+
+    function computeVolumes(rows, headers){
+      const typeCounts = {};
+      for(const r of rows){
+        const op = String(r['TYPE OPERATION TM'] || '').trim();
+        if(op) typeCounts[op] = (typeCounts[op]||0) + 1;
+      }
+      const vol = document.getElementById('volumes');
+      vol.innerHTML = '';
+      // Debit, Transfert, Support d'abord
+      const order = ['debit','transfert','support'];
+      const sorted = Object.entries(typeCounts).sort((a,b) => {
+        const ai = order.indexOf(a[0].toLowerCase()), bi = order.indexOf(b[0].toLowerCase());
+        if(ai !== -1 && bi !== -1) return ai - bi;
+        if(ai !== -1) return -1;
+        if(bi !== -1) return 1;
+        return b[1] - a[1];
+      });
+      sorted.forEach(function([type, count]) {
+        const pill = document.createElement('span');
+        pill.className = 'pill';
+        pill.innerHTML = '<strong>' + type.charAt(0).toUpperCase() + type.slice(1) + ':</strong> ' + count;
+        vol.appendChild(pill);
+      });
+      const DATE_COL = "DATE CREATION DOSSIER";
+      const now = Date.now();
+      let sumAge = 0, cntAge = 0; const over10 = [];
+      rows.forEach(function(r){
+        const d = toDate(r[DATE_COL]);
+        if(!d || d.getTime() === 0) return;
+        const age = Math.floor((now - d.getTime()) / 86400000);
+        if(age < 0) return;
+        sumAge += age; cntAge++;
+        if(age > 10) over10.push(r);
+      });
+      const avgAge = cntAge ? Math.round(sumAge / cntAge) : 0;
+
+      const totalLine = document.createElement('span');
+      totalLine.style.cssText = 'font-size:19px;font-weight:800;color:#111827;margin-left:4px;display:inline-flex;align-items:center;gap:10px;white-space:nowrap;';
+      totalLine.innerHTML =
+        rows.length + ' dossiers' +
+        ' <span style="color:#d1d5db;font-weight:400;">|</span> ' +
+        avgAge + 'j Age moyen' +
+        ' <span style="color:#d1d5db;font-weight:400;">|</span> ' +
+        '<span id="oldDossiersLink" style="color:#dc2626;cursor:pointer;text-decoration:underline;text-underline-offset:3px;">Dossiers &gt; 10j (' + over10.length + ')</span>';
+      vol.appendChild(totalLine);
+
+      const oldLink = document.getElementById('oldDossiersLink');
+      if(oldLink) oldLink.addEventListener('click', function(){ openOldDossiersPopup(over10); });
+    }
+
+    function openOldDossiersPopup(rows){
+      const idCol = guessIdColumn(state.headers);
+      const clientCol = guessClientColumn(state.headers);
+      const cols = [idCol, 'DATE CREATION DOSSIER', 'TYPE OPERATION TM', clientCol];
+      const labels = ['ID Dossier', 'Date création', 'Type opération TM', 'Nom client'];
+
+      const header = document.getElementById('popup-etape-header');
+      const title  = document.getElementById('popup-etape-title');
+      const body   = document.getElementById('popup-etape-body');
+      const modal  = document.getElementById('popup-etape');
+      const box    = modal.querySelector(':scope > div');
+
+      header.style.cssText = 'padding:14px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#dc2626,#1e293b);';
+      title.textContent = '⏳ Dossiers > 10 jours — ' + rows.length + ' dossier' + (rows.length > 1 ? 's' : '');
+      if (box) box.style.maxWidth = '760px';
+
+      const sorted = rows.slice().sort(function(a,b){ return toDate(a['DATE CREATION DOSSIER']) - toDate(b['DATE CREATION DOSSIER']); });
+
+      const tbl = document.createElement('table');
+      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+      const thead = document.createElement('thead');
+      const hr = document.createElement('tr');
+      hr.style.cssText = 'background:#f3f4f6;position:sticky;top:0;z-index:1;';
+      labels.forEach(function(l){
+        const th = document.createElement('th');
+        th.style.cssText = 'padding:8px 8px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;font-size:12px;color:#374151;';
+        th.textContent = l; hr.appendChild(th);
+      });
+      thead.appendChild(hr); tbl.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      sorted.forEach(function(r, i){
+        const tr = document.createElement('tr');
+        tr.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
+        cols.forEach(function(h, j){
+          const td = document.createElement('td');
+          td.style.cssText = 'padding:6px 8px;border-bottom:1px dashed #e5e7eb;white-space:nowrap;';
+          let v = r[h]; if (v == null) v = '';
+          if (j === 0) td.style.fontWeight = '700';
+          td.textContent = String(v); tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      body.innerHTML = ''; body.appendChild(tbl);
+      modal.style.display = 'flex';
+    }
+
+    function parseWorkbook(arrayBuffer) {
+      try {
+        const wb = XLSX.read(arrayBuffer, { type: 'array' });
+        const sheetName = wb.SheetNames[0]; const ws = wb.Sheets[sheetName];
+        let json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+        if (!Array.isArray(json)) json = [];
+        const DATE_COL = "DATE CREATION DOSSIER";
+        json.sort((a,b) => toDate(b[DATE_COL]) - toDate(a[DATE_COL]));
+        const headerSet = new Set(); json.forEach(r => Object.keys(r).forEach(k => headerSet.add(k)));
+        const headers = Array.from(headerSet);
+        state.headers = headers; state.rows = json;
+        buildTable(headers, json);
+        computeVolumes(json, headers);
+        buildEtape(json);
+        setMeta(''); // masqué
+        els.searchInput.value = '';
+      } catch (err) {
+        console.error(err); setMeta('Erreur de lecture du fichier.'); alert('Erreur: impossible de lire ce fichier. Formats supportés: .xlsx, .xls, .csv');
+      }
+    }
+
+    async function fetchAsArrayBuffer(url) {
+      const res = await fetch(url); if (!res.ok) throw new Error('HTTP ' + res.status); return await res.arrayBuffer();
+    }
+
+
+
+    // ── ÉTAPE COURANTE ─────────────────────────────────
+    const ETAPE_COLOR = '#f97316'; // orange
+
+    function getDureeEtape(row) {
+      // Durée dans l'étape = DATE FIN - DATE DEBUT (ou aujourd'hui si pas de DATE FIN)
+      var debut = toDate(row['DATE DEBUT']);
+      if (!debut || debut.getTime() === 0) return null;
+      var fin = toDate(row['DATE FIN']);
+      var end = (fin && fin.getTime() > 0) ? fin.getTime() : Date.now();
+      var diff = Math.floor((end - debut.getTime()) / 86400000);
+      return diff >= 0 ? diff : null;
+    }
+
+    function buildEtape(rows) {
+      const counts  = {};
+      const durSums = {};
+      const durCounts = {};
+      rows.forEach(function(r) {
+        var ep = String(r['ETAPE'] || '').trim();
+        if (!ep) return;
+        counts[ep] = (counts[ep]||0)+1;
+        var dur = getDureeEtape(r);
+        if (dur !== null) {
+          durSums[ep]   = (durSums[ep]  ||0) + dur;
+          durCounts[ep] = (durCounts[ep]||0) + 1;
+        }
+      });
+
+      var entries = Object.entries(counts).sort(function(a,b){ return b[1]-a[1]; });
+      var total   = entries.reduce(function(s,e){ return s+e[1]; }, 0);
+
+      var barsEl  = document.getElementById('etape-bars');
+      var pillsEl = document.getElementById('etape-pills');
+      var badgeEl = document.getElementById('etape-badge');
+      var emptyEl = document.getElementById('etape-empty');
+      if (!barsEl) return;
+
+      if (emptyEl) emptyEl.style.display = 'none';
+      barsEl.style.display    = 'flex';
+      barsEl.style.flexDirection = 'column';
+      barsEl.style.gap        = '5px';
+      barsEl.style.alignItems = 'stretch';
+      barsEl.style.maxWidth   = '50%';
+
+      badgeEl.textContent = total + ' dossiers • ' + entries.length + ' étapes';
+      barsEl.innerHTML = ''; pillsEl.innerHTML = '';
+      var maxCount = entries.length ? entries[0][1] : 1;
+
+      // En-tête
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'display:grid;grid-template-columns:180px 1fr 44px 52px 72px;gap:10px;padding:3px 4px 6px;border-bottom:1px solid #e5e7eb;margin-bottom:4px;';
+      ['Étape','','Nb','%','Moy. (j)'].forEach(function(t) {
+        var h = document.createElement('div');
+        h.style.cssText = 'font-size:10px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.05em;text-align:' + (t===''||t==='Étape' ? 'left' : 'right') + ';';
+        h.textContent = t;
+        hdr.appendChild(h);
+      });
+      barsEl.appendChild(hdr);
+
+      entries.forEach(function(entry) {
+        var label  = entry[0], n = entry[1];
+        var pct    = total > 0 ? Math.round((n / total) * 100) : 0;
+        var barPct = maxCount > 0 ? Math.round((n / maxCount) * 100) : 0;
+        var avgDur = durCounts[label] ? Math.round(durSums[label] / durCounts[label]) : null;
+
+        var row = document.createElement('div');
+        row.style.cssText = 'display:grid;grid-template-columns:180px 1fr 44px 52px 72px;align-items:center;gap:10px;padding:5px 4px;border-radius:4px;cursor:pointer;';
+        row.title = label + ' : ' + n + ' (' + pct + '%)' + (avgDur !== null ? ' — moy. ' + avgDur + 'j' : '');
+        row.onmouseover = function(){ this.style.background='#fff7ed'; };
+        row.onmouseout  = function(){ this.style.background=''; };
+        row.addEventListener('click', function() { openEtapePopup(label, ETAPE_COLOR, n); });
+
+        var lbl = document.createElement('div');
+        lbl.style.cssText = 'font-size:12px;color:#374151;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+        lbl.textContent = label; lbl.title = label;
+
+        var track = document.createElement('div');
+        track.style.cssText = 'background:#e5e7eb;border-radius:2px;height:14px;position:relative;overflow:hidden;';
+        var fill = document.createElement('div');
+        fill.style.cssText = 'position:absolute;left:0;top:0;height:100%;width:' + barPct + '%;background:' + ETAPE_COLOR + ';border-radius:2px;';
+        track.appendChild(fill);
+
+        var cnt = document.createElement('div');
+        cnt.style.cssText = 'font-size:13px;font-weight:700;color:' + ETAPE_COLOR + ';text-align:right;';
+        cnt.textContent = n;
+
+        var pctLbl = document.createElement('div');
+        pctLbl.style.cssText = 'font-size:11px;color:#6b7280;text-align:right;';
+        pctLbl.textContent = pct + '%';
+
+        var durLbl = document.createElement('div');
+        durLbl.style.cssText = 'font-size:11px;font-weight:600;color:' + (avgDur !== null ? ETAPE_COLOR : '#9ca3af') + ';text-align:right;white-space:nowrap;';
+        durLbl.textContent = avgDur !== null ? avgDur + 'j' : '—';
+
+        row.appendChild(lbl); row.appendChild(track); row.appendChild(cnt); row.appendChild(pctLbl); row.appendChild(durLbl);
+        barsEl.appendChild(row);
+      });
+      pillsEl.style.display = 'none';
+    }
+
+
+    function openEtapePopup(etapeLabel, color, count) {
+      var rows = state.rows.filter(function(r) {
+        return String(r['ETAPE'] || '').trim() === etapeLabel;
+      });
+
+      var header = document.getElementById('popup-etape-header');
+      var title  = document.getElementById('popup-etape-title');
+      var body   = document.getElementById('popup-etape-body');
+
+      header.style.cssText = 'padding:14px 20px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,' + color + ',#1e293b);';
+      title.textContent = '🔄 Étape : ' + etapeLabel + ' — ' + rows.length + ' dossier' + (rows.length > 1 ? 's' : '');
+      var box0 = document.getElementById('popup-etape').querySelector(':scope > div');
+      if (box0) box0.style.maxWidth = '1100px';
+
+      var cols = state.headers;
+      var tbl = document.createElement('table');
+      tbl.style.cssText = 'width:100%;border-collapse:collapse;font-size:12px;';
+
+      var thead = document.createElement('thead');
+      var hr = document.createElement('tr');
+      hr.style.cssText = 'background:#f3f4f6;position:sticky;top:0;z-index:1;';
+      cols.forEach(function(h) {
+        var th = document.createElement('th');
+        th.style.cssText = 'padding:8px 8px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;font-size:12px;color:#374151;';
+        th.textContent = h; hr.appendChild(th);
+      });
+      thead.appendChild(hr); tbl.appendChild(thead);
+
+      var tbody = document.createElement('tbody');
+      rows.forEach(function(r, i) {
+        var tr = document.createElement('tr');
+        tr.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
+        cols.forEach(function(h) {
+          var td = document.createElement('td');
+          td.style.cssText = 'padding:6px 8px;border-bottom:1px dashed #e5e7eb;white-space:nowrap;';
+          var v = r[h]; if (v == null) v = '';
+          if (h === 'ETAPE') { td.style.fontWeight = '700'; td.style.color = color; }
+          td.textContent = String(v); tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+      body.innerHTML = ''; body.appendChild(tbl);
+      document.getElementById('popup-etape').style.display = 'flex';
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      var closeEtape = document.getElementById('popup-etape-close');
+      if (closeEtape) closeEtape.addEventListener('click', function() {
+        document.getElementById('popup-etape').style.display = 'none';
+      });
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          document.getElementById('popup-etape').style.display = 'none';
+        }
+      });
+    });
+
+    (async () => {
+      try {
+        const buf = await fetchAsArrayBuffer('transfert.xlsx'); parseWorkbook(buf);
+        els.sourcePill.textContent = 'source: transfert.xlsx';
+      } catch (e) {
+        setMeta(''); console.warn('Auto-load échoué:', e);
+      }
+    })();
+  </script>
+
+<!-- ═══ POPUP PDA — Plan d'Actions (Comités / Production) ═══ -->
+<div id="pdaBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center;">
+ <div style="background:#fff;border-radius:12px;padding:18px 20px;width:100%;max-width:780px;max-height:82vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:Arial,Helvetica,sans-serif;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+   <div style="font-size:15px;font-weight:700;color:#111;">📋 Plan d'Actions (PDA) — Production</div>
+   <button id="pdaClose" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;line-height:1;">✕</button>
+  </div>
+  <div id="pdaError" style="display:none;background:#ffebee;border:1px solid #ffcdd2;color:#c62828;padding:6px 10px;border-radius:6px;font-size:12px;margin-bottom:8px;"></div>
+
+  <div style="overflow-x:auto;">
+   <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <thead>
+     <tr style="background:#f7f9fb;">
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Problématique</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Action</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Porteur</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Date Planing</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Statut</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Commentaire</th>
+      <th style="border-bottom:1px solid #dde2ea;"></th>
+     </tr>
+    </thead>
+    <tbody id="pdaRows"></tbody>
+   </table>
+  </div>
+
+  <button id="pdaAddBtn" style="margin-top:10px;background:#003366;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">+ Ajouter une action</button>
+  <div id="pdaSyncing" style="display:none;font-size:11px;color:#888;margin-top:6px;">Synchronisation…</div>
+ </div>
+</div>
+
+<!-- ═══ Logique PDA — Plan d'Actions (Comités / Production) ═══ -->
+<script>
+const PDA_COMITE = "Production";
+const PDA_PORTEUR_DEFAUT = "FREDDY"; // porteur par défaut de ce comité (Production)
+const PDA_NOMS_PORTEURS = ["ASSEMIEN","KARAMOKO","FREDDY","ANNICK"];
+// Génère les <option> du menu déroulant "Porteur" — insensible à la casse,
+// conserve une valeur existante non reconnue plutôt que de la perdre.
+function _pdaPorteurOptions(valeurActuelle){
+ const val = (valeurActuelle||"").trim();
+ const matched = PDA_NOMS_PORTEURS.find(n => n.toUpperCase() === val.toUpperCase());
+ let opts = `<option value="" ${!val?"selected":""}>— Sélectionner —</option>`;
+ PDA_NOMS_PORTEURS.forEach(n=>{
+  opts += `<option value="${n}" ${matched===n?"selected":""}>${n}</option>`;
+ });
+ if(val && !matched){
+  opts += `<option value="${val.replace(/"/g,'&quot;')}" selected>${val}</option>`;
+ }
+ return opts;
+}
+let _pdaUnsub = null;
+let _pdaActions = [];
+
+function _pdaTodayISO(){
+ const d = new Date();
+ const mm = String(d.getMonth()+1).padStart(2,"0");
+ const dd = String(d.getDate()).padStart(2,"0");
+ return d.getFullYear()+"-"+mm+"-"+dd;
+}
+function _pdaStatusColor(status){
+ if(status==="Terminé") return "color:#2e7d32;background:#e8f5e9;";
+ if(status==="En cours") return "color:#185FA5;background:#E6F1FB;";
+ return "color:#607d8b;background:#eceff1;";
+}
+function _pdaShowError(msg){
+ const el = document.getElementById("pdaError");
+ el.textContent = "⚠️ " + msg;
+ el.style.display = "block";
+}
+function _pdaSyncing(on){
+ document.getElementById("pdaSyncing").style.display = on ? "block" : "none";
+}
+
+function pdaOpen(){
+ document.getElementById("pdaBackdrop").style.display = "flex";
+ document.getElementById("pdaError").style.display = "none";
+ if(window._pdaReady){ _pdaSubscribe(); }
+ else { window._pdaInit = _pdaSubscribe; }
+}
+function pdaClose(){
+ document.getElementById("pdaBackdrop").style.display = "none";
+}
+document.getElementById("pdaClose").addEventListener("click", pdaClose);
+document.getElementById("pdaBackdrop").addEventListener("click", function(e){
+ if(e.target === this) pdaClose();
+});
+
+function _pdaSubscribe(){
+ if(!window._pdaDb) return;
+ if(_pdaUnsub) _pdaUnsub();
+ _pdaSyncing(true);
+ try{
+  const q = window._pdaQuery(window._pdaCol(window._pdaDb, "pda_actions"), window._pdaWhere("comite","==",PDA_COMITE));
+  _pdaUnsub = window._pdaOnSnapshot(q, function(snap){
+   _pdaActions = snap.docs.map(d=>Object.assign({_id:d.id}, d.data()));
+   // Les actions les plus récemment créées apparaissent en premier.
+   _pdaActions.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+   _pdaSyncing(false);
+   _pdaRenderRows();
+  }, function(err){
+   _pdaSyncing(false);
+   _pdaShowError("Synchronisation : " + err.message);
+  });
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Firebase : " + err.message);
+ }
+}
+
+function _pdaRenderRows(){
+ const tbody = document.getElementById("pdaRows");
+ // On n'affiche pas les actions réalisées (Terminé)
+ const visibles = _pdaActions.filter(a=>a.status!=="Terminé");
+ if(!visibles.length){
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:16px 6px;font-size:12px;">Aucune action en cours. Cliquez sur « + Ajouter une action ».</td></tr>';
+  return;
+ }
+ tbody.innerHTML = visibles.map(a=>{
+  const statusVal = a.status || "En cours";
+  const badgeStyle = _pdaStatusColor(statusVal);
+  const dateVal = a.date || _pdaTodayISO();
+  return `<tr data-id="${a._id}" style="border-bottom:1px solid #f0f2f5;">
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-problematique" value="${(a.problematique||"").replace(/"/g,'&quot;')}" placeholder="Problématique…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-action" value="${(a.action||"").replace(/"/g,'&quot;')}" placeholder="Action…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:140px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <select class="pda-f-porteur" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100px;">${_pdaPorteurOptions(a.porteur)}</select>
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;width:128px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <select class="pda-f-status" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;${badgeStyle}">
+     <option value="En cours" ${statusVal!=="Terminé"?"selected":""}>En cours</option>
+     <option value="Terminé" ${statusVal==="Terminé"?"selected":""}>Réalisé</option>
+    </select>
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-comment" value="${(a.comment||"").replace(/"/g,'&quot;')}" placeholder="Commentaire" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;">
+   </td>
+   <td style="padding:5px 6px;white-space:nowrap;">
+    <button class="pda-del-btn" title="Supprimer" style="background:none;border:none;cursor:pointer;font-size:14px;">🗑</button>
+   </td>
+  </tr>`;
+ }).join("");
+
+ tbody.querySelectorAll(".pda-del-btn").forEach(btn=>{
+  btn.addEventListener("click", function(){ _pdaDeleteRow(this.closest("tr").dataset.id); });
+ });
+ tbody.querySelectorAll(".pda-f-status").forEach(sel=>{
+  sel.addEventListener("change", function(){
+   this.setAttribute("style", "font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;"+_pdaStatusColor(this.value));
+   _pdaSaveRow(this.closest("tr"));
+  });
+ });
+ tbody.querySelectorAll(".pda-f-porteur").forEach(sel=>{
+  sel.addEventListener("change", function(){ _pdaSaveRow(this.closest("tr")); });
+ });
+ // Enregistrement automatique dès qu'on quitte un champ texte/date (blur) —
+ // plus besoin de cliquer sur un bouton "Enregistrer".
+ tbody.querySelectorAll(".pda-f-date, .pda-f-problematique, .pda-f-action, .pda-f-comment").forEach(inp=>{
+  inp.addEventListener("blur", function(){ _pdaSaveRow(this.closest("tr")); });
+ });
+}
+
+async function _pdaSaveRow(tr){
+ const id = tr.dataset.id;
+ const date = tr.querySelector(".pda-f-date").value || _pdaTodayISO();
+ const problematique = tr.querySelector(".pda-f-problematique").value.trim();
+ const action = tr.querySelector(".pda-f-action").value.trim();
+ const porteur = tr.querySelector(".pda-f-porteur").value.trim();
+ const status = tr.querySelector(".pda-f-status").value;
+ const comment = tr.querySelector(".pda-f-comment").value.trim();
+ if(!action){ return; } // pas d'alerte intrusive lors de l'enregistrement auto
+ try{
+  _pdaSyncing(true);
+  await window._pdaUpdate(window._pdaDoc(window._pdaDb, "pda_actions", id), { date, problematique, action, porteur, status, comment });
+  _pdaSyncing(false);
+  // Si marqué "Terminé", la ligne disparaît de la liste (masquage des réalisés)
+  if(status==="Terminé"){
+   const idx = _pdaActions.findIndex(a=>a._id===id);
+   if(idx>-1) _pdaActions[idx].status = "Terminé";
+   _pdaRenderRows();
+  }
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Enregistrement : " + err.message);
+ }
+}
+
+async function _pdaDeleteRow(id){
+ if(!confirm("Supprimer cette action ?")) return;
+ try{
+  _pdaSyncing(true);
+  await window._pdaDelete(window._pdaDoc(window._pdaDb, "pda_actions", id));
+  _pdaSyncing(false);
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Suppression : " + err.message);
+ }
+}
+
+document.getElementById("pdaAddBtn").addEventListener("click", async function(){
+ if(!window._pdaDb){ alert("Connexion PDA en cours, réessayez dans un instant."); return; }
+ try{
+  _pdaSyncing(true);
+  await window._pdaAdd(window._pdaCol(window._pdaDb, "pda_actions"), {
+   comite: PDA_COMITE,
+   date: _pdaTodayISO(),
+   problematique: "",
+   action: "",
+   porteur: PDA_PORTEUR_DEFAUT,
+   status: "En cours",
+   objectif: "",
+   comment: "",
+   important: false,
+   createdAt: Date.now()
+  });
+  _pdaSyncing(false);
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Ajout : " + err.message);
+ }
+});
+</script>
+
+</body>
+</html>
