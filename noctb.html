@@ -1988,7 +1988,7 @@ async function deleteContact(id){
 <div class="tbl-wrap">
   <table>
     <thead><tr>
-      <th style="width:130px;">Délai</th><th>Action</th><th style="width:110px;">Porteur</th><th style="width:110px;">Statut</th><th>Commentaire</th><th style="width:70px;"></th>
+      <th style="width:130px;">Problématique</th><th>Action</th><th style="width:110px;">Porteur</th><th style="width:130px;">Date Planing</th><th style="width:110px;">Statut</th><th>Commentaire</th><th style="width:70px;"></th>
     </tr></thead>
     <tbody id="pdaRows"></tbody>
   </table>
@@ -2002,6 +2002,22 @@ async function deleteContact(id){
 // filtrée sur comite === "ASM"
 // ═══════════════════════════════════════════════════════════
 const PDA_ASM_COMITE = "ASM";
+const PDA_PORTEUR_DEFAUT = "KARAMOKO"; // porteur par défaut de ce comité (ASM)
+const PDA_NOMS_PORTEURS = ["ASSEMIEN","KARAMOKO","FREDDY","ANNICK","DEAN"];
+// Génère les <option> du menu déroulant "Porteur" — insensible à la casse,
+// conserve une valeur existante non reconnue plutôt que de la perdre.
+function _pdaPorteurOptions(valeurActuelle){
+  const val = (valeurActuelle||"").trim();
+  const matched = PDA_NOMS_PORTEURS.find(n => n.toUpperCase() === val.toUpperCase());
+  let opts = `<option value="" ${!val?"selected":""}>— Sélectionner —</option>`;
+  PDA_NOMS_PORTEURS.forEach(n=>{
+    opts += `<option value="${n}" ${matched===n?"selected":""}>${n}</option>`;
+  });
+  if(val && !matched){
+    opts += `<option value="${val.replace(/"/g,'&quot;')}" selected>${val}</option>`;
+  }
+  return opts;
+}
 let _pdaAsmUnsub = null;
 let _pdaAsmActions = [];
 let _pdaAsmSubscribed = false;
@@ -2033,10 +2049,8 @@ function pdaAsmSubscribe(){
     const q = window._q(window._col(window._dbPriBck, "pda_actions"), window._where("comite","==",PDA_ASM_COMITE));
     _pdaAsmUnsub = window._onSnap(q, function(snap){
       _pdaAsmActions = snap.docs.map(d=>Object.assign({_id:d.id}, d.data()));
-      _pdaAsmActions.sort((a,b)=>{
-        const da = a.date || "9999", db_ = b.date || "9999";
-        return da < db_ ? -1 : da > db_ ? 1 : 0;
-      });
+      // Les actions les plus récemment créées apparaissent en premier.
+      _pdaAsmActions.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
       _pdaAsmSyncing(false);
       pdaAsmRenderRows();
     }, function(err){
@@ -2054,7 +2068,7 @@ function pdaAsmRenderRows(){
   if(!tbody) return;
   const visibles = _pdaAsmActions.filter(a=>a.status!=="Terminé");
   if(!visibles.length){
-    tbody.innerHTML = '<tr><td colspan="6" class="empty"><div class="empty-ico">📌</div><div class="empty-txt">Aucune action en cours. Cliquez sur « ＋ Ajouter une action ».</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty"><div class="empty-ico">📌</div><div class="empty-txt">Aucune action en cours. Cliquez sur « ＋ Ajouter une action ».</div></td></tr>';
     return;
   }
   tbody.innerHTML = visibles.map(a=>{
@@ -2062,16 +2076,16 @@ function pdaAsmRenderRows(){
     const badgeStyle = _pdaAsmStatusColor(statusVal);
     const dateVal = a.date || _pdaAsmTodayISO();
     return `<tr data-id="${a._id}">
-      <td><input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;width:118px;"></td>
+      <td><input type="text" class="pda-f-problematique" value="${(a.problematique||"").replace(/"/g,'&quot;')}" placeholder="Problématique…" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:100%;min-width:120px;"></td>
       <td><input type="text" class="pda-f-action" value="${(a.action||"").replace(/"/g,'&quot;')}" placeholder="Action…" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:100%;min-width:160px;"></td>
-      <td><input type="text" class="pda-f-porteur" value="${(a.porteur||"").replace(/"/g,'&quot;')}" placeholder="Porteur" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:95px;"></td>
+      <td><select class="pda-f-porteur" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:100px;">${_pdaPorteurOptions(a.porteur)}</select></td>
+      <td><input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;width:118px;"></td>
       <td><select class="pda-f-status" style="font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;font-weight:600;${badgeStyle}">
         <option value="En cours" ${statusVal!=="Terminé"?"selected":""}>En cours</option>
         <option value="Terminé" ${statusVal==="Terminé"?"selected":""}>Réalisé</option>
       </select></td>
       <td><input type="text" class="pda-f-comment" value="${(a.comment||"").replace(/"/g,'&quot;')}" placeholder="Commentaire" style="font-size:12px;padding:3px 5px;border:1px solid var(--n5);border-radius:3px;width:100%;min-width:120px;"></td>
       <td style="white-space:nowrap;">
-        <button class="btn btn-sm btn-out" title="Enregistrer" onclick="pdaAsmSaveRow(this.closest('tr'))">💾</button>
         <button class="btn btn-sm btn-out" title="Supprimer" onclick="pdaAsmDeleteRow(this.closest('tr').dataset.id)">🗑</button>
       </td>
     </tr>`;
@@ -2080,7 +2094,16 @@ function pdaAsmRenderRows(){
   tbody.querySelectorAll(".pda-f-status").forEach(sel=>{
     sel.addEventListener("change", function(){
       this.setAttribute("style", "font-size:11.5px;padding:3px 4px;border:1px solid var(--n5);border-radius:3px;font-weight:600;"+_pdaAsmStatusColor(this.value));
+      pdaAsmSaveRow(this.closest("tr"));
     });
+  });
+  tbody.querySelectorAll(".pda-f-porteur").forEach(sel=>{
+    sel.addEventListener("change", function(){ pdaAsmSaveRow(this.closest("tr")); });
+  });
+  // Enregistrement automatique dès qu'on quitte un champ texte/date (blur) —
+  // plus besoin de cliquer sur un bouton "Enregistrer".
+  tbody.querySelectorAll(".pda-f-date, .pda-f-problematique, .pda-f-action, .pda-f-comment").forEach(inp=>{
+    inp.addEventListener("blur", function(){ pdaAsmSaveRow(this.closest("tr")); });
   });
 }
 
@@ -2088,14 +2111,15 @@ async function pdaAsmSaveRow(tr){
   if(APP_ROLE==='visitor'){toast('🔒 Accès lecture seule — connexion admin requise','err');return;}
   const id = tr.dataset.id;
   const date = tr.querySelector(".pda-f-date").value || _pdaAsmTodayISO();
+  const problematique = tr.querySelector(".pda-f-problematique").value.trim();
   const action = tr.querySelector(".pda-f-action").value.trim();
   const porteur = tr.querySelector(".pda-f-porteur").value.trim();
   const status = tr.querySelector(".pda-f-status").value;
   const comment = tr.querySelector(".pda-f-comment").value.trim();
-  if(!action){ toast("Le champ Action est requis","err"); return; }
+  if(!action){ return; } // pas d'alerte intrusive lors de l'enregistrement auto
   try{
     _pdaAsmSyncing(true);
-    await window._upd(window._doc(window._dbPriBck, "pda_actions", id), { date, action, porteur, status, comment });
+    await window._upd(window._doc(window._dbPriBck, "pda_actions", id), { date, problematique, action, porteur, status, comment });
     _pdaAsmSyncing(false);
     toast("Action enregistrée ✓","ok");
     if(status==="Terminé"){
@@ -2131,8 +2155,9 @@ async function pdaAsmAddAction(){
     await window._add(window._col(window._dbPriBck, "pda_actions"), {
       comite: PDA_ASM_COMITE,
       date: _pdaAsmTodayISO(),
+      problematique: "",
       action: "",
-      porteur: "",
+      porteur: PDA_PORTEUR_DEFAUT,
       status: "En cours",
       objectif: "",
       comment: "",
