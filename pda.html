@@ -303,6 +303,33 @@ tbody tr.row-important:hover { background: #ffe0e0; }
   </div>
 </div>
 
+<!-- Popup "Toutes les actions d'un porteur" — tous comités confondus -->
+<div class="modal-backdrop" id="porteurModalBackdrop">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-title">
+      <span id="porteurModalTitle">Actions de ...</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+        <thead>
+          <tr style="background:#f7f9fb;">
+            <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e3e6ea;font-size:10.5px;color:#888;text-transform:uppercase;">Comité</th>
+            <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e3e6ea;font-size:10.5px;color:#888;text-transform:uppercase;">Action</th>
+            <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e3e6ea;font-size:10.5px;color:#888;text-transform:uppercase;">Problématique</th>
+            <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e3e6ea;font-size:10.5px;color:#888;text-transform:uppercase;">Date cible</th>
+            <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e3e6ea;font-size:10.5px;color:#888;text-transform:uppercase;">Statut</th>
+            <th style="text-align:left;padding:6px 8px;border-bottom:1px solid #e3e6ea;font-size:10.5px;color:#888;text-transform:uppercase;">Commentaire</th>
+          </tr>
+        </thead>
+        <tbody id="porteurModalBody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" id="btnPorteurModalClose">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── FIREBASE INIT ──────────────────────────────────────────────────────────
 firebase.initializeApp({
@@ -317,6 +344,13 @@ var db = firebase.firestore();
 
 // ── STATE ──────────────────────────────────────────────────────────────────
 var activeComite = '';
+// Comités "personnels" : un comité dont le nom correspond exactement (sans
+// tenir compte de la casse) à un des porteurs connus. Leurs actions ne sont
+// pas stockées séparément : elles restent sous leur comité d'origine
+// (Production, ASM...) mais avec ce porteur — et sont masquées de la vue de
+// ce comité d'origine pour n'apparaître QUE dans l'onglet personnel.
+var PORTEUR_NAMES = ["ASSEMIEN","KARAMOKO","FREDDY","ANNICK","DEAN"];
+var personalComiteMap = {}; // nom de comité (casse d'origine) -> valeur porteur canonique
 var actions = [];
 var editingId = null;
 var sortCol = 'date';
@@ -408,6 +442,13 @@ function loadComites() {
       });
       return;
     }
+    // Reconstruit la map des comités "personnels" à chaque chargement (un
+    // nouveau comité peut avoir été ajouté et correspondre à un porteur).
+    personalComiteMap = {};
+    names.forEach(function(n){
+      var match = PORTEUR_NAMES.filter(function(p){ return p === n.toUpperCase(); })[0];
+      if (match) personalComiteMap[n] = match;
+    });
     if (names.length === 0) {
       renderComites([]);
       activeComite = '';
@@ -479,17 +520,43 @@ function subscribeActions() {
   if (unsubActions) unsubActions();
   if (!activeComite) { actions = []; renderTable(); renderStats([]); return; }
   setSyncing(true);
-  unsubActions = db.collection('pda_actions')
-    .where('comite','==', activeComite)
-    .onSnapshot(function(snap) {
-      actions = snap.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); });
-      setSyncing(false);
-      renderTable();
-      renderStats(actions);
-    }, function(e) {
-      showError('Erreur lecture : ' + e.message);
-      setSyncing(false);
-    });
+  var porteurCanonique = personalComiteMap[activeComite]; // défini si comité "personnel"
+  if (porteurCanonique) {
+    // Comité personnel : agrège TOUTES les actions ayant ce porteur, quel
+    // que soit leur comité d'origine.
+    unsubActions = db.collection('pda_actions')
+      .where('porteur','==', porteurCanonique)
+      .onSnapshot(function(snap) {
+        actions = snap.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); });
+        setSyncing(false);
+        renderTable();
+        renderStats(actions);
+      }, function(e) {
+        showError('Erreur lecture : ' + e.message);
+        setSyncing(false);
+      });
+  } else {
+    // Comité d'équipe : masque les actions dont le porteur a lui-même un
+    // comité personnel (elles n'apparaissent alors que dans cet onglet-là).
+    unsubActions = db.collection('pda_actions')
+      .where('comite','==', activeComite)
+      .onSnapshot(function(snap) {
+        actions = snap.docs.map(function(d){ return Object.assign({ _id: d.id }, d.data()); })
+          .filter(function(a){
+            var p = (a.porteur||'').toUpperCase();
+            for (var key in personalComiteMap) {
+              if (personalComiteMap[key].toUpperCase() === p) return false;
+            }
+            return true;
+          });
+        setSyncing(false);
+        renderTable();
+        renderStats(actions);
+      }, function(e) {
+        showError('Erreur lecture : ' + e.message);
+        setSyncing(false);
+      });
+  }
 }
 
 // ── STATS ──────────────────────────────────────────────────────────────────
@@ -572,7 +639,7 @@ function rowHtml(a) {
     '<td class="td-action"><div class="action-text">'+esc(a.action)+'</div>'+(a.objectif?'<div class="action-meta">🎯 '+esc(a.objectif)+'</div>':'')+'</td>' +
     '<td class="comment-cell">'+(a.problematique?esc(a.problematique):'<span style="color:#ccc">—</span>')+'</td>' +
     '<td class="date-cell '+dateClass(a.date)+'">'+fmtDate(a.date)+'</td>' +
-    '<td>'+(a.porteur?'<span class="porteur-badge"><span class="porteur-avatar">'+esc(initials(a.porteur))+'</span>'+esc(a.porteur)+'</span>':'<span style="color:#ccc">—</span>')+'</td>' +
+    '<td>'+(a.porteur?'<span class="porteur-badge" style="cursor:pointer;" onclick="showPorteurActions(\''+esc(a.porteur).replace(/'/g,"\\'")+'\')" title="Voir toutes les actions de '+esc(a.porteur)+', tous comités confondus"><span class="porteur-avatar">'+esc(initials(a.porteur))+'</span>'+esc(a.porteur)+'</span>':'<span style="color:#ccc">—</span>')+'</td>' +
     '<td><span class="status-badge '+statusClass(a.status)+'">'+esc(a.status)+'</span></td>' +
     '<td class="comment-cell">'+(a.comment?esc(a.comment):'<span style="color:#ccc">—</span>')+'</td>' +
     '<td class="important-cell"><input type="checkbox" class="important-check" title="Marquer comme important" '+(a.important?'checked':'')+' onchange="toggleImportant(\''+a._id+'\', this.checked)"></td>' +
@@ -619,6 +686,10 @@ function closeModal() {
 document.getElementById('btnNewAction').onclick = function() {
   editingId = null;
   openModal('Nouvelle action');
+  // Depuis un comité personnel (ex: DEAN), on pré-sélectionne ce porteur
+  // puisque c'est ce qui détermine l'apparition dans cette vue.
+  var canon = personalComiteMap[activeComite];
+  if (canon) document.getElementById('fPorteur').value = canon;
 };
 
 document.getElementById('btnCancel').onclick = closeModal;
@@ -716,6 +787,49 @@ document.getElementById('btnExport').onclick = function() {
 
 // ── INIT ───────────────────────────────────────────────────────────────────
 loadComites();
+
+// ── VUE "TOUTES LES ACTIONS D'UN PORTEUR" (tous comités confondus) ──────────
+// Déclenchée en cliquant sur un badge porteur dans le tableau. Interroge
+// pda_actions SANS filtre de comité — uniquement par porteur — pour montrer
+// en un coup d'œil tout ce qui est assigné à cette personne, où que ce soit.
+function fmtDatePorteur(iso){
+  if(!iso) return '—';
+  var d = new Date(iso+'T00:00:00');
+  if(isNaN(d)) return iso;
+  return d.toLocaleDateString('fr-FR', {day:'2-digit',month:'short',year:'numeric'});
+}
+function showPorteurActions(nom){
+  document.getElementById('porteurModalTitle').textContent = 'Actions de ' + nom + ' — tous comités';
+  var tbody = document.getElementById('porteurModalBody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:16px;font-size:12px;">Chargement…</td></tr>';
+  document.getElementById('porteurModalBackdrop').classList.add('open');
+  db.collection('pda_actions').where('porteur','==', nom).get().then(function(snap){
+    var rows = snap.docs.map(function(d){ return d.data(); });
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:16px;font-size:12px;">Aucune action trouvée pour ' + esc(nom) + '.</td></tr>';
+      return;
+    }
+    rows.sort(function(a,b){ return (a.status==='Terminé') - (b.status==='Terminé'); });
+    tbody.innerHTML = rows.map(function(a){
+      return '<tr style="border-bottom:1px solid #f0f2f5;">' +
+        '<td style="padding:6px 8px;">' + esc(a.comite||'—') + '</td>' +
+        '<td style="padding:6px 8px;">' + esc(a.action||'') + '</td>' +
+        '<td style="padding:6px 8px;color:#666;">' + (a.problematique?esc(a.problematique):'—') + '</td>' +
+        '<td style="padding:6px 8px;">' + fmtDatePorteur(a.date) + '</td>' +
+        '<td style="padding:6px 8px;">' + esc(a.status||'En cours') + '</td>' +
+        '<td style="padding:6px 8px;color:#666;">' + (a.comment?esc(a.comment):'—') + '</td>' +
+      '</tr>';
+    }).join('');
+  }).catch(function(e){
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c0392b;padding:16px;font-size:12px;">Erreur : ' + esc(e.message) + '</td></tr>';
+  });
+}
+document.getElementById('btnPorteurModalClose').onclick = function(){
+  document.getElementById('porteurModalBackdrop').classList.remove('open');
+};
+document.getElementById('porteurModalBackdrop').onclick = function(e){
+  if(e.target === this) this.classList.remove('open');
+};
 </script>
 </body>
 </html>
