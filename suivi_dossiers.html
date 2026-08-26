@@ -665,6 +665,7 @@ button.delai-kpi-card{
     <thead>
      <tr style="background:#f7f9fb;">
       <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Délai</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Problématique</th>
       <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Action</th>
       <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Porteur</th>
       <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Statut</th>
@@ -3358,6 +3359,26 @@ function getPeriodeRapport(){
 }
 
 /* ── Génération du rapport ── */
+// ── Plan d'Actions (PDA) — tableau sobre repris tel quel dans le rapport ──
+function buildPlanActionsRapportHTML(){
+ const actions = (window._pdaActions || []).filter(a => a.status !== "Terminé");
+ if(!actions.length){
+  return `<div class="rap-section"><h3>📋 Plan d'Actions (PDA)</h3><p style="color:#999;font-size:12px;">Aucune action en cours.</p></div>`;
+ }
+ return `<div class="rap-section"><h3>📋 Plan d'Actions (PDA)</h3>
+  <table class="rap-top10"><thead><tr><th>Délai</th><th>Problématique</th><th>Action</th><th>Porteur</th><th>Statut</th><th>Commentaire</th></tr></thead><tbody>
+   ${actions.map(a=>`<tr>
+     <td>${a.date?formatDate(a.date):"-"}</td>
+     <td>${a.problematique||""}</td>
+     <td>${a.action||""}</td>
+     <td>${a.porteur||""}</td>
+     <td>${a.status||"En cours"}</td>
+     <td style="color:#666;">${a.comment||""}</td>
+   </tr>`).join("")}
+  </tbody></table>
+ </div>`;
+}
+
 function genererRapportKPI(){
  const periode = getPeriodeRapport();
  if(!periode) return;
@@ -3577,6 +3598,8 @@ function genererRapportKPI(){
    analyse += `.`;
   }
  }
+ html += buildPlanActionsRapportHTML();
+
  html += `<div class="rap-section"><h3>📝 Analyse</h3><div class="rap-analyse">${analyse}</div></div>`;
 
  document.getElementById("rap-body").innerHTML = html;
@@ -3746,6 +3769,7 @@ function _pdaSubscribe(){
     const da = a.date || "9999", db_ = b.date || "9999";
     return da < db_ ? -1 : da > db_ ? 1 : 0;
    });
+   window._pdaActions = _pdaActions; // exposé pour le rapport (autre bloc de script)
    _pdaSyncing(false);
    _pdaRenderRows();
   }, function(err){
@@ -3763,7 +3787,7 @@ function _pdaRenderRows(){
  // On n'affiche pas les actions réalisées (Terminé)
  const visibles = _pdaActions.filter(a=>a.status!=="Terminé");
  if(!visibles.length){
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:16px 6px;font-size:12px;">Aucune action en cours. Cliquez sur « + Ajouter une action ».</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:16px 6px;font-size:12px;">Aucune action en cours. Cliquez sur « + Ajouter une action ».</td></tr>';
   return;
  }
  tbody.innerHTML = visibles.map(a=>{
@@ -3773,6 +3797,9 @@ function _pdaRenderRows(){
   return `<tr data-id="${a._id}" style="border-bottom:1px solid #f0f2f5;">
    <td style="padding:5px 6px;">
     <input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;width:128px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-problematique" value="${(a.problematique||"").replace(/"/g,'&quot;')}" placeholder="Problématique…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;">
    </td>
    <td style="padding:5px 6px;">
     <input type="text" class="pda-f-action" value="${(a.action||"").replace(/"/g,'&quot;')}" placeholder="Action…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:140px;">
@@ -3812,6 +3839,7 @@ function _pdaRenderRows(){
 async function _pdaSaveRow(tr){
  const id = tr.dataset.id;
  const date = tr.querySelector(".pda-f-date").value || _pdaTodayISO();
+ const problematique = tr.querySelector(".pda-f-problematique").value.trim();
  const action = tr.querySelector(".pda-f-action").value.trim();
  const porteur = tr.querySelector(".pda-f-porteur").value.trim();
  const status = tr.querySelector(".pda-f-status").value;
@@ -3819,7 +3847,7 @@ async function _pdaSaveRow(tr){
  if(!action){ alert("Le champ Action est requis."); return; }
  try{
   _pdaSyncing(true);
-  await window._pdaUpdate(window._pdaDoc(window._pdaDb, "pda_actions", id), { date, action, porteur, status, comment });
+  await window._pdaUpdate(window._pdaDoc(window._pdaDb, "pda_actions", id), { date, problematique, action, porteur, status, comment });
   _pdaSyncing(false);
   // Si marqué "Terminé", la ligne disparaît de la liste (masquage des réalisés)
   if(status==="Terminé"){
@@ -3852,6 +3880,7 @@ document.getElementById("pdaAddBtn").addEventListener("click", async function(){
   await window._pdaAdd(window._pdaCol(window._pdaDb, "pda_actions"), {
    comite: PDA_COMITE,
    date: _pdaTodayISO(),
+   problematique: "",
    action: "",
    porteur: "",
    status: "En cours",
