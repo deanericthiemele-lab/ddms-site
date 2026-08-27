@@ -187,6 +187,53 @@ window._isProjetEnRetardById = function(id) {
   return Date.now() > fin.getTime();
 };
 
+// ── Demandes d'autorisation — ne concerne QUE les dossiers dont le STATUT
+// commence par "Autorisation". Saisie des dates d'envoi/retour ; délai
+// max 3 jours avant alerte (ligne teintée en rose léger).
+window._autorisations = {};
+onValue(ref(db, "autorisations_dossiers"), (snapshot) => {
+  window._autorisations = snapshot.val() || {};
+  if(typeof window.filtrerEtAfficher === "function") window.filtrerEtAfficher();
+});
+window._getAutorisation = function(id) {
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  return window._autorisations[safeKey] || null;
+};
+window._saveAutorisation = async function(id, dateEnvoi) {
+  if(!id) return;
+  const safeKey = id.replace(/[.#$\[\]/]/g, "_");
+  const entry = { dateEnvoi: dateEnvoi || "" };
+  try {
+    await set(ref(db, "autorisations_dossiers/" + safeKey), entry);
+    window._autorisations[safeKey] = entry;
+    if(typeof window.filtrerEtAfficher === "function") window.filtrerEtAfficher();
+  } catch(e) {
+    console.error("Erreur Firebase autorisation:", e);
+  }
+};
+window._estStatutAutorisation = function(statut) {
+  return (statut||"").toString().trim().toLowerCase().startsWith("autorisation");
+};
+// La date de la demande est obligatoire dès que le statut est "Autorisation..."
+window._isAutorisationSansDate = function(id, statut) {
+  if(!window._estStatutAutorisation(statut)) return false;
+  const a = window._getAutorisation(id);
+  return !a || !a.dateEnvoi;
+};
+// En retard = délai de 3 jours dépassé depuis la date de la demande (le
+// calcul ne dépend que de cette date, pas d'une date de retour)
+window._isAutorisationEnRetard = function(id, statut) {
+  if(!window._estStatutAutorisation(statut)) return false;
+  const a = window._getAutorisation(id);
+  if(!a || !a.dateEnvoi) return false;
+  const d = new Date(a.dateEnvoi);
+  if(isNaN(d)) return false;
+  d.setHours(0,0,0,0);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diffJours = Math.floor((today-d)/(1000*60*60*24));
+  return diffJours > 3;
+};
+
 // Normalisation "intelligente" du nom client pour regrouper le même projet
 // même si le nom est saisi différemment (casse, accents, sigle légèrement
 // différent) : ex. BOA / BOACI, SGCI / SGBCI doivent être reconnus comme le
@@ -519,14 +566,14 @@ button:hover{filter:brightness(.95)}
 h1{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:16px;font-weight:bold;margin-bottom:6px}
 .subresume{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:15px;font-weight:bold;margin-bottom:10px}
 /* ===== KPI Délai : cartes professionnelles avec cercles ===== */
-.delai-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px;margin-top:2px;margin-bottom:10px;}
+.delai-kpi-grid{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:10px;margin-top:2px;margin-bottom:10px;}
 .delai-kpi-card{min-height:142px;box-sizing:border-box;border:1px solid #e2e5e9;border-radius:10px;background:#fff;box-shadow:0 2px 7px rgba(0,0,0,.06);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:10px 8px 12px;transition:transform .15s ease,box-shadow .15s ease;}
 .delai-kpi-card:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.10);}
 button.delai-kpi-card{font-family:inherit;font-size:inherit;cursor:pointer;color:inherit;}
 .delai-kpi-label{min-height:34px;display:flex;align-items:flex-start;justify-content:center;text-align:center;line-height:1.25;font-size:13px;font-weight:700;padding:0 3px 6px;}
 .delai-kpi-clickable{cursor:pointer;}
 .delai-kpi-clickable:hover{filter:brightness(.96);}
-.dd-card .delai-kpi-label{color:#16a34a}.hd-card .delai-kpi-label{color:#dc2626}.suspend-card .delai-kpi-label{color:#b91c1c}.projet-card .delai-kpi-label{color:#7c3aed}
+.dd-card .delai-kpi-label{color:#16a34a}.hd-card .delai-kpi-label{color:#dc2626}.suspend-card .delai-kpi-label{color:#b91c1c}.projet-card .delai-kpi-label{color:#7c3aed}.autorisation-card .delai-kpi-label{color:#c2570a}
 .delai-circle{width:72px;height:72px;border-radius:50%;margin-top:2px;display:flex;align-items:center;justify-content:center;background:conic-gradient(var(--kpi-color) var(--pct),#edf0f2 0);position:relative;flex-shrink:0;}
 .delai-circle::before{content:"";position:absolute;inset:5px;background:#fff;border-radius:50%;}
 .delai-circle-inner{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;}
@@ -713,6 +760,12 @@ button.delai-kpi-card{
   <div class="delai-kpi-label">🟣 Projets</div>
   <div class="delai-circle" id="projetsCircle" style="--pct:0%;--kpi-color:#7c3aed;">
    <div class="delai-circle-inner"><strong id="projetsCircleValue">0</strong><span id="projetsCirclePct">0%</span></div>
+  </div>
+ </button>
+ <button id="btnCatAutorisations" class="delai-kpi-card autorisation-card" type="button">
+  <div class="delai-kpi-label">📨 Durée autorisations</div>
+  <div class="delai-circle" id="autorisationsCircle" style="--pct:0%;--kpi-color:#F2790A;">
+   <div class="delai-circle-inner"><strong id="autorisationsCircleValue">0</strong><span id="autorisationsCirclePct">0%</span></div>
   </div>
  </button>
 </div>
@@ -968,6 +1021,19 @@ button.delai-kpi-card{
  </div>
 </div>
 
+<!-- Infobulle "Demande d'autorisation" — saisie obligatoire de la date de la demande -->
+<div id="autInfoBulle" style="display:none;position:fixed;z-index:5000;background:#fff;border:1px solid #ddd;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:12px 14px;width:220px;font-size:12px;font-family:Arial,Helvetica,sans-serif;">
+ <div id="autInfoBulleLabel" style="font-weight:700;margin-bottom:8px;color:#333;">Autorisation</div>
+ <label style="display:block;margin-bottom:10px;color:#555;">Date de la demande <span style="color:#dc2626;">*</span>
+  <input type="date" id="autDateEnvoiInput" style="width:100%;padding:4px 6px;border:1px solid #ccc;border-radius:4px;margin-top:2px;box-sizing:border-box;"/>
+ </label>
+ <div style="font-size:10.5px;color:#999;margin-bottom:8px;">Obligatoire — délai max 3 jours à partir de cette date.</div>
+ <div style="display:flex;justify-content:flex-end;gap:6px;">
+  <button onclick="window._closeAutInfobulle()" style="background:#eee;color:#333;border:none;border-radius:5px;padding:5px 10px;font-size:12px;cursor:pointer;">Fermer</button>
+  <button onclick="window._saveAutInfobulleValues()" style="background:#003366;color:#fff;border:none;border-radius:5px;padding:5px 10px;font-size:12px;cursor:pointer;">Enregistrer</button>
+ </div>
+</div>
+
 <!-- Popup Dates de projet (début/fin), déclenché quand STATUT contient "projet" -->
 <div class="popup" id="popupProjetDates">
  <div class="popup-content" style="width:360px;">
@@ -1124,6 +1190,15 @@ function makeStatutInput(id){
   ? `<span class="projet-dates-icon" data-id="${safeId}" title="${enRetard ? '⚠ Date de fin dépassée — cliquer pour modifier les dates' : 'Modifier les dates du projet'}" style="cursor:pointer;font-size:13px;white-space:nowrap;">📅${enRetard ? '<span style="color:#dc2626;font-weight:800;">!</span>' : ''}</span>`
   : '';
 
+ // Badge "Demande d'autorisation" — uniquement si le statut commence par
+ // "Autorisation" ; ouvre une infobulle pour saisir la date de la demande
+ // (obligatoire : le délai de 3 jours se calcule à partir de cette date).
+ const estAutorisation = window._estStatutAutorisation ? window._estStatutAutorisation(val) : false;
+ let autBadge = '';
+ if(estAutorisation){
+  autBadge = `<span class="aut-badge" data-id="${safeId}" title="Demande d'autorisation — cliquer dans la cellule pour saisir/voir la date" style="cursor:pointer;font-size:13px;white-space:nowrap;">📨</span>`;
+ }
+
  // Bloc date/statut inchangé — n'a de sens que pour les dossiers non-projet
  // qui ont un statut renseigné. "Statut inchangé" ne modifie jamais la date
  // de mise à jour réelle : c'est une confirmation NOC séparée, valable
@@ -1146,7 +1221,7 @@ function makeStatutInput(id){
 
  return `<div class="statut-cell">
   <div style="display:flex;align-items:center;gap:4px;">
-   <input class="statut-input" data-id="${safeId}" data-field="statut" maxlength="80" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>${iconDates}
+   <input class="statut-input" data-id="${safeId}" data-field="statut" maxlength="80" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>${iconDates}${autBadge}
   </div>
   <div class="statut-dropdown"></div>
   ${dateBlockHtml}
@@ -1219,6 +1294,79 @@ document.addEventListener("click", function(e){
  if(id && window._setStatutInchange) window._setStatutInchange(id, checked);
 });
 
+// Icône 📨 dans la cellule STATUT (délégué, lignes reconstruites à chaque
+// filtre) : ouvre l'infobulle de saisie date d'envoi / date de retour de la
+// demande d'autorisation.
+document.addEventListener("click", function(e){
+ const badge = e.target.closest(".aut-badge");
+ if(!badge) return;
+ e.stopPropagation();
+ closeAllDropdowns();
+ const id = badge.dataset.id;
+ if(id && window._openAutorisationInfobulle) window._openAutorisationInfobulle(id, badge);
+});
+
+window._pendingAutorisationId = null;
+window._openAutorisationInfobulle = function(id, anchorEl){
+ window._pendingAutorisationId = id;
+ const existing = window._getAutorisation ? (window._getAutorisation(id) || {}) : {};
+ const bulle = document.getElementById("autInfoBulle");
+ const labelEl = document.getElementById("autInfoBulleLabel");
+ const envoiEl = document.getElementById("autDateEnvoiInput");
+ if(labelEl) labelEl.textContent = "Autorisation — Dossier " + id;
+ if(envoiEl) envoiEl.value = existing.dateEnvoi || "";
+ if(bulle && anchorEl){
+  const rect = anchorEl.getBoundingClientRect();
+  let left = rect.left + window.scrollX - 90;
+  left = Math.max(8, Math.min(left, window.innerWidth - 240));
+  bulle.style.top = (rect.bottom + window.scrollY + 6) + "px";
+  bulle.style.left = left + "px";
+  bulle.style.display = "block";
+ }
+};
+// Fermeture "douce" (bouton Fermer / clic extérieur) : refusée tant que la
+// date de la demande (obligatoire) n'a pas encore été saisie une fois.
+window._closeAutInfobulle = function(){
+ const id = window._pendingAutorisationId;
+ if(id){
+  const existing = window._getAutorisation ? window._getAutorisation(id) : null;
+  const inputVal = document.getElementById("autDateEnvoiInput")?.value || "";
+  if(!(existing && existing.dateEnvoi) && !inputVal) return; // reste ouverte
+ }
+ const bulle = document.getElementById("autInfoBulle");
+ if(bulle) bulle.style.display = "none";
+ window._pendingAutorisationId = null;
+};
+window._saveAutInfobulleValues = async function(){
+ const id = window._pendingAutorisationId;
+ if(!id) return;
+ const dateEnvoi = document.getElementById("autDateEnvoiInput")?.value || "";
+ if(!dateEnvoi){
+  alert("La date de la demande d'autorisation est obligatoire.");
+  return;
+ }
+ if(window._saveAutorisation) await window._saveAutorisation(id, dateEnvoi);
+ const bulle = document.getElementById("autInfoBulle");
+ if(bulle) bulle.style.display = "none";
+ window._pendingAutorisationId = null;
+};
+// Statut réglé sur "Autorisation..." sans date encore enregistrée : on force
+// l'ouverture de l'infobulle pour obliger la saisie.
+function _maybeAskAutorisationDate(id, val){
+ if(!id || !val) return;
+ if(!(window._estStatutAutorisation && window._estStatutAutorisation(val))) return;
+ if(window._isAutorisationSansDate && window._isAutorisationSansDate(id, val)){
+  const badge = document.querySelector(`.aut-badge[data-id="${id.replace(/"/g,'&quot;')}"]`);
+  if(window._openAutorisationInfobulle) window._openAutorisationInfobulle(id, badge || document.body);
+ }
+}
+document.addEventListener("click", function(e){
+ const bulle = document.getElementById("autInfoBulle");
+ if(!bulle || bulle.style.display!=="block") return;
+ if(e.target.closest("#autInfoBulle") || e.target.closest(".aut-badge")) return;
+ window._closeAutInfobulle();
+});
+
 function openDropdown(inp){
  closeAllDropdowns();
  const dd = inp.parentNode.querySelector(".statut-dropdown");
@@ -1276,6 +1424,7 @@ function attachStatutListeners(){
    // → on redemande les dates dès qu'on clique dans le champ, sans attendre
    // un changement de valeur.
    _maybeAskProjetDates(this.dataset.id, this.value);
+   _maybeAskAutorisationDate(this.dataset.id, this.value);
   });
   inp.addEventListener("input", function(){
    // Filtrer le dropdown selon la saisie
@@ -1618,6 +1767,7 @@ function filtrerEtAfficher(){
   const causeRetardOk = !window._filtreCauseRetard || ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard);
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
+  const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id, statut) : false);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    // Les projets sont à part : le badge "Mis à jour des statuts" ne les
@@ -1628,7 +1778,7 @@ function filtrerEtAfficher(){
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk){
    cpt++;
    rows.push(`<tr>
     <td class="num">${cpt}</td>
@@ -1682,6 +1832,8 @@ window._dmrCauseFilter = null;
 window._filtreCauseRetard = null;
 // ── DD/HD par produit : exclut les suspendus (traités à part via "Susp") ──
 window._filtreExclureSuspendu = false;
+// ── Filtre "Durée autorisations" : dossiers dont le STATUT commence par "Autorisation" ──
+window._filtreAutorisationActif = false;
 function _clearAllFiltres(){
  window._categorieFiltreActive = null;
  window._filtreFraicheurActif = null;
@@ -1693,6 +1845,7 @@ function _clearAllFiltres(){
  window._filtreExclureSuspendu = false;
  window._filtreProjetRetardActif = false;
  window._filtreDureeMinActif = false;
+ window._filtreAutorisationActif = false;
  if(window._statutFilterSelected) window._statutFilterSelected.clear();
  if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
  // Vide aussi la recherche texte et le filtre mois : un clic sur un badge
@@ -1735,6 +1888,12 @@ document.getElementById("btnCatProjets").addEventListener("click", function(){
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
+document.getElementById("btnCatAutorisations").addEventListener("click", function(){
+ _clearAllFiltres();
+ window._filtreAutorisationActif = true;
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
 
 function _noStatutFilter(){
  return !window._statutFilterSelected || window._statutFilterSelected.size===0;
@@ -1773,6 +1932,12 @@ function _updateCatButtonsUI(){
   const prrActive = window._categorieFiltreActive==="projet" && window._filtreProjetRetardActif && noStatut && !window._filtreDelaiActif && !window._filtreTypeActif;
   btnPRR.style.background = prrActive ? "#ede9fe" : "#fff";
   btnPRR.style.outline = prrActive ? "2px solid #7c3aed" : "none";
+ }
+ const btnAUT = document.getElementById("btnCatAutorisations");
+ if(btnAUT){
+  const autActive = window._filtreAutorisationActif && noStatut && !window._categorieFiltreActive && !window._filtreDelaiActif && !window._filtreTypeActif;
+  btnAUT.style.background = autActive ? "#fff1e6" : "#fff";
+  btnAUT.style.outline = autActive ? "2px solid #F2790A" : "none";
  }
 }
 function _updateTypeSpansUI(){
@@ -1868,6 +2033,23 @@ function updateDelaiCounts(){
   };
   setCategoryCircle("suspendusCircle","suspendusCircleValue","suspendusCirclePct",suspendus59.length,pctSuSep);
   setCategoryCircle("projetsCircle","projetsCircleValue","projetsCirclePct",projets59.length,pctProjSep);
+
+ // "Durée autorisations" : nombre de demandes d'autorisation hors délai
+ // (> 3 jours depuis la date de la demande), % calculé sur le total des
+ // demandes d'autorisation elles-mêmes (pas sur le total général).
+ const isRowAutorisation = r => {
+  const id=(r["ID DOSSIER"]||"").toString().trim();
+  const statut=window._getStatut ? window._getStatut(id) : "";
+  return !!(window._estStatutAutorisation && window._estStatutAutorisation(statut));
+ };
+ const autorisationsTotal = (dossiersGlobal||[]).filter(isRowAutorisation);
+ const autorisationsHorsDelai = autorisationsTotal.filter(r=>{
+  const id=(r["ID DOSSIER"]||"").toString().trim();
+  const statut=window._getStatut ? window._getStatut(id) : "";
+  return !!(window._isAutorisationEnRetard && window._isAutorisationEnRetard(id, statut));
+ });
+ const pctAutHorsDelai = autorisationsTotal.length ? Math.round(autorisationsHorsDelai.length/autorisationsTotal.length*1000)/10 : 0;
+ setCategoryCircle("autorisationsCircle","autorisationsCircleValue","autorisationsCirclePct",autorisationsHorsDelai.length,pctAutHorsDelai);
 
  // Âge moyen pour chacune des 4 catégories, sur la MÊME base non filtrée
  // que les compteurs ci-dessus, pour rester cohérent quel que soit l'état
@@ -2374,7 +2556,7 @@ function getAnalyseCausesSelectionRows(){
  const statsFil = window._statutFilterSelected || new Set();
  const q=(document.getElementById("searchInput")?.value||"").toLowerCase();
  const mois=(document.getElementById("moisFilter")?.value||"").toLowerCase();
- const hasFilter = window._filtreTypeActif || window._filtreDelaiActif || window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreCauseRetard || window._filtreProjetRetardActif || window._filtreDureeMinActif || statsFil.size>0 || q || mois;
+ const hasFilter = window._filtreTypeActif || window._filtreDelaiActif || window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreCauseRetard || window._filtreProjetRetardActif || window._filtreDureeMinActif || window._filtreAutorisationActif || statsFil.size>0 || q || mois;
  if(!hasFilter) return rows59;
 
  // Un filtre est actif : on applique EXACTEMENT le même prédicat que le tableau
@@ -2396,6 +2578,7 @@ function getAnalyseCausesSelectionRows(){
   const causeRetardOk = !window._filtreCauseRetard || ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard);
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
+  const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id, statut) : false);
   const statutOk = statsFil.size===0 || statsFil.has(statut);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
@@ -2407,7 +2590,7 @@ function getAnalyseCausesSelectionRows(){
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  return txt.includes(q) && moisOk && catOk && typeOk && delaiOk && exclureSuspenduOk && causeRetardOk && projetRetardOk && dureeMinOk && statutOk && fraicheurOk;
+  return txt.includes(q) && moisOk && catOk && typeOk && delaiOk && exclureSuspenduOk && causeRetardOk && projetRetardOk && dureeMinOk && autorisationOk && statutOk && fraicheurOk;
  });
 }
 
@@ -3008,6 +3191,7 @@ document.getElementById("btnExport").onclick=()=>{
   const causeRetardOk = !window._filtreCauseRetard || ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard);
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
+  const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id, statut) : false);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    // Les projets sont à part : le badge "Mis à jour des statuts" ne les
@@ -3018,7 +3202,7 @@ document.getElementById("btnExport").onclick=()=>{
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&fraicheurOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&fraicheurOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk){
    dataExport.push({
     "CLIENT":r["CLIENT"]||"",
     "ID DOSSIER":r["ID DOSSIER"]||"",
