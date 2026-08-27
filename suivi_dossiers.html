@@ -1778,6 +1778,7 @@ function filtrerEtAfficher(){
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
   const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id) : false);
+  const causeMultiOk = window._causeMultiMatches ? window._causeMultiMatches(id) : true;
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    // Les projets sont à part : le badge "Mis à jour des statuts" ne les
@@ -1788,7 +1789,7 @@ function filtrerEtAfficher(){
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk&&causeMultiOk){
    cpt++;
    rows.push(`<tr>
     <td class="num">${cpt}</td>
@@ -1856,6 +1857,7 @@ function _clearAllFiltres(){
  window._filtreProjetRetardActif = false;
  window._filtreDureeMinActif = false;
  window._filtreAutorisationActif = false;
+ if(window._causeMultiSelect) window._causeMultiSelect.clear();
  if(window._statutFilterSelected) window._statutFilterSelected.clear();
  if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
  // Vide aussi la recherche texte et le filtre mois : un clic sur un badge
@@ -2529,9 +2531,50 @@ function _updateCatDelaiSpansUI(){
 }
 
 // ── Bloc DMR & Causes ──
+window._causeMultiSelect = new Set();
 function _causeIsActive(statut, mode){
  return window._dmrHighlightActive === ("cause:"+mode+":"+statut);
 }
+// Sélection multiple (case à cocher) : indépendante du clic normal sur une
+// ligne de cause. Le tableau affichera tous les dossiers correspondant à
+// N'IMPORTE LAQUELLE des causes cochées, peu importe leur groupe d'origine
+// (Hors délais / Suspendus / Projets en retard).
+window._toggleCauseCheckbox = function(mode, statut){
+ const key = mode + "|" + statut;
+ if(window._causeMultiSelect.has(key)) window._causeMultiSelect.delete(key);
+ else window._causeMultiSelect.add(key);
+ // On repart d'un état propre pour les filtres "exclusifs" habituels : la
+ // sélection multiple de causes est son propre mode de filtrage.
+ window._categorieFiltreActive = null;
+ window._filtreDelaiActif = null;
+ window._filtreExclureSuspendu = false;
+ window._filtreProjetRetardActif = false;
+ window._filtreAutorisationActif = false;
+ window._dmrCauseFilter = null;
+ window._filtreCauseRetard = null;
+ window._dmrHighlightActive = null;
+ window._statutFilterSelected = new Set();
+ if(typeof syncStatutFilter==="function") syncStatutFilter();
+ if(typeof _updateCatButtonsUI==="function") _updateCatButtonsUI();
+ filtrerEtAfficher();
+ if(typeof updateDmrCauses==="function") updateDmrCauses();
+};
+// Un dossier "matche" la sélection multiple si son STATUT (mode suspendu)
+// ou sa CAUSE REEL DE RETARD (mode hd/projet) correspond à l'une des causes
+// cochées, tous groupes confondus.
+window._causeMultiMatches = function(id){
+ if(!window._causeMultiSelect || window._causeMultiSelect.size===0) return true;
+ for(const key of window._causeMultiSelect){
+  const sep = key.indexOf("|");
+  const mode = key.slice(0, sep);
+  const statut = key.slice(sep+1);
+  const val = (mode==="hd"||mode==="projet")
+   ? (window._getSolution ? (window._getSolution(id)||"").trim() : "")
+   : (window._getStatut ? window._getStatut(id) : "");
+  if((val||"") === statut) return true;
+ }
+ return false;
+};
 function _toggleCauseFilter(statut, mode){
  // Comme tous les autres filtres rapides (cartes DD/HD/Susp/Projets), un clic
  // sur une cause est indépendant : on repart d'un état propre avant d'appliquer
@@ -2585,7 +2628,7 @@ function getAnalyseCausesSelectionRows(){
  const statsFil = window._statutFilterSelected || new Set();
  const q=(document.getElementById("searchInput")?.value||"").toLowerCase();
  const mois=(document.getElementById("moisFilter")?.value||"").toLowerCase();
- const hasFilter = window._filtreTypeActif || window._filtreDelaiActif || window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreCauseRetard || window._filtreProjetRetardActif || window._filtreDureeMinActif || window._filtreAutorisationActif || statsFil.size>0 || q || mois;
+ const hasFilter = window._filtreTypeActif || window._filtreDelaiActif || window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreCauseRetard || window._filtreProjetRetardActif || window._filtreDureeMinActif || window._filtreAutorisationActif || (window._causeMultiSelect && window._causeMultiSelect.size>0) || statsFil.size>0 || q || mois;
  if(!hasFilter) return rows59;
 
  // Un filtre est actif : on applique EXACTEMENT le même prédicat que le tableau
@@ -2608,6 +2651,7 @@ function getAnalyseCausesSelectionRows(){
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
   const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id) : false);
+  const causeMultiOk = window._causeMultiMatches ? window._causeMultiMatches(id) : true;
   const statutOk = statsFil.size===0 || statsFil.has(statut);
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
@@ -2619,7 +2663,7 @@ function getAnalyseCausesSelectionRows(){
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  return txt.includes(q) && moisOk && catOk && typeOk && delaiOk && exclureSuspenduOk && causeRetardOk && projetRetardOk && dureeMinOk && autorisationOk && statutOk && fraicheurOk;
+  return txt.includes(q) && moisOk && catOk && typeOk && delaiOk && exclureSuspenduOk && causeRetardOk && projetRetardOk && dureeMinOk && autorisationOk && causeMultiOk && statutOk && fraicheurOk;
  });
 }
 
@@ -2678,10 +2722,17 @@ function updateDmrCauses(){
      const pct=rows.length?Math.round(n/rows.length*1000)/10:0;
      const safe=String(st).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
      const active=_causeIsActive(st,mode);
-     const bg=active?(mode==="suspendu"?"background:#fee2e2;":mode==="projet"?"background:#ede9fe;":"background:#fff3e0;"):"";
-     const outline=active?(mode==="suspendu"?"outline:1.5px solid #dc2626;":mode==="projet"?"outline:1.5px solid #7c3aed;":"outline:1.5px solid #b45309;"):"";
-     return `<div class="dmr-cause-row" data-statut="${safe}" data-mode="${mode}" style="cursor:pointer;display:flex;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span>${safe}</span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
+     const checked = window._causeMultiSelect && window._causeMultiSelect.has(mode+"|"+st);
+     const bg=(active||checked)?(mode==="suspendu"?"background:#fee2e2;":mode==="projet"?"background:#ede9fe;":"background:#fff3e0;"):"";
+     const outline=(active||checked)?(mode==="suspendu"?"outline:1.5px solid #dc2626;":mode==="projet"?"outline:1.5px solid #7c3aed;":"outline:1.5px solid #b45309;"):"";
+     return `<div class="dmr-cause-row" data-statut="${safe}" data-mode="${mode}" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span style="display:flex;align-items:center;gap:6px;min-width:0;"><input type="checkbox" class="dmr-cause-checkbox" data-statut="${safe}" data-mode="${mode}" ${checked?"checked":""} style="cursor:pointer;flex-shrink:0;" title="Cocher pour combiner plusieurs causes (tous groupes confondus)"/><span style="overflow:hidden;text-overflow:ellipsis;">${safe}</span></span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
    }).join("");
+   el.querySelectorAll(".dmr-cause-checkbox").forEach(cb=>{
+     cb.addEventListener("click",(e)=>{
+       e.stopPropagation();
+       window._toggleCauseCheckbox(cb.dataset.mode, cb.dataset.statut);
+     });
+   });
    el.querySelectorAll(".dmr-cause-row").forEach(row=>{
      row.addEventListener("click",()=>_toggleCauseFilter(row.dataset.statut,row.dataset.mode));
    });
@@ -3221,6 +3272,7 @@ document.getElementById("btnExport").onclick=()=>{
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
   const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id) : false);
+  const causeMultiOk = window._causeMultiMatches ? window._causeMultiMatches(id) : true;
   let fraicheurOk = true;
   if(window._filtreFraicheurActif){
    // Les projets sont à part : le badge "Mis à jour des statuts" ne les
@@ -3231,7 +3283,7 @@ document.getElementById("btnExport").onclick=()=>{
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&fraicheurOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&fraicheurOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk&&causeMultiOk){
    dataExport.push({
     "CLIENT":r["CLIENT"]||"",
     "ID DOSSIER":r["ID DOSSIER"]||"",
