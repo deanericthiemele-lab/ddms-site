@@ -569,6 +569,16 @@ if(typeof window._pdaInit === "function") window._pdaInit();
 
 <style>
 body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
+/* ===== Bandeau défilant "Analyse des retards" (effet ticker TV) ===== */
+@keyframes tickerScroll{
+ 0%{ transform:translateX(0); }
+ 100%{ transform:translateX(-50%); }
+}
+.ticker-track{ animation:tickerScroll 18s linear infinite; }
+#analyseCausesTickerWrap:hover .ticker-track{ animation-play-state:paused; }
+</style>
+<style>
+body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
 button{background:#d3d3d3;border:none;padding:6px 10px;border-radius:6px;font-size:13px;cursor:pointer;margin-right:6px}
 button:hover{filter:brightness(.95)}
 h1{border:1px solid #ccc;border-radius:6px;padding:8px;font-size:16px;font-weight:bold;margin-bottom:6px}
@@ -834,7 +844,15 @@ button.delai-kpi-card{
   </div>
  </div>
 </div>
-<div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;margin:10px 0 6px;">Analyse des retards</div>
+<div style="display:flex;align-items:center;gap:12px;margin:10px 0 6px;">
+ <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;">Analyse des retards</div>
+ <div id="analyseCausesTickerWrap" style="flex:1;overflow:hidden;background:#fff;border:1.5px solid #dc2626;border-radius:5px;height:26px;position:relative;min-width:0;">
+  <div id="analyseCausesTicker" class="ticker-track" style="position:absolute;top:0;left:0;height:100%;display:flex;align-items:center;white-space:nowrap;color:#dc2626;font-size:12px;font-weight:700;letter-spacing:.02em;">
+   <span id="analyseCausesTickerText1" style="padding-right:60px;"></span>
+   <span id="analyseCausesTickerText2" style="padding-right:60px;" aria-hidden="true"></span>
+  </div>
+ </div>
+</div>
 <div id="dmrCausesBlock" style="border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:10px;background:#fafafa;font-size:12.5px;">
   <div id="dmrCausesTitre" style="font-weight:700;margin-bottom:10px;color:#333;"></div>
   <div style="display:flex;gap:28px;flex-wrap:wrap;">
@@ -2703,7 +2721,7 @@ function updateDmrCauses(){
  };
 
  const renderCauses=(rows,el,mode)=>{
-   if(!el) return;
+   if(!el) return null;
    const counts={};
    rows.forEach(r=>{
      const id=(r["ID DOSSIER"]||"").toString().trim();
@@ -2716,7 +2734,7 @@ function updateDmrCauses(){
      if(st) counts[st]=(counts[st]||0)+1;
    });
    const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-   if(!sorted.length){el.innerHTML="";return;}
+   if(!sorted.length){el.innerHTML="";return null;}
    el.innerHTML=sorted.map(([st,n])=>{
      const pct=rows.length?Math.round(n/rows.length*1000)/10:0;
      const safe=String(st).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -2735,6 +2753,7 @@ function updateDmrCauses(){
    el.querySelectorAll(".dmr-cause-row").forEach(row=>{
      row.addEventListener("click",()=>_toggleCauseFilter(row.dataset.statut,row.dataset.mode));
    });
+   return sorted; // liste complète triée, pour le cumul global du bandeau
  };
 
  // Analyse des causes : toujours les DEUX colonnes, scopées uniquement au
@@ -2783,9 +2802,23 @@ function updateDmrCauses(){
  if(suTotalEl) suTotalEl.textContent="("+suData.length+")";
  if(hdTotalEl) hdTotalEl.textContent="("+hdData.length+")";
  if(projTotalEl) projTotalEl.textContent="("+projData.length+")";
- renderCauses(suData,causesSuEl,"suspendu");
- renderCauses(hdData,causesHdEl,"hd");
- if(causesProjEl) renderCauses(projData,causesProjEl,"projet");
+ const listSu = renderCauses(suData,causesSuEl,"suspendu") || [];
+ const listHd = renderCauses(hdData,causesHdEl,"hd") || [];
+ const listProj = causesProjEl ? (renderCauses(projData,causesProjEl,"projet") || []) : [];
+
+ // ── Bandeau défilant : cumul de la même cause sur les 3 catégories
+ // (Hors délais + Suspendus + Projets en retard confondus) ──
+ const causesCumul={};
+ [listHd,listSu,listProj].forEach(list=>{
+   list.forEach(([st,n])=>{ causesCumul[st]=(causesCumul[st]||0)+n; });
+ });
+ const causesCumulSorted = Object.entries(causesCumul).sort((a,b)=>b[1]-a[1]);
+ const causesList = causesCumulSorted.map(([st,n])=>`${st} (${n})`);
+ const tickerText = causesList.length ? `Causes majeurs : ${causesList.join(" — ")}` : "Aucun retard à signaler";
+ const t1=document.getElementById("analyseCausesTickerText1");
+ const t2=document.getElementById("analyseCausesTickerText2");
+ if(t1) t1.textContent = tickerText;
+ if(t2) t2.textContent = tickerText;
 }
 
 document.getElementById("ageMoyenHorsDelais").addEventListener("click", function(e){
