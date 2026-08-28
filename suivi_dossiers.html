@@ -950,7 +950,7 @@ button.delai-kpi-card{
  </div>
 </div>
 <div style="display:flex;align-items:center;gap:12px;margin:10px 0 6px;">
- <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;">Analyse des retards <span style="font-size:10.5px;font-weight:500;color:#888;">(≥15% - Critique | 10-15% - Important | 8-10% - À surveiller)</span></div>
+ <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;cursor:pointer;" title="Cliquer pour afficher tous les dossiers en retard dans le tableau">Analyse des retards (<span id="analyseCausesVolumeTotal">0</span>) <span style="font-size:10.5px;font-weight:500;color:#888;">(≥15% - Critique | 10-15% - Important | 8-10% - À surveiller)</span></div>
  <div id="analyseCausesTickerWrap" style="flex:1;overflow:hidden;background:#fff;border:1.5px solid #dc2626;border-radius:5px;height:26px;position:relative;min-width:0;">
   <button id="analyseCausesTickerLeft" type="button" title="Précédent" style="display:none;position:absolute;left:0;top:0;height:100%;width:20px;border:none;background:linear-gradient(to right,#fff 60%,rgba(255,255,255,0));color:#dc2626;font-size:13px;font-weight:800;cursor:pointer;z-index:2;">◀</button>
   <div id="analyseCausesTicker" style="height:100%;display:flex;align-items:center;justify-content:center;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;white-space:nowrap;color:#dc2626;font-size:12px;font-weight:700;letter-spacing:.02em;gap:18px;padding:0 10px;scrollbar-width:none;-ms-overflow-style:none;"></div>
@@ -1878,6 +1878,12 @@ function filtrerEtAfficher(){
   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
   const statutOk=statsFil.size===0||statsFil.has(statut);
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
+  const catActuelle1880 = window._getCategorieStatut ? window._getCategorieStatut(statut) : "encours";
+  const tousRetardsOk = !window._filtreTousRetards || (
+   (catActuelle1880!=="suspendu" && catActuelle1880!=="projet" && !estDansDelai(r)) ||
+   catActuelle1880==="suspendu" ||
+   (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false)
+  );
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
   const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
@@ -1896,7 +1902,7 @@ function filtrerEtAfficher(){
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk&&causeMultiOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&fraicheurOk&&typeOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk&&causeMultiOk&&tousRetardsOk){
    cpt++;
    rows.push(`<tr>
     <td class="num">${cpt}</td>
@@ -1918,9 +1924,10 @@ function filtrerEtAfficher(){
  const fraicheurLabel = window._filtreFraicheurActif==="ajour" ? " (À jour)" : window._filtreFraicheurActif==="retard" ? " (En retard)" : "";
  const typeLabel = window._filtreTypeActif==="LS" ? " (LS)" : window._filtreTypeActif==="LSI" ? " (LSI)" : window._filtreTypeActif==="NUM" ? " (Numérique)" : "";
  const delaiLabel = window._filtreDelaiActif==="dd" ? " (Dans les délais)" : window._filtreDelaiActif==="hd" ? " (Hors délais)" : "";
+ const tousRetardsLabel = window._filtreTousRetards ? " (Tous les retards — Analyse des retards)" : "";
  document.getElementById("resume").textContent=cpt;
  const resumeLabelEl = document.getElementById("resumeLabel");
- if(resumeLabelEl) resumeLabelEl.textContent = (catLabel+fraicheurLabel+typeLabel+delaiLabel).replace(/^\s+/,"");
+ if(resumeLabelEl) resumeLabelEl.textContent = (catLabel+fraicheurLabel+typeLabel+delaiLabel+tousRetardsLabel).replace(/^\s+/,"");
  peuplerDepuisFirebase();
  attachStatutListeners();
  attachSolutionListeners();
@@ -1964,6 +1971,7 @@ function _clearAllFiltres(){
  window._filtreProjetRetardActif = false;
  window._filtreDureeMinActif = false;
  window._filtreAutorisationActif = false;
+ window._filtreTousRetards = false;
  if(window._causeMultiSelect) window._causeMultiSelect.clear();
  if(window._statutFilterSelected) window._statutFilterSelected.clear();
  if(typeof window._updateStatutFilterBtn === "function") window._updateStatutFilterBtn();
@@ -2031,6 +2039,15 @@ document.getElementById("causesSuspendusTitre").addEventListener("click", functi
 document.getElementById("causesProjetsTitre").addEventListener("click", function(){
  _clearAllFiltres();
  window._categorieFiltreActive = "projet";
+ _updateCatButtonsUI();
+ filtrerEtAfficher();
+});
+// Titre "Analyse des retards (X)" : clic = affiche TOUS les dossiers en
+// retard (Hors délais + Suspendus + Projets en retard cumulés), comme les
+// autres filtres rapides.
+document.getElementById("analyseCausesTitle").addEventListener("click", function(){
+ _clearAllFiltres();
+ window._filtreTousRetards = true;
  _updateCatButtonsUI();
  filtrerEtAfficher();
 });
@@ -2745,7 +2762,7 @@ function getAnalyseCausesSelectionRows(){
  const statsFil = window._statutFilterSelected || new Set();
  const q=(document.getElementById("searchInput")?.value||"").toLowerCase();
  const mois=(document.getElementById("moisFilter")?.value||"").toLowerCase();
- const hasFilter = window._filtreTypeActif || window._filtreDelaiActif || window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreCauseRetard || window._filtreProjetRetardActif || window._filtreDureeMinActif || window._filtreAutorisationActif || (window._causeMultiSelect && window._causeMultiSelect.size>0) || statsFil.size>0 || q || mois;
+ const hasFilter = window._filtreTypeActif || window._filtreDelaiActif || window._categorieFiltreActive || window._filtreFraicheurActif || window._filtreCauseRetard || window._filtreProjetRetardActif || window._filtreDureeMinActif || window._filtreAutorisationActif || window._filtreTousRetards || (window._causeMultiSelect && window._causeMultiSelect.size>0) || statsFil.size>0 || q || mois;
  if(!hasFilter) return rows59;
 
  // Un filtre est actif : on applique EXACTEMENT le même prédicat que le tableau
@@ -2761,6 +2778,12 @@ function getAnalyseCausesSelectionRows(){
   const txt=(r["ID DOSSIER"]+" "+r["CLIENT"]+" "+r["TYPE ABONNEMENT"]+" "+r["SUPPORT"]+" "+statut+" "+_moisFr).toLowerCase();
   const moisOk = !mois || _moisFr.toLowerCase().includes(mois);
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
+  const catActuelle2764 = window._getCategorieStatut ? window._getCategorieStatut(statut) : "encours";
+  const tousRetardsOk = !window._filtreTousRetards || (
+   (catActuelle2764!=="suspendu" && catActuelle2764!=="projet" && !estDansDelai(r)) ||
+   catActuelle2764==="suspendu" ||
+   (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false)
+  );
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
   const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
@@ -2780,7 +2803,7 @@ function getAnalyseCausesSelectionRows(){
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  return txt.includes(q) && moisOk && catOk && typeOk && delaiOk && exclureSuspenduOk && causeRetardOk && projetRetardOk && dureeMinOk && autorisationOk && causeMultiOk && statutOk && fraicheurOk;
+  return txt.includes(q) && moisOk && catOk && typeOk && delaiOk && exclureSuspenduOk && causeRetardOk && projetRetardOk && dureeMinOk && autorisationOk && causeMultiOk && statutOk && fraicheurOk && tousRetardsOk;
  });
 }
 
@@ -2939,6 +2962,8 @@ function updateDmrCauses(){
  const causesCumul={};
  Object.values(causesCumulKeyed).forEach(({n,label})=>{ causesCumul[label]=n; });
  const totalRetards = hdData.length + suData.length + projData.length;
+ const volumeTotalEl = document.getElementById("analyseCausesVolumeTotal");
+ if(volumeTotalEl) volumeTotalEl.textContent = totalRetards;
  const SEUIL_CRITIQUE_PCT = 15; // "critique" si cumul ≥ 15% du total des retards
  const SEUIL_IMPORTANT_PCT = 10; // "important" si cumul entre 10% et 15%
  const SEUIL_SURVEILLER_PCT = 8; // "à surveiller" si cumul entre 8% et 10%
@@ -3572,6 +3597,12 @@ document.getElementById("btnExport").onclick=()=>{
   const moisOk=!mois||_moisFr.toLowerCase().includes(mois);
   const statutOk=statsFil.size===0||statsFil.has(statut);
   const catOk = !window._categorieFiltreActive || (statut && window._getCategorieStatut && window._getCategorieStatut(statut)===window._categorieFiltreActive);
+  const catActuelle3589 = window._getCategorieStatut ? window._getCategorieStatut(statut) : "encours";
+  const tousRetardsOk = !window._filtreTousRetards || (
+   (catActuelle3589!=="suspendu" && catActuelle3589!=="projet" && !estDansDelai(r)) ||
+   catActuelle3589==="suspendu" ||
+   (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false)
+  );
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
   const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
@@ -3590,7 +3621,7 @@ document.getElementById("btnExport").onclick=()=>{
    const estAJour = statut.trim()!=="" && updatedAt && new Date(updatedAt) >= lastMonday;
    fraicheurOk = estProjetLigne ? false : (window._filtreFraicheurActif==="ajour" ? estAJour : !estAJour);
   }
-  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&fraicheurOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk&&causeMultiOk){
+  if(txt.includes(q)&&moisOk&&statutOk&&catOk&&typeOk&&fraicheurOk&&delaiOk&&exclureSuspenduOk&&causeRetardOk&&projetRetardOk&&dureeMinOk&&autorisationOk&&causeMultiOk&&tousRetardsOk){
    dataExport.push({
     "CLIENT":r["CLIENT"]||"",
     "ID DOSSIER":r["ID DOSSIER"]||"",
