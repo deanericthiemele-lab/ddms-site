@@ -26,6 +26,32 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
+// ── Mode lecture seule (accès Production, sans mot de passe) — aucune
+// modification, suppression ou ajout n'est autorisé quand ce flag est actif.
+// Réglé automatiquement par le portail d'accueil, qui pose
+// sessionStorage.prodRole = "visiteur" avant d'ouvrir cette page.
+window._prodReadOnly = sessionStorage.getItem('prodRole') === 'visiteur';
+window._blockIfReadOnly = function(){
+ if(window._prodReadOnly){
+  alert("Mode lecture seule (Visiteur) — modification, ajout et suppression désactivés.");
+  return true;
+ }
+ return false;
+};
+// Masque les actions d'édition/gestion et affiche un bandeau d'information
+// visuelle. Ce script est type="module", donc différé : le DOM du <body>
+// est déjà entièrement parsé à ce stade, ces éléments existent.
+if(window._prodReadOnly){
+ ["btnGererListe","fileInput","pdaAddBtnInline"].forEach(id=>{
+  const el = document.getElementById(id);
+  if(el) el.style.display = "none";
+ });
+ const banner = document.createElement("div");
+ banner.textContent = "👁 Mode lecture seule (Visiteur) — aucune modification, ajout ou suppression n'est possible.";
+ banner.style.cssText = "background:#fff3e0;border:1px solid #f2790a;color:#c2570a;font-weight:700;font-size:13px;padding:8px 14px;border-radius:6px;margin:0 0 10px;text-align:center;";
+ document.body.insertBefore(banner, document.body.firstChild);
+}
+
 window._statuts = {};
 window._solutions = {};
 window._firebaseStatutsReady = false;
@@ -84,6 +110,7 @@ onValue(ref(db, "solutions_temp"), (snapshot) => {
 
 window._saveStatut = async function(id, val) {
   if(!id) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   const entry = { value: val, updatedAt: new Date().toISOString() };
   try {
@@ -138,6 +165,7 @@ window._isStatutInchangeValide = function(id, lastMonday) {
 };
 window._setStatutInchange = async function(id, checked) {
   if(!id) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   try {
     if(checked){
@@ -168,6 +196,7 @@ window._getProjetDates = function(id) {
 };
 window._saveProjetDates = async function(id, dateDebut, dateFin, notify) {
   if(!id) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   if(notify === undefined) notify = true;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   const entry = { dateDebut: dateDebut || "", dateFin: dateFin || "" };
@@ -210,6 +239,7 @@ window._getAutorisation = function(id) {
 };
 window._saveAutorisation = async function(id, dateEnvoi) {
   if(!id) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   const entry = { dateEnvoi: dateEnvoi || "" };
   try {
@@ -380,6 +410,7 @@ window._resetProjetDates = async function(){
 
 window._saveSolution = async function(id, val) {
   if(!id) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
   const existing = window._solutions[safeKey] || {};
   const entry = { ...existing, value: val, updatedAt: new Date().toISOString() };
@@ -516,6 +547,7 @@ onValue(ref(db, "statut_porteurs"), (snapshot) => {
 
 window._savePorteurStatut = async function(statut, porteur, categorie) {
   if(!statut) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   window._porteurParStatut[statut] = porteur || "";
   if(categorie) window._categorieParStatut[statut] = categorie;
   const safeKey = statut.replace(/[.#$\[\]/]/g, "_");
@@ -589,6 +621,7 @@ onValue(ref(db, "cause_options"), (snapshot) => {
 
 window._saveCauseOption = async function(val) {
   if(!val) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   const check = window._checkSimilarBeforeAdd(val, window._causeOptions);
   if(check.blocked) return;
   window._causeOptions.push(val);
@@ -600,6 +633,7 @@ window._saveCauseOption = async function(val) {
 };
 
 window._deleteCauseOption = async function(val){
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   window._causeOptions = window._causeOptions.filter(o=>o!==val);
   try {
     await set(ref(db, "cause_options"), window._causeOptions);
@@ -624,6 +658,7 @@ window._rebuildCauseOptionsFromHistory = function(){
 
 window._saveOption = async function(val) {
   if(!val) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
   const check = window._checkSimilarBeforeAdd(val, window._statutOptions);
   if(check.blocked) return;
   // Nouveau statut : demander le porteur (et la catégorie) avant de l'ajouter
@@ -1373,9 +1408,10 @@ function makeStatutInput(id){
  // "Autorisation" ; ouvre une infobulle pour saisir la date de la demande
  // (obligatoire : le délai de 3 jours se calcule à partir de cette date).
  // Une fois la date saisie, l'icône (SVG, pas d'emoji) passe en vert foncé.
+ // Non cliquable en mode lecture seule (visiteur).
  const estAutorisation = window._estAutorisationDossier ? window._estAutorisationDossier(id) : false;
  let autBadge = '';
- if(estAutorisation){
+ if(estAutorisation && !window._prodReadOnly){
   const autInfo = window._getAutorisation ? window._getAutorisation(id) : null;
   const hasDate = !!(autInfo && autInfo.dateEnvoi);
   const titreAut = hasDate ? `Date de la demande : ${autInfo.dateEnvoi} — cliquer pour modifier` : "Demande d'autorisation — cliquer dans la cellule pour saisir la date";
@@ -1393,20 +1429,21 @@ function makeStatutInput(id){
   const lastMonday = getLastMonday();
   const estAJour = dateCls === "ok";
   const inchangeValide = (!estAJour && window._isStatutInchangeValide) ? window._isStatutInchangeValide(id, lastMonday) : false;
+  const disabledAttr = window._prodReadOnly ? " disabled" : "";
   if(inchangeValide){
    dateBlockHtml = `<span class="statut-date-label inchange">${dateLabel} — Statut inchangé</span>
-    <label class="statut-inchange-label"><input type="checkbox" class="statut-inchange-checkbox" data-id="${safeId}" checked/>inchangé</label>`;
+    <label class="statut-inchange-label"><input type="checkbox" class="statut-inchange-checkbox" data-id="${safeId}" checked${disabledAttr}/>inchangé</label>`;
   } else {
    dateBlockHtml = `<span class="statut-date-label ${dateCls}">${dateLabel}</span>`;
    if(!estAJour && val.trim()!==""){
-    dateBlockHtml += `<label class="statut-inchange-label"><input type="checkbox" class="statut-inchange-checkbox" data-id="${safeId}"/>inchangé</label>`;
+    dateBlockHtml += `<label class="statut-inchange-label"><input type="checkbox" class="statut-inchange-checkbox" data-id="${safeId}"${disabledAttr}/>inchangé</label>`;
    }
   }
  }
 
  return `<div class="statut-cell">
   <div style="display:flex;align-items:center;gap:4px;">
-   <select class="statut-input statut-select" data-id="${safeId}" data-field="statut">${_buildStatutSelectOptions(val)}</select>${iconDates}${autBadge}
+   <select class="statut-input statut-select" data-id="${safeId}" data-field="statut"${window._prodReadOnly?" disabled":""}>${_buildStatutSelectOptions(val)}</select>${iconDates}${autBadge}
   </div>
   ${dateBlockHtml}
  </div>`;
@@ -1447,7 +1484,7 @@ function makeSolutionInput(id){
  // la condition « Autorisation » ne dépend désormais que du STATUT, plus
  // de la CAUSE REEL DE RETARD (window._estAutorisationDossier).
  return `<div class="statut-cell">
-  <select class="solution-input solution-select" data-id="${safeId}" data-field="solution" data-obligatoire="${obligatoire?'1':'0'}" style="background:#e8f4fd;width:160px;padding:4px 6px;${styleObligatoire}border-radius:4px;font-size:13px;">${_buildCauseSelectOptions(val,obligatoire)}</select>
+  <select class="solution-input solution-select" data-id="${safeId}" data-field="solution" data-obligatoire="${obligatoire?'1':'0'}"${window._prodReadOnly?" disabled":""} style="background:#e8f4fd;width:160px;padding:4px 6px;${styleObligatoire}border-radius:4px;font-size:13px;">${_buildCauseSelectOptions(val,obligatoire)}</select>
  </div>`;
 }
 
@@ -3346,6 +3383,7 @@ window._refreshCauseOptionsList = function(){
 };
 
 window.deleteCauseOption = async function(val){
+ if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
  const pwd = window.prompt("Mot de passe requis pour supprimer la cause « "+val+" » :");
  if(pwd === null) return; // annulé
  if(pwd !== "edith"){ alert("Mot de passe incorrect."); return; }
@@ -3394,6 +3432,7 @@ window._refreshOptionsList = function(){
 };
 
 window.basculerCategorieStatut = async function(statut, checkbox, cible){
+ if(window._blockIfReadOnly && window._blockIfReadOnly()){ checkbox.checked = !checkbox.checked; return; }
  cible = cible || "suspendu";
  const pwd = window.prompt("Mot de passe requis pour modifier la catégorie du statut « "+statut+" » :");
  if(pwd === null){ checkbox.checked = !checkbox.checked; return; } // annulé : on remet la case comme avant
@@ -3408,6 +3447,7 @@ window.basculerCategorieStatut = async function(statut, checkbox, cible){
 };
 
 window.modifierPorteurStatut = async function(statut){
+ if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
  const pwd = window.prompt("Mot de passe requis pour modifier le porteur du statut « "+statut+" » :");
  if(pwd === null) return; // annulé
  if(pwd !== "edith"){ alert("Mot de passe incorrect."); return; }
@@ -3424,6 +3464,7 @@ window.modifierPorteurStatut = async function(statut){
 
 // Renomme un statut PARTOUT : liste des options, porteur/catégorie, et tous les dossiers qui l'utilisent (tableau + Firebase)
 window.modifierValeurStatut = async function(ancienStatut){
+ if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
  const pwd = window.prompt("Mot de passe requis pour modifier le statut « "+ancienStatut+" » :");
  if(pwd === null) return;
  if(pwd !== "edith"){ alert("Mot de passe incorrect."); return; }
@@ -3545,6 +3586,7 @@ window._askPorteur = function(statutName){
 };
 
 window.deleteOption = async function(val){
+ if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
  const pwd = window.prompt("Mot de passe requis pour supprimer le statut « "+val+" » :");
  if(pwd === null) return; // annulé
  if(pwd !== "edith"){ alert("Mot de passe incorrect."); return; }
@@ -4453,28 +4495,29 @@ function _pdaRenderInto(tbody){
   const badgeStyle = _pdaStatusColor(statusVal);
   const dateVal = a.date || _pdaTodayISO();
   const rowStyle = "border-bottom:1px solid #f0f2f5;";
+  const ro = window._prodReadOnly ? " disabled" : "";
   return `<tr data-id="${a._id}" style="${rowStyle}">
    <td style="padding:5px 6px;">
-    <input type="text" class="pda-f-problematique" value="${(a.problematique||"").replace(/"/g,'&quot;')}" placeholder="Problématique…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;">
+    <input type="text" class="pda-f-problematique" value="${(a.problematique||"").replace(/"/g,'&quot;')}" placeholder="Problématique…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;"${ro}>
    </td>
    <td style="padding:5px 6px;">
-    <select class="pda-f-porteur" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100px;">${_pdaPorteurOptions(a.porteur)}</select>
+    <select class="pda-f-porteur" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100px;"${ro}>${_pdaPorteurOptions(a.porteur)}</select>
    </td>
    <td style="padding:5px 6px;">
-    <input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;width:128px;">
+    <input type="date" class="pda-f-date" value="${dateVal}" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;width:128px;"${ro}>
    </td>
    <td style="padding:5px 6px;">
-    <select class="pda-f-status" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;${badgeStyle}">
+    <select class="pda-f-status" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;${badgeStyle}"${ro}>
      <option value="Non démarré" ${statusVal==="Non démarré"?"selected":""}>Non démarré</option>
      <option value="En cours" ${statusVal==="En cours"?"selected":""}>En cours</option>
      <option value="Terminé" ${statusVal==="Terminé"?"selected":""}>Réalisé</option>
     </select>
    </td>
    <td style="padding:5px 6px;">
-    <input type="text" class="pda-f-comment" value="${(a.comment||"").replace(/"/g,'&quot;')}" placeholder="Action…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;">
+    <input type="text" class="pda-f-comment" value="${(a.comment||"").replace(/"/g,'&quot;')}" placeholder="Action…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;"${ro}>
    </td>
    <td style="padding:5px 6px;white-space:nowrap;">
-    <button class="pda-del-btn" title="Supprimer" style="background:none;border:none;cursor:pointer;font-size:14px;">🗑</button>
+    ${window._prodReadOnly ? '' : '<button class="pda-del-btn" title="Supprimer" style="background:none;border:none;cursor:pointer;font-size:14px;">🗑</button>'}
    </td>
   </tr>`;
  }).join("");
@@ -4499,6 +4542,7 @@ function _pdaRenderInto(tbody){
 }
 
 async function _pdaSaveRow(tr){
+ if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
  const id = tr.dataset.id;
  const date = tr.querySelector(".pda-f-date").value || _pdaTodayISO();
  const problematique = tr.querySelector(".pda-f-problematique").value.trim();
@@ -4522,6 +4566,7 @@ async function _pdaSaveRow(tr){
 }
 
 async function _pdaDeleteRow(id){
+ if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
  if(!confirm("Supprimer cette action ?")) return;
  try{
   _pdaSyncing(true);
@@ -4534,6 +4579,7 @@ async function _pdaDeleteRow(id){
 }
 
 async function _pdaAddAction(){
+ if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
  if(!window._pdaDb){ alert("Connexion PDA en cours, réessayez dans un instant."); return; }
  try{
   _pdaSyncing(true);
