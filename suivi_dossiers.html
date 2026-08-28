@@ -4023,6 +4023,7 @@ function _pdaTodayISO(){
 function _pdaStatusColor(status){
  if(status==="Terminé") return "color:#2e7d32;background:#e8f5e9;";
  if(status==="En cours") return "color:#185FA5;background:#E6F1FB;";
+ if(status==="Non démarré") return "color:#546e7a;background:#eceff1;";
  return "color:#607d8b;background:#eceff1;";
 }
 function _pdaShowError(msg){
@@ -4078,23 +4079,20 @@ function _pdaRenderRows(){
  });
 }
 function _pdaRenderInto(tbody){
- // On affiche toutes les actions (en cours + réalisées) — les réalisées
- // gardent leur badge vert "Terminé" et sont classées en dernier.
- const visibles = _pdaActions.slice().sort((a,b)=>{
-  const aDone = a.status==="Terminé" ? 1 : 0;
-  const bDone = b.status==="Terminé" ? 1 : 0;
-  if(aDone !== bDone) return aDone - bDone;
-  return (b.createdAt||0)-(a.createdAt||0);
- });
+ // On affiche toutes les actions (en cours + réalisées) dans l'ordre de
+ // création — une action réalisée reste à sa place, elle n'est plus
+ // renvoyée en fin de liste.
+ const visibles = _pdaActions.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
  if(!visibles.length){
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;padding:16px 6px;font-size:12px;">Aucune action. Cliquez sur « + Ajouter une action ».</td></tr>';
   return;
  }
  tbody.innerHTML = visibles.map(a=>{
-  const statusVal = a.status || "En cours";
+  const statusVal = a.status || "Non démarré";
   const badgeStyle = _pdaStatusColor(statusVal);
   const dateVal = a.date || _pdaTodayISO();
-  return `<tr data-id="${a._id}" style="border-bottom:1px solid #f0f2f5;">
+  const rowStyle = statusVal==="En cours" ? "border-bottom:1px solid #f0f2f5;background:#fff3e0;" : "border-bottom:1px solid #f0f2f5;";
+  return `<tr data-id="${a._id}" style="${rowStyle}">
    <td style="padding:5px 6px;">
     <input type="text" class="pda-f-problematique" value="${(a.problematique||"").replace(/"/g,'&quot;')}" placeholder="Problématique…" style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;">
    </td>
@@ -4109,7 +4107,8 @@ function _pdaRenderInto(tbody){
    </td>
    <td style="padding:5px 6px;">
     <select class="pda-f-status" style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;${badgeStyle}">
-     <option value="En cours" ${statusVal!=="Terminé"?"selected":""}>En cours</option>
+     <option value="Non démarré" ${statusVal==="Non démarré"?"selected":""}>Non démarré</option>
+     <option value="En cours" ${statusVal==="En cours"?"selected":""}>En cours</option>
      <option value="Terminé" ${statusVal==="Terminé"?"selected":""}>Réalisé</option>
     </select>
    </td>
@@ -4128,7 +4127,9 @@ function _pdaRenderInto(tbody){
  tbody.querySelectorAll(".pda-f-status").forEach(sel=>{
   sel.addEventListener("change", function(){
    this.setAttribute("style", "font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;"+_pdaStatusColor(this.value));
-   _pdaSaveRow(this.closest("tr"));
+   const tr = this.closest("tr");
+   tr.style.background = this.value==="En cours" ? "#fff3e0" : "";
+   _pdaSaveRow(tr);
   });
  });
  tbody.querySelectorAll(".pda-f-porteur").forEach(sel=>{
@@ -4187,7 +4188,7 @@ async function _pdaAddAction(){
    problematique: "",
    action: "",
    porteur: PDA_PORTEUR_DEFAUT,
-   status: "En cours",
+   status: "Non démarré",
    objectif: "",
    comment: "",
    important: false,
