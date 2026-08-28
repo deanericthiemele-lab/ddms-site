@@ -679,6 +679,8 @@ body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
 /* ===== Bandeau "Analyse des retards" — statique, cliquable ===== */
 .ticker-cause-item{cursor:pointer;display:inline-flex;align-items:center;gap:5px;}
 .ticker-cause-item:hover{text-decoration:underline;}
+#analyseCausesTicker::-webkit-scrollbar{display:none;}
+#analyseCausesTickerLeft:hover,#analyseCausesTickerRight:hover{filter:brightness(.9);}
 </style>
 <style>
 body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
@@ -948,9 +950,11 @@ button.delai-kpi-card{
  </div>
 </div>
 <div style="display:flex;align-items:center;gap:12px;margin:10px 0 6px;">
- <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;">Analyse des retards (≥15% - Critique | 10-15% - Important | 8-10% - À surveiller)</div>
+ <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;">Analyse des retards <span style="font-size:10.5px;font-weight:500;color:#888;">(≥15% - Critique | 10-15% - Important | 8-10% - À surveiller)</span></div>
  <div id="analyseCausesTickerWrap" style="flex:1;overflow:hidden;background:#fff;border:1.5px solid #dc2626;border-radius:5px;height:26px;position:relative;min-width:0;">
-  <div id="analyseCausesTicker" style="height:100%;display:flex;align-items:center;justify-content:center;flex-wrap:nowrap;overflow:hidden;white-space:nowrap;color:#dc2626;font-size:12px;font-weight:700;letter-spacing:.02em;gap:18px;padding:0 10px;"></div>
+  <button id="analyseCausesTickerLeft" type="button" title="Précédent" style="display:none;position:absolute;left:0;top:0;height:100%;width:20px;border:none;background:linear-gradient(to right,#fff 60%,rgba(255,255,255,0));color:#dc2626;font-size:13px;font-weight:800;cursor:pointer;z-index:2;">◀</button>
+  <div id="analyseCausesTicker" style="height:100%;display:flex;align-items:center;justify-content:center;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;white-space:nowrap;color:#dc2626;font-size:12px;font-weight:700;letter-spacing:.02em;gap:18px;padding:0 10px;scrollbar-width:none;-ms-overflow-style:none;"></div>
+  <button id="analyseCausesTickerRight" type="button" title="Suivant" style="display:none;position:absolute;right:0;top:0;height:100%;width:20px;border:none;background:linear-gradient(to left,#fff 60%,rgba(255,255,255,0));color:#dc2626;font-size:13px;font-weight:800;cursor:pointer;z-index:2;">▶</button>
  </div>
 </div>
 <div id="dmrCausesBlock" style="border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:10px;background:#fafafa;font-size:12.5px;">
@@ -2982,8 +2986,41 @@ function updateDmrCauses(){
     item.addEventListener("click", ()=> window._filterByCumulCause(item.dataset.cause));
    });
   }
+  // Affiche les flèches ◀▶ uniquement si le contenu déborde du cadre.
+  window._updateTickerArrows();
  }
 }
+
+// Affiche/masque les flèches de défilement du bandeau selon qu'il y a
+// débordement horizontal, et les garde synchronisées à la position de scroll.
+window._updateTickerArrows = function(){
+ const tickerEl=document.getElementById("analyseCausesTicker");
+ const btnLeft=document.getElementById("analyseCausesTickerLeft");
+ const btnRight=document.getElementById("analyseCausesTickerRight");
+ if(!tickerEl||!btnLeft||!btnRight) return;
+ const overflow = tickerEl.scrollWidth > tickerEl.clientWidth + 2;
+ if(!overflow){
+  btnLeft.style.display="none";
+  btnRight.style.display="none";
+  tickerEl.style.justifyContent="center";
+  return;
+ }
+ tickerEl.style.justifyContent="flex-start";
+ btnLeft.style.display = tickerEl.scrollLeft > 2 ? "block" : "none";
+ const maxScroll = tickerEl.scrollWidth - tickerEl.clientWidth;
+ btnRight.style.display = tickerEl.scrollLeft < maxScroll - 2 ? "block" : "none";
+};
+(function(){
+ const tickerEl=document.getElementById("analyseCausesTicker");
+ const btnLeft=document.getElementById("analyseCausesTickerLeft");
+ const btnRight=document.getElementById("analyseCausesTickerRight");
+ if(tickerEl){
+  tickerEl.addEventListener("scroll", ()=> window._updateTickerArrows());
+  window.addEventListener("resize", ()=> window._updateTickerArrows());
+ }
+ if(btnLeft) btnLeft.addEventListener("click", ()=>{ tickerEl.scrollBy({left:-120, behavior:"smooth"}); });
+ if(btnRight) btnRight.addEventListener("click", ()=>{ tickerEl.scrollBy({left:120, behavior:"smooth"}); });
+})();
 
 // Clic sur une cause du bandeau : filtre le tableau sur cette cause, toutes
 // catégories confondues (Hors délais + Suspendus + Projets), en s'appuyant
