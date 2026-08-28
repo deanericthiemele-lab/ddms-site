@@ -2720,8 +2720,7 @@ function updateDmrCauses(){
    return Math.round(rows.reduce((a,r)=>a+daysBetween(r["DATE CREATION DOSSIER"]),0)/rows.length)+" j";
  };
 
- const renderCauses=(rows,el,mode)=>{
-   if(!el) return null;
+ const computeCounts=(rows,mode)=>{
    const counts={};
    rows.forEach(r=>{
      const id=(r["ID DOSSIER"]||"").toString().trim();
@@ -2733,6 +2732,11 @@ function updateDmrCauses(){
        : (window._getStatut ? window._getStatut(id) : "");
      if(st) counts[st]=(counts[st]||0)+1;
    });
+   return counts;
+ };
+
+ const renderCauses=(rows,el,mode,counts,badgeSet)=>{
+   if(!el) return null;
    const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
    if(!sorted.length){el.innerHTML="";return null;}
    el.innerHTML=sorted.map(([st,n])=>{
@@ -2742,7 +2746,9 @@ function updateDmrCauses(){
      const checked = window._causeMultiSelect && window._causeMultiSelect.has(mode+"|"+st);
      const bg=(active||checked)?(mode==="suspendu"?"background:#fee2e2;":mode==="projet"?"background:#ede9fe;":"background:#fff3e0;"):"";
      const outline=(active||checked)?(mode==="suspendu"?"outline:1.5px solid #dc2626;":mode==="projet"?"outline:1.5px solid #7c3aed;":"outline:1.5px solid #b45309;"):"";
-     return `<div class="dmr-cause-row" data-statut="${safe}" data-mode="${mode}" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span style="display:flex;align-items:center;gap:6px;min-width:0;"><input type="checkbox" class="dmr-cause-checkbox" data-statut="${safe}" data-mode="${mode}" ${checked?"checked":""} style="cursor:pointer;flex-shrink:0;" title="Cocher pour combiner plusieurs causes (tous groupes confondus)"/><span style="overflow:hidden;text-overflow:ellipsis;">${safe}</span></span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
+     const isCritique = badgeSet && badgeSet.has(st);
+     const badge = isCritique ? `<span title="Cause critique : ≥15% du total des retards (toutes catégories cumulées)" style="background:#dc2626;color:#fff;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:8px;margin-right:5px;white-space:nowrap;flex-shrink:0;">🔴 CRITIQUE</span>` : "";
+     return `<div class="dmr-cause-row" data-statut="${safe}" data-mode="${mode}" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span style="display:flex;align-items:center;gap:6px;min-width:0;"><input type="checkbox" class="dmr-cause-checkbox" data-statut="${safe}" data-mode="${mode}" ${checked?"checked":""} style="cursor:pointer;flex-shrink:0;" title="Cocher pour combiner plusieurs causes (tous groupes confondus)"/>${badge}<span style="overflow:hidden;text-overflow:ellipsis;">${safe}</span></span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
    }).join("");
    el.querySelectorAll(".dmr-cause-checkbox").forEach(cb=>{
      cb.addEventListener("click",(e)=>{
@@ -2802,18 +2808,34 @@ function updateDmrCauses(){
  if(suTotalEl) suTotalEl.textContent="("+suData.length+")";
  if(hdTotalEl) hdTotalEl.textContent="("+hdData.length+")";
  if(projTotalEl) projTotalEl.textContent="("+projData.length+")";
- const listSu = renderCauses(suData,causesSuEl,"suspendu") || [];
- const listHd = renderCauses(hdData,causesHdEl,"hd") || [];
- const listProj = causesProjEl ? (renderCauses(projData,causesProjEl,"projet") || []) : [];
 
- // ── Bandeau défilant : cumul de la même cause sur les 3 catégories
- // (Hors délais + Suspendus + Projets en retard confondus) ──
+ // ── Cumul de la même cause sur les 3 catégories (Hors délais + Suspendus +
+ // Projets en retard confondus), calculé AVANT le rendu pour pouvoir
+ // marquer les causes "critiques" dans chaque liste. ──
+ const countsHd = computeCounts(hdData,"hd");
+ const countsSu = computeCounts(suData,"suspendu");
+ const countsProj = computeCounts(projData,"projet");
  const causesCumul={};
- [listHd,listSu,listProj].forEach(list=>{
-   list.forEach(([st,n])=>{ causesCumul[st]=(causesCumul[st]||0)+n; });
+ [countsHd,countsSu,countsProj].forEach(counts=>{
+   Object.entries(counts).forEach(([st,n])=>{ causesCumul[st]=(causesCumul[st]||0)+n; });
  });
+ const totalRetards = hdData.length + suData.length + projData.length;
+ const SEUIL_CRITIQUE_PCT = 15; // une cause est "critique" si son cumul ≥ 15% du total des retards
+ const badgeSet = new Set(
+   Object.entries(causesCumul)
+     .filter(([st,n]) => totalRetards>0 && (n/totalRetards*100) >= SEUIL_CRITIQUE_PCT)
+     .map(([st])=>st)
+ );
+
+ const listSu = renderCauses(suData,causesSuEl,"suspendu",countsSu,badgeSet) || [];
+ const listHd = renderCauses(hdData,causesHdEl,"hd",countsHd,badgeSet) || [];
+ const listProj = causesProjEl ? (renderCauses(projData,causesProjEl,"projet",countsProj,badgeSet) || []) : [];
+
+ // ── Bandeau défilant : cumul de la même cause sur les 3 catégories ──
  const causesCumulSorted = Object.entries(causesCumul).sort((a,b)=>b[1]-a[1]);
- const causesList = causesCumulSorted.map(([st,n])=>`${st} (${n})`);
+ const causesCritiques = causesCumulSorted.filter(([st])=>badgeSet.has(st));
+ const causesAAfficher = causesCritiques.length ? causesCritiques : causesCumulSorted.slice(0,1);
+ const causesList = causesAAfficher.map(([st,n])=>`🔴 ${st} (${n})`);
  const tickerText = causesList.length ? `Causes majeurs : ${causesList.join(" — ")}` : "Aucun retard à signaler";
  const t1=document.getElementById("analyseCausesTickerText1");
  const t2=document.getElementById("analyseCausesTickerText2");
