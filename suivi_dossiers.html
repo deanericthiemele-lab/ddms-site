@@ -56,21 +56,29 @@ onValue(ref(db, "solutions_temp"), (snapshot) => {
   const data = snapshot.val() || {};
   window._solutions = data;
   window._firebaseSolutionsReady = true;
-  document.querySelectorAll(".solution-input").forEach(inp => {
-    const id = inp.dataset.id;
-    if(id && document.activeElement !== inp){
+  // Repeupler la liste gérée des causes avec l'historique (ne perd aucune
+  // valeur déjà saisie avant le passage en liste stricte).
+  if(typeof window._rebuildCauseOptionsFromHistory === "function") window._rebuildCauseOptionsFromHistory();
+  if(typeof window._refreshCauseOptionsList === "function") window._refreshCauseOptionsList();
+  document.querySelectorAll(".solution-select").forEach(sel => {
+    const id = sel.dataset.id;
+    if(id && document.activeElement !== sel){
       const safeKey = id.replace(/[.#$\[\]/]/g, "_");
       const entry = data[safeKey];
       if(entry !== undefined){
         const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
-        inp.value = val;
-        inp._prevVal = val;
+        if(sel.value !== val) sel.value = val;
+        sel._prevVal = val;
       }
     }
   });
-  // "Top 5 Causes principales — Hors délais" lit directement window._solutions
-  // (colonne CAUSE REEL DE RETARD) : il faut le recalculer dès que ces
-  // données Firebase arrivent, sinon le bloc reste vide au démarrage.
+  // Ré-alimenter les options des <select> déjà affichés (sans reconstruire
+  // tout le tableau) pour que toute nouvelle cause historique devienne
+  // sélectionnable immédiatement.
+  if(typeof window._refreshSolutionSelectsOptions === "function") window._refreshSolutionSelectsOptions();
+  // "Causes — Hors délais" lit directement window._solutions (colonne
+  // CAUSE REEL DE RETARD) : il faut le recalculer dès que ces données
+  // Firebase arrivent, sinon le bloc reste vide au démarrage.
   if(typeof window.updateDmrCauses === "function") window.updateDmrCauses();
 });
 
@@ -518,8 +526,106 @@ window._savePorteurStatut = async function(statut, porteur, categorie) {
   }
 };
 
+// ── Normalisation + détection de ressemblance (insensible à la casse) ──
+// Utilisé pour regrouper les causes/statuts qui ne diffèrent que par la
+// casse ou des espaces, et pour alerter en cas d'ajout d'une valeur trop
+// proche d'une valeur déjà existante dans une liste gérée.
+window._normLabel = function(s){
+  return String(s||"").trim().toLowerCase().replace(/\s+/g," ");
+};
+function _levenshtein(a,b){
+  const m=a.length, n=b.length;
+  if(m===0) return n;
+  if(n===0) return m;
+  const dp=new Array(n+1);
+  for(let j=0;j<=n;j++) dp[j]=j;
+  for(let i=1;i<=m;i++){
+    let prev=dp[0];
+    dp[0]=i;
+    for(let j=1;j<=n;j++){
+      const tmp=dp[j];
+      dp[j]=a[i-1]===b[j-1] ? prev : 1+Math.min(prev,dp[j],dp[j-1]);
+      prev=tmp;
+    }
+  }
+  return dp[n];
+}
+// Vérifie qu'une valeur à ajouter n'existe pas déjà (insensible à la casse)
+// et alerte si elle ressemble fortement à une valeur existante. Retourne
+// {blocked:true} si l'ajout doit être annulé.
+window._checkSimilarBeforeAdd = function(val, list){
+  const norm = window._normLabel(val);
+  const exact = (list||[]).find(o => window._normLabel(o) === norm);
+  if(exact){
+    alert(`Cette valeur existe déjà dans la liste : « ${exact} ».\nUtilisez-la directement au lieu d'en créer une nouvelle (pour éviter les doublons de casse).`);
+    return {blocked:true};
+  }
+  let nearest=null, nearestDist=Infinity;
+  (list||[]).forEach(o=>{
+    const d=_levenshtein(norm, window._normLabel(o));
+    if(d<nearestDist){ nearestDist=d; nearest=o; }
+  });
+  if(nearest && nearestDist>0 && nearestDist<=2 && norm.length>3){
+    const ok = confirm(`« ${val} » ressemble beaucoup à « ${nearest} » déjà présent dans la liste.\nVoulez-vous quand même l'ajouter comme valeur distincte ?`);
+    if(!ok) return {blocked:true};
+  }
+  return {blocked:false};
+};
+
+// ── Liste gérée des causes (colonne CAUSE REEL DE RETARD) — même principe
+// que window._statutOptions, mais dans un noeud Firebase séparé. ──
+window._causeOptions = [];
+onValue(ref(db, "cause_options"), (snapshot) => {
+  const data = snapshot.val();
+  if(data && Array.isArray(data)){
+    data.forEach(v => {
+      if(!window._causeOptions.some(o=>window._normLabel(o)===window._normLabel(v))) window._causeOptions.push(v);
+    });
+  }
+  if(typeof window._refreshCauseOptionsList === "function") window._refreshCauseOptionsList();
+  if(typeof window.updateDmrCauses === "function") window.updateDmrCauses();
+  if(typeof window._refreshSolutionSelectsOptions === "function") window._refreshSolutionSelectsOptions();
+});
+
+window._saveCauseOption = async function(val) {
+  if(!val) return;
+  const check = window._checkSimilarBeforeAdd(val, window._causeOptions);
+  if(check.blocked) return;
+  window._causeOptions.push(val);
+  try {
+    await set(ref(db, "cause_options"), window._causeOptions);
+  } catch(e) {
+    console.error("Erreur save cause option:", e);
+  }
+};
+
+window._deleteCauseOption = async function(val){
+  window._causeOptions = window._causeOptions.filter(o=>o!==val);
+  try {
+    await set(ref(db, "cause_options"), window._causeOptions);
+  } catch(e) {
+    console.error("Erreur delete cause option:", e);
+  }
+};
+
+// Repeuple window._causeOptions avec toutes les valeurs historiques déjà
+// saisies dans CAUSE REEL DE RETARD (window._solutions), pour ne perdre
+// aucun historique lors du passage en liste stricte. Fusion insensible à
+// la casse : la première casse rencontrée fait foi.
+window._rebuildCauseOptionsFromHistory = function(){
+  Object.values(window._solutions||{}).forEach(entry=>{
+    const v = (entry && typeof entry === "object") ? (entry.value||"") : entry;
+    const val = (v||"").toString().trim();
+    if(val && !window._causeOptions.some(o=>window._normLabel(o)===window._normLabel(val))){
+      window._causeOptions.push(val);
+    }
+  });
+};
+
 window._saveOption = async function(val) {
-  if(!val || window._statutOptions.includes(val)) return;
+  if(!val) return;
+  const check = window._checkSimilarBeforeAdd(val, window._statutOptions);
+  if(check.blocked) return;
   // Nouveau statut : demander le porteur (et la catégorie) avant de l'ajouter
   if(typeof window._askPorteur === "function"){
     const result = await window._askPorteur(val);
@@ -535,6 +641,7 @@ window._saveOption = async function(val) {
     console.error("Erreur save option:", e);
   }
 };
+
 </script>
 
 <!-- Firebase Firestore — PDA Comités (projet ddms-architectures, synchronisé avec pda_2_.html) -->
@@ -569,13 +676,9 @@ if(typeof window._pdaInit === "function") window._pdaInit();
 
 <style>
 body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
-/* ===== Bandeau défilant "Analyse des retards" (effet ticker TV) ===== */
-@keyframes tickerScroll{
- 0%{ transform:translateX(0); }
- 100%{ transform:translateX(-50%); }
-}
-.ticker-track{ animation:tickerScroll 18s linear infinite; }
-#analyseCausesTickerWrap:hover .ticker-track{ animation-play-state:paused; }
+/* ===== Bandeau "Analyse des retards" — statique, cliquable ===== */
+.ticker-cause-item{cursor:pointer;display:inline-flex;align-items:center;gap:5px;}
+.ticker-cause-item:hover{text-decoration:underline;}
 </style>
 <style>
 body{font-family:Arial,sans-serif;margin:10px;font-size:14px}
@@ -845,12 +948,9 @@ button.delai-kpi-card{
  </div>
 </div>
 <div style="display:flex;align-items:center;gap:12px;margin:10px 0 6px;">
- <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;">Analyse des retards</div>
+ <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;">Analyse des retards (≥15% - Critique | 10-15% - À surveiller)</div>
  <div id="analyseCausesTickerWrap" style="flex:1;overflow:hidden;background:#fff;border:1.5px solid #dc2626;border-radius:5px;height:26px;position:relative;min-width:0;">
-  <div id="analyseCausesTicker" class="ticker-track" style="position:absolute;top:0;left:0;height:100%;display:flex;align-items:center;white-space:nowrap;color:#dc2626;font-size:12px;font-weight:700;letter-spacing:.02em;">
-   <span id="analyseCausesTickerText1" style="padding-right:60px;"></span>
-   <span id="analyseCausesTickerText2" style="padding-right:60px;" aria-hidden="true"></span>
-  </div>
+  <div id="analyseCausesTicker" style="height:100%;display:flex;align-items:center;justify-content:center;flex-wrap:nowrap;overflow:hidden;white-space:nowrap;color:#dc2626;font-size:12px;font-weight:700;letter-spacing:.02em;gap:18px;padding:0 10px;"></div>
  </div>
 </div>
 <div id="dmrCausesBlock" style="border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:10px;background:#fafafa;font-size:12.5px;">
@@ -1006,20 +1106,40 @@ button.delai-kpi-card{
 
 <!-- Popup gestion liste statuts -->
 <div class="popup" id="popupGererListe">
- <div class="popup-content" style="width:450px;max-height:70vh;">
+ <div class="popup-content" style="width:480px;max-height:70vh;">
   <div class="popup-header">
-   <h2>Gérer la liste des statuts</h2>
+   <h2>Gérer les listes</h2>
    <span class="close" onclick="document.getElementById('popupGererListe').style.display='none'">✕</span>
   </div>
-  <div style="margin-bottom:10px;display:flex;gap:8px;">
-   <input type="text" id="newOptionInput" placeholder="Nouvelle valeur..." maxlength="50"
-    style="flex:1;padding:6px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;"/>
-   <button id="btnAddOption" style="background:#2563eb;color:white;">+ Ajouter</button>
+  <div style="display:flex;gap:6px;margin-bottom:12px;border-bottom:1px solid #ddd;">
+   <button id="tabBtnStatuts" class="gerer-liste-tab active" onclick="window._switchGererListeTab('statuts')" style="padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:#2563eb;border-bottom:2px solid #2563eb;">Statuts</button>
+   <button id="tabBtnCauses" class="gerer-liste-tab" onclick="window._switchGererListeTab('causes')" style="padding:8px 14px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:#888;border-bottom:2px solid transparent;">Causes de retard</button>
   </div>
-  <table style="width:100%;" id="tableOptions">
-   <thead><tr><th>Valeur</th><th>Porteur</th><th style="width:70px;text-align:center;">Suspendus</th><th style="width:80px;">Action</th></tr></thead>
-   <tbody id="tbodyOptions"></tbody>
-  </table>
+
+  <div id="tabPanelStatuts">
+   <div style="margin-bottom:10px;display:flex;gap:8px;">
+    <input type="text" id="newOptionInput" placeholder="Nouvelle valeur..." maxlength="50"
+     style="flex:1;padding:6px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;"/>
+    <button id="btnAddOption" style="background:#2563eb;color:white;">+ Ajouter</button>
+   </div>
+   <table style="width:100%;" id="tableOptions">
+    <thead><tr><th>Valeur</th><th>Porteur</th><th style="width:70px;text-align:center;">Suspendus</th><th style="width:80px;">Action</th></tr></thead>
+    <tbody id="tbodyOptions"></tbody>
+   </table>
+  </div>
+
+  <div id="tabPanelCauses" style="display:none;">
+   <p style="font-size:11.5px;color:#888;margin:0 0 10px;">Liste utilisée par la colonne « CAUSE REEL DE RETARD » (menu déroulant strict, plus de saisie libre).</p>
+   <div style="margin-bottom:10px;display:flex;gap:8px;">
+    <input type="text" id="newCauseOptionInput" placeholder="Nouvelle cause..." maxlength="80"
+     style="flex:1;padding:6px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;"/>
+    <button id="btnAddCauseOption" style="background:#2563eb;color:white;">+ Ajouter</button>
+   </div>
+   <table style="width:100%;" id="tableCauseOptions">
+    <thead><tr><th>Valeur</th><th style="width:80px;">Action</th></tr></thead>
+    <tbody id="tbodyCauseOptions"></tbody>
+   </table>
+  </div>
  </div>
 </div>
 
@@ -1265,39 +1385,91 @@ function makeStatutInput(id){
 
  return `<div class="statut-cell">
   <div style="display:flex;align-items:center;gap:4px;">
-   <input class="statut-input" data-id="${safeId}" data-field="statut" maxlength="80" value="${safeVal}" placeholder="Statut..." autocomplete="off"/>${iconDates}${autBadge}
+   <select class="statut-input statut-select" data-id="${safeId}" data-field="statut">${_buildStatutSelectOptions(val)}</select>${iconDates}${autBadge}
   </div>
-  <div class="statut-dropdown"></div>
   ${dateBlockHtml}
  </div>`;
+}
+
+// Construit les <option> du menu déroulant STATUT à partir de la liste
+// gérée (window._statutOptions), dédupliquée insensible à la casse. La
+// valeur actuelle du dossier est toujours incluse (même si absente de la
+// liste, ex. ancienne saisie libre) pour ne rien perdre.
+function _buildStatutSelectOptions(currentVal){
+ const seen = new Set();
+ const opts = [];
+ (window._statutOptions||[]).forEach(o=>{
+  const key = window._normLabel ? window._normLabel(o) : o.toLowerCase();
+  if(!seen.has(key)){ seen.add(key); opts.push(o); }
+ });
+ const curKey = currentVal ? (window._normLabel ? window._normLabel(currentVal) : currentVal.toLowerCase()) : "";
+ let html = `<option value=""${!currentVal?" selected":""}>— Sélectionner —</option>`;
+ opts.forEach(o=>{
+  const oKey = window._normLabel ? window._normLabel(o) : o.toLowerCase();
+  const safe = o.replace(/"/g,"&quot;");
+  html += `<option value="${safe}"${oKey===curKey?" selected":""}>${o}</option>`;
+ });
+ if(currentVal && !seen.has(curKey)){
+  const safe = currentVal.replace(/"/g,"&quot;");
+  html += `<option value="${safe}" selected>${currentVal} (ancien)</option>`;
+ }
+ return html;
 }
 
 function makeSolutionInput(id){
  const val = window._getSolution ? window._getSolution(id) : "";
  const safeId = id.replace(/"/g,"&quot;");
- const safeVal = val.replace(/"/g,"&quot;");
  const obligatoire = window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false;
  const vide = !val || !val.trim();
  const styleObligatoire = (obligatoire && vide) ? "border:2px solid #dc2626;background:#fee2e2;" : "border:1px solid #bbb;";
- const placeholder = (obligatoire && vide) ? "⚠ Cause de retard obligatoire..." : "Cause du retard...";
  // L'icône 📨 ne s'affiche que dans la colonne STATUT (voir makeStatutInput) ;
  // la condition « Autorisation » ne dépend désormais que du STATUT, plus
  // de la CAUSE REEL DE RETARD (window._estAutorisationDossier).
  return `<div class="statut-cell">
-  <input class="solution-input" data-id="${safeId}" data-field="solution" data-obligatoire="${obligatoire?'1':'0'}" maxlength="80" value="${safeVal}" placeholder="${placeholder}" autocomplete="off" style="background:#e8f4fd;width:160px;padding:4px 6px;${styleObligatoire}border-radius:4px;font-size:13px;"/>
+  <select class="solution-input solution-select" data-id="${safeId}" data-field="solution" data-obligatoire="${obligatoire?'1':'0'}" style="background:#e8f4fd;width:160px;padding:4px 6px;${styleObligatoire}border-radius:4px;font-size:13px;">${_buildCauseSelectOptions(val,obligatoire)}</select>
  </div>`;
 }
 
-function ensureDatalist(){
- const dl = document.getElementById("statut-datalist");
- if(dl && window._statutOptions){
-  dl.innerHTML = window._statutOptions.map(o=>`<option value="${o}">`).join("");
+// Construit les <option> du menu déroulant CAUSE REEL DE RETARD à partir
+// de la liste gérée (window._causeOptions), dédupliquée insensible à la
+// casse. Idem STATUT : la valeur actuelle est toujours incluse.
+function _buildCauseSelectOptions(currentVal,obligatoire){
+ const seen = new Set();
+ const opts = [];
+ (window._causeOptions||[]).forEach(o=>{
+  const key = window._normLabel ? window._normLabel(o) : o.toLowerCase();
+  if(!seen.has(key)){ seen.add(key); opts.push(o); }
+ });
+ const curKey = currentVal ? (window._normLabel ? window._normLabel(currentVal) : currentVal.toLowerCase()) : "";
+ const placeholderTxt = obligatoire && !currentVal ? "⚠ Cause de retard obligatoire…" : "— Cause du retard —";
+ let html = `<option value=""${!currentVal?" selected":""}>${placeholderTxt}</option>`;
+ opts.forEach(o=>{
+  const oKey = window._normLabel ? window._normLabel(o) : o.toLowerCase();
+  const safe = o.replace(/"/g,"&quot;");
+  html += `<option value="${safe}"${oKey===curKey?" selected":""}>${o}</option>`;
+ });
+ if(currentVal && !seen.has(curKey)){
+  const safe = currentVal.replace(/"/g,"&quot;");
+  html += `<option value="${safe}" selected>${currentVal} (ancien)</option>`;
  }
+ return html;
 }
 
-function closeAllDropdowns(){
- document.querySelectorAll(".statut-dropdown.open").forEach(d=>d.classList.remove("open"));
-}
+// Ré-alimente les <option> de tous les <select> "Cause du retard" déjà
+// affichés à l'écran (sans reconstruire tout le tableau), pour que toute
+// nouvelle cause (ajoutée ou historique) devienne immédiatement sélectionnable.
+window._refreshSolutionSelectsOptions = function(){
+ document.querySelectorAll(".solution-select").forEach(sel=>{
+  const cur = sel.value;
+  const obligatoire = sel.dataset.obligatoire === "1";
+  sel.innerHTML = _buildCauseSelectOptions(cur, obligatoire);
+ });
+};
+
+// Ancien système d'auto-complétion (dropdown custom) désormais remplacé par
+// des <select> natifs pour STATUT et CAUSE REEL DE RETARD. Conservé comme
+// no-op pour ne pas casser les appels existants ailleurs dans le fichier.
+function closeAllDropdowns(){}
 
 document.addEventListener("click", function(e){
  if(!e.target.closest(".statut-cell")) closeAllDropdowns();
@@ -1394,27 +1566,6 @@ function _maybeAskAutorisationDate(id){
  }
 }
 
-function openDropdown(inp){
- closeAllDropdowns();
- const dd = inp.parentNode.querySelector(".statut-dropdown");
- if(!dd) return;
- const opts = window._statutOptions || [];
- const cur = inp.value;
- dd.innerHTML = opts.map(o =>
-  `<div class="statut-dropdown-item${o===cur?' active':''}" data-val="${o.replace(/"/g,'&quot;')}">${o}</div>`
- ).join("");
- dd.classList.add("open");
- dd.querySelectorAll(".statut-dropdown-item").forEach(item=>{
-  item.addEventListener("mousedown", function(e){
-   e.preventDefault();
-   inp.value = this.dataset.val;
-   inp._prevVal = this.dataset.val;
-   closeAllDropdowns();
-   inp.dispatchEvent(new Event("change", {bubbles:true}));
-  });
- });
-}
-
 function _maybeAskProjetDates(id, val){
  if(!id || !val) return;
  if(!val.toLowerCase().includes("projet")) return;
@@ -1435,17 +1586,15 @@ function _maybeWarnCauseObligatoire(id, val){
 }
 
 function attachStatutListeners(){
- ensureDatalist();
- document.querySelectorAll(".statut-input").forEach(inp=>{
-  const currentVal = inp.value; // Préserver la valeur existante (déjà peuplée par Firebase)
-  const clone=inp.cloneNode(true);
+ document.querySelectorAll(".statut-select").forEach(sel=>{
+  const currentVal = sel.value; // Préserver la valeur existante (déjà peuplée par Firebase)
+  const clone=sel.cloneNode(true);
   clone.value = currentVal; // Réappliquer la valeur après clonage
-  inp.parentNode.replaceChild(clone,inp);
+  sel.parentNode.replaceChild(clone,sel);
  });
- document.querySelectorAll(".statut-input").forEach(inp=>{
-  inp._prevVal = inp.value; // _prevVal = valeur actuelle (Firebase ou vide)
-  inp.addEventListener("click", function(){
-   openDropdown(this);
+ document.querySelectorAll(".statut-select").forEach(sel=>{
+  sel._prevVal = sel.value; // _prevVal = valeur actuelle (Firebase ou vide)
+  sel.addEventListener("click", function(){
    // Le dossier a déjà "projet" comme statut mais n'a jamais eu ses dates
    // renseignées (ex. dossier existant avant l'ajout de cette fonctionnalité)
    // → on redemande les dates dès qu'on clique dans le champ, sans attendre
@@ -1453,73 +1602,12 @@ function attachStatutListeners(){
    _maybeAskProjetDates(this.dataset.id, this.value);
    _maybeAskAutorisationDate(this.dataset.id);
   });
-  inp.addEventListener("input", function(){
-   // Filtrer le dropdown selon la saisie
-   const dd = this.parentNode.querySelector(".statut-dropdown");
-   if(!dd) return;
-   const q = this.value.toLowerCase();
-   const opts = window._statutOptions || [];
-   const filtered = opts.filter(o => o.toLowerCase().includes(q));
-   if(filtered.length === 0){ dd.classList.remove("open"); return; }
-   dd.innerHTML = filtered.map(o =>
-    `<div class="statut-dropdown-item" data-val="${o.replace(/"/g,'&quot;')}">${o}</div>`
-   ).join("");
-   dd.classList.add("open");
-   dd.querySelectorAll(".statut-dropdown-item").forEach(item=>{
-    item.addEventListener("mousedown", function(e){
-     e.preventDefault();
-     inp.value = this.dataset.val;
-     inp._prevVal = this.dataset.val;
-     closeAllDropdowns();
-     inp.dispatchEvent(new Event("change", {bubbles:true}));
-    });
-   });
-  });
-  inp.addEventListener("blur", async function(){
-   const self = this;
-   setTimeout(async ()=>{
-    closeAllDropdowns();
-    const val = self.value.trim();
-    // Ne restaurer que si _prevVal est une vraie valeur non vide saisie par l'utilisateur
-    if(val === "" && self._prevVal && self._prevVal.trim() !== "") { self.value = self._prevVal; return; }
-    if(val !== self._prevVal){
-     self._prevVal = val;
-     if(window._saveStatut){
-      await window._saveStatut(self.dataset.id, val);
-      if(val && window._saveOption) window._saveOption(val);
-     }
-     _maybeAskProjetDates(self.dataset.id, val);
-     const cell = self.closest(".statut-cell");
-     const label = cell ? cell.querySelector(".statut-date-label") : null;
-     if(label){
-      if(val.toLowerCase().includes("projet")){
-       label.textContent = "";
-       label.className = "statut-date-label";
-      } else {
-       const {text, cls} = formatStatutDate(new Date().toISOString());
-       label.textContent = text;
-       label.className = "statut-date-label " + cls;
-      }
-     }
-     // Le statut vient réellement de changer : toute confirmation "inchangé"
-     // précédente n'a plus de sens, on la retire (affichage + Firebase).
-     const oldInchangeLabel = cell ? cell.querySelector(".statut-inchange-label") : null;
-     if(oldInchangeLabel) oldInchangeLabel.remove();
-     if(window._setStatutInchange && window._getStatutInchangeAt && window._getStatutInchangeAt(self.dataset.id)) window._setStatutInchange(self.dataset.id, false);
-    }
-    // Avant de sortir du champ STATUT : si c'est un projet en retard et que
-    // la cause du retard n'est pas remplie, on prévient — obligatoire.
-    _maybeWarnCauseObligatoire(self.dataset.id, val);
-   }, 200);
-  });
-  inp.addEventListener("change", async function(){
+  sel.addEventListener("change", async function(){
    const id=this.dataset.id;
-   const val=this.value.slice(0,80);
-   this.value=val;
+   const val=this.value;
    this._prevVal=val;
    if(window._saveStatut){
     await window._saveStatut(id,val);
-    if(window._saveOption) window._saveOption(val);
    }
    _maybeAskProjetDates(id, val);
    this.classList.add("saved");
@@ -1540,48 +1628,36 @@ function attachStatutListeners(){
    if(oldInchangeLabel) oldInchangeLabel.remove();
    if(window._setStatutInchange && window._getStatutInchangeAt && window._getStatutInchangeAt(id)) window._setStatutInchange(id, false);
    setTimeout(()=>this.classList.remove("saved"),1000);
+   // Si c'est un projet en retard et que la cause du retard n'est pas
+   // remplie, on prévient — obligatoire.
+   _maybeWarnCauseObligatoire(id, val);
   });
  });
 }
 
 function attachSolutionListeners(){
- document.querySelectorAll(".solution-input").forEach(inp=>{
-  const currentVal = inp.value; // Préserver la valeur existante (Firebase)
-  const clone=inp.cloneNode(true);
+ document.querySelectorAll(".solution-select").forEach(sel=>{
+  const currentVal = sel.value; // Préserver la valeur existante (Firebase)
+  const clone=sel.cloneNode(true);
   clone.value = currentVal; // Réappliquer après clonage
-  inp.parentNode.replaceChild(clone,inp);
+  sel.parentNode.replaceChild(clone,sel);
  });
- document.querySelectorAll(".solution-input").forEach(inp=>{
+ document.querySelectorAll(".solution-select").forEach(sel=>{
   // Recharger la valeur depuis Firebase au cas où le rendu était avant la réponse Firebase
-  const id = inp.dataset.id;
-  if(id && window._getSolution && !inp.value){
+  const id = sel.dataset.id;
+  if(id && window._getSolution && !sel.value){
    const val = window._getSolution(id);
-   if(val) { inp.value = val; inp._prevVal = val; }
+   if(val) { sel.value = val; sel._prevVal = val; }
   }
-  inp.addEventListener("change", async function(){
+  sel.addEventListener("change", async function(){
    const id=this.dataset.id;
-   const val=this.value.slice(0,80);
-   this.value=val;
+   const val=this.value;
    if(window._saveSolution) await window._saveSolution(id, val);
    const obligatoire = window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false;
    if(obligatoire && !val.trim()){
     this.style.borderColor="#dc2626";
     this.style.background="#fee2e2";
     alert("Ce dossier est un projet en retard : la cause du retard est obligatoire.");
-   } else {
-    this.style.borderColor="#22c55e";
-    this.style.background="#e8f4fd";
-    setTimeout(()=>{ this.style.borderColor="#bbb"; },1000);
-   }
-  });
-  inp.addEventListener("blur", async function(){
-   const id=this.dataset.id;
-   const val=this.value.slice(0,80);
-   if(window._saveSolution) await window._saveSolution(id, val);
-   const obligatoire = window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false;
-   if(obligatoire && !val.trim()){
-    this.style.borderColor="#dc2626";
-    this.style.background="#fee2e2";
    } else {
     this.style.borderColor="#22c55e";
     this.style.background="#e8f4fd";
@@ -1639,7 +1715,7 @@ loadMesAuto();
 
 
 function peuplerDepuisFirebase(){
- document.querySelectorAll(".statut-input[data-field='statut']").forEach(inp => {
+ document.querySelectorAll(".statut-select[data-field='statut']").forEach(inp => {
   const id = inp.dataset.id;
   if(!id) return;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
@@ -1647,6 +1723,12 @@ function peuplerDepuisFirebase(){
   if(entry !== undefined){
    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
    inp.value = val;
+   if(inp.value !== val && typeof _buildStatutSelectOptions === "function"){
+    // La valeur n'est pas (encore) dans les <option> du select (Firebase a
+    // répondu après le rendu initial) : on reconstruit la liste pour l'inclure.
+    inp.innerHTML = _buildStatutSelectOptions(val);
+    inp.value = val;
+   }
    inp._prevVal = val;
    const cell = inp.closest(".statut-cell");
    const label = cell ? cell.querySelector(".statut-date-label") : null;
@@ -1688,7 +1770,7 @@ function peuplerDepuisFirebase(){
    }
   }
  });
- document.querySelectorAll(".solution-input").forEach(inp => {
+ document.querySelectorAll(".solution-select").forEach(inp => {
   const id = inp.dataset.id;
   if(!id) return;
   const safeKey = id.replace(/[.#$\[\]/]/g, "_");
@@ -1696,6 +1778,10 @@ function peuplerDepuisFirebase(){
   if(entry !== undefined){
    const val = (typeof entry === "object" && entry !== null) ? (entry.value || "") : entry;
    inp.value = val;
+   if(inp.value !== val && typeof _buildCauseSelectOptions === "function"){
+    inp.innerHTML = _buildCauseSelectOptions(val, inp.dataset.obligatoire === "1");
+    inp.value = val;
+   }
    inp._prevVal = val;
   }
  });
@@ -1791,7 +1877,7 @@ function filtrerEtAfficher(){
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
   const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
-  const causeRetardOk = !window._filtreCauseRetard || ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard);
+  const causeRetardOk = !window._filtreCauseRetard || (window._normLabel ? window._normLabel(window._getSolution ? (window._getSolution(id)||"") : "") === window._normLabel(window._filtreCauseRetard) : ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard));
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
   const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id) : false);
@@ -2588,7 +2674,8 @@ window._causeMultiMatches = function(id){
   const val = (mode==="hd"||mode==="projet")
    ? (window._getSolution ? (window._getSolution(id)||"").trim() : "")
    : (window._getStatut ? window._getStatut(id) : "");
-  if((val||"") === statut) return true;
+  const eq = window._normLabel ? window._normLabel(val)===window._normLabel(statut) : ((val||"")===statut);
+  if(eq) return true;
  }
  return false;
 };
@@ -2664,7 +2751,7 @@ function getAnalyseCausesSelectionRows(){
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
   const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
-  const causeRetardOk = !window._filtreCauseRetard || ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard);
+  const causeRetardOk = !window._filtreCauseRetard || (window._normLabel ? window._normLabel(window._getSolution ? (window._getSolution(id)||"") : "") === window._normLabel(window._filtreCauseRetard) : ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard));
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
   const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id) : false);
@@ -2721,7 +2808,14 @@ function updateDmrCauses(){
  };
 
  const computeCounts=(rows,mode)=>{
-   const counts={};
+   // Regroupement insensible à la casse/espaces : "Autorisation mairie" et
+   // "autorisation Mairie" comptent comme UNE seule cause. La casse
+   // affichée est celle de la liste gérée (Statuts pour "suspendu", Causes
+   // de retard pour "hd"/"projet") si elle y figure, sinon la première
+   // casse rencontrée dans les données.
+   const optionsList = mode==="suspendu" ? (window._statutOptions||[]) : (window._causeOptions||[]);
+   const counts={}; // normKey -> n
+   const displayLabel={}; // normKey -> libellé canonique à afficher
    rows.forEach(r=>{
      const id=(r["ID DOSSIER"]||"").toString().trim();
      // "Hors délais" et "Projets en retard" : la cause vient de la colonne
@@ -2730,12 +2824,20 @@ function updateDmrCauses(){
      const st=(mode==="hd"||mode==="projet")
        ? (window._getSolution ? (window._getSolution(id)||"").trim() : "")
        : (window._getStatut ? window._getStatut(id) : "");
-     if(st) counts[st]=(counts[st]||0)+1;
+     if(!st) return;
+     const key = window._normLabel ? window._normLabel(st) : st.toLowerCase();
+     counts[key]=(counts[key]||0)+1;
+     if(!displayLabel[key]){
+       const matched = optionsList.find(o => (window._normLabel ? window._normLabel(o) : o.toLowerCase())===key);
+       displayLabel[key] = matched || st;
+     }
    });
-   return counts;
+   const out={};
+   Object.entries(counts).forEach(([key,n])=>{ out[displayLabel[key]]=n; });
+   return out;
  };
 
- const renderCauses=(rows,el,mode,counts,badgeSet)=>{
+ const renderCauses=(rows,el,mode,counts)=>{
    if(!el) return null;
    const sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
    if(!sorted.length){el.innerHTML="";return null;}
@@ -2746,9 +2848,7 @@ function updateDmrCauses(){
      const checked = window._causeMultiSelect && window._causeMultiSelect.has(mode+"|"+st);
      const bg=(active||checked)?(mode==="suspendu"?"background:#fee2e2;":mode==="projet"?"background:#ede9fe;":"background:#fff3e0;"):"";
      const outline=(active||checked)?(mode==="suspendu"?"outline:1.5px solid #dc2626;":mode==="projet"?"outline:1.5px solid #7c3aed;":"outline:1.5px solid #b45309;"):"";
-     const isCritique = badgeSet && badgeSet.has(st);
-     const badge = isCritique ? `<span title="Cause critique : ≥15% du total des retards (toutes catégories cumulées)" style="background:#dc2626;color:#fff;font-size:9.5px;font-weight:800;padding:1px 5px;border-radius:8px;margin-right:5px;white-space:nowrap;flex-shrink:0;">🔴 CRITIQUE</span>` : "";
-     return `<div class="dmr-cause-row" data-statut="${safe}" data-mode="${mode}" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span style="display:flex;align-items:center;gap:6px;min-width:0;"><input type="checkbox" class="dmr-cause-checkbox" data-statut="${safe}" data-mode="${mode}" ${checked?"checked":""} style="cursor:pointer;flex-shrink:0;" title="Cocher pour combiner plusieurs causes (tous groupes confondus)"/>${badge}<span style="overflow:hidden;text-overflow:ellipsis;">${safe}</span></span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
+     return `<div class="dmr-cause-row" data-statut="${safe}" data-mode="${mode}" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:3px 5px;border-bottom:1px solid #eee;border-radius:4px;${bg}${outline}"><span style="display:flex;align-items:center;gap:6px;min-width:0;"><input type="checkbox" class="dmr-cause-checkbox" data-statut="${safe}" data-mode="${mode}" ${checked?"checked":""} style="cursor:pointer;flex-shrink:0;" title="Cocher pour combiner plusieurs causes (tous groupes confondus)"/><span style="overflow:hidden;text-overflow:ellipsis;">${safe}</span></span><span style="font-weight:700;white-space:nowrap;">${n} (${pct}%)</span></div>`;
    }).join("");
    el.querySelectorAll(".dmr-cause-checkbox").forEach(cb=>{
      cb.addEventListener("click",(e)=>{
@@ -2810,38 +2910,77 @@ function updateDmrCauses(){
  if(projTotalEl) projTotalEl.textContent="("+projData.length+")";
 
  // ── Cumul de la même cause sur les 3 catégories (Hors délais + Suspendus +
- // Projets en retard confondus), calculé AVANT le rendu pour pouvoir
- // marquer les causes "critiques" dans chaque liste. ──
+ // Projets en retard confondus) — pour le bandeau uniquement (plus de badge
+ // par ligne dans les 3 listes). ──
  const countsHd = computeCounts(hdData,"hd");
  const countsSu = computeCounts(suData,"suspendu");
  const countsProj = computeCounts(projData,"projet");
- const causesCumul={};
+ const causesCumulKeyed={}; // normKey -> {n, label}
  [countsHd,countsSu,countsProj].forEach(counts=>{
-   Object.entries(counts).forEach(([st,n])=>{ causesCumul[st]=(causesCumul[st]||0)+n; });
+   Object.entries(counts).forEach(([st,n])=>{
+     const key = window._normLabel ? window._normLabel(st) : st.toLowerCase();
+     if(!causesCumulKeyed[key]) causesCumulKeyed[key]={n:0,label:st};
+     causesCumulKeyed[key].n += n;
+   });
  });
+ const causesCumul={};
+ Object.values(causesCumulKeyed).forEach(({n,label})=>{ causesCumul[label]=n; });
  const totalRetards = hdData.length + suData.length + projData.length;
- const SEUIL_CRITIQUE_PCT = 15; // une cause est "critique" si son cumul ≥ 15% du total des retards
+ const SEUIL_CRITIQUE_PCT = 15; // "critique" si cumul ≥ 15% du total des retards
+ const SEUIL_SURVEILLER_PCT = 10; // "à surveiller" si cumul entre 10% et 15%
  const badgeSet = new Set(
    Object.entries(causesCumul)
      .filter(([st,n]) => totalRetards>0 && (n/totalRetards*100) >= SEUIL_CRITIQUE_PCT)
      .map(([st])=>st)
  );
+ const surveillerSet = new Set(
+   Object.entries(causesCumul)
+     .filter(([st,n]) => totalRetards>0 && (n/totalRetards*100) >= SEUIL_SURVEILLER_PCT && (n/totalRetards*100) < SEUIL_CRITIQUE_PCT)
+     .map(([st])=>st)
+ );
 
- const listSu = renderCauses(suData,causesSuEl,"suspendu",countsSu,badgeSet) || [];
- const listHd = renderCauses(hdData,causesHdEl,"hd",countsHd,badgeSet) || [];
- const listProj = causesProjEl ? (renderCauses(projData,causesProjEl,"projet",countsProj,badgeSet) || []) : [];
+ const listSu = renderCauses(suData,causesSuEl,"suspendu",countsSu) || [];
+ const listHd = renderCauses(hdData,causesHdEl,"hd",countsHd) || [];
+ const listProj = causesProjEl ? (renderCauses(projData,causesProjEl,"projet",countsProj) || []) : [];
 
- // ── Bandeau défilant : cumul de la même cause sur les 3 catégories ──
+ // ── Bandeau : cumul de la même cause sur les 3 catégories, une puce +
+ // le libellé pour chaque cause critique (≥15%) ou à surveiller (10-15%),
+ // cliquable pour filtrer le tableau (toutes catégories confondues). ──
  const causesCumulSorted = Object.entries(causesCumul).sort((a,b)=>b[1]-a[1]);
  const causesCritiques = causesCumulSorted.filter(([st])=>badgeSet.has(st));
- const causesAAfficher = causesCritiques.length ? causesCritiques : causesCumulSorted.slice(0,1);
- const causesList = causesAAfficher.map(([st,n])=>`🔴 ${st} (${n})`);
- const tickerText = causesList.length ? `Causes majeurs : ${causesList.join(" — ")}` : "Aucun retard à signaler";
- const t1=document.getElementById("analyseCausesTickerText1");
- const t2=document.getElementById("analyseCausesTickerText2");
- if(t1) t1.textContent = tickerText;
- if(t2) t2.textContent = tickerText;
+ const causesSurveiller = causesCumulSorted.filter(([st])=>surveillerSet.has(st));
+ const causesAAfficher = [...causesCritiques, ...causesSurveiller];
+ const finalList = causesAAfficher.length ? causesAAfficher : causesCumulSorted.slice(0,1);
+ const tickerEl=document.getElementById("analyseCausesTicker");
+ if(tickerEl){
+  if(!finalList.length){
+   tickerEl.innerHTML = "Aucun retard à signaler";
+  } else {
+   tickerEl.innerHTML = finalList.map(([st,n])=>{
+    const safe=String(st).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const safeAttr = st.replace(/"/g,"&quot;");
+    const couleur = badgeSet.has(st) ? "#dc2626" : "#f2790a";
+    return `<span class="ticker-cause-item" data-cause="${safeAttr}" title="Cliquer pour filtrer le tableau"><span style="color:${couleur};">●</span> ${safe} (${n})</span>`;
+   }).join("");
+   tickerEl.querySelectorAll(".ticker-cause-item").forEach(item=>{
+    item.addEventListener("click", ()=> window._filterByCumulCause(item.dataset.cause));
+   });
+  }
+ }
 }
+
+// Clic sur une cause du bandeau : filtre le tableau sur cette cause, toutes
+// catégories confondues (Hors délais + Suspendus + Projets), en s'appuyant
+// sur le même mécanisme que la sélection multiple par case à cocher.
+window._filterByCumulCause = function(cause){
+ _clearAllFiltres();
+ window._causeMultiSelect = new Set(["hd|"+cause, "suspendu|"+cause, "projet|"+cause]);
+ window._dmrHighlightActive = null;
+ if(typeof syncStatutFilter==="function") syncStatutFilter();
+ if(typeof _updateCatButtonsUI==="function") _updateCatButtonsUI();
+ filtrerEtAfficher();
+ if(typeof updateDmrCauses==="function") updateDmrCauses();
+};
 
 document.getElementById("ageMoyenHorsDelais").addEventListener("click", function(e){
  e.stopPropagation();
@@ -3062,7 +3201,68 @@ document.getElementById("fileInput").addEventListener("change",e=>{
 
 document.getElementById("btnGererListe").onclick=()=>{
  renderOptionsList();
+ renderCauseOptionsList();
  document.getElementById("popupGererListe").style.display="flex";
+};
+
+window._switchGererListeTab = function(tab){
+ const btnStatuts = document.getElementById("tabBtnStatuts");
+ const btnCauses = document.getElementById("tabBtnCauses");
+ const panelStatuts = document.getElementById("tabPanelStatuts");
+ const panelCauses = document.getElementById("tabPanelCauses");
+ if(tab==="causes"){
+  panelStatuts.style.display="none";
+  panelCauses.style.display="";
+  btnStatuts.style.color="#888"; btnStatuts.style.borderBottomColor="transparent";
+  btnCauses.style.color="#2563eb"; btnCauses.style.borderBottomColor="#2563eb";
+  renderCauseOptionsList();
+ } else {
+  panelStatuts.style.display="";
+  panelCauses.style.display="none";
+  btnCauses.style.color="#888"; btnCauses.style.borderBottomColor="transparent";
+  btnStatuts.style.color="#2563eb"; btnStatuts.style.borderBottomColor="#2563eb";
+  renderOptionsList();
+ }
+};
+
+function renderCauseOptionsList(){
+ const tbody=document.getElementById("tbodyCauseOptions");
+ if(!tbody) return;
+ tbody.innerHTML="";
+ (window._causeOptions||[]).forEach(opt=>{
+  const safeOpt = opt.replace(/'/g,"\\'");
+  tbody.innerHTML+=`<tr>
+   <td>${opt}</td>
+   <td><button onclick="deleteCauseOption('${safeOpt}')" style="background:#ef4444;color:white;padding:3px 8px;border-radius:4px;border:none;cursor:pointer;">🗑 Suppr.</button></td>
+  </tr>`;
+ });
+}
+window._refreshCauseOptionsList = function(){
+ if(document.getElementById("popupGererListe") && document.getElementById("popupGererListe").style.display==="flex"){
+  renderCauseOptionsList();
+ }
+};
+
+window.deleteCauseOption = async function(val){
+ const pwd = window.prompt("Mot de passe requis pour supprimer la cause « "+val+" » :");
+ if(pwd === null) return; // annulé
+ if(pwd !== "edith"){ alert("Mot de passe incorrect."); return; }
+ if(window._deleteCauseOption) await window._deleteCauseOption(val);
+ renderCauseOptionsList();
+ if(typeof window._refreshSolutionSelectsOptions === "function") window._refreshSolutionSelectsOptions();
+ if(typeof updateDmrCauses === "function") updateDmrCauses();
+};
+
+document.getElementById("btnAddCauseOption").onclick=async()=>{
+ const input=document.getElementById("newCauseOptionInput");
+ const val=input.value.trim();
+ if(!val){alert("Entrez une valeur.");return;}
+ if(window._saveCauseOption){
+  await window._saveCauseOption(val);
+  input.value="";
+  renderCauseOptionsList();
+  if(typeof window._refreshSolutionSelectsOptions === "function") window._refreshSolutionSelectsOptions();
+ }
 };
 
 function renderOptionsList(){
@@ -3322,7 +3522,7 @@ document.getElementById("btnExport").onclick=()=>{
   const typeOk = !window._filtreTypeActif || matchTypeAbo(r, window._filtreTypeActif);
   const delaiOk = !window._filtreDelaiActif || (window._filtreDelaiActif==="dd" ? estDansDelai(r) : !estDansDelai(r));
   const exclureSuspenduOk = !window._filtreExclureSuspendu || (window._getCategorieStatut ? (window._getCategorieStatut(statut)!=="suspendu" && window._getCategorieStatut(statut)!=="projet") : true);
-  const causeRetardOk = !window._filtreCauseRetard || ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard);
+  const causeRetardOk = !window._filtreCauseRetard || (window._normLabel ? window._normLabel(window._getSolution ? (window._getSolution(id)||"") : "") === window._normLabel(window._filtreCauseRetard) : ((window._getSolution ? (window._getSolution(id)||"").trim() : "") === window._filtreCauseRetard));
   const projetRetardOk = !window._filtreProjetRetardActif || (window._isProjetEnRetardById ? window._isProjetEnRetardById(id) : false);
   const dureeMinOk = !window._filtreDureeMinActif || daysBetween(r["DATE CREATION DOSSIER"]) > 60;
   const autorisationOk = !window._filtreAutorisationActif || (window._isAutorisationEnRetard ? window._isAutorisationEnRetard(id) : false);
