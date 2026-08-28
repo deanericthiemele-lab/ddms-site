@@ -948,7 +948,7 @@ button.delai-kpi-card{
  </div>
 </div>
 <div style="display:flex;align-items:center;gap:12px;margin:10px 0 6px;">
- <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;">Analyse des retards (≥15% - Critique | 10-15% - À surveiller)</div>
+ <div id="analyseCausesTitle" style="font-size:14px;font-weight:700;color:#333;white-space:nowrap;">Analyse des retards (≥15% - Critique | 10-15% - Important | 8-10% - À surveiller)</div>
  <div id="analyseCausesTickerWrap" style="flex:1;overflow:hidden;background:#fff;border:1.5px solid #dc2626;border-radius:5px;height:26px;position:relative;min-width:0;">
   <div id="analyseCausesTicker" style="height:100%;display:flex;align-items:center;justify-content:center;flex-wrap:nowrap;overflow:hidden;white-space:nowrap;color:#dc2626;font-size:12px;font-weight:700;letter-spacing:.02em;gap:18px;padding:0 10px;"></div>
  </div>
@@ -2664,16 +2664,25 @@ window._toggleCauseCheckbox = function(mode, statut){
 };
 // Un dossier "matche" la sélection multiple si son STATUT (mode suspendu)
 // ou sa CAUSE REEL DE RETARD (mode hd/projet) correspond à l'une des causes
-// cochées, tous groupes confondus.
+// cochées, ET qu'il appartient réellement à cette catégorie (mêmes règles
+// que les compteurs des 3 listes) — sinon un dossier "Suspendu" dont la
+// cause ressemble à une cause HD gonflerait le nombre de résultats.
 window._causeMultiMatches = function(id){
  if(!window._causeMultiSelect || window._causeMultiSelect.size===0) return true;
+ const row = (typeof dossiersGlobal!=="undefined" ? dossiersGlobal : []).find(r=>(r["ID DOSSIER"]||"").toString().trim()===id);
+ const statutActuel = window._getStatut ? window._getStatut(id) : "";
+ const cat = window._getCategorieStatut ? window._getCategorieStatut(statutActuel) : "encours";
  for(const key of window._causeMultiSelect){
   const sep = key.indexOf("|");
   const mode = key.slice(0, sep);
   const statut = key.slice(sep+1);
+  // Vérifie l'appartenance réelle à la catégorie du groupe coché
+  if(mode==="suspendu" && cat!=="suspendu") continue;
+  if(mode==="projet" && !(window._isProjetEnRetardById && window._isProjetEnRetardById(id))) continue;
+  if(mode==="hd" && (cat==="suspendu" || cat==="projet" || !row || (typeof estDansDelai==="function" && estDansDelai(row)))) continue;
   const val = (mode==="hd"||mode==="projet")
    ? (window._getSolution ? (window._getSolution(id)||"").trim() : "")
-   : (window._getStatut ? window._getStatut(id) : "");
+   : statutActuel;
   const eq = window._normLabel ? window._normLabel(val)===window._normLabel(statut) : ((val||"")===statut);
   if(eq) return true;
  }
@@ -2927,15 +2936,21 @@ function updateDmrCauses(){
  Object.values(causesCumulKeyed).forEach(({n,label})=>{ causesCumul[label]=n; });
  const totalRetards = hdData.length + suData.length + projData.length;
  const SEUIL_CRITIQUE_PCT = 15; // "critique" si cumul ≥ 15% du total des retards
- const SEUIL_SURVEILLER_PCT = 10; // "à surveiller" si cumul entre 10% et 15%
+ const SEUIL_IMPORTANT_PCT = 10; // "important" si cumul entre 10% et 15%
+ const SEUIL_SURVEILLER_PCT = 8; // "à surveiller" si cumul entre 8% et 10%
  const badgeSet = new Set(
    Object.entries(causesCumul)
      .filter(([st,n]) => totalRetards>0 && (n/totalRetards*100) >= SEUIL_CRITIQUE_PCT)
      .map(([st])=>st)
  );
+ const importantSet = new Set(
+   Object.entries(causesCumul)
+     .filter(([st,n]) => totalRetards>0 && (n/totalRetards*100) >= SEUIL_IMPORTANT_PCT && (n/totalRetards*100) < SEUIL_CRITIQUE_PCT)
+     .map(([st])=>st)
+ );
  const surveillerSet = new Set(
    Object.entries(causesCumul)
-     .filter(([st,n]) => totalRetards>0 && (n/totalRetards*100) >= SEUIL_SURVEILLER_PCT && (n/totalRetards*100) < SEUIL_CRITIQUE_PCT)
+     .filter(([st,n]) => totalRetards>0 && (n/totalRetards*100) >= SEUIL_SURVEILLER_PCT && (n/totalRetards*100) < SEUIL_IMPORTANT_PCT)
      .map(([st])=>st)
  );
 
@@ -2944,12 +2959,13 @@ function updateDmrCauses(){
  const listProj = causesProjEl ? (renderCauses(projData,causesProjEl,"projet",countsProj) || []) : [];
 
  // ── Bandeau : cumul de la même cause sur les 3 catégories, une puce +
- // le libellé pour chaque cause critique (≥15%) ou à surveiller (10-15%),
- // cliquable pour filtrer le tableau (toutes catégories confondues). ──
+ // le libellé pour chaque cause critique (≥15%), importante (10-15%) ou à
+ // surveiller (8-10%), cliquable pour filtrer le tableau. ──
  const causesCumulSorted = Object.entries(causesCumul).sort((a,b)=>b[1]-a[1]);
  const causesCritiques = causesCumulSorted.filter(([st])=>badgeSet.has(st));
+ const causesImportantes = causesCumulSorted.filter(([st])=>importantSet.has(st));
  const causesSurveiller = causesCumulSorted.filter(([st])=>surveillerSet.has(st));
- const causesAAfficher = [...causesCritiques, ...causesSurveiller];
+ const causesAAfficher = [...causesCritiques, ...causesImportantes, ...causesSurveiller];
  const finalList = causesAAfficher.length ? causesAAfficher : causesCumulSorted.slice(0,1);
  const tickerEl=document.getElementById("analyseCausesTicker");
  if(tickerEl){
@@ -2959,7 +2975,7 @@ function updateDmrCauses(){
    tickerEl.innerHTML = finalList.map(([st,n])=>{
     const safe=String(st).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
     const safeAttr = st.replace(/"/g,"&quot;");
-    const couleur = badgeSet.has(st) ? "#dc2626" : "#f2790a";
+    const couleur = badgeSet.has(st) ? "#dc2626" : importantSet.has(st) ? "#c2570a" : "#f2b705";
     return `<span class="ticker-cause-item" data-cause="${safeAttr}" title="Cliquer pour filtrer le tableau"><span style="color:${couleur};">●</span> ${safe} (${n})</span>`;
    }).join("");
    tickerEl.querySelectorAll(".ticker-cause-item").forEach(item=>{
