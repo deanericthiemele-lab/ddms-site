@@ -8133,21 +8133,43 @@ async function tkImportIncidentsFile(file){
           const finDate       = tkParseDate(best[idxFin]);
           const creationDate  = tkParseDate(best[IDX_CREATION]);
           if(!creationDate) sansCreation++;
-          const nouveauStatut = finDate ? 'Terminé' : 'Ouvert';
+          let nouveauStatut = finDate ? 'Terminé' : 'Ouvert';
           const nouveauFin     = finDate ? finDate.toISOString() : '';
           const nouvelleCreation = creationDate ? creationDate.toISOString() : '';
 
+          // Un ticket déjà Terminé (fermé manuellement ou par un import précédent) ne doit
+          // JAMAIS être rouvert automatiquement par un import — même si la ligne Excel matchée
+          // n'a pas (ou plus) de date fin. Ça arrive quand le fichier ré-importé ne contient plus
+          // la ligne déjà close, ou matche par erreur une autre occurrence de la même référence.
+          let reouvertureBloquee = false;
+          if(t.statut==='Terminé' && nouveauStatut==='Ouvert'){
+            nouveauStatut = 'Terminé';
+            reouvertureBloquee = true;
+          }
+
           if(t.statut!==nouveauStatut || (t.fin||'')!==nouveauFin || (t.dateCreationExcel||'')!==nouvelleCreation){
-            try{
-              const ancienStatut = t.statut||'—';
-              await fbUpdate('noc_tickets_indispo', t.id, {statut:nouveauStatut, fin:nouveauFin, dateCreationExcel:nouvelleCreation});
-              t.statut = nouveauStatut;
-              t.fin = nouveauFin;
-              t.dateCreationExcel = nouvelleCreation;
-              maj++;
-              if(nouveauStatut==='Terminé') majTermine++; else majOuvert++;
-              tkLog(`${t.ref} : ${ancienStatut} → ${nouveauStatut}${refRows.length>1?` (${refRows.length} occurrences, la plus proche retenue)`:''}`, 'ok');
-            }catch(e){ tkLog(`${t.ref} : erreur mise à jour (${e.message})`, 'err'); console.error('Erreur maj ticket', t.ref, e); }
+            if(reouvertureBloquee){
+              // On ne touche ni statut ni fin (on garde la fermeture existante), seule la date
+              // de création SAV peut encore être complétée si elle manquait.
+              if(!t.dateCreationExcel && nouvelleCreation){
+                try{
+                  await fbUpdate('noc_tickets_indispo', t.id, {dateCreationExcel:nouvelleCreation});
+                  t.dateCreationExcel = nouvelleCreation;
+                }catch(e){ tkLog(`${t.ref} : erreur maj date création (${e.message})`, 'err'); }
+              }
+              tkLog(`${t.ref} : réouverture automatique bloquée — ticket déjà Terminé, conservé fermé`, 'warn');
+            } else {
+              try{
+                const ancienStatut = t.statut||'—';
+                await fbUpdate('noc_tickets_indispo', t.id, {statut:nouveauStatut, fin:nouveauFin, dateCreationExcel:nouvelleCreation});
+                t.statut = nouveauStatut;
+                t.fin = nouveauFin;
+                t.dateCreationExcel = nouvelleCreation;
+                maj++;
+                if(nouveauStatut==='Terminé') majTermine++; else majOuvert++;
+                tkLog(`${t.ref} : ${ancienStatut} → ${nouveauStatut}${refRows.length>1?` (${refRows.length} occurrences, la plus proche retenue)`:''}`, 'ok');
+              }catch(e){ tkLog(`${t.ref} : erreur mise à jour (${e.message})`, 'err'); console.error('Erreur maj ticket', t.ref, e); }
+            }
           }
         }
 
@@ -8367,8 +8389,8 @@ async function ticketSave(){
     contact_mail: v('tk-contact-mail'),
     ouvert_par  : ouvertPar,
     destinataire: destinat,
-    notes       : '',
-    fin         : null,
+    notes       : existing ? (existing.notes||'') : '',
+    fin         : existing ? (existing.fin||null) : null,
     rappelAckCk : existing ? (existing.rappelAckCk||0) : 0
   };
 
