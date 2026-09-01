@@ -7999,10 +7999,51 @@ async function tkImportIncidentsFile(file){
     const headers = rows[0].map(norm);
     const idxRef = headers.findIndex(h=>h==='nd'||h.includes('reference')||h.includes('ref'));
     const idxFin = headers.findIndex(h=>h.includes('fin')||h.includes('cloture')||h.includes('resolution'));
-    const IDX_CREATION = 15; // colonne P = date de création (fixe)
+    const idxIdDossier = headers.findIndex(h=>h==='id dossier'||h.includes('id dossier'));
+    // Colonne date de création : détectée par en-tête (comme référence et date fin) — repli sur la
+    // colonne P (index 15) uniquement si aucun en-tête ne correspond, car un index fixe casse
+    // silencieusement dès que la mise en page du fichier SAV B2B change (colonne déplacée/ajoutée).
+    const idxCreationHeader = headers.findIndex((h,i)=> i!==idxFin && (h.includes('creation')||h.includes('ouverture')));
+    const IDX_CREATION = idxCreationHeader>=0 ? idxCreationHeader : 15;
     tkLog(`Colonne référence détectée : "${rows[0][idxRef]||'?'}" (index ${idxRef})`);
     tkLog(`Colonne date fin détectée : "${rows[0][idxFin]||'?'}" (index ${idxFin})`);
-    tkLog(`Colonne date création (fixe, col. P) : "${rows[0][IDX_CREATION]||'?'}"`);
+    tkLog(`Colonne date création détectée : "${rows[0][IDX_CREATION]||'?'}" (index ${IDX_CREATION}${idxCreationHeader>=0?', par en-tête':', repli fixe colonne P — en-tête non trouvé, à vérifier'})`, idxCreationHeader>=0?'ok':'warn');
+    tkLog(`Colonne ID DOSSIER détectée : "${rows[0][idxIdDossier]||'?'}" (index ${idxIdDossier<0?'non trouvée':idxIdDossier})`, idxIdDossier<0?'warn':'ok');
+
+    // Un même dossier génère plusieurs lignes dans l'export (une par étape : création,
+    // affectation, résolution…) qui partagent le même ID DOSSIER. Il faut n'en garder qu'une
+    // par dossier avant tout rapprochement, sinon un seul incident réel "consomme" plusieurs
+    // lignes et fausse le comptage (occurrences fantômes) ainsi que le choix de la ligne la
+    // plus proche pour les vraies réitérations (référence revenue sur un incident différent).
+    // On garde la DERNIÈRE ligne de chaque dossier (état le plus avancé/à jour).
+    let dataRows = rows.slice(1);
+    if(idxIdDossier>=0){
+      const nAvant = dataRows.filter(r=>String(r[idxRef]||'').trim()).length;
+      const lastByDossier = new Map();
+      let sansId = 0;
+      dataRows.forEach((r,i)=>{
+        const idDossier = String(r[idxIdDossier]||'').trim();
+        if(!idDossier){ lastByDossier.set('__sans_id_'+i, r); sansId++; return; }
+        lastByDossier.set(idDossier, r); // écrase l'occurrence précédente -> dernière étape conservée
+      });
+      dataRows = [...lastByDossier.values()];
+      const nApres = dataRows.filter(r=>String(r[idxRef]||'').trim()).length;
+      const nRetires = nAvant - nApres;
+      if(nRetires>0) tkLog(`${nRetires} doublon(s) ID DOSSIER retiré(s) (plusieurs étapes du même dossier — dernière étape conservée)`, 'warn');
+      else tkLog('Aucun doublon ID DOSSIER dans ce fichier');
+    }
+
+    // Diagnostic : combien de lignes de données ont une date de création réellement lisible dans
+    // cette colonne — permet de détecter immédiatement une mauvaise colonne plutôt que de le
+    // découvrir après coup via des compteurs SAV B2B trop bas.
+    dataRows = dataRows.filter(r=>String(r[idxRef]||'').trim());
+    const nCreationOk = dataRows.filter(r=>!!tkParseDate(r[IDX_CREATION])).length;
+    tkLog(`Dates de création lisibles dans cette colonne : ${nCreationOk} / ${dataRows.length} ligne(s)`, nCreationOk<dataRows.length*0.5?'warn':'ok');
+    if(dataRows.length && nCreationOk===0){
+      tkLog('Aucune date de création lisible — vérifier que la colonne détectée est la bonne avant de continuer','err');
+      toast('⚠ Colonne date de création vide/illisible — import annulé, vérifier le fichier','err');
+      return;
+    }
 
     if(idxRef<0 || idxFin<0){
       tkLog('Colonnes référence / date fin introuvables — import annulé','err');
@@ -8014,6 +8055,7 @@ async function tkImportIncidentsFile(file){
       toast('Aucun ticket chargé — vérifier la connexion Firebase','err');
       return;
     }
+
 
     // Index des tickets par référence normalisée — une référence peut avoir PLUSIEURS tickets
     // NOC historiques (réitérations) : on les garde tous dans un tableau, pas seulement le dernier,
@@ -8028,20 +8070,20 @@ async function tkImportIncidentsFile(file){
     const nbTicketsIndexes = [...ticketMap.values()].reduce((s,arr)=>s+arr.length,0);
     tkLog(`${nbTicketsIndexes} ticket(s) NOC indexé(s) pour le rapprochement (${ticketMap.size} référence(s) distincte(s))`);
 
-    // Regrouper les lignes Excel par référence (une même référence peut apparaître
-    // plusieurs fois = plusieurs incidents historiques sur le même lien)
+    // Regrouper les lignes Excel (déjà dédupliquées par dossier) par référence (une même référence
+    // peut apparaître plusieurs fois = plusieurs incidents historiques distincts sur le même lien)
     const rowsByRef = new Map();
-    for(let i=1;i<rows.length;i++){
-      const refVal = String(rows[i][idxRef]||'').trim();
+    for(const r of dataRows){
+      const refVal = String(r[idxRef]||'').trim();
       if(!refVal) continue;
       const key = norm(refVal);
       if(!rowsByRef.has(key)) rowsByRef.set(key, []);
-      rowsByRef.get(key).push(rows[i]);
+      rowsByRef.get(key).push(r);
     }
     tkLog(`${rowsByRef.size} référence(s) distincte(s) trouvée(s) dans le fichier`);
     tkLog('Rapprochement par ticket (ligne la plus proche de la date NOC)…');
 
-    let maj=0, majTermine=0, majOuvert=0, introuvable=0;
+    let maj=0, majTermine=0, majOuvert=0, introuvable=0, sansCreation=0;
     const totalTickets = nbTicketsIndexes;
     let processed = 0;
     for(const [refKey, ticketsForRef] of ticketMap.entries()){
@@ -8082,6 +8124,7 @@ async function tkImportIncidentsFile(file){
 
           const finDate       = tkParseDate(best[idxFin]);
           const creationDate  = tkParseDate(best[IDX_CREATION]);
+          if(!creationDate) sansCreation++;
           const nouveauStatut = finDate ? 'Terminé' : 'Ouvert';
           const nouveauFin     = finDate ? finDate.toISOString() : '';
           const nouvelleCreation = creationDate ? creationDate.toISOString() : '';
@@ -8110,9 +8153,12 @@ async function tkImportIncidentsFile(file){
     }
 
     tkLog(`Terminé : ${maj} mis à jour (${majTermine} → Terminé, ${majOuvert} → Ouvert) · ${introuvable} ticket(s) sans correspondance dans le fichier`, maj>0?'ok':'warn');
+    if(sansCreation>0){
+      tkLog(`⚠ ${sansCreation} ticket(s) rapproché(s) par référence mais SANS date de création lisible (colonne "${rows[0][IDX_CREATION]||'?'}") — ces tickets ne compteront pas dans "Confirmés SAV B2B"`, 'warn');
+    }
     ticketRender();
     const suffix = introuvable ? ` · ${introuvable} ticket(s) sans correspondance` : '';
-    toast(`✓ ${maj} mis à jour (${majTermine} Terminé · ${majOuvert} Ouvert)${suffix}`, maj>0?'ok':'warn');
+    toast(`✓ ${maj} mis à jour (${majTermine} Terminé · ${majOuvert} Ouvert)${suffix}${sansCreation?` · ⚠ ${sansCreation} sans date création`:''}`, maj>0?'ok':'warn');
   }catch(e){
     tkLog('Erreur : '+(e.message||'inconnue'), 'err');
     console.error('[tkImport] erreur', e);
