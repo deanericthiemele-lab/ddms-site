@@ -7045,16 +7045,23 @@ function tkRenderTendances(){
   const box4 = document.getElementById('tk-trend-resolu');
   if(!box1 && !box2 && !box3 && !box4) return;
 
-  // Filtres qualitatifs uniquement (pas de borne de période — c'est une tendance dans le temps)
+  // Filtres qualitatifs uniquement (pas de borne de période — c'est une tendance dans le temps).
+  // Doit reprendre TOUS les mêmes filtres qualitatifs que kpiTicketsDuree (ticketRender), sauf
+  // la période et le statut : sinon les graphes ne correspondent plus aux cartes Bilan juste
+  // au-dessus dès qu'un filtre Service ou Priorité est actif.
   const search  = (document.getElementById('tk-search')?.value||'').toLowerCase();
   const fType   = document.getElementById('tk-filter-type')?.value||'';
+  const fService = document.getElementById('tk-filter-service')?.value||'';
+  const fPrio   = document.getElementById('tk-filter-priorite')?.value||'';
   const trendAll = (DB.tickets||[]).filter(t=>{
     const txt = ((t.client||'')+(t.ref||'')+(t.refBackup||'')+(t.serviceStatut||'')+(t.localisation||'')+(t.contact_nom||'')+(t.ouvert_par||'')+(t.notes||'')).toLowerCase();
     const okSearch = (!search||txt.includes(search));
     const okType   = (!fType||t.type===fType);
+    const okService = (!fService||tkServiceStatutEffective(t)===fService);
+    const okPrio   = (!fPrio||String(tkPriority(t))===fPrio);
     const okAgent  = !window._tkAgentFilter  || (t.ouvert_par||'').trim() === window._tkAgentFilter;
     const okClient = !window._tkClientFilter || (t.client||'').trim() === window._tkClientFilter;
-    return okSearch&&okType&&okAgent&&okClient;
+    return okSearch&&okType&&okService&&okPrio&&okAgent&&okClient;
   });
 
   const {unit, count} = tkGetTrendUnit();
@@ -8008,10 +8015,18 @@ async function tkImportIncidentsFile(file){
       return;
     }
 
-    // Index des tickets par référence normalisée
+    // Index des tickets par référence normalisée — une référence peut avoir PLUSIEURS tickets
+    // NOC historiques (réitérations) : on les garde tous dans un tableau, pas seulement le dernier,
+    // sinon les tickets réitérés ne sont jamais rapprochés du fichier Excel SAV B2B.
     const ticketMap = new Map();
-    (DB.tickets||[]).forEach(t=>{ const key=norm(t.ref); if(key) ticketMap.set(key, t); });
-    tkLog(`${ticketMap.size} ticket(s) NOC indexé(s) pour le rapprochement`);
+    (DB.tickets||[]).forEach(t=>{
+      const key=norm(t.ref);
+      if(!key) return;
+      if(!ticketMap.has(key)) ticketMap.set(key, []);
+      ticketMap.get(key).push(t);
+    });
+    const nbTicketsIndexes = [...ticketMap.values()].reduce((s,arr)=>s+arr.length,0);
+    tkLog(`${nbTicketsIndexes} ticket(s) NOC indexé(s) pour le rapprochement (${ticketMap.size} référence(s) distincte(s))`);
 
     // Regrouper les lignes Excel par référence (une même référence peut apparaître
     // plusieurs fois = plusieurs incidents historiques sur le même lien)
@@ -8027,52 +8042,70 @@ async function tkImportIncidentsFile(file){
     tkLog('Rapprochement par ticket (ligne la plus proche de la date NOC)…');
 
     let maj=0, majTermine=0, majOuvert=0, introuvable=0;
-    const ticketsList = [...ticketMap.values()];
-    const totalTickets = ticketsList.length;
+    const totalTickets = nbTicketsIndexes;
     let processed = 0;
-    for(const t of ticketsList){
-      processed++;
-      const refRows = rowsByRef.get(norm(t.ref));
-      if(!refRows || !refRows.length){ introuvable++; }
-      else{
-        // Choisir la ligne dont la date de création (col. P) est la plus proche du début NOC.
-        // Si plusieurs incidents historiques partagent la même référence, on prend le bon.
-        const debutMs = t.debut ? new Date(t.debut).getTime() : null;
-        let best = null, bestDiff = Infinity;
-        for(const r of refRows){
-          const creationDate = tkParseDate(r[IDX_CREATION]);
-          let diff;
-          if(debutMs!==null && creationDate) diff = Math.abs(creationDate.getTime()-debutMs);
-          else diff = Infinity; // pas de date pour comparer -> dernier recours
-          if(diff < bestDiff){ bestDiff = diff; best = r; }
-        }
-        if(!best) best = refRows[refRows.length-1]; // repli : dernière ligne du fichier
-
-        const finDate       = tkParseDate(best[idxFin]);
-        const creationDate  = tkParseDate(best[IDX_CREATION]);
-        const nouveauStatut = finDate ? 'Terminé' : 'Ouvert';
-        const nouveauFin     = finDate ? finDate.toISOString() : '';
-        const nouvelleCreation = creationDate ? creationDate.toISOString() : '';
-
-        if(t.statut!==nouveauStatut || (t.fin||'')!==nouveauFin || (t.dateCreationExcel||'')!==nouvelleCreation){
-          try{
-            const ancienStatut = t.statut||'—';
-            await fbUpdate('noc_tickets_indispo', t.id, {statut:nouveauStatut, fin:nouveauFin, dateCreationExcel:nouvelleCreation});
-            t.statut = nouveauStatut;
-            t.fin = nouveauFin;
-            t.dateCreationExcel = nouvelleCreation;
-            maj++;
-            if(nouveauStatut==='Terminé') majTermine++; else majOuvert++;
-            tkLog(`${t.ref} : ${ancienStatut} → ${nouveauStatut}${refRows.length>1?` (${refRows.length} occurrences, la plus proche retenue)`:''}`, 'ok');
-          }catch(e){ tkLog(`${t.ref} : erreur mise à jour (${e.message})`, 'err'); console.error('Erreur maj ticket', t.ref, e); }
-        }
+    for(const [refKey, ticketsForRef] of ticketMap.entries()){
+      const refRows = rowsByRef.get(refKey);
+      if(!refRows || !refRows.length){
+        introuvable += ticketsForRef.length;
+        processed += ticketsForRef.length;
+        if(btn) btn.textContent = `⏳ Import… ${Math.round((processed/totalTickets)*100)}%`;
+        continue;
       }
 
-      // Progression + on laisse respirer l'UI toutes les 20 tickets
-      if(processed % 20===0 || processed===totalTickets){
-        const pct = Math.round((processed/totalTickets)*100);
-        if(btn) btn.textContent = `⏳ Import… ${pct}%`;
-        await new Promise(r=>setTimeout(r,0));
+      // Plusieurs tickets NOC peuvent partager la même référence (réitérations). On apparie
+      // chaque ticket à la ligne Excel dont la date de création (col. P) est la plus proche de
+      // son début NOC, du ticket le plus ancien au plus récent, SANS jamais réutiliser une ligne
+      // déjà attribuée à un autre ticket de la même référence (sinon les réitérations les plus
+      // anciennes/récentes se retrouvent toutes matchées sur la même ligne, ou pas du tout).
+      const availableRows = [...refRows];
+      const ticketsSorted = [...ticketsForRef].sort((a,b)=>{
+        const da = a.debut ? new Date(a.debut).getTime() : Infinity;
+        const db = b.debut ? new Date(b.debut).getTime() : Infinity;
+        return da-db;
+      });
+
+      for(const t of ticketsSorted){
+        processed++;
+        if(!availableRows.length){ introuvable++; }
+        else{
+          const debutMs = t.debut ? new Date(t.debut).getTime() : null;
+          let bestIdx = -1, bestDiff = Infinity;
+          availableRows.forEach((r,i)=>{
+            const creationDate = tkParseDate(r[IDX_CREATION]);
+            let diff;
+            if(debutMs!==null && creationDate) diff = Math.abs(creationDate.getTime()-debutMs);
+            else diff = Infinity; // pas de date pour comparer -> dernier recours
+            if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+          });
+          const best = availableRows.splice(bestIdx>=0 ? bestIdx : 0, 1)[0];
+
+          const finDate       = tkParseDate(best[idxFin]);
+          const creationDate  = tkParseDate(best[IDX_CREATION]);
+          const nouveauStatut = finDate ? 'Terminé' : 'Ouvert';
+          const nouveauFin     = finDate ? finDate.toISOString() : '';
+          const nouvelleCreation = creationDate ? creationDate.toISOString() : '';
+
+          if(t.statut!==nouveauStatut || (t.fin||'')!==nouveauFin || (t.dateCreationExcel||'')!==nouvelleCreation){
+            try{
+              const ancienStatut = t.statut||'—';
+              await fbUpdate('noc_tickets_indispo', t.id, {statut:nouveauStatut, fin:nouveauFin, dateCreationExcel:nouvelleCreation});
+              t.statut = nouveauStatut;
+              t.fin = nouveauFin;
+              t.dateCreationExcel = nouvelleCreation;
+              maj++;
+              if(nouveauStatut==='Terminé') majTermine++; else majOuvert++;
+              tkLog(`${t.ref} : ${ancienStatut} → ${nouveauStatut}${refRows.length>1?` (${refRows.length} occurrences, la plus proche retenue)`:''}`, 'ok');
+            }catch(e){ tkLog(`${t.ref} : erreur mise à jour (${e.message})`, 'err'); console.error('Erreur maj ticket', t.ref, e); }
+          }
+        }
+
+        // Progression + on laisse respirer l'UI toutes les 20 tickets
+        if(processed % 20===0 || processed===totalTickets){
+          const pct = Math.round((processed/totalTickets)*100);
+          if(btn) btn.textContent = `⏳ Import… ${pct}%`;
+          await new Promise(r=>setTimeout(r,0));
+        }
       }
     }
 
