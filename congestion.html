@@ -1,0 +1,2199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carte Congestion — NOC B2B</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#0b1622;--surface:#111e2e;--surface2:#162233;--surface3:#1c2d42;
+  --border:rgba(100,180,220,0.13);--border2:rgba(100,180,220,0.26);
+  --red:#e24b4a;--red-dk:#791f1f;--red-bd:#a32d2d;--red-lt:#f09595;--red-glow:rgba(226,75,74,0.18);
+  --green:#3db87a;--green-dk:#1a5c3a;--green-bd:#2a7a50;--green-lt:#7eedb8;--green-glow:rgba(61,184,122,0.15);
+  --cyan:#4db8d4;--cyan-dim:rgba(77,184,212,0.11);
+  --amber:#EF9F27;--amber-dim:rgba(239,159,39,0.14);--amber-bd:rgba(239,159,39,0.3);
+  --text:#d4eaf2;--text2:#7aaabb;--text3:#3d6677;
+  --font:'Segoe UI',system-ui,sans-serif;--mono:'Consolas','Courier New',monospace;
+  --r:7px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px}
+
+/* HEADER */
+header{
+  display:flex;align-items:center;gap:10px;padding:0 16px;
+  background:var(--surface);border-bottom:1px solid var(--border2);
+  height:52px;flex-shrink:0;position:relative;z-index:500;
+}
+.btn-back{
+  display:flex;align-items:center;gap:5px;padding:5px 12px;
+  background:transparent;border:1px solid var(--border2);border-radius:var(--r);
+  color:var(--cyan);font:500 11px var(--font);cursor:pointer;
+  text-decoration:none;transition:background .15s,border-color .15s;white-space:nowrap;
+}
+.btn-back:hover{background:var(--cyan-dim);border-color:var(--cyan)}
+.hdr-info{flex:1;min-width:0}
+.hdr-title{font-size:14px;font-weight:600;color:var(--text);letter-spacing:.02em}
+.hdr-sub{font-size:11px;color:var(--text2);margin-top:1px}
+.hdr-badges{display:flex;gap:5px}
+.badge{font-size:10px;padding:3px 8px;border-radius:20px;font-weight:500;white-space:nowrap}
+.badge-red{background:var(--red-glow);border:1px solid var(--red-bd);color:var(--red-lt)}
+.badge-green{background:var(--green-glow);border:1px solid var(--green-bd);color:var(--green-lt)}
+.badge-amber{background:var(--amber-dim);border:1px solid var(--amber-bd);color:var(--amber)}
+
+/* LAYOUT */
+.layout{display:flex;height:calc(100vh - 52px)}
+
+/* SIDEBAR */
+.sidebar{
+  width:278px;min-width:278px;background:var(--surface);
+  border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;z-index:10;
+}
+.sb-top{padding:10px 13px 9px;border-bottom:1px solid var(--border);flex-shrink:0}
+.btn-add-site{
+  width:100%;padding:8px;border-radius:var(--r);border:1px solid var(--border2);
+  background:var(--surface2);color:var(--cyan);font:600 12px var(--font);
+  cursor:pointer;text-align:center;transition:background .15s,border-color .15s;
+}
+.btn-add-site:hover{background:var(--cyan-dim);border-color:var(--cyan)}
+.sec-lbl{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:7px}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;margin-bottom:9px}
+.tab{flex:1;padding:5px 4px;border-radius:5px;border:1px solid var(--border2);background:transparent;
+  color:var(--text2);font:500 10px var(--font);cursor:pointer;text-align:center;transition:all .15s}
+.tab.active{background:var(--surface2);border-color:var(--cyan);color:var(--cyan)}
+
+
+
+/* ADD FORM */
+.add-form{display:flex;flex-direction:column;gap:7px}
+.form-row{display:flex;flex-direction:column;gap:3px}
+.form-row label{font-size:10px;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:.05em}
+.form-row input,.form-row select,.form-row textarea{
+  background:var(--surface2);border:1px solid var(--border2);border-radius:5px;
+  color:var(--text);font:12px var(--font);padding:6px 8px;outline:none;
+  transition:border-color .15s;width:100%;
+}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{border-color:var(--cyan)}
+.form-row textarea{resize:vertical;min-height:48px;font-family:var(--mono);font-size:11px}
+.form-row select option{background:var(--surface2)}
+.btn-add{
+  padding:7px;border-radius:var(--r);border:none;cursor:pointer;font:600 12px var(--font);
+  background:var(--red);color:white;transition:opacity .15s;
+}
+.btn-add:hover{opacity:.85}
+.btn-add:disabled{opacity:.4;cursor:default}
+
+/* Filter bar */
+.filter-bar{
+  display:flex;align-items:center;gap:6px;padding:7px 13px;
+  border-bottom:1px solid var(--border);flex-shrink:0;
+}
+.filter-bar input{
+  flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:5px;
+  color:var(--text);font:12px var(--font);padding:5px 8px;outline:none;
+}
+.filter-bar input:focus{border-color:var(--cyan)}
+.filter-toggle{
+  padding:4px 8px;border-radius:5px;border:1px solid var(--border2);
+  background:transparent;color:var(--text2);font:500 10px var(--font);cursor:pointer;
+  white-space:nowrap;transition:all .15s;
+}
+.filter-toggle.on{background:var(--green-glow);border-color:var(--green-bd);color:var(--green-lt)}
+
+/* City list */
+.city-list{flex:1;overflow-y:auto;padding:3px 0}
+.city-list::-webkit-scrollbar{width:3px}
+.city-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.city-item{
+  display:flex;align-items:center;gap:8px;padding:6px 13px;
+  cursor:pointer;border-left:2px solid transparent;
+  transition:background .1s,border-color .1s;
+}
+.city-item:hover,.city-item.active{background:var(--surface2);border-left-color:var(--red)}
+.city-item.clot{opacity:.5}
+.city-item.clot .city-dot{background:var(--green);border-color:var(--green-dk)}
+.city-item.clot:hover,.city-item.clot.active{border-left-color:var(--green)}
+.city-dot{width:8px;height:8px;border-radius:50%;background:var(--red);border:1.5px solid var(--red-bd);flex-shrink:0}
+.city-name{font-size:12px;font-weight:500;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.city-count{font-size:10px;padding:1px 5px;border-radius:10px;background:var(--red-glow);border:1px solid var(--red-bd);color:var(--red-lt);font-weight:600;flex-shrink:0}
+.city-item.clot .city-count{background:var(--green-glow);border-color:var(--green-bd);color:var(--green-lt)}
+
+/* Detail panel */
+.detail-panel{border-top:1px solid var(--border);overflow-y:auto;max-height:270px;min-height:70px;flex-shrink:0}
+.detail-panel::-webkit-scrollbar{width:3px}
+.detail-panel::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.det-header{padding:8px 13px 5px;position:sticky;top:0;background:var(--surface);border-bottom:1px solid var(--border);z-index:1}
+.det-zone{font-size:13px;font-weight:600;color:var(--cyan)}
+.det-sub{font-size:10px;color:var(--text3);margin-top:1px}
+.det-actions{display:flex;gap:5px;margin-top:6px}
+.det-btn{
+  flex:1;padding:5px 6px;border-radius:5px;border:1px solid;cursor:pointer;
+  font:500 10px var(--font);text-align:center;transition:all .15s;
+}
+.det-btn-clot{border-color:var(--green-bd);color:var(--green-lt);background:var(--green-glow)}
+.det-btn-clot:hover{background:rgba(61,184,122,0.25)}
+.det-btn-reopen{border-color:var(--amber-bd);color:var(--amber);background:var(--amber-dim)}
+.det-btn-reopen:hover{background:rgba(239,159,39,0.25)}
+.det-btn-del{border-color:var(--red-bd);color:var(--red-lt);background:var(--red-glow)}
+.det-btn-del:hover{background:rgba(226,75,74,0.3)}
+.det-empty{padding:12px 13px;font-size:11px;color:var(--text3);font-style:italic}
+.cli-card{padding:7px 13px;border-bottom:1px solid var(--border)}
+.cli-card:last-child{border-bottom:none}
+.cli-top{display:flex;align-items:baseline;gap:5px;margin-bottom:3px}
+.cli-n{font-family:var(--mono);font-size:10px;color:var(--text3);flex-shrink:0}
+.cli-name{font-size:11px;font-weight:500;color:var(--text);line-height:1.3}
+.cli-lien{font-family:var(--mono);font-size:10px;color:var(--amber);background:var(--amber-dim);border:1px solid var(--amber-bd);border-radius:3px;padding:2px 5px;display:inline-block;margin-top:3px}
+.cli-circuit{font-size:10px;color:var(--text2);margin-top:2px}
+.cli-badge-new{font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(77,184,212,0.15);border:1px solid rgba(77,184,212,0.3);color:var(--cyan);margin-left:4px}
+
+/* MAP */
+.map-area{flex:1;position:relative;overflow:hidden}
+#map{width:100%;height:100%}
+.leaflet-container{background:#060d14!important}
+.leaflet-tile-pane{filter:brightness(0.45) saturate(0.4) hue-rotate(185deg)}
+.leaflet-control-zoom a{background:var(--surface)!important;color:var(--cyan)!important;border-color:var(--border2)!important}
+.leaflet-control-zoom a:hover{background:var(--surface2)!important}
+.leaflet-control-attribution{background:rgba(8,15,24,.75)!important;color:var(--text3)!important;font-size:9px!important}
+.leaflet-control-attribution a{color:var(--text3)!important}
+.leaflet-popup-content-wrapper{
+  background:#0d1b2a!important;border:1px solid rgba(77,184,212,0.45)!important;
+  border-radius:8px!important;box-shadow:0 4px 20px rgba(0,0,0,.6)!important;padding:0!important;
+}
+.leaflet-popup-content{margin:0!important;min-width:190px;max-width:270px}
+.leaflet-popup-tip-container{display:none!important}
+.leaflet-popup-close-button{color:var(--cyan)!important;font-size:16px!important;top:6px!important;right:8px!important}
+.pop-inner{padding:10px 13px}
+.pop-zone{font-size:13px;font-weight:600;color:#4db8d4;margin-bottom:5px;padding-bottom:5px;border-bottom:1px solid rgba(77,184,212,0.2)}
+.pop-sub{font-size:10px;color:#7aaabb;font-weight:400;margin-left:4px}
+.pop-clot{font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(61,184,122,0.2);border:1px solid rgba(61,184,122,0.4);color:#7eedb8;margin-left:6px}
+.pop-card{padding:4px 0;border-bottom:1px solid rgba(100,180,220,0.1)}
+.pop-card:last-child{border-bottom:none;padding-bottom:0}
+.pop-card-clot{opacity:.45}
+.pop-name{font-size:11px;color:#d4eaf2;font-weight:500;margin-bottom:2px}
+.pop-lien{font-family:Consolas,monospace;font-size:10px;color:#EF9F27;background:rgba(239,159,39,0.15);border:1px solid rgba(239,159,39,0.28);border-radius:3px;padding:1px 5px;display:inline-block;margin-bottom:2px}
+.pop-circuit{font-size:10px;color:#7aaabb}
+
+/* Stats */
+.stats-bar{position:absolute;top:10px;right:10px;z-index:400;display:flex;gap:6px;pointer-events:none}
+.stat-pill{padding:4px 10px;border-radius:20px;background:rgba(8,15,24,.92);border:1px solid var(--border2);font-size:11px;color:var(--text2)}
+.stat-pill strong{color:var(--cyan);font-weight:600}
+
+
+/* Tooltip label */
+.lbl-tt{
+  background:rgba(8,15,24,0.88)!important;border:1px solid rgba(163,45,45,0.6)!important;
+  color:#f09595!important;font-size:10px!important;font-weight:500!important;
+  font-family:'Segoe UI',sans-serif!important;padding:2px 6px!important;
+  border-radius:4px!important;white-space:nowrap!important;box-shadow:none!important;
+}
+.lbl-tt.clot-tt{border-color:rgba(42,122,80,0.7)!important;color:#7eedb8!important}
+.lbl-tt::before{display:none!important}
+
+/* Confirm dialog */
+.overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;
+  display:flex;align-items:center;justify-content:center;
+}
+.overlay.hidden{display:none}
+.dialog{
+  background:var(--surface);border:1px solid var(--border2);border-radius:10px;
+  padding:22px 24px;max-width:320px;width:90%;
+}
+.dialog h3{font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px}
+.dialog p{font-size:12px;color:var(--text2);margin-bottom:18px;line-height:1.5}
+.dialog-btns{display:flex;gap:8px;justify-content:flex-end}
+.dialog-btns button{padding:6px 16px;border-radius:var(--r);border:1px solid;cursor:pointer;font:500 12px var(--font);transition:opacity .15s}
+.dlg-cancel{background:transparent;border-color:var(--border2);color:var(--text2)}
+.dlg-confirm{background:var(--red);border-color:var(--red-bd);color:white}
+.dlg-confirm.green{background:var(--green);border-color:var(--green-bd)}
+
+/* Firebase status */
+.fb-status{position:fixed;bottom:12px;right:12px;z-index:9999;
+  padding:6px 12px;border-radius:20px;font-size:11px;
+  transition:opacity .4s;pointer-events:none;
+}
+.fb-status.ok{background:rgba(30,120,60,.9);color:#6edfa0;border:1px solid rgba(50,160,80,.4)}
+.fb-status.err{background:rgba(160,40,40,.9);color:var(--red-lt);border:1px solid rgba(200,60,60,.4)}
+.fb-status.hidden{opacity:0}
+
+/* Bouton danger header */
+.btn-danger{
+  display:flex;align-items:center;gap:5px;padding:5px 12px;
+  background:transparent;border:1px solid var(--red-bd);border-radius:var(--r);
+  color:var(--red-lt);font:500 11px var(--font);cursor:pointer;
+  transition:background .15s;white-space:nowrap;flex-shrink:0;
+}
+.btn-danger:hover{background:var(--red-glow)}
+
+/* Bouton Export Excel */
+.btn-excel{
+  display:flex;align-items:center;gap:6px;padding:6px 14px;
+  background:linear-gradient(135deg,#1d6f42,#155a35);
+  border:1px solid rgba(29,111,66,0.6);border-radius:var(--r);
+  color:#fff;font:600 11px var(--font);cursor:pointer;
+  transition:opacity .15s,box-shadow .15s;white-space:nowrap;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(29,111,66,0.3);
+}
+.btn-excel:hover{opacity:.88;box-shadow:0 4px 14px rgba(29,111,66,0.45)}
+
+/* Bouton PDF Rapport */
+.btn-pdf-rapport{
+  display:flex;align-items:center;gap:6px;padding:6px 14px;
+  background:linear-gradient(135deg,#E05A00,#c44d00);
+  border:1px solid rgba(224,90,0,0.6);border-radius:var(--r);
+  color:#fff;font:600 11px var(--font);cursor:pointer;
+  transition:opacity .15s,box-shadow .15s;white-space:nowrap;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(224,90,0,0.3);
+}
+.btn-pdf-rapport:hover{opacity:.88;box-shadow:0 4px 14px rgba(224,90,0,0.45)}
+.btn-pdf-rapport:disabled{opacity:.4;cursor:default}
+
+/* Bouton PDA */
+.btn-pda{
+  display:flex;align-items:center;gap:6px;padding:6px 14px;
+  background:#003366;
+  border:1px solid rgba(0,51,102,0.6);border-radius:var(--r);
+  color:#fff;font:600 11px var(--font);cursor:pointer;
+  transition:opacity .15s,box-shadow .15s;white-space:nowrap;flex-shrink:0;
+  box-shadow:0 2px 8px rgba(0,51,102,0.3);
+}
+.btn-pda:hover{opacity:.88;box-shadow:0 4px 14px rgba(0,51,102,0.45)}
+
+/* Modal Rapport PDF */
+.pdf-modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9500;
+  display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);
+}
+.pdf-modal-overlay.hidden{display:none}
+.pdf-modal{
+  background:var(--surface);border:1px solid var(--border2);border-radius:12px;
+  padding:28px 28px 22px;width:420px;max-width:95vw;
+  box-shadow:0 20px 60px rgba(0,0,0,.6);
+}
+.pdf-modal-title{
+  font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px;
+  display:flex;align-items:center;gap:8px;
+}
+.pdf-modal-title svg{color:#E05A00}
+.pdf-modal-sub{font-size:11px;color:var(--text2);margin-bottom:20px}
+.pdf-field{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+.pdf-field label{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3)}
+.pdf-field input,.pdf-field select{
+  background:var(--surface2);border:1px solid var(--border2);border-radius:6px;
+  color:var(--text);font:13px var(--font);padding:8px 10px;outline:none;
+  transition:border-color .15s;
+}
+.pdf-field input:focus,.pdf-field select:focus{border-color:#E05A00}
+.pdf-field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pdf-modal-btns{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.pdf-btn-cancel{
+  padding:7px 18px;border-radius:var(--r);border:1px solid var(--border2);
+  background:transparent;color:var(--text2);font:500 12px var(--font);cursor:pointer;
+}
+.pdf-btn-cancel:hover{background:var(--surface2)}
+.pdf-btn-gen{
+  padding:7px 20px;border-radius:var(--r);border:none;cursor:pointer;
+  font:600 12px var(--font);
+  background:linear-gradient(135deg,#E05A00,#c44d00);color:#fff;
+  display:flex;align-items:center;gap:7px;
+  box-shadow:0 2px 8px rgba(224,90,0,0.35);
+  transition:opacity .15s;
+}
+.pdf-btn-gen:hover{opacity:.88}
+.pdf-btn-gen:disabled{opacity:.4;cursor:default}
+.pdf-progress{font-size:11px;color:var(--amber);margin-top:10px;min-height:16px;text-align:center}
+
+/* Password modal */
+.pwd-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;
+  display:flex;align-items:center;justify-content:center;
+}
+.pwd-overlay.hidden{display:none}
+.pwd-box{
+  background:var(--surface);border:1px solid var(--red-bd);border-radius:10px;
+  padding:24px 26px;max-width:320px;width:90%;
+}
+.pwd-box h3{font-size:14px;font-weight:600;color:var(--red-lt);margin-bottom:6px}
+.pwd-box p{font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.5}
+.pwd-input-row{display:flex;gap:6px;margin-bottom:10px}
+.pwd-input-row input{
+  flex:1;background:var(--surface2);border:1px solid var(--border2);
+  border-radius:5px;color:var(--text);font:13px var(--mono);
+  padding:7px 10px;outline:none;letter-spacing:.1em;
+}
+.pwd-input-row input:focus{border-color:var(--red)}
+.pwd-err{font-size:11px;color:var(--red-lt);margin-bottom:10px;display:none}
+.pwd-btns{display:flex;gap:8px;justify-content:flex-end}
+.pwd-btns button{padding:6px 16px;border-radius:var(--r);border:1px solid;cursor:pointer;font:500 12px var(--font)}
+.pwd-cancel{background:transparent;border-color:var(--border2);color:var(--text2)}
+.pwd-ok{background:var(--red);border-color:var(--red-bd);color:white}
+.pwd-ok:hover{opacity:.85}
+
+/* Client status toggle inline */
+.cli-status-row{display:flex;align-items:center;gap:6px;margin-top:5px}
+.cli-toggle{
+  display:flex;align-items:center;gap:4px;
+  padding:3px 8px;border-radius:4px;border:1px solid;
+  cursor:pointer;font:500 10px var(--font);transition:all .15s;
+}
+.cli-toggle.actif{border-color:var(--red-bd);color:var(--red-lt);background:var(--red-glow)}
+.cli-toggle.actif:hover{background:rgba(226,75,74,0.3)}
+.cli-toggle.clot{border-color:var(--green-bd);color:var(--green-lt);background:var(--green-glow)}
+.cli-toggle.clot:hover{background:rgba(61,184,122,0.25)}
+.cli-status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.cli-toggle.actif .cli-status-dot{background:var(--red)}
+.cli-toggle.clot  .cli-status-dot{background:var(--green)}
+/* Edit modal */
+.edit-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9100;
+  display:flex;align-items:center;justify-content:center;
+}
+.edit-overlay.hidden{display:none}
+.edit-box{
+  background:var(--surface);border:1px solid var(--border2);border-radius:10px;
+  padding:20px 22px;max-width:360px;width:92%;max-height:90vh;overflow-y:auto;
+}
+.edit-box h3{font-size:13px;font-weight:600;color:var(--cyan);margin-bottom:14px}
+.edit-box-btns{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
+.edit-box-btns button{padding:6px 16px;border-radius:var(--r);border:1px solid;cursor:pointer;font:500 12px var(--font)}
+.edit-cancel{background:transparent;border-color:var(--border2);color:var(--text2)}
+.edit-save{background:var(--cyan);border-color:var(--cyan);color:#0b1622;font-weight:600}
+.edit-save:hover{opacity:.85}
+.gps-preview{margin-top:3px;font-size:10px;color:var(--green-lt);display:none}
+.btn-edit-cli{
+  display:flex;align-items:center;gap:3px;padding:3px 8px;border-radius:4px;
+  border:1px solid var(--border2);color:var(--cyan);background:var(--cyan-dim);
+  cursor:pointer;font:500 10px var(--font);transition:all .15s;
+}
+.btn-edit-cli:hover{border-color:var(--cyan);background:rgba(77,184,212,0.2)}
+</style>
+</head>
+<body>
+
+<!-- CONFIRM DIALOG -->
+<div class="overlay hidden" id="overlay">
+  <div class="dialog">
+    <h3 id="dlg-title">Confirmer</h3>
+    <p id="dlg-msg">Êtes-vous sûr ?</p>
+    <div class="dialog-btns">
+      <button class="dlg-cancel" id="dlg-cancel">Annuler</button>
+      <button class="dlg-confirm" id="dlg-confirm">Confirmer</button>
+    </div>
+  </div>
+</div>
+
+<!-- PASSWORD MODAL -->
+<div class="pwd-overlay hidden" id="pwd-overlay">
+  <div class="pwd-box">
+    <h3 id="pwd-title">⚠ Suppression totale</h3>
+    <p id="pwd-text">Cette action supprimera <strong>toutes les données</strong> de Firebase (congestion_sites) de façon irréversible.<br>Entrez le mot de passe pour confirmer.</p>
+    <div class="pwd-input-row">
+      <input type="password" id="pwd-input" placeholder="Mot de passe" onkeydown="if(event.key==='Enter')checkPwd()">
+    </div>
+    <div class="pwd-err" id="pwd-err">❌ Mot de passe incorrect</div>
+    <div class="pwd-btns">
+      <button class="pwd-cancel" onclick="closePwdModal()">Annuler</button>
+      <button class="pwd-ok" id="pwd-ok-btn" onclick="checkPwd()">Supprimer tout</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ POPUP PDA — Plan d'Actions (Comités / QoS et Perf) ═══ -->
+<div id="pdaBackdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center;">
+ <div style="background:#fff;border-radius:12px;padding:18px 20px;width:100%;max-width:780px;max-height:82vh;overflow-y:auto;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:Arial,Helvetica,sans-serif;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+   <div style="font-size:15px;font-weight:700;color:#111;">📋 Plan d'Actions (PDA) — QoS et Perf</div>
+   <button id="pdaClose" style="background:none;border:none;font-size:20px;cursor:pointer;color:#666;line-height:1;">✕</button>
+  </div>
+  <div id="pdaError" style="display:none;background:#ffebee;border:1px solid #ffcdd2;color:#c62828;padding:6px 10px;border-radius:6px;font-size:12px;margin-bottom:8px;"></div>
+
+  <div style="overflow-x:auto;">
+   <table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <thead>
+     <tr style="background:#f7f9fb;">
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Délai</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Action</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Porteur</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Statut</th>
+      <th style="text-align:left;padding:6px 6px;border-bottom:1px solid #dde2ea;font-size:10.5px;color:#666;text-transform:uppercase;">Commentaire</th>
+      <th style="border-bottom:1px solid #dde2ea;"></th>
+     </tr>
+    </thead>
+    <tbody id="pdaRows"></tbody>
+   </table>
+  </div>
+
+  <button id="pdaAddBtn" style="margin-top:10px;background:#003366;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;">+ Ajouter une action</button>
+  <div id="pdaSyncing" style="display:none;font-size:11px;color:#888;margin-top:6px;">Synchronisation…</div>
+ </div>
+</div>
+
+<!-- FIREBASE TOAST -->
+<div class="fb-status hidden" id="fb-toast"></div>
+
+<!-- EDIT CLIENT MODAL -->
+<div class="edit-overlay hidden" id="edit-overlay">
+  <div class="edit-box">
+    <h3>✏ Modifier le client</h3>
+    <div class="add-form">
+      <input type="hidden" id="e-zone">
+      <input type="hidden" id="e-client-id">
+      <div class="form-row">
+        <label>Nom client *</label>
+        <input type="text" id="e-client" placeholder="Ex: STE XYZ">
+      </div>
+      <div class="form-row">
+        <label>Ville / Zone *</label>
+        <input type="text" id="e-zone-name" placeholder="Ex: ABIDJAN" style="text-transform:uppercase">
+      </div>
+      <div class="form-row">
+        <label>GPS Zone (ex: 5.3558N, 3.8885W)</label>
+        <input type="text" id="e-gps" placeholder="5.3558N, 3.8885W" oninput="previewGPSEdit()">
+        <div class="gps-preview" id="e-gps-preview"></div>
+      </div>
+      <div class="form-row">
+        <label>GPS Client (propre à l'entreprise)</label>
+        <input type="text" id="e-gps-client" placeholder="5.3200N, 3.9100W" oninput="previewGPSClientEdit()">
+        <div class="gps-preview" id="e-gps-client-preview"></div>
+      </div>
+      <div class="form-row">
+        <label>Lien / Référence circuit</label>
+        <input type="text" id="e-lien" placeholder="Ex: SYTHD240123">
+      </div>
+      <div class="form-row">
+        <label>Circuits congestionnés</label>
+        <input type="text" id="e-circuit" placeholder="Ex: ABIDJAN - YAMOUSSOUKRO">
+      </div>
+    </div>
+    <div class="edit-box-btns">
+      <button class="edit-cancel" onclick="closeEditModal()">Annuler</button>
+      <button class="edit-save" onclick="saveEditClient()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD SITE MODAL -->
+<div class="edit-overlay hidden" id="add-overlay">
+  <div class="edit-box">
+    <h3>➕ Ajouter un site</h3>
+    <div class="add-form">
+      <div class="form-row">
+        <label>Nom client *</label>
+        <input type="text" id="f-client" placeholder="Ex: STE XYZ">
+      </div>
+      <div class="form-row">
+        <label>Ville / Zone *</label>
+        <input type="text" id="f-zone" placeholder="Ex: ABIDJAN" style="text-transform:uppercase">
+      </div>
+      <div class="form-row">
+        <label>GPS Zone (ex: 5.3558N, 3.8885W)</label>
+        <input type="text" id="f-gps" placeholder="5.3558N, 3.8885W" oninput="previewGPS()">
+        <div class="gps-preview" id="gps-preview"></div>
+      </div>
+      <div class="form-row">
+        <label>GPS Client (propre à l'entreprise)</label>
+        <input type="text" id="f-gps-client" placeholder="5.3200N, 3.9100W" oninput="previewGPSClient()">
+        <div class="gps-preview" id="gps-client-preview"></div>
+      </div>
+      <div class="form-row">
+        <label>Lien / Référence circuit</label>
+        <input type="text" id="f-lien" placeholder="Ex: SYTHD240123">
+      </div>
+      <div class="form-row">
+        <label>Circuits congestionnés</label>
+        <input type="text" id="f-circuit" placeholder="Ex: ABIDJAN - YAMOUSSOUKRO">
+      </div>
+    </div>
+    <div class="edit-box-btns">
+      <button class="edit-cancel" onclick="closeAddModal()">Annuler</button>
+      <button class="edit-save" id="btn-add-submit" onclick="addClient()">+ Ajouter</button>
+    </div>
+  </div>
+</div>
+
+<header>
+  <a href="https://ddms1.netlify.app/projet.html" class="btn-back">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+    Retour
+  </a>
+  <div class="hdr-info">
+    <div class="hdr-title">Carte Congestion — NOC B2B</div>
+    <div class="hdr-sub" id="hdr-sub">Sites clients affectés</div>
+  </div>
+  <div class="hdr-badges">
+    <div class="badge badge-red"   id="hdr-actifs">— actifs</div>
+    <div class="badge badge-green" id="hdr-clots">— clôturés</div>
+    <div class="badge badge-amber" id="hdr-total">— total</div>
+  </div>
+  <button class="btn-pdf-rapport" onclick="openPdfModal()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+    Rapport PDF
+  </button>
+  <button class="btn-excel" onclick="exportExcel()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+    Export Excel
+  </button>
+  <button class="btn-pda" onclick="pdaOpen()">
+    📋 PDA
+  </button>
+  <button class="btn-excel btn-import" onclick="openPwdModal('import')">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    Importer Excel
+  </button>
+  <input type="file" id="import-file" accept=".xlsx,.xls" style="display:none" onchange="importExcel(event)"/>
+  <button class="btn-danger" onclick="openPwdModal('deleteAll')">🗑 Tout supprimer</button>
+</header>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sb-top">
+      <button class="btn-add-site" onclick="openAddModal()">➕ Ajouter un site</button>
+    </div>
+
+    <!-- FILTER BAR -->
+    <div class="filter-bar">
+      <input type="text" id="search-input" placeholder="Rechercher une ville…" oninput="applyFilters()">
+    </div>
+
+    <div class="city-list" id="city-list"></div>
+
+    <div class="detail-panel" id="detail-panel">
+      <div class="det-empty">Cliquer sur une ville</div>
+    </div>
+  </aside>
+
+  <!-- MAP -->
+  <div class="map-area">
+    <div id="map"></div>
+    <div class="stats-bar">
+      <div class="stat-pill"><strong id="sv">0</strong> actifs</div>
+      <div class="stat-pill"><strong id="sc">0</strong> clôturés</div>
+      <div class="stat-pill"><strong id="sl">0</strong> liens</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- MODAL RAPPORT PDF -->
+<div class="pdf-modal-overlay hidden" id="pdf-modal-overlay">
+  <div class="pdf-modal">
+    <div class="pdf-modal-title">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      Rapport PDF — Congestion Réseau
+    </div>
+    <div class="pdf-modal-sub">Orange CI · Direction DDMS · NOC B2B</div>
+    <div class="pdf-field-row">
+      <div class="pdf-field">
+        <label>Date de début</label>
+        <input type="date" id="pdf-date-start">
+      </div>
+      <div class="pdf-field">
+        <label>Date de fin</label>
+        <input type="date" id="pdf-date-end">
+      </div>
+    </div>
+    <div class="pdf-field">
+      <label>Rédigé par</label>
+      <input type="text" id="pdf-author" placeholder="Ex : Équipe NOC B2B" value="Équipe NOC B2B">
+    </div>
+    <div class="pdf-field">
+      <label>Destinataire / À l'attention de</label>
+      <input type="text" id="pdf-dest" placeholder="Ex : Direction Générale OCI" value="Direction Générale OCI">
+    </div>
+    <div class="pdf-field">
+      <label>Commentaire / Contexte (optionnel)</label>
+      <input type="text" id="pdf-comment" placeholder="Ex : Situation suite à saturation liens régionaux…">
+    </div>
+    <div class="pdf-progress" id="pdf-progress"></div>
+    <div class="pdf-modal-btns">
+      <button class="pdf-btn-cancel" onclick="closePdfModal()">Annuler</button>
+      <button class="pdf-btn-gen" id="pdf-btn-gen" onclick="genererRapportPDF()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Générer le PDF
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// FIREBASE CONFIG — remplacer par votre config Firebase
+// ══════════════════════════════════════════════════════════════════
+const FB_CONFIG = {
+  apiKey:            "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+  authDomain:        "ddms-architectures.firebaseapp.com",
+  projectId:         "ddms-architectures",
+  storageBucket:     "ddms-architectures.firebasestorage.app",
+  messagingSenderId: "767552965189",
+  appId:             "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+};
+
+let db = null;
+let fbOk = false;
+
+try {
+  firebase.initializeApp(FB_CONFIG);
+  db = firebase.firestore();
+  fbOk = true;
+} catch(e) {
+  console.warn('Firebase non configuré — mode local uniquement', e.message);
+}
+
+const COLL = 'congestion_sites';
+
+// ══════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════
+// Structure: { zoneKey: { zone, lat, lon, clients:[{id,n,name,lien,circuit,clot,source}], clot } }
+let zonesMap = {};       // toutes les zones (actives + clôturées)
+let activeZone = null;
+let showClot = false;
+let markers = {};        // zone => leaflet marker
+let fbTimer = null;
+
+// ══════════════════════════════════════════════════════════════════
+// RÔLE — lecture seule si visiteur
+// ══════════════════════════════════════════════════════════════════
+const IS_VISITEUR = (sessionStorage.getItem('congestionRole') === 'visiteur');
+
+function applyVisiteurMode(){
+  if(!IS_VISITEUR) return;
+  // Masquer boutons d'action header
+  const btnDanger = document.querySelector('.btn-danger');
+  if(btnDanger) btnDanger.style.display='none';
+  const btnAdd = document.querySelector('.btn-add-site');
+  if(btnAdd) btnAdd.style.display='none';
+  const btnImport = document.querySelector('.btn-import');
+  if(btnImport) btnImport.style.display='none';
+  // Badge lecture seule
+  const hdrBadges = document.querySelector('.hdr-badges');
+  if(hdrBadges){
+    const b = document.createElement('div');
+    b.className='badge';
+    b.style.cssText='background:rgba(239,159,39,0.15);border:1px solid rgba(239,159,39,0.4);color:#EF9F27';
+    b.textContent='👁 Lecture seule';
+    hdrBadges.appendChild(b);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MAP
+// ══════════════════════════════════════════════════════════════════
+const map = L.map('map',{center:[7.5,-5.5],zoom:7,zoomControl:true,attributionControl:true});
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+  attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',maxZoom:18
+}).addTo(map);
+
+// ══════════════════════════════════════════════════════════════════
+// FIREBASE CRUD
+// ══════════════════════════════════════════════════════════════════
+function toast(msg, type='ok'){
+  const el = document.getElementById('fb-toast');
+  el.textContent = msg; el.className = 'fb-status '+type;
+  clearTimeout(fbTimer);
+  fbTimer = setTimeout(()=>el.classList.add('hidden'), 3000);
+}
+
+async function fbSaveZone(zone){
+  if(!fbOk||!db) return;
+  try{
+    const z = zonesMap[zone];
+    if(!z) return;
+    await db.collection(COLL).doc(zone).set({
+      zone: z.zone, lat: z.lat, lon: z.lon,
+      clot: z.clot||false,
+      clients: z.clients.map(c=>({
+        id:c.id||uid(), n:c.n||'?', name:c.name||'',
+        lien:c.lien||'', circuit:c.circuit||'',
+        clot:c.clot||false, source:c.source||'import',
+        clat:c.clat||null, clon:c.clon||null
+      })),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    },{merge:false});
+    toast('✓ Enregistré — '+zone);
+  } catch(e){ toast('⚠ Firebase : '+e.message,'err'); console.error('fbSaveZone',zone,e); }
+}
+
+async function fbSaveAll(zones){
+  if(!fbOk||!db) return;
+  try{
+    const BATCH_SIZE = 400;
+    const keys = zones || Object.keys(zonesMap);
+    for(let i=0;i<keys.length;i+=BATCH_SIZE){
+      const batch = db.batch();
+      keys.slice(i,i+BATCH_SIZE).forEach(zk=>{
+        const z = zonesMap[zk];
+        if(!z) return;
+        const ref = db.collection(COLL).doc(zk);
+        batch.set(ref,{
+          zone:z.zone, lat:z.lat, lon:z.lon,
+          clot:z.clot||false,
+          clients:z.clients.map(c=>({
+            id:c.id||uid(), n:c.n||'?', name:c.name||'',
+            lien:c.lien||'', circuit:c.circuit||'',
+            clot:c.clot||false, source:c.source||'import',
+            clat:c.clat||null, clon:c.clon||null
+          })),
+          updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+        },{merge:false});
+      });
+      await batch.commit();
+    }
+    toast('✓ '+keys.length+' zones sauvegardées dans Firebase');
+  } catch(e){ toast('⚠ Erreur Firebase : '+e.message,'err'); console.error('fbSaveAll',e); }
+}
+
+async function fbDeleteZone(zone){
+  if(!fbOk) return;
+  try{
+    await db.collection(COLL).doc(zone).delete();
+    toast('✓ Zone supprimée de Firebase');
+  } catch(e){ toast('⚠ Firebase : '+e.message,'err'); }
+}
+
+async function loadFromFirebase(){
+  if(!fbOk) return false;
+  try{
+    const snap = await db.collection(COLL).get();
+    if(snap.empty) return false;
+    zonesMap = {};
+    snap.forEach(doc=>{
+      const d = doc.data();
+      zonesMap[doc.id] = {
+        zone: d.zone, lat: d.lat, lon: d.lon,
+        clot: d.clot||false,
+        clients: (d.clients||[]).map(c=>({...c,id:c.id||uid()}))
+      };
+    });
+    return true;
+  } catch(e){ console.warn('Firebase load error', e); return false; }
+}
+
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+// ══════════════════════════════════════════════════════════════════
+// ICON — marqueur VILLE (rouge, chiffre)
+// ══════════════════════════════════════════════════════════════════
+function makeIcon(n, clot){
+  const fill = clot ? '#3db87a' : '#e24b4a';
+  const stroke = clot ? '#1a5c3a' : '#791f1f';
+  const glow1 = clot ? 'rgba(61,184,122,0.10)' : 'rgba(226,75,74,0.10)';
+  const glow2 = clot ? 'rgba(61,184,122,0.24)' : 'rgba(226,75,74,0.24)';
+  const r = n===1?9:n<=3?12:16;
+  const s = r*2+22; const c = s/2;
+  const label = n>1
+    ? `<text x="${c}" y="${c+4.5}" text-anchor="middle" fill="white" font-size="${r<12?10:12}" font-weight="700" font-family="Segoe UI,sans-serif">${n}</text>`
+    : `<circle cx="${c}" cy="${c}" r="3.5" fill="rgba(255,255,255,0.6)"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}">
+    <circle cx="${c}" cy="${c}" r="${r+9}" fill="${glow1}"/>
+    <circle cx="${c}" cy="${c}" r="${r+4}" fill="${glow2}"/>
+    <circle cx="${c}" cy="${c}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="2.2"/>
+    ${label}
+  </svg>`;
+  return L.divIcon({html:svg,className:'',iconSize:[s,s],iconAnchor:[c,c],popupAnchor:[0,-(c+4)]});
+}
+
+// Marqueur client individuel (carré ambre) — conservé pour usage futur mais non affiché
+function makeClientIcon(clot){
+  return null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// POPUP VILLE — liste toutes les entreprises
+// ══════════════════════════════════════════════════════════════════
+function popHtml(zk){
+  const d = zonesMap[zk];
+  const activeClients = d.clients.filter(c=>!c.clot);
+  const clotClients   = d.clients.filter(c=>c.clot);
+  const clotBadge = d.clot ? '<span class="pop-clot">✓ Clôturé</span>' : '';
+
+  const makeCard = (c, isClot) => `
+    <div class="pop-card${isClot?' pop-card-clot':''}">
+      <div class="pop-name">${isClot?'<span style="opacity:.5">✓ </span>':''}${c.name}</div>
+      ${c.lien?`<div class="pop-lien">${c.lien}</div>`:''}
+      ${c.circuit?`<div class="pop-circuit">↳ ${c.circuit}</div>`:''}
+      ${c.clat&&c.clon?`<div class="pop-circuit" style="color:var(--cyan);font-size:9px">📍 ${c.clat.toFixed(4)}N, ${Math.abs(c.clon).toFixed(4)}W</div>`:''}
+    </div>`;
+
+  const activeCards = activeClients.map(c=>makeCard(c,false)).join('');
+  const clotCards   = clotClients.length
+    ? `<div style="font-size:9px;color:var(--text3);padding:4px 0 2px;margin-top:4px;border-top:1px solid rgba(100,180,220,0.1)">CLÔTURÉS (${clotClients.length})</div>`
+      + clotClients.map(c=>makeCard(c,true)).join('')
+    : '';
+
+  return `<div class="pop-inner">
+    <div class="pop-zone">${d.zone}${clotBadge}<span class="pop-sub">${activeClients.length} actif${activeClients.length>1?'s':''} · ${d.clients.length} total</span></div>
+    ${activeCards}${clotCards}
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MARKERS
+// ══════════════════════════════════════════════════════════════════
+let clientMarkers = {};
+
+function clearAllMarkers(){
+  Object.values(markers).forEach(m=>map.removeLayer(m));
+  markers = {};
+  Object.values(clientMarkers).forEach(m=>map.removeLayer(m));
+  clientMarkers = {};
+}
+
+function buildMarker(zk){
+  const d = zonesMap[zk];
+  if(markers[zk]){ map.removeLayer(markers[zk]); delete markers[zk]; }
+  d.clients.forEach(c=>{
+    if(clientMarkers[c.id]){ map.removeLayer(clientMarkers[c.id]); delete clientMarkers[c.id]; }
+  });
+
+  const activeCount = d.clients.filter(c=>!c.clot).length;
+  if(d.clot || activeCount === 0) return;
+
+  const m = L.marker([d.lat,d.lon],{
+    icon: makeIcon(activeCount, false),
+    zIndexOffset: activeCount*10
+  }).addTo(map)
+    .bindPopup(popHtml(zk),{maxWidth:310,minWidth:220,closeButton:true,maxHeight:380})
+    .bindTooltip(d.zone,{permanent:true,direction:'right',offset:[10,-8],className:'lbl-tt',opacity:1});
+
+  m.on('click',()=>{
+    activeZone = zk;
+    setActiveCity(zk);
+    document.querySelectorAll('.city-item').forEach(el=>el.classList.toggle('active',el.dataset.zone===zk));
+  });
+  markers[zk] = m;
+}
+
+function rebuildAllMarkers(){
+  clearAllMarkers();
+  Object.keys(zonesMap).forEach(zk=>buildMarker(zk));
+}
+
+
+// ══════════════════════════════════════════════════════════════════
+// SIDEBAR LIST
+// ══════════════════════════════════════════════════════════════════
+function applyFilters(){
+  const q = document.getElementById('search-input').value.toLowerCase();
+  document.querySelectorAll('.city-item').forEach(el=>{
+    const z = el.dataset.zone.toLowerCase();
+    el.style.display = (!q || z.includes(q)) ? 'flex' : 'none';
+  });
+}
+
+function buildSidebar(){
+  const list = document.getElementById('city-list');
+  list.innerHTML = '';
+  const sorted = Object.keys(zonesMap).sort((a,b)=>{
+    const da=zonesMap[a], db=zonesMap[b];
+    const ca=da.clients.filter(c=>!c.clot).length;
+    const cb=db.clients.filter(c=>!c.clot).length;
+    return cb - ca;
+  });
+  sorted.forEach(zk=>{
+    const d = zonesMap[zk];
+    const activeCount = d.clients.filter(c=>!c.clot).length;
+    // Ne pas afficher dans la sidebar si clôturé ou sans client actif
+    if(d.clot || activeCount === 0) return;
+    const item = document.createElement('div');
+    item.className = 'city-item';
+    item.dataset.zone = zk;
+    item.innerHTML = `<div class="city-dot"></div><div class="city-name">${d.zone}</div><div class="city-count">${activeCount}</div>`;
+    item.addEventListener('click',()=>{
+      if(activeZone === zk){
+        activeZone = null;
+        item.classList.remove('active');
+        highlightCity(null);
+        document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+        if(markers[zk]) markers[zk].closePopup();
+        const grp = L.featureGroup(Object.values(markers));
+        if(Object.keys(markers).length) map.fitBounds(grp.getBounds().pad(0.06),{animate:true});
+        return;
+      }
+      document.querySelectorAll('.city-item').forEach(el=>el.classList.remove('active'));
+      item.classList.add('active');
+      activeZone = zk;
+      setActiveCity(zk);
+      if(markers[zk]){ map.setView([d.lat,d.lon],10,{animate:true}); markers[zk].openPopup(); }
+    });
+    item.addEventListener('mouseenter',()=>{ if(!activeZone) highlightCity(zk); });
+    item.addEventListener('mouseleave',()=>{ if(!activeZone) highlightCity(null); });
+    list.appendChild(item);
+  });
+  applyFilters();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DETAIL PANEL
+// ══════════════════════════════════════════════════════════════════
+function setActiveCity(zk){
+  highlightCity(zk);
+  const d = zonesMap[zk];
+  const panel = document.getElementById('detail-panel');
+  const activeCount = d.clients.filter(c=>!c.clot).length;
+  const actionBtn = d.clot
+    ? `<button class="det-btn det-btn-reopen" onclick="confirmReopen('${zk}')">↩ Réouvrir</button>`
+    : `<button class="det-btn det-btn-clot"   onclick="confirmClot('${zk}')">✓ Clôturer zone</button>`;
+  const cards = d.clients.map(c=>{
+    const isClot = c.clot||false;
+    const toggleClass = isClot ? 'clot' : 'actif';
+    const toggleLabel = isClot ? '✓ Clôturé' : '● Actif';
+    return `<div class="cli-card" id="clicard-${c.id}" ${isClot?'style="opacity:.55"':''}>
+      <div class="cli-top">
+        <span class="cli-name">${c.name}</span>
+        ${c.source==='manual'?'<span class="cli-badge-new">nouveau</span>':''}
+      </div>
+      ${c.lien?`<div class="cli-lien">${c.lien}</div>`:''}
+      ${c.circuit?`<div class="cli-circuit">↳ ${c.circuit}</div>`:''}
+      ${c.clat&&c.clon?`<div class="cli-circuit" style="color:var(--cyan);font-size:10px">📍 ${c.clat.toFixed(4)}N, ${Math.abs(c.clon).toFixed(4)}W</div>`:''}
+      ${IS_VISITEUR ? '' : `<div class="cli-status-row">
+        <button class="btn-edit-cli" onclick="openEditModal('${zk}','${c.id}')">✏ Éditer</button>
+        <button class="cli-toggle ${toggleClass}" id="clitoggle-${c.id}" onclick="toggleClientClot('${zk}','${c.id}')">
+          <span class="cli-status-dot"></span>${toggleLabel}
+        </button>
+      </div>`}
+    </div>`;
+  }).join('');
+  panel.innerHTML = `
+    <div class="det-header">
+      <div class="det-zone">${d.zone}${d.clot?' <span style="font-size:10px;color:var(--green-lt)">(Clôturé)</span>':''}</div>
+      <div class="det-sub" id="det-sub-${zk}">${activeCount} client${activeCount>1?'s':''} actif${activeCount>1?'s':''} · ${d.clients.length} total</div>
+      ${IS_VISITEUR ? '' : `<div class="det-actions">
+        ${actionBtn}
+        <button class="det-btn det-btn-del" onclick="confirmDelete('${zk}')">🗑 Supprimer</button>
+      </div>`}
+    </div>
+    ${cards||'<div class="det-empty" style="font-size:11px;padding:10px 13px;color:var(--text3)">Aucun client</div>'}`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ACTIONS CLÔTURE / SUPPRESSION
+// ══════════════════════════════════════════════════════════════════
+let pendingAction = null;
+
+function showDialog(title, msg, confirmClass, cb){
+  document.getElementById('dlg-title').textContent = title;
+  document.getElementById('dlg-msg').textContent = msg;
+  const btn = document.getElementById('dlg-confirm');
+  btn.className = 'dlg-confirm '+(confirmClass||'');
+  pendingAction = cb;
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+document.getElementById('dlg-cancel').addEventListener('click',()=>{
+  document.getElementById('overlay').classList.add('hidden'); pendingAction=null;
+});
+document.getElementById('dlg-confirm').addEventListener('click',()=>{
+  document.getElementById('overlay').classList.add('hidden');
+  if(pendingAction) pendingAction();
+  pendingAction=null;
+});
+
+function confirmClot(zk){
+  const d = zonesMap[zk];
+  showDialog('Clôturer le site',
+    `Marquer "${d.zone}" et ses ${d.clients.length} client(s) comme clôturés ? Le point restera visible en vert.`,
+    'green', ()=>doClot(zk, true));
+}
+
+function confirmReopen(zk){
+  showDialog('Réouvrir le site',
+    `Réactiver "${zonesMap[zk].zone}" comme site en congestion ?`,
+    '', ()=>doClot(zk, false));
+}
+
+function confirmDelete(zk){
+  const d = zonesMap[zk];
+  showDialog('Supprimer définitivement',
+    `Supprimer "${d.zone}" et ses ${d.clients.length} client(s) ? Cette action est irréversible.`,
+    '', ()=>doDelete(zk));
+}
+
+async function doClot(zk, clot){
+  zonesMap[zk].clot = clot;
+  // Si on clôture, retirer de la carte + sidebar
+  buildMarker(zk);
+  buildSidebar();
+  updateStats();
+  if(clot){
+    // Zone clôturée → masquer panel
+    activeZone = null;
+    document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+  } else {
+    setActiveCity(zk);
+  }
+  await fbSaveZone(zk);
+}
+
+async function doDelete(zk){
+  if(markers[zk]){ map.removeLayer(markers[zk]); delete markers[zk]; }
+  // Supprimer marqueurs clients individuels de cette zone
+  const z = zonesMap[zk];
+  if(z) z.clients.forEach(c=>{ if(clientMarkers[c.id]){ map.removeLayer(clientMarkers[c.id]); delete clientMarkers[c.id]; } });
+  delete zonesMap[zk];
+  activeZone = null;
+  document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+  buildSidebar();
+  updateStats();
+  await fbDeleteZone(zk);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AJOUTER UN CLIENT
+// ══════════════════════════════════════════════════════════════════
+async function addClient(){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); return; }
+  const client    = document.getElementById('f-client').value.trim();
+  const zone      = document.getElementById('f-zone').value.trim().toUpperCase();
+  const gps       = document.getElementById('f-gps').value.trim();
+  const gpsClient = document.getElementById('f-gps-client').value.trim();
+  const lien      = document.getElementById('f-lien').value.trim();
+  const circuit   = document.getElementById('f-circuit').value.trim();
+
+  if(!client||!zone){ alert('Nom client et Zone sont obligatoires.'); return; }
+
+  const btn = document.getElementById('btn-add-submit');
+  btn.disabled = true; btn.textContent = '…';
+
+  let lat, lon;
+  if(gps){
+    const c = parseGPS(gps);
+    if(!c){ alert('Format GPS Zone invalide. Exemple : 5.3558N, 3.8885W'); btn.disabled=false; btn.textContent='+ Ajouter'; return; }
+    lat=c.lat; lon=c.lon;
+  }
+
+  let clat=null, clon=null;
+  if(gpsClient){
+    const cc = parseGPS(gpsClient);
+    if(!cc){ alert('Format GPS Client invalide. Exemple : 5.3200N, 3.9100W'); btn.disabled=false; btn.textContent='+ Ajouter'; return; }
+    clat=cc.lat; clon=cc.lon;
+  }
+
+  const newClient = {id:uid(), name:client, lien, circuit, clot:false, source:'manual', clat, clon};
+
+  if(zonesMap[zone]){
+    if(lat){ zonesMap[zone].lat=lat; zonesMap[zone].lon=lon; }
+    zonesMap[zone].clients.push(newClient);
+  } else {
+    if(!lat){ alert('Coordonnées GPS Zone requises pour une nouvelle ville.'); btn.disabled=false; btn.textContent='+ Ajouter'; return; }
+    zonesMap[zone] = {zone, lat, lon, clot:false, clients:[newClient]};
+  }
+
+  buildMarker(zone);
+  buildSidebar();
+  activeZone = zone;
+  setActiveCity(zone);
+  updateStats();
+  const zData = zonesMap[zone];
+  map.setView([zData.lat, zData.lon], 10, {animate:true});
+  if(markers[zone]) markers[zone].openPopup();
+  await fbSaveZone(zone);
+
+  ['f-client','f-zone','f-gps','f-gps-client','f-lien','f-circuit'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('gps-preview').style.display='none';
+  document.getElementById('gps-client-preview').style.display='none';
+  btn.disabled=false; btn.textContent='+ Ajouter';
+  closeAddModal();
+  toast('✓ Client ajouté');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// HIGHLIGHT
+// ══════════════════════════════════════════════════════════════════
+function highlightCity(zone){
+  document.querySelectorAll('.city-item').forEach(el=>{
+    el.style.opacity=(!zone||el.dataset.zone===zone)?'1':'0.3';
+  });
+  Object.entries(markers).forEach(([zk,m])=>{
+    const el=m.getElement();
+    if(el) el.style.opacity=(!zone||zk===zone)?'1':'0.22';
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// STATS
+// ══════════════════════════════════════════════════════════════════
+function updateStats(){
+  const all = Object.values(zonesMap);
+  // Actifs = zones non clôturées avec au moins 1 client actif
+  const actifs = all.filter(d=>!d.clot && d.clients.some(c=>!c.clot));
+  const clots  = all.filter(d=>d.clot || d.clients.every(c=>c.clot));
+  const activeClients = all.reduce((s,d)=>s+d.clients.filter(c=>!c.clot).length,0);
+  const tl = all.reduce((s,d)=>s+d.clients.filter(c=>!c.clot&&c.lien).length,0);
+  document.getElementById('sv').textContent = actifs.length;
+  document.getElementById('sc').textContent = clots.length;
+  document.getElementById('sl').textContent = tl;
+  document.getElementById('hdr-actifs').textContent = actifs.length+' actifs';
+  document.getElementById('hdr-clots').textContent  = clots.length+' clôturés';
+  document.getElementById('hdr-total').textContent  = activeClients+' clients';
+  document.getElementById('hdr-sub').textContent =
+    'Sites en congestion — '+new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════════════════════════
+function render(){
+  rebuildAllMarkers();
+  buildSidebar();
+  updateStats();
+  applyVisiteurMode();
+  activeZone = null;
+  document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+  if(Object.keys(markers).length){
+    const grp = L.featureGroup(Object.values(markers));
+    map.fitBounds(grp.getBounds().pad(0.06),{animate:true});
+  }
+  map.off('click'); map.on('click',()=>{
+    activeZone=null; highlightCity(null);
+    document.querySelectorAll('.city-item').forEach(el=>el.classList.remove('active'));
+    document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PARSE GPS
+// ══════════════════════════════════════════════════════════════════
+function parseGPS(s){
+  if(!s) return null;
+  const m = s.toString().trim().match(/([\d.]+)\s*N[,\s]+([\d.]+)\s*W/i);
+  return m ? {lat:parseFloat(m[1]),lon:-parseFloat(m[2])} : null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// GPS PREVIEW LIVE
+// ══════════════════════════════════════════════════════════════════
+function openAddModal(){
+  ['f-client','f-zone','f-gps','f-gps-client','f-lien','f-circuit'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('gps-preview').style.display='none';
+  document.getElementById('gps-client-preview').style.display='none';
+  document.getElementById('add-overlay').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('f-client').focus(), 100);
+}
+function closeAddModal(){
+  document.getElementById('add-overlay').classList.add('hidden');
+}
+document.getElementById('add-overlay').addEventListener('click', function(e){
+  if(e.target === this) closeAddModal();
+});
+
+function previewGPS(){
+  const gps = document.getElementById('f-gps').value.trim();
+  const el = document.getElementById('gps-preview');
+  if(!gps){ el.style.display='none'; return; }
+  const c = parseGPS(gps);
+  if(c){
+    el.textContent = `✓ lat:${c.lat.toFixed(4)}, lon:${c.lon.toFixed(4)}`;
+    el.style.display='block';
+    map.setView([c.lat, c.lon], 9, {animate:true});
+    // Marqueur temporaire
+    if(window._previewMarker) map.removeLayer(window._previewMarker);
+    window._previewMarker = L.circleMarker([c.lat, c.lon],{
+      radius:8, color:'#4db8d4', fillColor:'#4db8d4', fillOpacity:0.5, weight:2
+    }).addTo(map);
+    setTimeout(()=>{ if(window._previewMarker) map.removeLayer(window._previewMarker); }, 5000);
+  } else {
+    el.textContent = '⚠ Format invalide (ex: 5.3558N, 3.8885W)';
+    el.style.color='var(--red-lt)';
+    el.style.display='block';
+  }
+}
+
+function previewGPSEdit(){
+  const gps = document.getElementById('e-gps').value.trim();
+  const el = document.getElementById('e-gps-preview');
+  if(!gps){ el.style.display='none'; return; }
+  const c = parseGPS(gps);
+  if(c){
+    el.textContent = `✓ lat:${c.lat.toFixed(4)}, lon:${c.lon.toFixed(4)}`;
+    el.style.color='var(--green-lt)';
+    el.style.display='block';
+    map.setView([c.lat, c.lon], 9, {animate:true});
+  } else {
+    el.textContent = '⚠ Format invalide';
+    el.style.color='var(--red-lt)';
+    el.style.display='block';
+  }
+}
+
+function previewGPSClient(){
+  const gps = document.getElementById('f-gps-client').value.trim();
+  const el = document.getElementById('gps-client-preview');
+  if(!gps){ el.style.display='none'; return; }
+  const c = parseGPS(gps);
+  if(c){
+    el.textContent = `✓ client lat:${c.lat.toFixed(4)}, lon:${c.lon.toFixed(4)}`;
+    el.style.color='var(--amber)';
+    el.style.display='block';
+  } else {
+    el.textContent = '⚠ Format invalide';
+    el.style.color='var(--red-lt)';
+    el.style.display='block';
+  }
+}
+
+function previewGPSClientEdit(){
+  const gps = document.getElementById('e-gps-client').value.trim();
+  const el = document.getElementById('e-gps-client-preview');
+  if(!gps){ el.style.display='none'; return; }
+  const c = parseGPS(gps);
+  if(c){
+    el.textContent = `✓ client lat:${c.lat.toFixed(4)}, lon:${c.lon.toFixed(4)}`;
+    el.style.color='var(--amber)';
+    el.style.display='block';
+  } else {
+    el.textContent = '⚠ Format invalide';
+    el.style.color='var(--red-lt)';
+    el.style.display='block';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EDIT CLIENT
+// ══════════════════════════════════════════════════════════════════
+function openEditModal(zk, clientId){
+  const z = zonesMap[zk];
+  if(!z) return;
+  const c = z.clients.find(x=>x.id===clientId);
+  if(!c) return;
+  document.getElementById('e-zone').value = zk;
+  document.getElementById('e-client-id').value = clientId;
+  document.getElementById('e-client').value = c.name||'';
+  document.getElementById('e-zone-name').value = z.zone||'';
+  // GPS zone
+  const latN = z.lat ? z.lat.toFixed(4)+'N' : '';
+  const lonW = z.lon ? Math.abs(z.lon).toFixed(4)+'W' : '';
+  document.getElementById('e-gps').value = latN && lonW ? latN+', '+lonW : '';
+  // GPS client individuel
+  const clatN = c.clat ? c.clat.toFixed(4)+'N' : '';
+  const clonW = c.clon ? Math.abs(c.clon).toFixed(4)+'W' : '';
+  document.getElementById('e-gps-client').value = clatN && clonW ? clatN+', '+clonW : '';
+  document.getElementById('e-lien').value = c.lien||'';
+  document.getElementById('e-circuit').value = c.circuit||'';
+  document.getElementById('e-gps-preview').style.display='none';
+  document.getElementById('e-gps-client-preview').style.display='none';
+  document.getElementById('edit-overlay').classList.remove('hidden');
+}
+
+function closeEditModal(){
+  document.getElementById('edit-overlay').classList.add('hidden');
+}
+
+async function saveEditClient(){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); return; }
+  const oldZk = document.getElementById('e-zone').value;
+  const clientId = document.getElementById('e-client-id').value;
+  const newName = document.getElementById('e-client').value.trim();
+  const newZoneName = document.getElementById('e-zone-name').value.trim().toUpperCase();
+  const gps = document.getElementById('e-gps').value.trim();
+  const gpsClient = document.getElementById('e-gps-client').value.trim();
+  const newLien = document.getElementById('e-lien').value.trim();
+  const newCircuit = document.getElementById('e-circuit').value.trim();
+
+  if(!newName||!newZoneName){ alert('Nom client et Zone sont obligatoires.'); return; }
+
+  const z = zonesMap[oldZk];
+  if(!z) return;
+  const c = z.clients.find(x=>x.id===clientId);
+  if(!c) return;
+
+  // GPS zone
+  if(gps){
+    const coord = parseGPS(gps);
+    if(!coord){ alert('Format GPS Zone invalide. Exemple : 5.3558N, 3.8885W'); return; }
+    z.lat = coord.lat; z.lon = coord.lon;
+  }
+  // GPS client individuel
+  if(gpsClient){
+    const coordC = parseGPS(gpsClient);
+    if(!coordC){ alert('Format GPS Client invalide. Exemple : 5.3200N, 3.9100W'); return; }
+    c.clat = coordC.lat; c.clon = coordC.lon;
+  } else {
+    c.clat = null; c.clon = null;
+  }
+
+  // Mise à jour du nom de zone (renommage de la clé)
+  if(newZoneName !== oldZk){
+    // Nouvelle clé zone
+    z.zone = newZoneName;
+    zonesMap[newZoneName] = z;
+    delete zonesMap[oldZk];
+    if(markers[oldZk]){ map.removeLayer(markers[oldZk]); delete markers[oldZk]; }
+    await fbDeleteZone(oldZk);
+    c.name = newName; c.lien = newLien; c.circuit = newCircuit;
+    buildMarker(newZoneName);
+    buildSidebar();
+    activeZone = newZoneName;
+    setActiveCity(newZoneName);
+    await fbSaveZone(newZoneName);
+  } else {
+    c.name = newName; c.lien = newLien; c.circuit = newCircuit;
+    buildMarker(oldZk);
+    buildSidebar();
+    setActiveCity(oldZk);
+    await fbSaveZone(oldZk);
+  }
+
+  updateStats();
+  closeEditModal();
+  toast('✓ Client modifié');
+}
+
+document.getElementById('edit-overlay').addEventListener('click', function(e){
+  if(e.target === this) closeEditModal();
+});
+
+// ══════════════════════════════════════════════════════════════════
+// MOT DE PASSE — SUPPRESSION TOTALE / IMPORT EXCEL
+// ══════════════════════════════════════════════════════════════════
+const PWD = 'dean';
+let pwdAction = null;
+
+const PWD_CONFIG = {
+  deleteAll: {
+    title: '⚠ Suppression totale',
+    text: 'Cette action supprimera <strong>toutes les données</strong> de Firebase (congestion_sites) de façon irréversible.<br>Entrez le mot de passe pour confirmer.',
+    btn: 'Supprimer tout'
+  },
+  import: {
+    title: '🔒 Import Excel protégé',
+    text: 'Cette action va importer des données depuis un fichier Excel.<br>Entrez le mot de passe pour confirmer.',
+    btn: 'Importer'
+  }
+};
+
+function openPwdModal(action){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); return; }
+  pwdAction = action || 'deleteAll';
+  const cfg = PWD_CONFIG[pwdAction];
+  document.getElementById('pwd-title').textContent = cfg.title;
+  document.getElementById('pwd-text').innerHTML = cfg.text;
+  document.getElementById('pwd-ok-btn').textContent = cfg.btn;
+  document.getElementById('pwd-input').value='';
+  document.getElementById('pwd-err').style.display='none';
+  document.getElementById('pwd-overlay').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('pwd-input').focus(),100);
+}
+function closePwdModal(){
+  document.getElementById('pwd-overlay').classList.add('hidden');
+}
+function checkPwd(){
+  const v = document.getElementById('pwd-input').value;
+  if(v !== PWD){
+    document.getElementById('pwd-err').style.display='block';
+    document.getElementById('pwd-input').value='';
+    document.getElementById('pwd-input').focus();
+    return;
+  }
+  closePwdModal();
+  if(pwdAction === 'import'){
+    document.getElementById('import-file').click();
+  } else {
+    deleteAllFirebase();
+  }
+  pwdAction = null;
+}
+
+async function deleteAllFirebase(){
+  toast('⏳ Suppression en cours…','ok');
+  try{
+    if(fbOk&&db){
+      const snap = await db.collection(COLL).get();
+      const BATCH_SIZE=400;
+      const docs=[...snap.docs];
+      for(let i=0;i<docs.length;i+=BATCH_SIZE){
+        const batch=db.batch();
+        docs.slice(i,i+BATCH_SIZE).forEach(doc=>batch.delete(doc.ref));
+        await batch.commit();
+      }
+    }
+    zonesMap={};
+    Object.values(markers).forEach(m=>map.removeLayer(m));
+    markers={};
+    Object.values(clientMarkers).forEach(m=>map.removeLayer(m));
+    clientMarkers={};
+    activeZone=null;
+    document.getElementById('city-list').innerHTML='';
+    document.getElementById('detail-panel').innerHTML='<div class="det-empty">Cliquer sur une ville</div>';
+    updateStats();
+    toast('✓ Toutes les données supprimées');
+  } catch(e){
+    toast('⚠ Erreur suppression : '+e.message,'err');
+    console.error('deleteAll',e);
+  }
+}
+
+
+// ══════════════════════════════════════════════════════════════════
+// TOGGLE STATUT INDIVIDUEL CLIENT
+// ══════════════════════════════════════════════════════════════════
+let _toggling = false;
+
+async function toggleClientClot(zk, clientId){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); return; }
+  if(_toggling) return;
+  _toggling = true;
+
+  const z = zonesMap[zk];
+  if(!z){ _toggling=false; return; }
+  const c = z.clients.find(x=>x.id===clientId);
+  if(!c){ _toggling=false; return; }
+
+  // Désactiver le bouton immédiatement pour bloquer double-clic
+  const btn = document.getElementById('clitoggle-'+clientId);
+  if(btn) btn.disabled = true;
+
+  c.clot = !c.clot;
+
+  // Mise à jour du bouton inline
+  const card = document.getElementById('clicard-'+clientId);
+  if(btn){
+    btn.disabled = false;
+    if(c.clot){
+      btn.className = 'cli-toggle clot';
+      btn.innerHTML = '<span class="cli-status-dot"></span>✓ Clôturé';
+    } else {
+      btn.className = 'cli-toggle actif';
+      btn.innerHTML = '<span class="cli-status-dot"></span>● Actif';
+    }
+  }
+  if(card) card.style.opacity = c.clot ? '0.55' : '1';
+
+  // Mise à jour compteur dans le header du panel
+  const activeCount = z.clients.filter(x=>!x.clot).length;
+  const sub = document.getElementById('det-sub-'+zk);
+  if(sub) sub.textContent = activeCount+' client'+(activeCount>1?'s':'')+' actif'+(activeCount>1?'s':'')+' · '+z.clients.length+' total';
+
+  // Zone : clôturer si tous clients clôturés, réouvrir si au moins 1 actif
+  const allClot = z.clients.every(x=>x.clot);
+  if(allClot && !z.clot) z.clot = true;
+  else if(!allClot && z.clot) z.clot = false;
+
+  // Mettre à jour marqueur et sidebar sans toucher au panel
+  buildMarker(zk);
+  buildSidebar();
+  // Restaurer l'item actif dans la sidebar
+  if(activeZone === zk){
+    const sideItem = document.querySelector(`.city-item[data-zone="${zk}"]`);
+    if(sideItem) sideItem.classList.add('active');
+  }
+  updateStats();
+  try { await fbSaveZone(zk); } catch(e){}
+  _toggling = false;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// INIT — charger Firebase puis données par défaut
+// ══════════════════════════════════════════════════════════════════
+const DEFAULT_DATA = [
+  {zone:"TOUMODI",lat:6.5602,lon:-5.0161,clot:false,clients:[{id:uid(),n:1,name:"STE EIFFAGE INFRASTRUCTURES CI / PROJET PHSA",lien:"SYTHD210131",circuit:"",source:"import"}]},
+  {zone:"SOUBRE",lat:5.7856,lon:-6.6083,clot:false,clients:[{id:uid(),n:3,name:"STE UNITED OIL COMPANY",lien:"SYTHD230326",circuit:"",source:"import"},{id:uid(),n:26,name:"FRANCHISE GUEYO (primaire)",lien:"FRANCHISE GUEYO",circuit:"DAGOUAHIO - SOUBRE",source:"import"},{id:uid(),n:27,name:"FRANCHISE GUEYO (backup)",lien:"FRANCHISE GUEYO",circuit:"GUEYO - DAGOUAHIO",source:"import"}]},
+  {zone:"DABAKALA",lat:8.3632,lon:-4.4285,clot:false,clients:[{id:uid(),n:5,name:"STE MOTA-ENGIL COTE D'IVOIRE",lien:"SYTHD130007",circuit:"",source:"import"}]},
+  {zone:"BEOUMI",lat:7.6500,lon:-5.5500,clot:false,clients:[{id:uid(),n:7,name:"FRANCHISE ORANGE COTE D'IVOIRE BEOUMI",lien:"BUVPN140377",circuit:"",source:"import"}]},
+  {zone:"SAN-PEDRO",lat:4.7494,lon:-6.6365,clot:false,clients:[{id:uid(),n:8,name:"STE PALMCI ABIDJAN",lien:"BUVPN140315",circuit:"",source:"import"}]},
+  {zone:"BINGERVILLE",lat:5.3558,lon:-3.8885,clot:false,clients:[{id:uid(),n:9,name:"STE PALMAFRIQUE ABIDJAN",lien:"SYTHD240401",circuit:"",source:"import"}]},
+  {zone:"SEGUELA",lat:7.9614,lon:-6.6702,clot:false,clients:[{id:uid(),n:10,name:"MOTA-ENGIL COTE D'IVOIRE",lien:"SYTHD210076",circuit:"",source:"import"}]},
+  {zone:"MEAGUI",lat:5.4439,lon:-6.5152,clot:false,clients:[{id:uid(),n:11,name:"STE SAN RUBBER",lien:"BUVPN150298",circuit:"",source:"import"}]},
+  {zone:"DABOU",lat:5.3240,lon:-4.3723,clot:false,clients:[{id:uid(),n:12,name:"STE PALMCI ABIDJAN",lien:"BUVPN150453",circuit:"",source:"import"},{id:uid(),n:16,name:"BIAO-B-DABOU",lien:"SYTHD220028",circuit:"",source:"import"}]},
+  {zone:"EHANIA 1",lat:5.2333,lon:-2.7667,clot:false,clients:[{id:uid(),n:13,name:"PALMCI",lien:"SYTHD240237",circuit:"",source:"import"}]},
+  {zone:"KANI",lat:6.6050,lon:-8.4778,clot:false,clients:[{id:uid(),n:15,name:"STE SHARK MINING CDI",lien:"BUVPN140452",circuit:"",source:"import"}]},
+  {zone:"BOUNA",lat:9.2717,lon:-2.9926,clot:false,clients:[{id:uid(),n:18,name:"STE AMPELLA MINING (BOUNA DANOA) COTE D'IVOIRE",lien:"SYTHD250267",circuit:"",source:"import"},{id:uid(),n:31,name:"HUAWEI",lien:"HUAWEI",circuit:"",source:"import"}]},
+  {zone:"GRAND BEREBY",lat:4.6108,lon:-6.9647,clot:false,clients:[{id:uid(),n:20,name:"Bie des sirenes",lien:"BUVPN220220",circuit:"",source:"import"}]},
+  {zone:"BETTIE",lat:6.0769,lon:-3.4144,clot:false,clients:[{id:uid(),n:21,name:"AFG",lien:"BUVPN200163",circuit:"",source:"import"},{id:uid(),n:22,name:"AFRILAND",lien:"BUVPN180152",circuit:"",source:"import"},{id:uid(),n:23,name:"DGTCP",lien:"VPNLL240029",circuit:"",source:"import"},{id:uid(),n:24,name:"FRANCHISE",lien:"BUVPN140334",circuit:"",source:"import"},{id:uid(),n:25,name:"PALMCI",lien:"",circuit:"",source:"import"}]},
+  {zone:"DIANRA",lat:8.9525,lon:-6.2547,clot:false,clients:[{id:uid(),n:28,name:"FRANCHISE DE DIANRA",lien:"BUVPN180122",circuit:"",source:"import"},{id:uid(),n:29,name:"DGTCP DIANRA",lien:"BUVPN170126",circuit:"",source:"import"},{id:uid(),n:30,name:"PAMFCI",lien:"SYTHD240044",circuit:"",source:"import"}]},
+  {zone:"KONG",lat:9.1494,lon:-4.6098,clot:false,clients:[{id:uid(),n:32,name:"HUAWEI",lien:"HUAWEI",circuit:"",source:"import"}]},
+  {zone:"MINIGNAN",lat:9.9965,lon:-7.8367,clot:false,clients:[{id:uid(),n:33,name:"HUAWEI",lien:"HUAWEI",circuit:"",source:"import"}]},
+  {zone:"KOUTO",lat:9.8833,lon:-6.4167,clot:false,clients:[{id:uid(),n:34,name:"HUAWEI",lien:"HUAWEI",circuit:"",source:"import"}]},
+  {zone:"TOUBA",lat:8.2833,lon:-7.6833,clot:false,clients:[{id:uid(),n:35,name:"HUAWEI",lien:"HUAWEI",circuit:"",source:"import"}]},
+  {zone:"OUANGOLO",lat:9.9667,lon:-5.1500,clot:false,clients:[{id:uid(),n:36,name:"HUAWEI",lien:"HUAWEI",circuit:"",source:"import"}]},
+  {zone:"POGO",lat:9.4500,lon:-5.6833,clot:false,clients:[{id:uid(),n:37,name:"HUAWEI",lien:"HUAWEI",circuit:"",source:"import"}]},
+  {zone:"TOUGBO",lat:5.6833,lon:-6.9167,clot:false,clients:[{id:uid(),n:38,name:"HUAWEI",lien:"HUAWEI",circuit:"",source:"import"}]},
+  {zone:"TAKIKRO",lat:6.5167,lon:-5.9833,clot:false,clients:[{id:uid(),n:39,name:"HUAWEI",lien:"SYTHD230124",circuit:"",source:"import"}]},
+  {zone:"RAPIDE GRAH SAPH",lat:4.8167,lon:-6.5500,clot:false,clients:[{id:uid(),n:40,name:"EXAT AGRICULTURE",lien:"",circuit:"",source:"import"}]},
+];
+
+(async()=>{
+  const loaded = await loadFromFirebase();
+  if(!loaded){
+    toast('✓ Aucune donnée dans Firebase — carte vide');
+  } else {
+    toast('✓ Données chargées depuis Firebase');
+  }
+  render();
+})();
+
+// ══════════════════════════════════════════════════════════════════
+// RAPPORT PDF
+// ══════════════════════════════════════════════════════════════════
+function openPdfModal(){
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0,10);
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+  document.getElementById('pdf-date-start').value = fmt(firstDay);
+  document.getElementById('pdf-date-end').value   = fmt(today);
+  document.getElementById('pdf-progress').textContent = '';
+  document.getElementById('pdf-btn-gen').disabled = false;
+  document.getElementById('pdf-modal-overlay').classList.remove('hidden');
+}
+function closePdfModal(){
+  document.getElementById('pdf-modal-overlay').classList.add('hidden');
+}
+document.getElementById('pdf-modal-overlay').addEventListener('click', function(e){
+  if(e.target === this) closePdfModal();
+});
+
+async function genererRapportPDF(){
+  const btn      = document.getElementById('pdf-btn-gen');
+  const progress = document.getElementById('pdf-progress');
+  const dateS    = document.getElementById('pdf-date-start').value;
+  const dateE    = document.getElementById('pdf-date-end').value;
+  const author   = document.getElementById('pdf-author').value || 'Équipe NOC B2B';
+  const dest     = document.getElementById('pdf-dest').value   || 'Direction Générale OCI';
+  const comment  = document.getElementById('pdf-comment').value;
+
+  btn.disabled = true;
+  progress.textContent = '⏳ Capture de la carte en cours…';
+
+  // 1. Capturer la carte
+  const _prevCenter = map.getCenter();
+  const _prevZoom   = map.getZoom();
+  const _ciBounds   = L.latLngBounds([[5.0,-8.6],[9.5,-2.5]]);
+  map.fitBounds(_ciBounds, {animate:false, padding:[0,0]});
+
+  await new Promise(r => setTimeout(r, 2500));
+
+  let mapDataUrl = null;
+  try {
+    const mapEl = document.getElementById('map');
+    const canvas = await html2canvas(mapEl, {
+      useCORS:true, allowTaint:false, scale:1.5,
+      backgroundColor:'#e8eaf0', logging:false, imageTimeout:20000,
+      ignoreElements: el => el.classList && el.classList.contains('stats-bar')
+    });
+    // Fond + padding
+    const out = document.createElement('canvas');
+    const PAD = 12;
+    out.width  = canvas.width  + PAD*2;
+    out.height = canvas.height + PAD*2;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#dde1ea';
+    ctx.fillRect(0,0,out.width,out.height);
+    ctx.drawImage(canvas, PAD, PAD);
+    mapDataUrl = out.toDataURL('image/jpeg', 0.88);
+  } catch(e){
+    console.warn('Capture carte échouée', e);
+  }
+
+  map.setView(_prevCenter, _prevZoom, {animate:false});
+  progress.textContent = '📄 Génération du PDF…';
+
+  // 2. Données
+  const { jsPDF } = window.jspdf;
+  const villesActives = Object.values(zonesMap)
+    .filter(d => !d.clot && d.clients.some(c => !c.clot))
+    .sort((a,b) => b.clients.filter(c=>!c.clot).length - a.clients.filter(c=>!c.clot).length);
+  const villesClot = Object.values(zonesMap).filter(d => d.clot);
+  const totalClientsActifs = villesActives.reduce((s,d) => s + d.clients.filter(c=>!c.clot).length, 0);
+  const totalLiens = villesActives.reduce((s,d) => s + d.clients.filter(c=>!c.clot).reduce((a,c) => a+(c.lien?1:0), 0), 0);
+
+  const fmtDate = v => {
+    if(!v) return '';
+    const [y,m,d] = v.split('-');
+    return `${d}/${m}/${y}`;
+  };
+  const dateStr = fmtDate(dateS) + (dateE && dateE!==dateS ? ' au ' + fmtDate(dateE) : '');
+  const genDate = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'long',year:'numeric'});
+
+  // 3. PDF A4
+  const doc = new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
+  const PW = 210, PH = 297;
+  const ML = 16, MR = 16, MT = 0;
+  const CW = PW - ML - MR;
+
+  // ── Couleurs ──
+  const ORANGE  = [224, 90, 0];
+  const DARK    = [18, 24, 36];
+  const GRAY    = [110, 120, 140];
+  const LGRAY   = [230, 233, 240];
+  const WHITE   = [255, 255, 255];
+  const RED     = [226, 75, 74];
+  const GREEN   = [61, 184, 122];
+  const AMBER   = [239, 159, 39];
+  const BG      = [245, 247, 251];
+
+  // ════════════════════════════════
+  // PAGE 1 — EN-TÊTE
+  // ════════════════════════════════
+  // Bande orange supérieure
+  doc.setFillColor(...ORANGE);
+  doc.rect(0, 0, PW, 22, 'F');
+
+  // Logo texte ORANGE
+  doc.setFontSize(18); doc.setFont('helvetica','bold'); doc.setTextColor(...WHITE);
+  doc.text('ORANGE', ML, 14);
+  doc.setFontSize(8); doc.setFont('helvetica','normal');
+  doc.text('Côte d\'Ivoire · Direction DDMS · NOC B2B', ML, 19);
+
+  // Classification à droite
+  doc.setFontSize(7.5); doc.setFont('helvetica','bold');
+  doc.text('CONFIDENTIEL — Usage DDMS', PW - MR, 14, {align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(7);
+  doc.text('Ne pas diffuser en dehors de la Direction', PW - MR, 19, {align:'right'});
+
+  // ── Titre principal ──
+  let y = 32;
+  doc.setFontSize(18); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+  doc.text('RAPPORT DE CONGESTION RÉSEAU', ML, y);
+  y += 7;
+  doc.setFontSize(11); doc.setFont('helvetica','normal'); doc.setTextColor(...ORANGE);
+  doc.text('Analyse des sites clients affectés — NOC B2B OCI', ML, y);
+  y += 5;
+  doc.setDrawColor(...ORANGE); doc.setLineWidth(0.8);
+  doc.line(ML, y, ML + CW, y);
+  y += 6;
+
+  // ── Bloc méta ──
+  doc.setFillColor(...BG);
+  doc.roundedRect(ML, y, CW, 22, 3, 3, 'F');
+  doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
+  doc.roundedRect(ML, y, CW, 22, 3, 3, 'S');
+
+  const col3 = CW / 3;
+  const metaItems = [
+    ['PÉRIODE COUVERTE', dateStr || genDate],
+    ['DATE DE GÉNÉRATION', genDate],
+    ['RÉDIGÉ PAR', author],
+  ];
+  metaItems.forEach(([lbl, val], i) => {
+    const mx = ML + i * col3 + 7;
+    doc.setFontSize(7); doc.setFont('helvetica','bold'); doc.setTextColor(...GRAY);
+    doc.text(lbl, mx, y + 7);
+    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+    doc.text(val, mx, y + 14);
+  });
+  y += 28;
+
+  // À l'attention de
+  doc.setFontSize(8); doc.setFont('helvetica','italic'); doc.setTextColor(...GRAY);
+  doc.text('À l\'attention de : ' + dest, ML, y);
+  if(comment){
+    y += 5;
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(...GRAY);
+    const lines = doc.splitTextToSize(comment, CW);
+    doc.text(lines, ML, y);
+    y += lines.length * 4;
+  }
+  y += 6;
+
+  // ── KPI Cards ──
+  const kpis = [
+    { label:'Villes affectées',   val: String(villesActives.length),      color:RED,   icon:'📍' },
+    { label:'Clients impactés',   val: String(totalClientsActifs),         color:RED,   icon:'👤' },
+    { label:'Liens identifiés',   val: String(totalLiens),                 color:AMBER, icon:'🔗' },
+    { label:'Sites clôturés',     val: String(villesClot.length),          color:GREEN, icon:'✓'  },
+  ];
+  const kw = (CW - 9) / 4;
+  kpis.forEach((k, i) => {
+    const kx = ML + i * (kw + 3);
+    doc.setFillColor(...WHITE);
+    doc.roundedRect(kx, y, kw, 22, 3, 3, 'F');
+    doc.setDrawColor(k.color[0], k.color[1], k.color[2], 0.4);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(kx, y, kw, 22, 3, 3, 'S');
+    // Barre couleur gauche
+    doc.setFillColor(...k.color);
+    doc.roundedRect(kx, y, 3, 22, 1.5, 1.5, 'F');
+    doc.setFontSize(16); doc.setFont('helvetica','bold'); doc.setTextColor(...k.color);
+    doc.text(k.val, kx + kw/2, y + 13, {align:'center'});
+    doc.setFontSize(7.5); doc.setFont('helvetica','normal'); doc.setTextColor(...GRAY);
+    doc.text(k.label, kx + kw/2, y + 19, {align:'center'});
+  });
+  y += 28;
+
+  // ── Carte ──
+  if(mapDataUrl){
+    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+    doc.text('CARTE DE RÉPARTITION GÉOGRAPHIQUE', ML, y);
+    doc.setDrawColor(...ORANGE); doc.setLineWidth(0.5);
+    doc.line(ML, y+1.5, ML+80, y+1.5);
+    y += 6;
+    const mapH = 72;
+    // Ombre légère
+    doc.setFillColor(200,205,215);
+    doc.roundedRect(ML+1, y+1, CW, mapH, 3, 3, 'F');
+    doc.addImage(mapDataUrl, 'JPEG', ML, y, CW, mapH, undefined, 'MEDIUM');
+    doc.setDrawColor(...LGRAY); doc.setLineWidth(0.3);
+    doc.roundedRect(ML, y, CW, mapH, 3, 3, 'S');
+    y += mapH + 7;
+  }
+
+  // ── Résumé DG ──
+  y += 4;
+  doc.setFillColor(255, 251, 230);
+  doc.setDrawColor(245, 158, 11); doc.setLineWidth(0.5);
+  // Titre
+  doc.setFontSize(8.5); doc.setFont('helvetica','bold'); doc.setTextColor(146, 64, 14);
+  doc.text('POINTS CLES A RETENIR', ML, y + 5);
+  doc.setLineWidth(0.4);
+  doc.line(ML, y + 7, PW - MR, y + 7);
+  y += 12;
+
+  // Bullets DG
+  const dgBullets = [];
+
+  // 1. Situation globale
+  const villeTop = villesActives[0];
+  if(villesActives.length > 0){
+    const sev = villesActives.length >= 20 ? 'un niveau critique' : villesActives.length >= 10 ? 'un niveau eleve' : 'plusieurs zones';
+    dgBullets.push({txt: `Le reseau B2B enregistre des saturations de bande passante sur ${villesActives.length} ville(s), touchant ${totalClientsActifs} client(s) et ${totalLiens} lien(s) identifies. Situation a ${sev} de congestion.`, alert: villesActives.length >= 10});
+  }
+
+  // 2. Ville la plus impactée
+  if(villeTop){
+    const nbTop = villeTop.clients.filter(c=>!c.clot).length;
+    dgBullets.push({txt: `La zone la plus affectee est ${villeTop.zone||villeTop.nom||'—'} avec ${nbTop} client(s) touches. Ces clients subissent des lenteurs ou des interruptions liees a une capacite reseau insuffisante.`, alert: true});
+  }
+
+  // 3. Explication non technique
+  dgBullets.push({txt: `Une congestion reseau signifie que le volume de donnees transitant sur ces liaisons depasse leur capacite maximale. Cela se traduit pour les clients par des connexions lentes, des coupures intermittentes ou une impossibilite d'acceder aux services.`, alert: false});
+
+  // 4. Sites clôturés
+  if(villesClot.length > 0){
+    dgBullets.push({txt: `${villesClot.length} site(s) ont ete resolus et clotures sur la periode — les actions correctives engagees ont permis de retablir un service normal pour ces clients.`, alert: false});
+  } else {
+    dgBullets.push({txt: `Aucun site n'a encore ete cloture sur cette periode — toutes les situations de congestion identifiees sont en cours de traitement et necessitent une action prioritaire des equipes techniques.`, alert: true});
+  }
+
+  // Rendu
+  dgBullets.forEach(b => {
+    const col = b.alert ? [180, 0, 0] : [10, 74, 30];
+    const lines = doc.splitTextToSize(b.txt, CW - 6);
+    doc.setFontSize(9); doc.setFont('helvetica', b.alert ? 'bold' : 'normal'); doc.setTextColor(...col);
+    doc.text(lines, ML + 2, y);
+    y += lines.length * 5.5 + 2;
+  });
+
+  y += 4;
+  doc.setDrawColor(216, 220, 228); doc.setLineWidth(0.3);
+  doc.line(ML, y, PW - MR, y);
+  y += 6;
+
+  // ── Tableau villes — page suivante forcée ──
+  _pdfFooter(doc, PW, PH, ML, GRAY, ORANGE, WHITE);
+  doc.addPage();
+  y = 20;
+  doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+  doc.text('DÉTAIL PAR VILLE', ML, y);
+  doc.setDrawColor(...ORANGE); doc.setLineWidth(0.5);
+  doc.line(ML, y+1.5, ML+50, y+1.5);
+  y += 6;
+
+  // En-tête tableau
+  const cols = { ville:68, clients:22, liens:30, detail: CW-68-22-30 };
+  doc.setFillColor(...ORANGE);
+  doc.rect(ML, y, CW, 7, 'F');
+  doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(...WHITE);
+  doc.text('VILLE / ZONE', ML+4, y+5);
+  doc.text('CLIENTS', ML+cols.ville+2, y+5);
+  doc.text('LIEN(S)', ML+cols.ville+cols.clients+2, y+5);
+  doc.text('NOMS CLIENTS', ML+cols.ville+cols.clients+cols.liens+2, y+5);
+  y += 7;
+
+  let rowEven = false;
+  villesActives.forEach((d, idx) => {
+    const activeClients = d.clients.filter(c => !c.clot);
+    const noms = activeClients.map(c => c.name).filter(Boolean);
+    const liens = activeClients.map(c => c.lien).filter(Boolean);
+    const nomStr  = doc.splitTextToSize(noms.slice(0,6).join(', ') + (noms.length>6?'…':''), cols.detail-4);
+    const rowH = Math.max(7, nomStr.length * 4.5 + 3);
+
+    // Nouvelle page si nécessaire
+    if(y + rowH > PH - 20){
+      _pdfFooter(doc, PW, PH, ML, GRAY, ORANGE, WHITE);
+      doc.addPage();
+      y = 20;
+      // Re-header
+      doc.setFillColor(...ORANGE); doc.rect(ML, y, CW, 7, 'F');
+      doc.setFontSize(7.5); doc.setFont('helvetica','bold'); doc.setTextColor(...WHITE);
+      doc.text('VILLE / ZONE', ML+4, y+5);
+      doc.text('CLIENTS', ML+cols.ville+2, y+5);
+      doc.text('LIEN(S)', ML+cols.ville+cols.clients+2, y+5);
+      doc.text('NOMS CLIENTS', ML+cols.ville+cols.clients+cols.liens+2, y+5);
+      y += 7;
+    }
+
+    if(rowEven){ doc.setFillColor(...BG); doc.rect(ML, y, CW, rowH, 'F'); }
+    rowEven = !rowEven;
+
+    // Ligne verticale couleur
+    doc.setFillColor(...RED);
+    doc.rect(ML, y, 2.5, rowH, 'F');
+
+    doc.setFontSize(8.5); doc.setFont('helvetica','bold'); doc.setTextColor(...DARK);
+    doc.text(d.zone, ML+5, y+5);
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...RED);
+    doc.text(String(activeClients.length), ML+cols.ville+4, y+5);
+    doc.setTextColor(...GRAY);
+    const lienStr = liens.length > 0 ? liens.slice(0,2).join(', ')+(liens.length>2?'…':'') : '—';
+    doc.text(doc.splitTextToSize(lienStr, cols.liens-4), ML+cols.ville+cols.clients+3, y+4.5);
+    doc.setTextColor(...DARK); doc.setFontSize(7.5);
+    doc.text(nomStr, ML+cols.ville+cols.clients+cols.liens+3, y+4.5);
+
+    // Séparateur
+    doc.setDrawColor(...LGRAY); doc.setLineWidth(0.2);
+    doc.line(ML, y+rowH, ML+CW, y+rowH);
+    y += rowH;
+  });
+
+  y += 8;
+
+  // ── Synthèse clôturés ──
+  if(villesClot.length > 0 && y < PH - 40){
+    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(...GREEN);
+    doc.text('SITES CLÔTURÉS / RÉTABLIS (' + villesClot.length + ')', ML, y);
+    doc.setDrawColor(...GREEN); doc.setLineWidth(0.5);
+    doc.line(ML, y+1.5, ML+70, y+1.5);
+    y += 6;
+    doc.setFillColor(240,252,246); doc.roundedRect(ML, y, CW, 10, 2, 2, 'F');
+    doc.setDrawColor(42,122,80,0.3); doc.setLineWidth(0.3); doc.roundedRect(ML, y, CW, 10, 2, 2, 'S');
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(30,90,60);
+    const clotStr = villesClot.map(d=>d.zone).join(' · ');
+    doc.text(doc.splitTextToSize(clotStr, CW-8), ML+4, y+6);
+    y += 14;
+  }
+
+  // Footer dernière page
+  _pdfFooter(doc, PW, PH, ML, GRAY, ORANGE, WHITE);
+
+  // 4. Téléchargement
+  const fname = 'Rapport_Congestion_NOC_B2B' + (dateS ? '_'+dateS : '') + '.pdf';
+  doc.save(fname);
+
+  progress.textContent = '✓ PDF généré avec succès !';
+  btn.disabled = false;
+  setTimeout(() => { progress.textContent = ''; closePdfModal(); }, 1800);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// IMPORT EXCEL — ignore les lignes complètement identiques à l'existant
+// ══════════════════════════════════════════════════════════════════
+async function importExcel(e){
+  if(IS_VISITEUR){ toast('⚠ Accès lecture seule','err'); e.target.value=''; return; }
+  const file = e.target.files[0];
+  if(!file) return;
+
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(ws, {defval:''});
+
+    if(!json.length){ toast('⚠ Fichier vide','err'); e.target.value=''; return; }
+
+    // Signature complète d'une ligne (toutes les colonnes) pour détecter les doublons exacts
+    const rowSignature = (zone, client, lien, circuit, statut, zlat, zlon, clat, clon) =>
+      [zone, client, lien, circuit, statut, zlat, zlon, clat, clon]
+        .map(v => (v===null || v===undefined || Number.isNaN(v)) ? '' : String(v).trim().toLowerCase())
+        .join('|');
+
+    // Signatures déjà présentes dans les données actuelles (Firebase / zonesMap)
+    const existingSignatures = new Set();
+    Object.values(zonesMap).forEach(z=>{
+      z.clients.forEach(c=>{
+        const statut = c.clot ? 'Clôturé' : 'Actif';
+        existingSignatures.add(rowSignature(z.zone, c.name, c.lien, c.circuit, statut, z.lat, z.lon, c.clat, c.clon));
+      });
+    });
+
+    let imported = 0, skipped = 0, invalid = 0;
+    const touchedZones = new Set();
+
+    json.forEach(row=>{
+      const zoneName = String(row['Ville / Zone']||'').trim().toUpperCase();
+      const client    = String(row['Client']||'').trim();
+      const lien      = String(row['Lien / Référence']||'').trim();
+      const circuit   = String(row['Circuit']||'').trim();
+      const statutRaw = String(row['Statut']||'').trim();
+      const clot      = /clôtur/i.test(statutRaw);
+      const zlat = row['GPS Zone (Lat)']!==undefined && row['GPS Zone (Lat)']!=='' ? parseFloat(row['GPS Zone (Lat)']) : null;
+      const zlon = row['GPS Zone (Lon)']!==undefined && row['GPS Zone (Lon)']!=='' ? parseFloat(row['GPS Zone (Lon)']) : null;
+      const clat = row['GPS Client (Lat)']!==undefined && row['GPS Client (Lat)']!=='' ? parseFloat(row['GPS Client (Lat)']) : null;
+      const clon = row['GPS Client (Lon)']!==undefined && row['GPS Client (Lon)']!=='' ? parseFloat(row['GPS Client (Lon)']) : null;
+
+      if(!zoneName || !client){ invalid++; return; }
+
+      const statutLabel = clot ? 'Clôturé' : 'Actif';
+      const sig = rowSignature(zoneName, client, lien, circuit, statutLabel, zlat, zlon, clat, clon);
+      if(existingSignatures.has(sig)){ skipped++; return; }
+
+      const newClient = {id:uid(), name:client, lien, circuit, clot, source:'import', clat: (clat!==null && !isNaN(clat))?clat:null, clon: (clon!==null && !isNaN(clon))?clon:null};
+
+      if(zonesMap[zoneName]){
+        if(zlat!==null && !isNaN(zlat) && zlon!==null && !isNaN(zlon)){
+          zonesMap[zoneName].lat = zlat; zonesMap[zoneName].lon = zlon;
+        }
+        zonesMap[zoneName].clients.push(newClient);
+      } else {
+        if(zlat===null || isNaN(zlat) || zlon===null || isNaN(zlon)){ invalid++; return; }
+        zonesMap[zoneName] = {zone:zoneName, lat:zlat, lon:zlon, clot:false, clients:[newClient]};
+      }
+
+      existingSignatures.add(sig); // évite aussi les doublons internes au fichier importé
+      touchedZones.add(zoneName);
+      imported++;
+    });
+
+    touchedZones.forEach(zk=>buildMarker(zk));
+    buildSidebar();
+    updateStats();
+    if(touchedZones.size) await fbSaveAll(Array.from(touchedZones));
+
+    let msg = '✓ '+imported+' ligne(s) importée(s)';
+    if(skipped) msg += ' — '+skipped+' doublon(s) ignoré(s)';
+    if(invalid) msg += ' — '+invalid+' ligne(s) invalide(s)';
+    toast(msg, imported ? 'ok' : 'err');
+  } catch(err){
+    console.error('importExcel', err);
+    toast('⚠ Erreur import : '+err.message, 'err');
+  }
+  e.target.value = '';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EXPORT EXCEL
+// ══════════════════════════════════════════════════════════════════
+function exportExcel(){
+  const rows = [];
+  Object.values(zonesMap).forEach(z=>{
+    z.clients.forEach(c=>{
+      rows.push({
+        'Ville / Zone': z.zone,
+        'Client': c.name||'',
+        'Lien / Référence': c.lien||'',
+        'Circuit': c.circuit||'',
+        'Statut': c.clot ? 'Clôturé' : 'Actif',
+        'GPS Zone (Lat)': z.lat||'',
+        'GPS Zone (Lon)': z.lon||'',
+        'GPS Client (Lat)': c.clat||'',
+        'GPS Client (Lon)': c.clon||''
+      });
+    });
+  });
+  if(!rows.length){ toast('⚠ Aucune donnée à exporter','err'); return; }
+
+  // Tri : actifs d'abord, puis par ville
+  rows.sort((a,b)=>{
+    if(a.Statut !== b.Statut) return a.Statut==='Actif' ? -1 : 1;
+    return a['Ville / Zone'].localeCompare(b['Ville / Zone']);
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Largeurs colonnes
+  ws['!cols'] = [{wch:20},{wch:30},{wch:22},{wch:28},{wch:10},{wch:14},{wch:15},{wch:15},{wch:15}];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Congestion NOC B2B');
+
+  const date = new Date().toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'}).replace(/\//g,'-');
+  XLSX.writeFile(wb, `Congestion_NOC_B2B_${date}.xlsx`);
+  toast('✓ Export Excel téléchargé');
+}
+
+function _pdfFooter(doc, PW, PH, ML, GRAY, ORANGE, WHITE){
+  doc.setDrawColor(...ORANGE); doc.setLineWidth(0.4);
+  doc.line(ML, PH-12, PW-ML, PH-12);
+  doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(...GRAY);
+  doc.text('Orange CI · Direction DDMS · NOC B2B — Document confidentiel à usage interne', ML, PH-8);
+  doc.text('Page ' + doc.internal.getNumberOfPages(), PW-ML, PH-8, {align:'right'});
+}
+
+// ═══ Logique PDA — Plan d'Actions (Comités / QoS et Perf) ═══
+// Réutilise la connexion Firebase compat déjà établie plus haut (projet ddms-architectures)
+const PDA_COMITE = "QoS et Perf";
+let _pdaUnsub = null;
+let _pdaActions = [];
+
+function _pdaTodayISO(){
+ const dte = new Date();
+ const mm = String(dte.getMonth()+1).padStart(2,"0");
+ const dd = String(dte.getDate()).padStart(2,"0");
+ return dte.getFullYear()+"-"+mm+"-"+dd;
+}
+function _pdaStatusColor(status){
+ if(status==="Terminé") return "color:#2e7d32;background:#e8f5e9;";
+ if(status==="En cours") return "color:#185FA5;background:#E6F1FB;";
+ return "color:#607d8b;background:#eceff1;";
+}
+function _pdaShowError(msg){
+ const el = document.getElementById("pdaError");
+ el.textContent = "⚠️ " + msg;
+ el.style.display = "block";
+}
+function _pdaSyncing(on){
+ document.getElementById("pdaSyncing").style.display = on ? "block" : "none";
+}
+
+function pdaOpen(){
+ document.getElementById("pdaBackdrop").style.display = "flex";
+ document.getElementById("pdaError").style.display = "none";
+ const addBtn = document.getElementById("pdaAddBtn");
+ if(addBtn) addBtn.style.display = IS_VISITEUR ? "none" : "inline-block";
+ _pdaSubscribe();
+}
+function pdaClose(){
+ document.getElementById("pdaBackdrop").style.display = "none";
+}
+document.getElementById("pdaClose").addEventListener("click", pdaClose);
+document.getElementById("pdaBackdrop").addEventListener("click", function(e){
+ if(e.target === this) pdaClose();
+});
+
+function _pdaSubscribe(){
+ if(!db){ _pdaShowError("Firebase non connecté."); return; }
+ if(_pdaUnsub) _pdaUnsub();
+ _pdaSyncing(true);
+ try{
+  _pdaUnsub = db.collection("pda_actions").where("comite","==",PDA_COMITE).onSnapshot(function(snap){
+   _pdaActions = snap.docs.map(d=>Object.assign({_id:d.id}, d.data()));
+   _pdaActions.sort((a,b)=>{
+    const da = a.date || "9999", db_ = b.date || "9999";
+    return da < db_ ? -1 : da > db_ ? 1 : 0;
+   });
+   _pdaSyncing(false);
+   _pdaRenderRows();
+  }, function(err){
+   _pdaSyncing(false);
+   _pdaShowError("Synchronisation : " + err.message);
+  });
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Firebase : " + err.message);
+ }
+}
+
+function _pdaRenderRows(){
+ const tbody = document.getElementById("pdaRows");
+ // On n'affiche pas les actions réalisées (Terminé)
+ const visibles = _pdaActions.filter(a=>a.status!=="Terminé");
+ if(!visibles.length){
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;padding:16px 6px;font-size:12px;">Aucune action en cours. Cliquez sur « + Ajouter une action ».</td></tr>';
+  return;
+ }
+ const readOnly = IS_VISITEUR;
+ tbody.innerHTML = visibles.map(a=>{
+  const statusVal = a.status || "En cours";
+  const badgeStyle = _pdaStatusColor(statusVal);
+  const dateVal = a.date || _pdaTodayISO();
+  const dis = readOnly ? "disabled" : "";
+  return `<tr data-id="${a._id}" style="border-bottom:1px solid #f0f2f5;">
+   <td style="padding:5px 6px;">
+    <input type="date" class="pda-f-date" value="${dateVal}" ${dis} style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;width:128px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-action" value="${(a.action||"").replace(/"/g,'&quot;')}" placeholder="Action…" ${dis} style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:140px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-porteur" value="${(a.porteur||"").replace(/"/g,'&quot;')}" placeholder="Porteur" ${dis} style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:95px;">
+   </td>
+   <td style="padding:5px 6px;">
+    <select class="pda-f-status" ${dis} style="font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;${badgeStyle}">
+     <option value="En cours" ${statusVal!=="Terminé"?"selected":""}>En cours</option>
+     <option value="Terminé" ${statusVal==="Terminé"?"selected":""}>Réalisé</option>
+    </select>
+   </td>
+   <td style="padding:5px 6px;">
+    <input type="text" class="pda-f-comment" value="${(a.comment||"").replace(/"/g,'&quot;')}" placeholder="Commentaire" ${dis} style="font-size:12px;padding:3px 5px;border:1px solid #dde2ea;border-radius:5px;width:100%;min-width:120px;">
+   </td>
+   <td style="padding:5px 6px;white-space:nowrap;">
+    ${readOnly ? "" : `<button class="pda-save-btn" title="Enregistrer" style="background:none;border:none;cursor:pointer;font-size:14px;">💾</button>
+    <button class="pda-del-btn" title="Supprimer" style="background:none;border:none;cursor:pointer;font-size:14px;">🗑</button>`}
+   </td>
+  </tr>`;
+ }).join("");
+
+ if(readOnly) return;
+
+ tbody.querySelectorAll(".pda-save-btn").forEach(btn=>{
+  btn.addEventListener("click", function(){ _pdaSaveRow(this.closest("tr")); });
+ });
+ tbody.querySelectorAll(".pda-del-btn").forEach(btn=>{
+  btn.addEventListener("click", function(){ _pdaDeleteRow(this.closest("tr").dataset.id); });
+ });
+ tbody.querySelectorAll(".pda-f-status").forEach(sel=>{
+  sel.addEventListener("change", function(){
+   this.setAttribute("style", "font-size:11.5px;padding:3px 4px;border:1px solid #dde2ea;border-radius:5px;font-weight:600;"+_pdaStatusColor(this.value));
+  });
+ });
+}
+
+async function _pdaSaveRow(tr){
+ const id = tr.dataset.id;
+ const date = tr.querySelector(".pda-f-date").value || _pdaTodayISO();
+ const action = tr.querySelector(".pda-f-action").value.trim();
+ const porteur = tr.querySelector(".pda-f-porteur").value.trim();
+ const status = tr.querySelector(".pda-f-status").value;
+ const comment = tr.querySelector(".pda-f-comment").value.trim();
+ if(!action){ alert("Le champ Action est requis."); return; }
+ try{
+  _pdaSyncing(true);
+  await db.collection("pda_actions").doc(id).update({ date, action, porteur, status, comment });
+  _pdaSyncing(false);
+  // Si marqué "Terminé", la ligne disparaît de la liste (masquage des réalisés)
+  if(status==="Terminé"){
+   const idx = _pdaActions.findIndex(a=>a._id===id);
+   if(idx>-1) _pdaActions[idx].status = "Terminé";
+   _pdaRenderRows();
+  }
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Enregistrement : " + err.message);
+ }
+}
+
+async function _pdaDeleteRow(id){
+ if(!confirm("Supprimer cette action ?")) return;
+ try{
+  _pdaSyncing(true);
+  await db.collection("pda_actions").doc(id).delete();
+  _pdaSyncing(false);
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Suppression : " + err.message);
+ }
+}
+
+document.getElementById("pdaAddBtn").addEventListener("click", async function(){
+ if(!db){ alert("Connexion PDA en cours, réessayez dans un instant."); return; }
+ try{
+  _pdaSyncing(true);
+  await db.collection("pda_actions").add({
+   comite: PDA_COMITE,
+   date: _pdaTodayISO(),
+   action: "",
+   porteur: "",
+   status: "En cours",
+   objectif: "",
+   comment: "",
+   important: false,
+   createdAt: Date.now()
+  });
+  _pdaSyncing(false);
+ } catch(err){
+  _pdaSyncing(false);
+  _pdaShowError("Ajout : " + err.message);
+ }
+});
+</script>
+</body>
+</html>
