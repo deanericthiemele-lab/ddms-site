@@ -19,8 +19,9 @@ select{padding:5px 8px;border:1px solid #aaa;border-radius:6px;font-size:13px;}
 .zone{fill:#cfe3f5;stroke:#fff;stroke-width:1.2;cursor:pointer;transition:transform .15s ease,fill .15s;transform-box:fill-box;transform-origin:center;}
 .zone:hover{transform:scale(1.08);stroke:#ff7900;stroke-width:2;filter:drop-shadow(0 3px 5px rgba(0,0,0,.35));}
 .zone.selected{stroke:#ff7900;stroke-width:2.5;}
-.lbl{font-size:11px;fill:#222;pointer-events:none;text-anchor:middle;font-weight:bold;}
-.lbl2{font-size:10px;fill:#444;pointer-events:none;text-anchor:middle;}
+.lbl{font-size:11px;fill:#222;pointer-events:none;text-anchor:middle;font-weight:bold;paint-order:stroke;stroke:#fff;stroke-width:3px;}
+.lbln{fill:#004d1f;font-weight:bold;pointer-events:none;text-anchor:middle;dominant-baseline:central;}
+.badge{pointer-events:none;}
 .water{fill:#e8f2fb;}
 .watertxt{font-size:12px;fill:#7aa;font-style:italic;pointer-events:none;text-anchor:middle;}
 #tooltip{position:absolute;display:none;background:#fff;border:1px solid #aaa;border-radius:6px;padding:8px 10px;font-size:12px;box-shadow:0 3px 8px rgba(0,0,0,.25);pointer-events:none;z-index:10;min-width:200px;}
@@ -211,6 +212,20 @@ function aggregate(){
 }
 
 /* ===== Rendu ===== */
+function centroid(d){
+ let best=null,bestA=0;
+ d.split("Z").forEach(seg=>{
+  const pts=(seg.match(/-?[\d.]+,-?[\d.]+/g)||[]).map(p=>p.split(",").map(Number));
+  if(pts.length<3) return;
+  let A=0,cx=0,cy=0;
+  for(let i=0;i<pts.length;i++){
+   const [x0,y0]=pts[i],[x1,y1]=pts[(i+1)%pts.length];
+   const f=x0*y1-x1*y0; A+=f; cx+=(x0+x1)*f; cy+=(y0+y1)*f;
+  }
+  A/=2; if(Math.abs(A)>Math.abs(bestA)){ bestA=A; best=[cx/(6*A),cy/(6*A)]; }
+ });
+ return best||[0,0];
+}
 const fmt=n=>Math.round(n).toLocaleString("fr-FR");
 function color(v,max){
  if(!v) return "#e6e6e6";
@@ -234,10 +249,18 @@ function render(){
   s+=`<path class="zone${selectedZone===z.id?' selected':''}" data-id="${z.id}" d="${z.d}" fill="${color(a?a.n:0,max)}"/>`;
  });
  zones.forEach(z=>{
-  const a=agg[z.id]; let cx=z.cx,cy=z.cy;
-  if(cx===undefined){ const m=z.d.match(/-?[\d.]+,-?[\d.]+/g).map(p=>p.split(",").map(Number)); cx=m.reduce((t,p)=>t+p[0],0)/m.length; cy=m.reduce((t,p)=>t+p[1],0)/m.length; }
-  s+=`<text class="lbl" x="${cx}" y="${cy}">${z.id}</text>`;
-  if(a) s+=`<text class="lbl2" x="${cx}" y="${cy+13}">${a.n} dossier(s)</text>`;
+  const a=agg[z.id]; const c=centroid(z.d); const cx=c[0], cy=c[1];
+  const n=a?a.n:0;
+  if(n){
+   const t=Math.sqrt(n/max);                 /* 0..1 */
+   const fs=Math.round(12+t*30);             /* 12px -> 42px */
+   const rad=Math.round(fs*0.85);
+   s+=`<circle class="badge" cx="${cx}" cy="${cy}" r="${rad}" fill="#fff" fill-opacity="${(0.55+0.35*t).toFixed(2)}" stroke="#006d2c" stroke-width="${(1+2*t).toFixed(1)}"/>`;
+   s+=`<text class="lbln" x="${cx}" y="${cy}" font-size="${fs}">${n}</text>`;
+   s+=`<text class="lbl" x="${cx}" y="${cy+rad+11}">${z.id}</text>`;
+  }else{
+   s+=`<text class="lbl" x="${cx}" y="${cy}">${z.id}</text>`;
+  }
  });
  svg.innerHTML=s;
  svg.querySelectorAll(".zone").forEach(p=>{
