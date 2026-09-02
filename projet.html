@@ -286,13 +286,20 @@ function renderTaches() {
   if(!taches.length){ el.innerHTML=emptyState(isMigrationProjet(p)?'Aucune ligne — cliquez "+ Ajouter une ligne"':'Aucune tâche — cliquez "+ Ajouter une tâche"'); return; }
 
   el.innerHTML = isMigrationProjet(p) ? renderTachesMigration(taches) : renderTachesDefault(taches);
+  fixStickyOffsets(el);
 }
 
+// Ligne PDA terminée : tolérant (Terminé/Terminée/TERMINE/OK/Done/Réalisé/Fait/Clôturé/Migré/Livré)
+const PDA_DONE_WORDS=['ok','done','realise','realisee','fait','faite','cloture','cloturee','migre','migree','livre','livree','termine','terminee','fini','finie','complete'];
+function isPdaDone(l){
+  const k=String((l&&l.statut)||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+  return !!k && (k.startsWith('termin') || PDA_DONE_WORDS.includes(k));
+}
 // Volume / Réalisé / Reste : si un PDA existe, Volume = nb lignes, Reste = lignes non terminées
 function tacheVolumes(t){
   const l=t.pda||[];
   if(l.length){
-    const done=l.filter(x=>x.statut==='Terminé').length;
+    const done=l.filter(isPdaDone).length;
     return {vol:l.length, real:done, reste:l.length-done, fromPda:true};
   }
   const hasV=t.volume!==undefined&&t.volume!=='', hasR=t.realise!==undefined&&t.realise!=='';
@@ -307,8 +314,8 @@ function renderTachesDefault(taches) {
   let html=`<div class="t-table-wrap">
     <table class="t-table">
       <thead><tr>
-        <th style="width:32px"></th>
-        <th>Nom de la tâche</th>
+        <th style="width:32px" class="fix-chk"></th>
+        <th class="fix-nom">Nom de la tâche</th>
         <th class="hide-mobile">Objectif</th>
         <th class="hide-mobile col-volume">Volume</th>
         <th class="hide-mobile col-volume">Réalisé</th>
@@ -325,14 +332,14 @@ function renderTachesDefault(taches) {
 
   Object.entries(groups).forEach(([grp,items])=>{
     if(!items.length) return;
-    html+=`<tr class="t-group-row"><td colspan="13" style="color:${gcol[grp]};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px">${gicon[grp]} ${grp} <span style="opacity:.5">(${items.length})</span></td></tr>`;
+    html+=`<tr class="t-group-row"><td colspan="13" class="fix-grp" style="color:${gcol[grp]};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px"><span class="grp-lbl">${gicon[grp]} ${grp} <span style="opacity:.5">(${items.length})</span></span></td></tr>`;
     items.forEach(t=>{
       const i=t._i;
       const sc=gcol[t.statut]||'var(--text3)';
       const vv=tacheVolumes(t);
       html+=`<tr class="t-row ${t.statut==='Terminé'?'t-row-done':''}">
-        <td class="t-cell-chk"><div class="t-chk ${t.statut==='Terminé'?'checked':''}" onclick="toggleTache(${i})"></div></td>
-        <td class="t-cell-nom"><span class="${t.statut==='Terminé'?'struck':''}">${t.titre}</span></td>
+        <td class="t-cell-chk fix-chk"><div class="t-chk ${t.statut==='Terminé'?'checked':''}" onclick="toggleTache(${i})"></div></td>
+        <td class="t-cell-nom fix-nom"><span class="${t.statut==='Terminé'?'struck':''}">${t.titre}</span></td>
         <td class="t-cell-obj hide-mobile">${t.objectif||'—'}</td>
         <td class="t-cell-vol hide-mobile"><span class="vol-link" onclick="openPda(${i})" title="Ouvrir le PDA (détail des lignes)">${vv.vol}${vv.fromPda?`<span class="vol-badge" title="Calculé depuis le PDA">PDA</span>`:''}</span></td>
         <td class="t-cell-vol hide-mobile"><span class="vol-link" onclick="openPda(${i},'termine')" title="Lignes terminées">${vv.real}</span></td>
@@ -367,8 +374,8 @@ function renderTachesMigration(taches) {
   let html=`<div class="t-table-wrap">
     <table class="t-table">
       <thead><tr>
-        <th style="width:32px"></th>
-        <th>ND</th>
+        <th style="width:32px" class="fix-chk"></th>
+        <th class="fix-nom">ND</th>
         <th>Raison sociale</th>
         <th>Statut</th>
         <th>Date de migration prévue</th>
@@ -381,13 +388,13 @@ function renderTachesMigration(taches) {
   Object.entries(groups).forEach(([grp,items])=>{
     if(!items.length) return;
     const gc=MIGC[grp]||'var(--text3)';
-    html+=`<tr class="t-group-row"><td colspan="8" style="color:${gc};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px">${MIGI[grp]||'○'} ${grp} <span style="opacity:.5">(${items.length})</span></td></tr>`;
+    html+=`<tr class="t-group-row"><td colspan="8" class="fix-grp" style="color:${gc};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px"><span class="grp-lbl">${MIGI[grp]||'○'} ${grp} <span style="opacity:.5">(${items.length})</span></span></td></tr>`;
     items.forEach(t=>{
       const i=t._i;
       const sc=MIGC[t.statut]||'var(--text3)';
       html+=`<tr class="t-row ${isDoneStatut(t)?'t-row-done':''}">
-        <td class="t-cell-chk"><div class="t-chk ${isDoneStatut(t)?'checked':''}" onclick="toggleTache(${i})"></div></td>
-        <td class="t-cell-nom"><span class="${isDoneStatut(t)?'struck':''}">${t.nd||'—'}</span></td>
+        <td class="t-cell-chk fix-chk"><div class="t-chk ${isDoneStatut(t)?'checked':''}" onclick="toggleTache(${i})"></div></td>
+        <td class="t-cell-nom fix-nom"><span class="${isDoneStatut(t)?'struck':''}">${t.nd||'—'}</span></td>
         <td class="t-cell-obj">${t.raisonSociale||'—'}</td>
         <td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${t.statut}</span></td>
         <td class="t-cell-date">${t.dateMigPrevue?formatDate(t.dateMigPrevue):'—'}</td>
@@ -591,6 +598,10 @@ window.openModal=id=>document.getElementById(id).style.display='flex';
 window.closeModal=id=>document.getElementById(id).style.display='none';
 window.closeModalOutside=(e,id)=>{ if(e.target.id===id) window.closeModal(id); };
 
+function fixStickyOffsets(root){
+  const chk=root.querySelector('th.fix-chk'); if(!chk) return;
+  root.querySelectorAll('.t-table-wrap').forEach(w=>w.style.setProperty('--fix-left', chk.getBoundingClientRect().width+'px'));
+}
 function emptyState(msg){ return `<div class="empty-state"><p>${msg}</p></div>`; }
 function formatDate(s){
   if(!s) return '';
@@ -723,7 +734,7 @@ const PDAC={'À faire':'var(--text3)','En cours':'var(--accent)','Terminé':'var
 function syncPdaVolume(t){
   const l=t.pda||[]; if(!l.length) return;
   t.volume=String(l.length);
-  t.realise=String(l.filter(x=>x.statut==='Terminé').length);
+  t.realise=String(l.filter(isPdaDone).length);
 }
 window._syncPdaVolume=syncPdaVolume;
 const pdaTache=()=>{ const p=proj(); return (p&&p.taches&&pdaTacheIdx!==null)?p.taches[pdaTacheIdx]:null; };
@@ -746,27 +757,27 @@ function renderPda(){
   const t=pdaTache(); if(!t) return;
   const lines=t.pda||[];
   document.getElementById('pda-title-text').textContent=`PDA — ${t.titre||''}`+(pdaMode==='reste'?' · Reste à faire':pdaMode==='termine'?' · Terminé':'');
-  const done=lines.filter(l=>l.statut==='Terminé').length;
+  const done=lines.filter(isPdaDone).length;
   const totRec=lines.reduce((a,l)=>{ const n=parseFloat(String(l.recurrent??'').replace(/\s/g,'').replace(',','.')); return a+(isNaN(n)?0:n); },0);
   document.getElementById('pda-count').textContent=`Volume : ${lines.length} · Réalisé (terminé) : ${done} · Reste à faire : ${lines.length-done} · Récurrent total : ${totRec.toLocaleString('fr-FR')}`;
   const q=(document.getElementById('pda-search').value||'').toLowerCase();
   const el=document.getElementById('pda-list');
   ['all','reste','termine'].forEach(m=>{ const b=document.getElementById('pda-mode-'+m); if(b) b.classList.toggle('active',m===pdaMode); });
-  const modeOk=l=>pdaMode==='reste'?l.statut!=='Terminé':pdaMode==='termine'?l.statut==='Terminé':true;
+  const modeOk=l=>pdaMode==='reste'?!isPdaDone(l):pdaMode==='termine'?isPdaDone(l):true;
   const shown=lines.filter(modeOk).length;
   document.getElementById('pda-total').textContent=pdaMode==='all'?`Total dossier : ${lines.length}`:`Affichés : ${shown} / ${lines.length}`;
   if(!lines.length){ el.innerHTML=emptyState('Aucune ligne — importez un fichier Excel'); return; }
   let html=`<div class="t-table-wrap"><table class="t-table"><thead><tr>
-    <th>Client</th><th>Référence</th><th>Produit</th><th>Localisation</th><th style="text-align:right">Récurrent</th><th>Type de site</th><th>Date construction</th><th>Techno</th><th>Statut</th><th style="width:64px"></th>
+    <th class="pda-fix">Client</th><th>Référence</th><th>Produit</th><th>Localisation</th><th style="text-align:right">Récurrent</th><th>Type de site</th><th>Date construction</th><th>Techno</th><th>Statut</th><th style="width:64px"></th>
   </tr></thead><tbody>`;
   lines.forEach((l,li)=>{
     if(!modeOk(l)) return;
     if(q && !PDA_FIELDS.some(f=>String(l[f]||'').toLowerCase().includes(q))) return;
-    const sc=PDAC[l.statut]||'var(--text3)';
+    const sc=PDAC[l.statut]||(isPdaDone(l)?'var(--green)':'var(--text3)');
     if(li===pdaEditIdx){
       const inp=(f,type='text')=>`<input class="pda-inline" id="pda-${f}" type="${type}" value="${esc(l[f]||'')}">`;
       html+=`<tr class="t-row pda-editing">
-        <td>${inp('client')}</td><td>${inp('reference')}</td><td>${inp('produit')}</td><td>${inp('localisation')}</td>
+        <td class="pda-fix">${inp('client')}</td><td>${inp('reference')}</td><td>${inp('produit')}</td><td>${inp('localisation')}</td>
         <td>${inp('recurrent','number')}</td><td>${inp('typeSite')}</td><td>${inp('dateConstruction','date')}</td><td>${inp('techno')}</td>
         <td><select class="pda-inline" id="pda-statut">${PDA_STATUTS.map(st=>`<option ${st===(l.statut||'À faire')?'selected':''}>${st}</option>`).join('')}</select></td>
         <td class="t-cell-actions">
@@ -775,8 +786,8 @@ function renderPda(){
         </td></tr>`;
       return;
     }
-    html+=`<tr class="t-row ${l.statut==='Terminé'?'t-row-done':''}">
-      <td class="t-cell-nom">${esc(l.client)||'—'}</td>
+    html+=`<tr class="t-row ${isPdaDone(l)?'t-row-done':''}">
+      <td class="t-cell-nom pda-fix">${esc(l.client)||'—'}</td>
       <td class="t-cell-obj" style="font-family:'DM Mono',monospace">${esc(l.reference)||'—'}</td>
       <td class="t-cell-obj">${esc(l.produit)||'—'}</td>
       <td class="t-cell-obj">${esc(l.localisation)||'—'}</td>
@@ -879,7 +890,11 @@ window.importPdaExcel=async function(e){
       const row=aoa[r]; if(!row || !row.some(v=>String(v).trim()!=='')) continue;
       const get=f=>map[f]!==undefined?row[map[f]]:'';
       const statutRaw=String(get('statut')||'').trim();
-      const statut=PDA_STATUTS.find(s=>normKey(s)===normKey(statutRaw))||'À faire';
+      let statut=PDA_STATUTS.find(s=>normKey(s)===normKey(statutRaw));
+      if(!statut && isPdaDone({statut:statutRaw})) statut='Terminé';
+      if(!statut && /encours|enc|wip/.test(normKey(statutRaw))) statut='En cours';
+      if(!statut && /bloq|block|ko/.test(normKey(statutRaw))) statut='Bloqué';
+      if(!statut) statut='À faire';
       const obj={
         client:String(get('client')||'').trim(),
         reference:String(get('reference')||'').trim(),
@@ -1110,6 +1125,18 @@ document.addEventListener('input', function(e){
   #pda-list{flex:1;min-height:120px;overflow:auto;}
   #pda-list .t-table-wrap{overflow:visible;margin-bottom:0;}
   #pda-list .t-table th{position:sticky;top:0;z-index:2;background:var(--surface);box-shadow:inset 0 -2px 0 var(--border);}
+  #taches-list .t-table-wrap{max-height:calc(100vh - 300px);overflow:auto;}
+  #taches-list .t-table th{position:sticky;top:0;z-index:2;background:var(--surface);box-shadow:inset 0 -2px 0 var(--border);}
+  #taches-list .t-table .fix-chk{position:sticky;left:0;z-index:1;background:var(--surface);}
+  #taches-list .t-table .fix-nom{position:sticky;left:var(--fix-left,44px);z-index:1;background:var(--surface);box-shadow:inset -1px 0 0 var(--border);}
+  #taches-list .t-table th.fix-chk,#taches-list .t-table th.fix-nom{z-index:3;}
+  #taches-list .t-table th.fix-nom{box-shadow:inset -1px 0 0 var(--border),inset 0 -2px 0 var(--border);}
+  #taches-list .t-table .grp-lbl{position:sticky;left:12px;display:inline-block;}
+  #taches-list .t-table tr.t-row-done .fix-chk,#taches-list .t-table tr.t-row-done .fix-nom{background:var(--surface);}
+  #pda-list .t-table td.pda-fix{position:sticky;left:0;z-index:1;background:var(--surface);box-shadow:inset -1px 0 0 var(--border);}
+  #pda-list .t-table th.pda-fix{left:0;z-index:3;box-shadow:inset -1px 0 0 var(--border),inset 0 -2px 0 var(--border);}
+  #pda-list .t-table tr.t-row-done td.pda-fix{background:var(--surface);}
+  #pda-list .t-table tr.pda-editing td.pda-fix{background:#eef3fd!important;}
   .pda-editing td{background:rgba(37,99,235,.06)!important;padding:4px 6px!important;}
   .pda-inline{width:100%;min-width:80px;border:1px solid var(--accent);border-radius:6px;padding:5px 7px;font-size:12px;font-family:'DM Sans',sans-serif;background:#fff;color:var(--text);}
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);}
