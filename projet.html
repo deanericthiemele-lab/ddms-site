@@ -135,14 +135,19 @@ function renderSidebar() {
   const q = document.getElementById('search-proj').value.toLowerCase();
   const list = document.getElementById('proj-list');
   list.innerHTML = '';
-  projets.filter(p=>(p.nom||'').toLowerCase().includes(q)).forEach(p => {
+  const visibles = projets.filter(p=>(p.nom||'').toLowerCase().includes(q));
+  const actifs = visibles.filter(p=>p.statut!=='Terminé');
+  const termines = visibles.filter(p=>p.statut==='Terminé');
+  const renderItem = p => {
+    const done = p.statut==='Terminé';
     const c = col(p), sc = SC[p.statut]||SC['En cours'];
     const initials = (p.nom||'?').split(' ').map(w=>w[0]).join('').substring(0,2).toUpperCase();
     const pct = progPct(p);
     const div = document.createElement('div');
-    div.className = 'proj-item'+(p.id===currentProjetId?' active':'');
+    div.className = 'proj-item'+(p.id===currentProjetId?' active':'')+(done?' proj-done':'');
     div.onclick = ()=>selectProjet(p.id);
     div.innerHTML = `
+      <div class="proj-chk ${done?'checked':''}" title="${done?'Réouvrir le projet':'Marquer terminé'}" onclick="toggleProjetTermine(event,'${p.id}')"></div>
       <div class="proj-av" style="background:${c}18;color:${c}">${initials}</div>
       <div class="proj-info">
         <div class="proj-name">${p.nom||'Sans nom'}</div>
@@ -151,10 +156,25 @@ function renderSidebar() {
       </div>
       <div class="s-dot" style="background:${sc.text}"></div>`;
     list.appendChild(div);
-  });
+  };
+  actifs.forEach(renderItem);
+  if(termines.length){
+    const sep=document.createElement('div'); sep.className='proj-sep';
+    sep.textContent=`● Terminés (${termines.length})`;
+    list.appendChild(sep);
+    termines.forEach(renderItem);
+  }
   document.getElementById('sidebar-count').textContent=`${projets.length} projet${projets.length>1?'s':''}`;
 }
 window.filterProjets=()=>renderSidebar();
+window.toggleProjetTermine=async function(e,id){
+  e.stopPropagation();
+  const p=projets.find(x=>x.id===id); if(!p) return;
+  const wasDone = p.statut==='Terminé';
+  p.statut = wasDone ? 'En cours' : 'Terminé';
+  try{ await fsSave(p); renderSidebar(); if(p.id===currentProjetId) renderProjet(); toast(wasDone?'Projet réouvert':'Projet terminé ✓','success'); }
+  catch(err){ p.statut = wasDone?'Terminé':'En cours'; toast('Erreur : '+err.message,'error'); }
+};
 
 function progPct(p) {
   const t=p.taches||[]; if(!t.length) return 0;
@@ -963,6 +983,14 @@ document.addEventListener('input', function(e){
   .prog-mini-wrap{height:3px;background:var(--surface2);border-radius:3px;margin-top:6px;overflow:hidden;}
   .prog-mini{height:100%;border-radius:3px;transition:width .4s;}
   .s-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:6px;}
+  .proj-chk{width:15px;height:15px;border:1.5px solid var(--border);border-radius:4px;flex-shrink:0;margin-top:9px;cursor:pointer;background:var(--surface);transition:all .15s;}
+  .proj-chk:hover{border-color:var(--green);}
+  .proj-chk.checked{background:var(--green);border-color:var(--green);position:relative;}
+  .proj-chk.checked::after{content:'';position:absolute;left:4px;top:1px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);}
+  .proj-item.proj-done{opacity:.45;filter:grayscale(1);}
+  .proj-item.proj-done:hover{opacity:.7;}
+  .proj-item.proj-done .proj-name{text-decoration:line-through;}
+  .proj-sep{font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;padding:12px 10px 6px;border-top:1px dashed var(--border);margin-top:8px;}
   .sf{padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;}
 
   /* ── MAIN ── */
