@@ -64,7 +64,6 @@ table.data tr{cursor:pointer;}
 
 <div class="kpi">
  <div>Dossiers<b id="kpiN">0</b></div>
- <div>Volume (FCFA)<b id="kpiV">0</b></div>
  <div>Zones actives<b id="kpiZ">0</b></div>
  <div>Non localisés<b id="kpiU">0</b></div>
 </div>
@@ -73,7 +72,7 @@ table.data tr{cursor:pointer;}
  <div class="mapbox">
   <svg id="map" viewBox="0 0 940 940"></svg>
   <div id="tooltip"></div>
-  <div class="legend" style="padding:6px 10px;">Couleur = volume FCFA (clair → foncé). Survoler une zone pour le détail par Libellé Produit. Cliquer pour figer la sélection.</div>
+  <div class="legend" style="padding:6px 10px;"><span style="display:inline-block;width:120px;height:10px;vertical-align:middle;background:linear-gradient(to right,#e5f5e0,#006d2c);border:1px solid #999"></span> Nombre de dossiers : vert clair = faible → vert foncé = fort (gris = aucune production). Survoler une zone pour le détail par Libellé Produit. Cliquer pour figer la sélection.</div>
  </div>
  <div class="side">
   <table class="data" id="tableZones"><thead><tr id="thZones"></tr></thead><tbody></tbody></table>
@@ -164,7 +163,7 @@ function parseDate(v){
  const d=new Date(v); return isNaN(d)?null:d;
 }
 function loadExcel(){
- return fetch("input.xlsx?v="+Date.now()).then(r=>r.arrayBuffer()).then(b=>{
+ return fetch("Input.xlsx?v="+Date.now()).then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.arrayBuffer(); }).then(b=>{
   const wb=XLSX.read(b,{type:"array",cellDates:true});
   const ws=wb.Sheets[wb.SheetNames[0]];
   const raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:""});
@@ -215,14 +214,15 @@ function aggregate(){
 const fmt=n=>Math.round(n).toLocaleString("fr-FR");
 function color(v,max){
  if(!v) return "#e6e6e6";
- const t=Math.sqrt(v/max);
- const r=Math.round(255-(255-200)*t), g=Math.round(240-(240-90)*t), b=Math.round(255-(255-0)*t);
+ const t=Math.sqrt(v/max);            /* 0 = faible, 1 = fort */
+ /* dégradé vert : #e5f5e0 (faible) -> #006d2c (fort) */
+ const r=Math.round(229-(229-0)*t), g=Math.round(245-(245-109)*t), b=Math.round(224-(224-44)*t);
  return `rgb(${r},${g},${b})`;
 }
 function render(){
  const {agg,unloc,rows}=aggregate();
  const zones=view==="abj"?ABJ:REGIONS;
- const max=Math.max(1,...Object.values(agg).map(a=>a.total));
+ const max=Math.max(1,...Object.values(agg).map(a=>a.n));
  const svg=document.getElementById("map");
  let s="";
  if(view==="abj"){
@@ -231,13 +231,13 @@ function render(){
  }
  zones.forEach(z=>{
   const a=agg[z.id];
-  s+=`<path class="zone${selectedZone===z.id?' selected':''}" data-id="${z.id}" d="${z.d}" fill="${color(a?a.total:0,max)}"/>`;
+  s+=`<path class="zone${selectedZone===z.id?' selected':''}" data-id="${z.id}" d="${z.d}" fill="${color(a?a.n:0,max)}"/>`;
  });
  zones.forEach(z=>{
   const a=agg[z.id]; let cx=z.cx,cy=z.cy;
   if(cx===undefined){ const m=z.d.match(/-?[\d.]+,-?[\d.]+/g).map(p=>p.split(",").map(Number)); cx=m.reduce((t,p)=>t+p[0],0)/m.length; cy=m.reduce((t,p)=>t+p[1],0)/m.length; }
   s+=`<text class="lbl" x="${cx}" y="${cy}">${z.id}</text>`;
-  if(a) s+=`<text class="lbl2" x="${cx}" y="${cy+13}">${a.n} doss. · ${fmt(a.total)}</text>`;
+  if(a) s+=`<text class="lbl2" x="${cx}" y="${cy+13}">${a.n} dossier(s)</text>`;
  });
  svg.innerHTML=s;
  svg.querySelectorAll(".zone").forEach(p=>{
@@ -247,9 +247,7 @@ function render(){
  });
  /* KPI + titre */
  const n=rows.filter(r=>view!=="abj"||r.region==="Lagunes").length;
- const v=Object.values(agg).reduce((t,a)=>t+a.total,0);
  document.getElementById("kpiN").textContent=fmt(n);
- document.getElementById("kpiV").textContent=fmt(v);
  document.getElementById("kpiZ").textContent=Object.keys(agg).length;
  document.getElementById("kpiU").textContent=unloc;
  const y=document.getElementById("anneeSelect").value||"toutes années";
@@ -261,8 +259,8 @@ function showTip(e,id,a){
  let h=`<b>${id}</b>`;
  if(!a){ h+="<div style='color:#888;margin-top:4px'>Aucune production</div>"; }
  else{
-  h+=`<div>${a.n} dossier(s) · <b>${fmt(a.total)} FCFA</b></div><table>`;
-  Object.entries(a.prod).sort((x,y)=>y[1].total-x[1].total).forEach(([p,d])=>{ h+=`<tr><td>${p}</td><td class="num">${d.n}</td><td class="num">${fmt(d.total)}</td></tr>`; });
+  h+=`<div><b>${a.n} dossier(s)</b></div><table>`;
+  Object.entries(a.prod).sort((x,y)=>y[1].n-x[1].n).forEach(([p,d])=>{ h+=`<tr><td>${p}</td><td class="num">${d.n}</td></tr>`; });
   h+="</table>";
  }
  tip.innerHTML=h; tip.style.display="block";
@@ -275,12 +273,12 @@ function hideTip(){ document.getElementById("tooltip").style.display="none"; }
 
 function renderTable(agg,zones){
  const prods=[...new Set(Object.values(agg).flatMap(a=>Object.keys(a.prod)))].sort();
- document.getElementById("thZones").innerHTML="<th>"+(view==="abj"?"Commune":"Région")+"</th><th>Dossiers</th><th>Volume FCFA</th>"+prods.map(p=>`<th>${p}</th>`).join("");
+ document.getElementById("thZones").innerHTML="<th>"+(view==="abj"?"Commune":"Région")+"</th><th>Dossiers</th>"+prods.map(p=>`<th>${p}</th>`).join("");
  const tb=document.querySelector("#tableZones tbody");
- const list=Object.entries(agg).sort((x,y)=>y[1].total-x[1].total);
- tb.innerHTML=list.map(([k,a])=>`<tr data-id="${k}" class="${selectedZone===k?'sel':''}"><td>${k}</td><td class="num">${a.n}</td><td class="num">${fmt(a.total)}</td>`+
-   prods.map(p=>`<td class="num">${a.prod[p]?a.prod[p].n+" / "+fmt(a.prod[p].total):""}</td>`).join("")+"</tr>").join("")
-  +(list.length?`<tr style="font-weight:bold"><td>TOTAL</td><td class="num">${list.reduce((t,x)=>t+x[1].n,0)}</td><td class="num">${fmt(list.reduce((t,x)=>t+x[1].total,0))}</td>${prods.map(()=>"<td></td>").join("")}</tr>`:"<tr><td colspan='3'>Aucune donnée</td></tr>");
+ const list=Object.entries(agg).sort((x,y)=>y[1].n-x[1].n);
+ tb.innerHTML=list.map(([k,a])=>`<tr data-id="${k}" class="${selectedZone===k?'sel':''}"><td>${k}</td><td class="num">${a.n}</td>`+
+   prods.map(p=>`<td class="num">${a.prod[p]?a.prod[p].n:""}</td>`).join("")+"</tr>").join("")
+  +(list.length?`<tr style="font-weight:bold"><td>TOTAL</td><td class="num">${list.reduce((t,x)=>t+x[1].n,0)}</td>${prods.map(()=>"<td></td>").join("")}</tr>`:"<tr><td colspan='2'>Aucune donnée</td></tr>");
  tb.querySelectorAll("tr[data-id]").forEach(tr=>tr.addEventListener("click",()=>{ selectedZone=selectedZone===tr.dataset.id?null:tr.dataset.id; render(); }));
 }
 
@@ -294,12 +292,12 @@ function exportExcel(){
  const {agg,rows}=aggregate();
  if(!Object.keys(agg).length){ alert("Aucune donnée à exporter"); return; }
  const key=view==="abj"?"Commune":"Région";
- const data=Object.entries(agg).sort((x,y)=>y[1].total-x[1].total).map(([k,a])=>{
-  const o={}; o[key]=k; o["Dossiers"]=a.n; o["Volume FCFA"]=a.total;
-  Object.entries(a.prod).forEach(([p,d])=>{ o[p+" (nb)"]=d.n; o[p+" (FCFA)"]=d.total; });
+ const data=Object.entries(agg).sort((x,y)=>y[1].n-x[1].n).map(([k,a])=>{
+  const o={}; o[key]=k; o["Dossiers"]=a.n;
+  Object.entries(a.prod).forEach(([p,d])=>{ o[p]=d.n; });
   return o;
  });
- const detail=rows.filter(r=>view!=="abj"||r.region==="Lagunes").map(r=>({Client:r.client,"Libéllé Produit":r.produit,Localisation:r.loc,Région:r.region||"Non localisé",Commune:r.commune||"",Année:r.annee,Total:r.total}));
+ const detail=rows.filter(r=>view!=="abj"||r.region==="Lagunes").map(r=>({Client:r.client,"Libéllé Produit":r.produit,Localisation:r.loc,Région:r.region||"Non localisé",Commune:r.commune||"",Année:r.annee}));
  const wb=XLSX.utils.book_new();
  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(data),"Par zone");
  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),"Détail");
@@ -311,7 +309,7 @@ function refreshData(){
 }
 document.getElementById("anneeSelect").addEventListener("change",render);
 document.getElementById("produitSelect").addEventListener("change",render);
-loadExcel().then(render).catch(e=>{ document.getElementById("titre").textContent="Erreur chargement input.xlsx : "+e; });
+loadExcel().then(render).catch(e=>{ document.getElementById("titre").textContent="Erreur chargement Input.xlsx : "+e; });
 </script>
 </body>
 </html>
