@@ -315,8 +315,8 @@ function renderTachesDefault(taches) {
         <td class="t-cell-nom"><span class="${t.statut==='Terminé'?'struck':''}">${t.titre}</span></td>
         <td class="t-cell-obj hide-mobile">${t.objectif||'—'}</td>
         <td class="t-cell-vol hide-mobile"><span class="vol-link" onclick="openPda(${i})" title="Ouvrir le PDA (détail des lignes)">${vv.vol}${vv.fromPda?`<span class="vol-badge" title="Calculé depuis le PDA">PDA</span>`:''}</span></td>
-        <td class="t-cell-vol hide-mobile">${vv.real}</td>
-        <td class="t-cell-vol hide-mobile t-cell-reste">${vv.reste}</td>
+        <td class="t-cell-vol hide-mobile">${vv.fromPda?`<span class="vol-link" onclick="openPda(${i},'termine')" title="Lignes terminées">${vv.real}</span>`:vv.real}</td>
+        <td class="t-cell-vol hide-mobile t-cell-reste">${vv.fromPda?`<span class="vol-link" onclick="openPda(${i},'reste')" title="Lignes non terminées">${vv.reste}</span>`:vv.reste}</td>
         <td class="t-cell-obj hide-mobile">${t.porteur||'—'}</td>
         <td class="t-cell-date">${t.dateDebut?formatDate(t.dateDebut):'—'}</td>
         <td class="t-cell-date">${t.dateFin?formatDate(t.dateFin):'—'}</td>
@@ -695,7 +695,7 @@ window.deleteFichier=async function(e,i,fi){
 };
 
 // ── PDA (Plan d'Actions Détaillé) par tâche : lignes Client/Référence/... ──
-let pdaTacheIdx=null, pdaEditIdx=null;
+let pdaTacheIdx=null, pdaEditIdx=null, pdaMode='all'; // all | reste | termine
 const PDA_FIELDS=['client','reference','produit','localisation','recurrent','typeSite','dateConstruction','techno','statut'];
 const fmtNum=v=>{ const n=parseFloat(String(v??'').replace(/\s/g,'').replace(',','.')); return isNaN(n)?'':n.toLocaleString('fr-FR'); };
 const PDA_STATUTS=['À faire','En cours','Terminé','Bloqué'];
@@ -710,9 +710,9 @@ const pdaTache=()=>{ const p=proj(); return (p&&p.taches&&pdaTacheIdx!==null)?p.
 const normKey=k=>String(k||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
 const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-window.openPda=function(i){
+window.openPda=function(i,mode='all'){
   const p=proj(); if(!p||!p.taches||!p.taches[i]) return;
-  pdaTacheIdx=i; pdaEditIdx=null;
+  pdaTacheIdx=i; pdaEditIdx=null; pdaMode=mode;
   pdaClearForm();
   renderPda();
   document.getElementById('modal-pda').style.display='flex';
@@ -725,18 +725,22 @@ window.pdaCancelEdit=()=>{ pdaClearForm(); renderPda(); };
 function renderPda(){
   const t=pdaTache(); if(!t) return;
   const lines=t.pda||[];
-  document.getElementById('pda-title-text').textContent=`PDA — ${t.titre||''}`;
+  document.getElementById('pda-title-text').textContent=`PDA — ${t.titre||''}`+(pdaMode==='reste'?' · Reste à faire':pdaMode==='termine'?' · Terminé':'');
   const done=lines.filter(l=>l.statut==='Terminé').length;
   const totRec=lines.reduce((a,l)=>{ const n=parseFloat(String(l.recurrent??'').replace(/\s/g,'').replace(',','.')); return a+(isNaN(n)?0:n); },0);
-  document.getElementById('pda-total').textContent=`Total dossier : ${lines.length}`;
   document.getElementById('pda-count').textContent=`Volume : ${lines.length} · Réalisé (terminé) : ${done} · Reste à faire : ${lines.length-done} · Récurrent total : ${totRec.toLocaleString('fr-FR')}`;
   const q=(document.getElementById('pda-search').value||'').toLowerCase();
   const el=document.getElementById('pda-list');
+  ['all','reste','termine'].forEach(m=>{ const b=document.getElementById('pda-mode-'+m); if(b) b.classList.toggle('active',m===pdaMode); });
+  const modeOk=l=>pdaMode==='reste'?l.statut!=='Terminé':pdaMode==='termine'?l.statut==='Terminé':true;
+  const shown=lines.filter(modeOk).length;
+  document.getElementById('pda-total').textContent=pdaMode==='all'?`Total dossier : ${lines.length}`:`Affichés : ${shown} / ${lines.length}`;
   if(!lines.length){ el.innerHTML=emptyState('Aucune ligne — importez un fichier Excel'); return; }
   let html=`<div class="t-table-wrap"><table class="t-table"><thead><tr>
     <th>Client</th><th>Référence</th><th>Produit</th><th>Localisation</th><th style="text-align:right">Récurrent</th><th>Type de site</th><th>Date construction</th><th>Techno</th><th>Statut</th><th style="width:64px"></th>
   </tr></thead><tbody>`;
   lines.forEach((l,li)=>{
+    if(!modeOk(l)) return;
     if(q && !PDA_FIELDS.some(f=>String(l[f]||'').toLowerCase().includes(q))) return;
     const sc=PDAC[l.statut]||'var(--text3)';
     if(li===pdaEditIdx){
@@ -770,6 +774,7 @@ function renderPda(){
   el.innerHTML=html;
 }
 window.pdaFilter=()=>renderPda();
+window.pdaSetMode=m=>{ pdaMode=m; pdaEditIdx=null; renderPda(); };
 
 window.pdaEdit=function(li){
   const t=pdaTache(); if(!t||!t.pda||!t.pda[li]) return;
@@ -1070,6 +1075,10 @@ document.addEventListener('input', function(e){
   .pda-sub{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin:-12px 0 12px;}
   .pda-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
   .pda-toolbar .search-box{margin:0;flex:1;min-width:180px;}
+  .pda-modes{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+  .pda-modes button{background:var(--surface);border:none;border-right:1px solid var(--border);padding:8px 12px;font-size:12px;font-family:'DM Sans',sans-serif;color:var(--text2);cursor:pointer;}
+  .pda-modes button:last-child{border-right:none;}
+  .pda-modes button.active{background:var(--accent);color:#fff;font-weight:600;}
   #pda-list{flex:1;min-height:120px;overflow:auto;}
   #pda-list .t-table-wrap{overflow:visible;margin-bottom:0;}
   #pda-list .t-table th{position:sticky;top:0;z-index:2;background:var(--surface);box-shadow:inset 0 -2px 0 var(--border);}
@@ -1271,6 +1280,11 @@ document.addEventListener('input', function(e){
 
 
     <div class="pda-toolbar">
+      <div class="pda-modes">
+        <button id="pda-mode-all" onclick="pdaSetMode('all')">Volume (tous)</button>
+        <button id="pda-mode-reste" onclick="pdaSetMode('reste')">Reste à faire</button>
+        <button id="pda-mode-termine" onclick="pdaSetMode('termine')">Terminé</button>
+      </div>
       <div class="search-box"><span>🔍</span><input id="pda-search" placeholder="Rechercher dans les lignes…" oninput="pdaFilter()"></div>
       <button class="btn-cancel" onclick="triggerImportPda()" title="Importer des lignes depuis Excel">📥 Import Excel</button>
       <button class="btn-cancel" onclick="exportPdaExcel()" title="Exporter / télécharger un modèle">📤 Export Excel</button>
