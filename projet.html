@@ -719,13 +719,8 @@ window.openPda=function(i){
 };
 window.closePda=function(){ document.getElementById('modal-pda').style.display='none'; pdaTacheIdx=null; pdaEditIdx=null; };
 
-function pdaClearForm(){
-  PDA_FIELDS.forEach(f=>{ const el=document.getElementById('pda-'+f); if(el) el.value = f==='statut'?'À faire':''; });
-  pdaEditIdx=null;
-  document.getElementById('pda-save-btn').textContent='+ Ajouter';
-  document.getElementById('pda-cancel-edit').style.display='none';
-}
-window.pdaCancelEdit=()=>pdaClearForm();
+function pdaClearForm(){ pdaEditIdx=null; }
+window.pdaCancelEdit=()=>{ pdaClearForm(); renderPda(); };
 
 function renderPda(){
   const t=pdaTache(); if(!t) return;
@@ -733,17 +728,30 @@ function renderPda(){
   document.getElementById('pda-title-text').textContent=`PDA — ${t.titre||''}`;
   const done=lines.filter(l=>l.statut==='Terminé').length;
   const totRec=lines.reduce((a,l)=>{ const n=parseFloat(String(l.recurrent??'').replace(/\s/g,'').replace(',','.')); return a+(isNaN(n)?0:n); },0);
+  document.getElementById('pda-total').textContent=`Total dossier : ${lines.length}`;
   document.getElementById('pda-count').textContent=`Volume : ${lines.length} · Réalisé (terminé) : ${done} · Reste à faire : ${lines.length-done} · Récurrent total : ${totRec.toLocaleString('fr-FR')}`;
   const q=(document.getElementById('pda-search').value||'').toLowerCase();
   const el=document.getElementById('pda-list');
-  if(!lines.length){ el.innerHTML=emptyState('Aucune ligne — saisissez ci-dessus ou importez un Excel'); return; }
+  if(!lines.length){ el.innerHTML=emptyState('Aucune ligne — importez un fichier Excel'); return; }
   let html=`<div class="t-table-wrap"><table class="t-table"><thead><tr>
     <th>Client</th><th>Référence</th><th>Produit</th><th>Localisation</th><th style="text-align:right">Récurrent</th><th>Type de site</th><th>Date construction</th><th>Techno</th><th>Statut</th><th style="width:64px"></th>
   </tr></thead><tbody>`;
   lines.forEach((l,li)=>{
     if(q && !PDA_FIELDS.some(f=>String(l[f]||'').toLowerCase().includes(q))) return;
     const sc=PDAC[l.statut]||'var(--text3)';
-    html+=`<tr class="t-row ${l.statut==='Terminé'?'t-row-done':''} ${li===pdaEditIdx?'pda-editing':''}">
+    if(li===pdaEditIdx){
+      const inp=(f,type='text')=>`<input class="pda-inline" id="pda-${f}" type="${type}" value="${esc(l[f]||'')}">`;
+      html+=`<tr class="t-row pda-editing">
+        <td>${inp('client')}</td><td>${inp('reference')}</td><td>${inp('produit')}</td><td>${inp('localisation')}</td>
+        <td>${inp('recurrent','number')}</td><td>${inp('typeSite')}</td><td>${inp('dateConstruction','date')}</td><td>${inp('techno')}</td>
+        <td><select class="pda-inline" id="pda-statut">${PDA_STATUTS.map(st=>`<option ${st===(l.statut||'À faire')?'selected':''}>${st}</option>`).join('')}</select></td>
+        <td class="t-cell-actions">
+          <button class="btn-icon" onclick="pdaSave()" title="Enregistrer">✔</button>
+          <button class="btn-icon del" onclick="pdaCancelEdit()" title="Annuler">✕</button>
+        </td></tr>`;
+      return;
+    }
+    html+=`<tr class="t-row ${l.statut==='Terminé'?'t-row-done':''}">
       <td class="t-cell-nom">${esc(l.client)||'—'}</td>
       <td class="t-cell-obj" style="font-family:'DM Mono',monospace">${esc(l.reference)||'—'}</td>
       <td class="t-cell-obj">${esc(l.produit)||'—'}</td>
@@ -765,28 +773,25 @@ window.pdaFilter=()=>renderPda();
 
 window.pdaEdit=function(li){
   const t=pdaTache(); if(!t||!t.pda||!t.pda[li]) return;
-  const l=t.pda[li]; pdaEditIdx=li;
-  PDA_FIELDS.forEach(f=>{ document.getElementById('pda-'+f).value=l[f]||(f==='statut'?'À faire':''); });
-  document.getElementById('pda-save-btn').textContent='Enregistrer';
-  document.getElementById('pda-cancel-edit').style.display='inline-flex';
-  document.getElementById('pda-client').focus();
+  pdaEditIdx=li;
   renderPda();
+  const c=document.getElementById('pda-client'); if(c) c.focus();
 };
 
 window.pdaSave=async function(){
   const p=proj(); const t=pdaTache(); if(!p||!t) return;
   const obj={};
-  PDA_FIELDS.forEach(f=>obj[f]=(document.getElementById('pda-'+f).value||'').trim());
+  PDA_FIELDS.forEach(f=>{ const el=document.getElementById('pda-'+f); obj[f]=el?(el.value||'').trim():(t.pda[pdaEditIdx]||{})[f]||''; });
   if(!obj.client && !obj.reference){ toast('Client ou Référence requis','error'); return; }
   if(!t.pda) t.pda=[];
-  if(pdaEditIdx!==null) t.pda[pdaEditIdx]=obj; else t.pda.push(obj);
+  if(pdaEditIdx===null) return;
+  t.pda[pdaEditIdx]=obj;
   syncPdaVolume(t);
   try{
     await fsSave(p);
     saveSuggestionValues({'pda-client':obj.client,'pda-produit':obj.produit,'pda-localisation':obj.localisation,'pda-typeSite':obj.typeSite,'pda-techno':obj.techno});
     pdaClearForm(); renderPda(); renderProjet();
     toast('Ligne enregistrée ✓','success');
-    document.getElementById('pda-client').focus();
   }catch(e){ toast('Erreur : '+e.message,'error'); }
 };
 
@@ -887,8 +892,8 @@ window.exportPdaExcel=function(){
 
 // Entrée = ajouter dans le formulaire PDA
 document.addEventListener('keydown',e=>{
-  if(e.key==='Enter' && e.target.closest && e.target.closest('#pda-form') && e.target.tagName!=='TEXTAREA'){ e.preventDefault(); window.pdaSave(); }
-  if(e.key==='Escape' && document.getElementById('modal-pda').style.display==='flex'){ window.closePda(); }
+  if(e.key==='Enter' && e.target.classList && e.target.classList.contains('pda-inline')){ e.preventDefault(); window.pdaSave(); }
+  if(e.key==='Escape' && document.getElementById('modal-pda').style.display==='flex'){ if(pdaEditIdx!==null) window.pdaCancelEdit(); else window.closePda(); }
 });
 
 init();
@@ -1063,15 +1068,11 @@ document.addEventListener('input', function(e){
   .vol-badge{background:var(--accent);color:#fff;border-radius:10px;font-size:9px;font-family:'DM Mono',monospace;padding:1px 6px;font-weight:600;}
   .modal-pda{width:1040px;max-width:98vw;max-height:94vh;display:flex;flex-direction:column;}
   .pda-sub{font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;margin:-12px 0 12px;}
-  #pda-form{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;}
-  .pda-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 10px;}
-  .pda-grid .field{margin-bottom:0;}
-  .pda-actions{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;}
   .pda-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
   .pda-toolbar .search-box{margin:0;flex:1;min-width:180px;}
   #pda-list{flex:1;min-height:120px;overflow:auto;}
-  .pda-editing td{background:rgba(37,99,235,.06)!important;}
-  @media(max-width:900px){ .pda-grid{grid-template-columns:repeat(2,1fr);} }
+  .pda-editing td{background:rgba(37,99,235,.06)!important;padding:4px 6px!important;}
+  .pda-inline{width:100%;min-width:80px;border:1px solid var(--accent);border-radius:6px;padding:5px 7px;font-size:12px;font-family:'DM Sans',sans-serif;background:#fff;color:var(--text);}
   .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);}
   .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:540px;max-width:96vw;max-height:90vh;overflow-y:auto;padding:24px;animation:slideUp .2s ease;}
   .modal-sm{width:440px;}
@@ -1266,31 +1267,13 @@ document.addEventListener('input', function(e){
     <div class="modal-title"><span id="pda-title-text">PDA</span><button class="modal-close" onclick="closePda()" title="Fermer">✕</button></div>
     <div class="pda-sub" id="pda-count"></div>
 
-    <div id="pda-form">
-      <div class="pda-grid">
-        <div class="field"><label>Client</label><input id="pda-client" list="dl-pda-client" placeholder="ex: Société XYZ"><datalist id="dl-pda-client" data-champ="pda-client"></datalist></div>
-        <div class="field"><label>Référence</label><input id="pda-reference" placeholder="ex: ABJ-0123"></div>
-        <div class="field"><label>Produit</label><input id="pda-produit" list="dl-pda-produit" placeholder="ex: LS, LSI, Fibre…"><datalist id="dl-pda-produit" data-champ="pda-produit"></datalist></div>
-        <div class="field"><label>Localisation</label><input id="pda-localisation" list="dl-pda-localisation" placeholder="ex: Cocody Riviera"><datalist id="dl-pda-localisation" data-champ="pda-localisation"></datalist></div>
-        <div class="field"><label>Récurrent</label><input id="pda-recurrent" type="number" min="0" step="any" placeholder="ex: 150000"></div>
-        <div class="field"><label>Type de site</label><input id="pda-typeSite" list="dl-pda-typeSite" placeholder="ex: Siège, Agence…"><datalist id="dl-pda-typeSite" data-champ="pda-typeSite"></datalist></div>
-        <div class="field"><label>Date construction</label><input id="pda-dateConstruction" type="date"></div>
-        <div class="field"><label>Techno</label><input id="pda-techno" list="dl-pda-techno" placeholder="ex: FO, FH, Cuivre"><datalist id="dl-pda-techno" data-champ="pda-techno"></datalist></div>
-        <div class="field"><label>Statut</label>
-          <select id="pda-statut"><option>À faire</option><option>En cours</option><option>Terminé</option><option>Bloqué</option></select>
-        </div>
-      </div>
-      <div class="pda-actions">
-        <button class="btn-cancel" id="pda-cancel-edit" style="display:none" onclick="pdaCancelEdit()">Annuler la modification</button>
-        <button class="btn-primary" id="pda-save-btn" onclick="pdaSave()">+ Ajouter</button>
-      </div>
-    </div>
 
     <div class="pda-toolbar">
       <div class="search-box"><span>🔍</span><input id="pda-search" placeholder="Rechercher dans les lignes…" oninput="pdaFilter()"></div>
       <button class="btn-cancel" onclick="triggerImportPda()" title="Importer des lignes depuis Excel">📥 Import Excel</button>
       <button class="btn-cancel" onclick="exportPdaExcel()" title="Exporter / télécharger un modèle">📤 Export Excel</button>
       <button class="btn-cancel" onclick="pdaClearAll()" style="color:var(--red)">🗑 Vider</button>
+      <span id="pda-total" style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--accent);background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.2);border-radius:8px;padding:8px 12px;white-space:nowrap">Total dossier : 0</span>
       <input type="file" id="import-pda-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importPdaExcel(event)">
     </div>
 
