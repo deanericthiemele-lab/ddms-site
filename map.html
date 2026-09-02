@@ -58,7 +58,9 @@ table.data tr{cursor:pointer;}
     <div onclick="doExport('xlsx')">📊 Excel (.xlsx)</div>
     <div onclick="doExport('png')">🖼 Image (.png)</div>
     <div onclick="doExport('svg')">✒ Vectoriel (.svg)</div>
-    <div onclick="doExport('pdf')">📄 PDF</div>
+    <div onclick="doExport('pdf')">📄 PDF (vue actuelle)</div>
+    <div onclick="doExport('pdf2')">📄 PDF complet (CI + Abidjan)</div>
+    <div onclick="doExport('png2')">🖼 Image complète (CI + Abidjan)</div>
    </div></span>
   <button onclick="window.print()">Imprimer</button>
  </div>
@@ -307,6 +309,7 @@ document.addEventListener("click",e=>{ if(!e.target.closest(".menu")) document.g
 function doExport(t){
  document.getElementById("exportMenu").style.display="none";
  if(t==="xlsx") exportExcel(); else if(t==="png") exportPNG(); else if(t==="svg") exportSVG(); else if(t==="pdf") exportPDF();
+ else if(t==="pdf2") exportPDFComplet(); else if(t==="png2") exportPNGComplet();
 }
 function baseName(){ return "map_"+(view==="abj"?"abidjan":"ci")+"_"+(document.getElementById("anneeSelect").value||"toutes"); }
 /* SVG autonome (styles inlinés) */
@@ -324,15 +327,69 @@ function exportSVG(){
  const blob=new Blob([svgString()],{type:"image/svg+xml;charset=utf-8"});
  download(URL.createObjectURL(blob),baseName()+".svg");
 }
-function svgToCanvas(scale){
+function svgToCanvas(scale,svgStr,vb){
  return new Promise((res,rej)=>{
-  const vb=document.getElementById("map").getAttribute("viewBox").split(" ").map(Number);
+  vb=vb||document.getElementById("map").getAttribute("viewBox").split(" ").map(Number);
   const w=vb[2]*scale,h=vb[3]*scale;
   const img=new Image();
   img.onload=()=>{ const c=document.createElement("canvas"); c.width=w; c.height=h; const ctx=c.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h); res(c); };
   img.onerror=rej;
-  img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svgString());
+  img.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svgStr||svgString());
  });
+}
+/* Capture des deux vues (CI puis Abidjan) sans perturber l'affichage courant */
+function captureBothViews(){
+ const saveView=view, saveSel=selectedZone; selectedZone=null;
+ const out={};
+ for(const v of ["ci","abj"]){
+  view=v; render();
+  out[v]={svg:svgString(), vb:document.getElementById("map").getAttribute("viewBox").split(" ").map(Number), titre:document.getElementById("titre").textContent, agg:aggregate().agg};
+ }
+ view=saveView; selectedZone=saveSel; render();
+ return out;
+}
+function exportPNGComplet(){
+ const b=captureBothViews();
+ Promise.all([svgToCanvas(2,b.ci.svg,b.ci.vb),svgToCanvas(2,b.abj.svg,b.abj.vb)]).then(([c1,c2])=>{
+  const W=Math.max(c1.width,c2.width), pad=60, th=70;
+  const c=document.createElement("canvas"); c.width=W; c.height=th+c1.height+pad+th+c2.height+pad;
+  const ctx=c.getContext("2d"); ctx.fillStyle="#fff"; ctx.fillRect(0,0,c.width,c.height);
+  ctx.fillStyle="#222"; ctx.font="bold 40px Arial";
+  let y=0;
+  ctx.fillText(b.ci.titre,pad/2,y+50); y+=th; ctx.drawImage(c1,(W-c1.width)/2,y); y+=c1.height+pad;
+  ctx.fillText(b.abj.titre,pad/2,y+50); y+=th; ctx.drawImage(c2,(W-c2.width)/2,y);
+  download(c.toDataURL("image/png"),"map_complet_"+(document.getElementById("anneeSelect").value||"toutes")+".png");
+ }).catch(()=>alert("Export image impossible"));
+}
+function exportPDFComplet(){
+ const b=captureBothViews();
+ Promise.all([svgToCanvas(2,b.ci.svg,b.ci.vb),svgToCanvas(2,b.abj.svg,b.abj.vb)]).then(([c1,c2])=>{
+  const {jsPDF}=window.jspdf; const doc=new jsPDF({orientation:"portrait",unit:"mm",format:"a4"});
+  const PW=210, PH=297, m=10, gap=6, titleH=7;
+  /* hauteur disponible pour les 2 cartes sur une seule page */
+  const avail=PH-2*m-2*titleH-gap;
+  const r1=c1.height/c1.width, r2=c2.height/c2.width;
+  /* largeur commune telle que h1+h2 <= avail et w <= PW-2m */
+  let w=Math.min(PW-2*m, avail/(r1+r2));
+  const h1=w*r1, h2=w*r2;
+  const x=m; let y=m;   /* carte à gauche, tableau à droite */
+  const table=(agg,key,x0,y0,wTab)=>{
+   const prods=[...new Set(Object.values(agg).flatMap(a=>Object.keys(a.prod)))].sort();
+   const list=Object.entries(agg).sort((p,q)=>q[1].n-p[1].n);
+   doc.autoTable({startY:y0,margin:{left:x0},tableWidth:wTab,styles:{fontSize:6,cellPadding:0.8},headStyles:{fillColor:[0,109,44]},
+    head:[[key,"Doss.",...prods]],body:list.map(([k,a])=>[k,a.n,...prods.map(p=>a.prod[p]?a.prod[p].n:"")]).concat([["TOTAL",list.reduce((t,q)=>t+q[1].n,0),...prods.map(()=>"")]])});
+  };
+  doc.setFontSize(11); doc.setFont(undefined,"bold");
+  doc.text(b.ci.titre,m,y+5); y+=titleH;
+  doc.addImage(c1.toDataURL("image/png"),"PNG",x,y,w,h1);
+  /* tableau région dans la marge droite si de la place, sinon superposé en bas à droite de la carte */
+  if(PW-2*m-w>45) table(b.ci.agg,"Région",x+w+2,y,PW-m-(x+w+2));
+  y+=h1+gap;
+  doc.text(b.abj.titre,m,y+5); y+=titleH;
+  doc.addImage(c2.toDataURL("image/png"),"PNG",x,y,w,h2);
+  if(PW-2*m-w>45) table(b.abj.agg,"Commune",x+w+2,y,PW-m-(x+w+2));
+  doc.save("map_complet_"+(document.getElementById("anneeSelect").value||"toutes")+".pdf");
+ }).catch(()=>alert("Export PDF impossible"));
 }
 function exportPNG(){
  svgToCanvas(2).then(c=>download(c.toDataURL("image/png"),baseName()+".png")).catch(()=>alert("Export image impossible"));
