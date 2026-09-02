@@ -99,10 +99,10 @@ const clone=o=>JSON.parse(JSON.stringify(o||null));
 function snapSet(p){ SNAP[p.id]=clone(p); }
 const J_PROJ_FIELDS={nom:'Nom',chefProjet:'Chef de projet',budget:'Budget',dateDebut:'Date début',dateFin:'Date fin',statut:'Statut',priorite:'Priorité',problematique:'Problématique',objectifs:'Objectifs',description:'Description',membres:'Membres'};
 const J_TACHE_FIELDS={titre:'Nom',objectif:'Objectif',volume:'Volume',realise:'Réalisé',porteur:'Porteur',dateDebut:'Début',dateFin:'Fin',statut:'Statut',description:'Commentaire',nd:'ND',raisonSociale:'Raison sociale',dateMigPrevue:'Date mig. prévue',dateMigEffective:'Date mig. effective'};
-const J_PDA_FIELDS={client:'Client',reference:'Référence',produit:'Produit',localisation:'Localisation',recurrent:'Récurrent',typeSite:'Type de site',dateConstruction:'Date construction',techno:'Techno',statut:'Statut'};
+const J_PDA_FIELDS={date:'Date',client:'Client',reference:'Référence',produit:'Produit',localisation:'Localisation',recurrent:'Récurrent',typeSite:'Type de site',dateConstruction:'Date construction',techno:'Techno',cause:'Cause',statut:'Statut'};
 const jv=v=>Array.isArray(v)?v.join(', '):(v===undefined||v===null?'':String(v));
 const tKey=t=>(t.nd||t.titre||'').trim().toUpperCase();
-const lKey=l=>((l.reference||'')+'|'+(l.client||'')).trim().toUpperCase();
+const lKey=l=>((l.reference||'')+'|'+(l.client||'')+'|'+(l.date||'')).trim().toUpperCase();
 
 function matchLists(before,after,keyFn){
   // apparie les éléments par clé (occurrences multiples gérées) ; retourne {pairs:[[b,a]], added:[a], removed:[b]}
@@ -133,10 +133,10 @@ function journalDiff(p){
     if(nfb!==nfa) ev.push({projet:nomP,cible,champ:'Pièces jointes',avant:String(nfb),apres:String(nfa),type:'modification'});
     const ml=matchLists(tb.pda||[],ta.pda||[],lKey);
     if(ml.added.length>3) ev.push({projet:nomP,cible,champ:'PDA — import',avant:String((tb.pda||[]).length)+' dossier(s)',apres:String((ta.pda||[]).length)+' dossier(s) (+'+ml.added.length+')',type:'import'});
-    else ml.added.forEach(l=>ev.push({projet:nomP,cible,champ:'PDA — dossier',avant:'',apres:(l.client||'')+' '+(l.reference||''),type:'création'}));
+    else ml.added.forEach(l=>ev.push({projet:nomP,cible,champ:'PDA — dossier',avant:'',apres:pdaLineLabel(l),type:'création'}));
     if(ml.removed.length>3) ev.push({projet:nomP,cible,champ:'PDA — suppression',avant:String((tb.pda||[]).length)+' dossier(s)',apres:String((ta.pda||[]).length)+' dossier(s) (−'+ml.removed.length+')',type:'suppression'});
-    else ml.removed.forEach(l=>ev.push({projet:nomP,cible,champ:'PDA — dossier',avant:(l.client||'')+' '+(l.reference||''),apres:'',type:'suppression'}));
-    ml.pairs.forEach(([lb,la])=>{ const c2=cible+' › '+(la.client||'')+' '+(la.reference||''); ev.push(...diffFields(lb,la,J_PDA_FIELDS,{projet:nomP,cible:c2})); });
+    else ml.removed.forEach(l=>ev.push({projet:nomP,cible,champ:'PDA — dossier',avant:pdaLineLabel(l),apres:'',type:'suppression'}));
+    ml.pairs.forEach(([lb,la])=>{ const c2=cible+' › '+pdaLineLabel(la); ev.push(...diffFields(lb,la,J_PDA_FIELDS,{projet:nomP,cible:c2})); });
   });
   if(ev.length>80){ const n=ev.length; ev=ev.slice(0,80); ev.push({projet:nomP,cible:'…',champ:'Autres modifications',avant:'',apres:(n-80)+' changement(s) supplémentaire(s) non détaillé(s)',type:'modification'}); }
   journalPush(ev);
@@ -839,7 +839,33 @@ window.deleteFichier=async function(e,i,fi){
 
 // ── PDA (Plan d'Actions Détaillé) par tâche : lignes Client/Référence/... ──
 let pdaTacheIdx=null, pdaEditIdx=null, pdaMode='all'; // all | reste | termine
-const PDA_FIELDS=['client','reference','produit','localisation','recurrent','typeSite','dateConstruction','techno','statut'];
+// Schémas de colonnes du PDA selon la tâche
+//  - default : Client, Référence, Produit, Localisation, Récurrent, Type de site, Date construction, Techno, Statut
+//  - dispo   : Date, Client, Référence, Cause, Statut   (tâche "Disponibilité de services")
+const PDA_SCHEMAS={
+  default:[
+    {f:'client',label:'Client',xl:'Client',alts:['client','raisonsociale','nomclient'],fix:true},
+    {f:'reference',label:'Référence',xl:'Reference',alts:['reference','ref','referencesite','nd','identifiant','id'],mono:true},
+    {f:'produit',label:'Produit',xl:'Produit',alts:['produit','product','service','offre']},
+    {f:'localisation',label:'Localisation',xl:'LOCALISATION',alts:['localisation','localite','site','lieu','adresse','ville','zone']},
+    {f:'recurrent',label:'Récurrent',xl:'Recurrent',alts:['recurrent','carecurrent','montantrecurrent','montantms','recurrentmensuel','mrc'],type:'number'},
+    {f:'typeSite',label:'Type de site',xl:'Type de site',alts:['typedesite','typesite','type']},
+    {f:'dateConstruction',label:'Date construction',xl:'Date construction',alts:['dateconstruction','datedeconstruction','construction','date'],type:'date'},
+    {f:'techno',label:'Techno',xl:'Technologie',alts:['techno','technologie','technology','tech']},
+    {f:'statut',label:'Statut',xl:'Statut',alts:['statut','status','etat'],type:'statut'},
+  ],
+  dispo:[
+    {f:'date',label:'Date',xl:'Date',alts:['date','dateincident','datedebut','jour'],type:'date',fix:true},
+    {f:'client',label:'Client',xl:'Client',alts:['client','raisonsociale','nomclient']},
+    {f:'reference',label:'Référence',xl:'Reference',alts:['reference','ref','referencesite','nd','identifiant','id'],mono:true},
+    {f:'cause',label:'Cause',xl:'Cause',alts:['cause','causereelle','motif','raison','origine','probleme']},
+    {f:'statut',label:'Statut',xl:'Statut',alts:['statut','status','etat'],type:'statut'},
+  ],
+};
+const isDispoTache=t=>!!t && /DISPONIBILIT/.test((t.titre||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''));
+const pdaSchema=t=>PDA_SCHEMAS[isDispoTache(t)?'dispo':'default'];
+const pdaFieldsOf=t=>pdaSchema(t).map(c=>c.f);
+const pdaLineLabel=l=>[l.client,l.reference,l.date?formatDate(l.date):''].filter(Boolean).join(' ');
 const fmtNum=v=>{ const n=parseFloat(String(v??'').replace(/\s/g,'').replace(',','.')); return isNaN(n)?'':n.toLocaleString('fr-FR'); };
 const PDA_STATUTS=['À faire','En cours','Terminé','Bloqué'];
 const PDAC={'À faire':'var(--text3)','En cours':'var(--accent)','Terminé':'var(--green)','Bloqué':'var(--red)'};
@@ -862,10 +888,10 @@ window.openPda=function(i,mode='all'){
   renderPda();
   document.getElementById('modal-pda').style.display='flex';
 };
-window.closePda=function(){ document.getElementById('modal-pda').style.display='none'; pdaTacheIdx=null; pdaEditIdx=null; };
+window.closePda=function(){ const t=pdaTache(); if(pdaNewIdx!==null && t && t.pda){ t.pda.splice(pdaNewIdx,1); } pdaNewIdx=null; document.getElementById('modal-pda').style.display='none'; pdaTacheIdx=null; pdaEditIdx=null; };
 
-function pdaClearForm(){ pdaEditIdx=null; }
-window.pdaCancelEdit=()=>{ pdaClearForm(); renderPda(); };
+function pdaClearForm(){ pdaEditIdx=null; pdaNewIdx=null; }
+window.pdaCancelEdit=()=>{ const t=pdaTache(); if(pdaNewIdx!==null && t && t.pda){ t.pda.splice(pdaNewIdx,1); pdaNewIdx=null; } pdaClearForm(); renderPda(); };
 
 function renderPda(){
   const t=pdaTache(); if(!t) return;
@@ -880,36 +906,35 @@ function renderPda(){
   const modeOk=l=>pdaMode==='reste'?!isPdaDone(l):pdaMode==='termine'?isPdaDone(l):true;
   const shown=lines.filter(modeOk).length;
   document.getElementById('pda-total').textContent=pdaMode==='all'?`Total dossier : ${lines.length}`:`Affichés : ${shown} / ${lines.length}`;
-  if(!lines.length){ el.innerHTML=emptyState('Aucune ligne — importez un fichier Excel'); return; }
+  const schema=pdaSchema(t), fields=schema.map(c=>c.f);
+  if(!lines.length){ el.innerHTML=emptyState('Aucune ligne — cliquez « + Ajouter » ou importez un fichier Excel'); return; }
   let html=`<div class="t-table-wrap"><table class="t-table"><thead><tr>
-    <th class="pda-fix">Client</th><th>Référence</th><th>Produit</th><th>Localisation</th><th style="text-align:right">Récurrent</th><th>Type de site</th><th>Date construction</th><th>Techno</th><th>Statut</th><th style="width:64px"></th>
+    ${schema.map(c=>`<th class="${c.fix?'pda-fix':''}" ${c.type==='number'?'style="text-align:right"':''}>${c.label}</th>`).join('')}<th style="width:64px"></th>
   </tr></thead><tbody>`;
+  const cellView=(c,l)=>{
+    const v=l[c.f];
+    if(c.type==='statut'){ const sc=PDAC[v]||(isPdaDone(l)?'var(--green)':'var(--text3)'); return `<td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${esc(v)||'—'}</span></td>`; }
+    if(c.type==='date') return `<td class="t-cell-date ${c.fix?'pda-fix':''}">${v?formatDate(v):'—'}</td>`;
+    if(c.type==='number') return `<td class="t-cell-vol" style="text-align:right;font-family:'DM Mono',monospace">${fmtNum(v)||esc(v)||'—'}</td>`;
+    return `<td class="${c.fix?'t-cell-nom pda-fix':'t-cell-obj'}" ${c.mono?"style=\"font-family:'DM Mono',monospace\"":''}>${esc(v)||'—'}</td>`;
+  };
+  const cellEdit=(c,l)=>{
+    if(c.type==='statut') return `<td><select class="pda-inline" id="pda-${c.f}">${PDA_STATUTS.map(st=>`<option ${st===(l[c.f]||'À faire')?'selected':''}>${st}</option>`).join('')}</select></td>`;
+    const type=c.type==='date'?'date':c.type==='number'?'number':'text';
+    return `<td class="${c.fix?'pda-fix':''}"><input class="pda-inline" id="pda-${c.f}" type="${type}" value="${esc(l[c.f]||'')}"></td>`;
+  };
   lines.forEach((l,li)=>{
-    if(!modeOk(l)) return;
-    if(q && !PDA_FIELDS.some(f=>String(l[f]||'').toLowerCase().includes(q))) return;
-    const sc=PDAC[l.statut]||(isPdaDone(l)?'var(--green)':'var(--text3)');
+    if(!modeOk(l) && li!==pdaEditIdx) return;
+    if(q && li!==pdaEditIdx && !fields.some(f=>String(l[f]||'').toLowerCase().includes(q))) return;
     if(li===pdaEditIdx){
-      const inp=(f,type='text')=>`<input class="pda-inline" id="pda-${f}" type="${type}" value="${esc(l[f]||'')}">`;
-      html+=`<tr class="t-row pda-editing">
-        <td class="pda-fix">${inp('client')}</td><td>${inp('reference')}</td><td>${inp('produit')}</td><td>${inp('localisation')}</td>
-        <td>${inp('recurrent','number')}</td><td>${inp('typeSite')}</td><td>${inp('dateConstruction','date')}</td><td>${inp('techno')}</td>
-        <td><select class="pda-inline" id="pda-statut">${PDA_STATUTS.map(st=>`<option ${st===(l.statut||'À faire')?'selected':''}>${st}</option>`).join('')}</select></td>
+      html+=`<tr class="t-row pda-editing">${schema.map(c=>cellEdit(c,l)).join('')}
         <td class="t-cell-actions">
           <button class="btn-icon" onclick="pdaSave()" title="Enregistrer">✔</button>
           <button class="btn-icon del" onclick="pdaCancelEdit()" title="Annuler">✕</button>
         </td></tr>`;
       return;
     }
-    html+=`<tr class="t-row ${isPdaDone(l)?'t-row-done':''}">
-      <td class="t-cell-nom pda-fix">${esc(l.client)||'—'}</td>
-      <td class="t-cell-obj" style="font-family:'DM Mono',monospace">${esc(l.reference)||'—'}</td>
-      <td class="t-cell-obj">${esc(l.produit)||'—'}</td>
-      <td class="t-cell-obj">${esc(l.localisation)||'—'}</td>
-      <td class="t-cell-vol" style="text-align:right;font-family:'DM Mono',monospace">${fmtNum(l.recurrent)||esc(l.recurrent)||'—'}</td>
-      <td class="t-cell-obj">${esc(l.typeSite)||'—'}</td>
-      <td class="t-cell-date">${l.dateConstruction?formatDate(l.dateConstruction):'—'}</td>
-      <td class="t-cell-obj">${esc(l.techno)||'—'}</td>
-      <td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${esc(l.statut)||'—'}</span></td>
+    html+=`<tr class="t-row ${isPdaDone(l)?'t-row-done':''}">${schema.map(c=>cellView(c,l)).join('')}
       <td class="t-cell-actions">
         <button class="btn-icon" onclick="pdaEdit(${li})" title="Modifier">✏️</button>
         <button class="btn-icon del" onclick="pdaDelete(${li})" title="Supprimer">✕</button>
@@ -919,20 +944,34 @@ function renderPda(){
   el.innerHTML=html;
 }
 window.pdaFilter=()=>renderPda();
-window.pdaSetMode=m=>{ pdaMode=m; pdaEditIdx=null; renderPda(); };
+window.pdaSetMode=m=>{ if(pdaEditIdx!==null) window.pdaCancelEdit(); pdaMode=m; renderPda(); };
 
 window.pdaEdit=function(li){
   const t=pdaTache(); if(!t||!t.pda||!t.pda[li]) return;
+  if(pdaNewIdx!==null) window.pdaCancelEdit();
   pdaEditIdx=li;
   renderPda();
-  const c=document.getElementById('pda-client'); if(c) c.focus();
+  const first=pdaSchema(t)[0]; const c=document.getElementById('pda-'+first.f); if(c) c.focus();
+};
+let pdaNewIdx=null; // index de la ligne en cours d'ajout (non encore sauvegardée)
+window.pdaAdd=function(){
+  const t=pdaTache(); if(!t) return;
+  if(pdaNewIdx!==null) return; // déjà une ligne en cours
+  if(!t.pda) t.pda=[];
+  const blank={}; pdaFieldsOf(t).forEach(f=>blank[f]=f==='statut'?'À faire':'');
+  if(blank.date!==undefined) blank.date=todayStr();
+  t.pda.unshift(blank); pdaNewIdx=0; pdaEditIdx=0;
+  renderPda();
+  const el=document.getElementById('pda-list'); if(el) el.scrollTop=0;
+  const first=pdaSchema(t)[0]; const c=document.getElementById('pda-'+first.f); if(c) c.focus();
 };
 
 window.pdaSave=async function(){
   const p=proj(); const t=pdaTache(); if(!p||!t) return;
   const obj={};
-  PDA_FIELDS.forEach(f=>{ const el=document.getElementById('pda-'+f); obj[f]=el?(el.value||'').trim():(t.pda[pdaEditIdx]||{})[f]||''; });
+  pdaFieldsOf(t).forEach(f=>{ const el=document.getElementById('pda-'+f); obj[f]=el?(el.value||'').trim():(t.pda[pdaEditIdx]||{})[f]||''; });
   if(!obj.client && !obj.reference){ toast('Client ou Référence requis','error'); return; }
+  pdaNewIdx=null;
   if(!t.pda) t.pda=[];
   if(pdaEditIdx===null) return;
   t.pda[pdaEditIdx]=obj;
@@ -949,7 +988,7 @@ window.pdaDelete=async function(li){
   const p=proj(); const t=pdaTache(); if(!p||!t||!t.pda) return;
   if(!confirm('Supprimer cette ligne du PDA ?')) return;
   t.pda.splice(li,1);
-  if(pdaEditIdx===li) pdaClearForm();
+  if(pdaEditIdx===li) pdaClearForm(); else if(pdaNewIdx!==null){ t.pda.splice(pdaNewIdx>li?pdaNewIdx-1:pdaNewIdx,1); pdaClearForm(); }
   syncPdaVolume(t);
   try{ await fsSave(p); renderPda(); renderProjet(); toast('Ligne supprimée','success'); }
   catch(e){ toast('Erreur : '+e.message,'error'); }
@@ -964,18 +1003,7 @@ window.pdaClearAll=async function(){
   catch(e){ toast('Erreur : '+e.message,'error'); }
 };
 
-// Import Excel PDA — détection des colonnes par nom d'en-tête (tolérant accents/casse)
-const PDA_HEADERS={
-  client:['client','raisonsociale','nomclient'],
-  reference:['reference','ref','referencesite','nd','identifiant','id'],
-  produit:['produit','product','service','offre'],
-  recurrent:['recurrent','carecurrent','montantrecurrent','montantms','recurrentmensuel','mrc'],
-  localisation:['localisation','localite','site','lieu','adresse','ville','zone'],
-  typeSite:['typedesite','typesite','type'],
-  dateConstruction:['dateconstruction','datedeconstruction','construction','date'],
-  techno:['techno','technologie','technology','tech'],
-  statut:['statut','status','etat'],
-};
+// Import Excel PDA — détection des colonnes par nom d'en-tête (tolérant accents/casse), selon le schéma de la tâche
 window.triggerImportPda=function(){
   if(!pdaTache()) return;
   document.getElementById('import-pda-file').click();
@@ -992,7 +1020,7 @@ window.importPdaExcel=async function(e){
     let hIdx=-1, map={};
     for(let r=0;r<Math.min(aoa.length,30);r++){
       const keys=aoa[r].map(normKey); const m={};
-      Object.entries(PDA_HEADERS).forEach(([f,alts])=>{
+      pdaSchema(t).forEach(({f,alts})=>{
         const ci=keys.findIndex(k=>k && alts.includes(k)); if(ci>=0) m[f]=ci;
       });
       if(m.client!==undefined || m.reference!==undefined){ hIdx=r; map=m; break; }
@@ -1009,19 +1037,11 @@ window.importPdaExcel=async function(e){
       if(!statut && /encours|enc|wip/.test(normKey(statutRaw))) statut='En cours';
       if(!statut && /bloq|block|ko/.test(normKey(statutRaw))) statut='Bloqué';
       if(!statut) statut='À faire';
-      const obj={
-        client:String(get('client')||'').trim(),
-        reference:String(get('reference')||'').trim(),
-        produit:String(get('produit')||'').trim(),
-        recurrent:String(get('recurrent')||'').trim(),
-        localisation:String(get('localisation')||'').trim(),
-        typeSite:String(get('typeSite')||'').trim(),
-        dateConstruction:toISODate(get('dateConstruction')),
-        techno:String(get('techno')||'').trim(),
-        statut,
-      };
+      const obj={};
+      pdaSchema(t).forEach(c=>{ obj[c.f]= c.type==='statut'?statut : c.type==='date'?toISODate(get(c.f)) : String(get(c.f)||'').trim(); });
       if(!obj.client && !obj.reference) continue;
-      const idx=obj.reference?t.pda.findIndex(l=>(l.reference||'').toUpperCase()===obj.reference.toUpperCase()):-1;
+      const dispo=isDispoTache(t);
+      const idx=obj.reference?t.pda.findIndex(l=>(l.reference||'').toUpperCase()===obj.reference.toUpperCase() && (!dispo || (l.date||'')===(obj.date||''))):-1;
       if(idx>=0){ t.pda[idx]={...t.pda[idx],...obj}; updated++; } else { t.pda.push(obj); added++; }
     }
     syncPdaVolume(t);
@@ -1034,11 +1054,10 @@ window.importPdaExcel=async function(e){
 
 window.exportPdaExcel=function(){
   const t=pdaTache(); if(!t) return;
-  const rows=(t.pda||[]).map(l=>({
-    'Client':l.client||'','Reference':l.reference||'','Produit':l.produit||'','LOCALISATION':l.localisation||'','Recurrent':l.recurrent||'',
-    'Type de site':l.typeSite||'','Date construction':l.dateConstruction||'','Technologie':l.techno||'','Statut':l.statut||'',
-  }));
-  const ws=XLSX.utils.json_to_sheet(rows.length?rows:[{'Client':'','Reference':'','Produit':'','LOCALISATION':'','Recurrent':'','Type de site':'','Date construction':'','Technologie':'','Statut':''}]);
+  const schema=pdaSchema(t);
+  const rows=(t.pda||[]).map(l=>{ const o={}; schema.forEach(c=>o[c.xl]=l[c.f]||''); return o; });
+  const vide={}; schema.forEach(c=>vide[c.xl]='');
+  const ws=XLSX.utils.json_to_sheet(rows.length?rows:[vide]);
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'PDA');
   XLSX.writeFile(wb,`PDA_${(t.titre||'tache').replace(/[^a-z0-9]+/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
   toast(rows.length?'Export généré ✓':'Modèle vide généré ✓','success');
@@ -1500,6 +1519,7 @@ document.addEventListener('input', function(e){
         <button id="pda-mode-termine" onclick="pdaSetMode('termine')">Terminé</button>
       </div>
       <div class="search-box"><span>🔍</span><input id="pda-search" placeholder="Rechercher dans les lignes…" oninput="pdaFilter()"></div>
+      <button class="btn-primary" onclick="pdaAdd()" title="Ajouter une ligne" style="padding:8px 14px">+ Ajouter</button>
       <button class="btn-cancel" onclick="triggerImportPda()" title="Importer des lignes depuis Excel">📥 Import Excel</button>
       <button class="btn-cancel" onclick="exportPdaExcel()" title="Exporter / télécharger un modèle">📤 Export Excel</button>
       <button class="btn-cancel" onclick="pdaClearAll()" style="color:var(--red)">🗑 Vider</button>
