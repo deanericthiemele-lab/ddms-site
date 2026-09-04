@@ -341,6 +341,21 @@ tbody td{padding:9px 12px;font-size:12.5px;vertical-align:middle}
 
 </head>
 <body>
+<script>
+/* Evite le flash de la page d'accueil quand un autre onglet est memorise :
+   la regle est posee avant tout rendu, puis retiree par nav(). */
+(function(){
+  try{
+    var p = localStorage.getItem('noc_onglet');
+    if(p && p !== 'missions'){
+      var st = document.createElement('style');
+      st.id = 'noc-antiflash';
+      st.textContent = '#page-missions{display:none !important}';
+      document.head.appendChild(st);
+    }
+  }catch(e){}
+})();
+</script>
 
 
 <script>
@@ -1663,7 +1678,9 @@ function cxRender(){
         </div>
         <div class="cx-vd"><b>${v.v}</b><div class="cx-act">${v.a}</div></div>
         <div class="cx-l-b"><span class="cx-adr">${cxEsc(h.adresse||'—')}</span>
-          <button class="btn btn-out btn-sm" onclick="cxTicket('${cxEsc(h.nom)}')" ${vieux?'disabled':''}>Créer le ticket</button>
+          ${h.acquitte
+            ? '<span style="font-size:10.5px;color:var(--n4)">Déjà pris en charge</span>'
+            : `<button class="btn btn-out btn-sm" onclick="cxTicket('${cxEsc(h.nom)}')" ${vieux?'disabled':''}>Créer le ticket</button>`}
         </div></div>`;
     }
     html += '</div></div>';
@@ -1677,13 +1694,68 @@ function cxRender(){
 function cxTicket(nom){
   const h = Object.values(CX_DATA.hosts).find(x=>x.nom===nom);
   if(!h) return;
-  const g = CX_DATA.groupes[cxCle(h.groupe)] || {down:0};
-  const v = cxVerdict(h);
-  alert(`Formulaire pré-rempli :\n\nLien : ${h.nom}\nClient : ${h.alias||'—'}\n`+
-        `Groupe : ${h.groupe}\nAdresse : ${h.adresse||'—'}\n`+
-        `Durée : ${cxAff(h)||'—'}\nPré-verdict : ${v.v}\n\n`+
-        `Reste à saisir : résultat de l\u2019appel client.`);
+
+  const si = document.querySelector('.si[data-page="tickets-indispo"]');
+  if(si) nav(si);
+
+  setTimeout(()=>{
+    const p = cxDecoupe(h.nom);
+    const set = (id,v)=>{ const e=document.getElementById(id); if(e && v) e.value=v; };
+
+    set('tk-client', p.client);
+    set('tk-ref', p.reference);
+    set('tk-localisation', p.localisation);
+
+    // date et heure du jour
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    set('tk-debut', d.toISOString().slice(0,16));
+
+    // ouvert par : AUTOMATIQUE
+    const op = document.getElementById('tk-ouvert-par');
+    if(op){
+      if(![...op.options].some(o=>o.value==='AUTOMATIQUE'))
+        op.insertAdjacentHTML('afterbegin','<option value="AUTOMATIQUE">AUTOMATIQUE</option>');
+      op.value = 'AUTOMATIQUE';
+    }
+
+    // statut ouvert, destinataire SAV B2B
+    const st = document.getElementById('tk-statut');
+    if(st) st.value = 'Ouvert';
+    if(typeof tkSetDest === 'function') tkSetDest('SAV B2B');
+
+    if(typeof tkLinkAutoLookup === 'function') tkLinkAutoLookup();
+
+    const svc = document.getElementById('tk-service-statut');
+    if(svc){ svc.scrollIntoView({behavior:'smooth', block:'center'}); svc.focus(); }
+  }, 150);
 }
+
+/* Decoupe un nom d'hote Centreon.
+   OLAM-SYTHD120055-P-VRIDI_SIEGE_PRI
+     client       OLAM
+     reference    SYTHD120055
+     localisation VRIDI                                            */
+function cxDecoupe(nom){
+  const seg = String(nom||'').split('-');
+  const ref = seg.find(x=>/^[A-Z]{2,}\d{3,}$/i.test(x)) || seg[1] || '';
+  const reste = seg.slice(seg.indexOf(ref)+1).filter(x=>!/^[PBN]$/i.test(x));
+  return {
+    client:       (seg[0]||'').replace(/_/g,' ').trim(),
+    reference:    ref,
+    localisation: (reste[0]||'').split('_')[0] || ''
+  };
+}
+
+/* duree Centreon ("3w 2h", "45m", "31s") -> millisecondes */
+function cxMsDuree(txt){
+  if(!txt) return 0;
+  const U = {s:1e3, m:6e4, h:36e5, d:864e5, w:6048e5, M:2592e6};
+  let ms = 0;
+  String(txt).replace(/(\d+)\s*([smhdwM])/g, (_,n,u)=>{ ms += (+n) * (U[u]||0); return ''; });
+  return ms;
+}
+
 
 cxCharger();
 setInterval(cxCharger, 60000);
@@ -3867,6 +3939,8 @@ function nav(el){
   if(main) main.scrollTop = 0;
   // memoriser l'onglet pour le retrouver apres un F5
   try{ localStorage.setItem('noc_onglet', el.dataset.page); }catch(e){}
+  const af = document.getElementById('noc-antiflash');
+  if(af) af.remove();
   if(el.dataset.page==='rapport-hebdo') rInitPage();
   if(el.dataset.page==='tickets-indispo'){ ticketResetForm(); tkSyncListPanelHeight(); }
 }
@@ -3878,6 +3952,8 @@ window.addEventListener('DOMContentLoaded', function(){
   if(!p) return;
   const el = document.querySelector('.si[data-page="'+p+'"]');
   if(el && document.getElementById('page-'+p)) nav(el);
+  const af = document.getElementById('noc-antiflash');
+  if(af) af.remove();
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -6965,6 +7041,7 @@ function tkBuildAgentSelect(){
   const all = [...new Set([...dbAgents, ...extraAgents])].sort((a,b)=>a.localeCompare(b));
 
   sel.innerHTML = `<option value="">— Sélectionner —</option>` +
+    `<option value="AUTOMATIQUE"${current==='AUTOMATIQUE'?' selected':''}>AUTOMATIQUE</option>` +
     all.map(n=>`<option value="${n}"${n===current?' selected':''}>${n}</option>`).join('');
 }
 
