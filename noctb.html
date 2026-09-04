@@ -1549,6 +1549,16 @@ const CX_FIREBASE = 'https://ddms-architectures-default-rtdb.europe-west1.fireba
 const CX_BRANCHE  = 'centreon_statuts';
 const CX_SEUIL_COLL = 3;    // liens DOWN dans un groupe = panne collective
 const CX_SEUIL_VIEUX = 15;  // minutes avant de griser
+/* Ordre d'affichage fixe. Les groupes absents de cette liste
+   viennent ensuite, par ordre alphabetique. */
+const CX_ORDRE = [
+  'SIEGES',
+  'SITES_CRITIQUES_TOP_50',
+  'FRANCHISES_AGENCES_OCI',
+  'CALL_CENTER',
+  'DATA_CENTER',
+  'VITIB'
+];
 
 let CX_DATA = null, CX_ERR = null;
 
@@ -1637,21 +1647,28 @@ function cxRender(){
 
   const parGrp = {};
   hosts.forEach(h=>{ (parGrp[h.groupe] ||= []).push(h); });
-  const ordre = Object.keys(parGrp).sort((a,b)=>
-    (grps[cxCle(b)]?.down||0)-(grps[cxCle(a)]?.down||0) || a.localeCompare(b));
+
+  // tous les groupes connus restent visibles, meme sans alarme
+  const tous = new Set([...Object.keys(grps), ...Object.keys(parGrp)]
+    .map(k => grps[cxCle(k)]?.nom || k));
+  const rang = n => { const i = CX_ORDRE.indexOf(n); return i<0 ? 999 : i; };
+  const ordre = [...tous].sort((a,b)=> rang(a)-rang(b) || a.localeCompare(b));
 
   let html = '';
   for(const nom of ordre){
-    const g = grps[cxCle(nom)] || {down:0,total:parGrp[nom].length};
-    let lignes = parGrp[nom].slice().sort((a,b)=>cxRang(a)-cxRang(b));
+    const g = grps[cxCle(nom)] || {down:0,total:(parGrp[nom]||[]).length};
+    let lignes = (parGrp[nom]||[]).slice().sort((a,b)=>cxRang(a)-cxRang(b));
     if(masquerUp) lignes = lignes.filter(h=>h.etat!=='UP');
-    if(!lignes.length) continue;
 
     html += `<div class="cx-grp${g.down>=CX_SEUIL_COLL?' cx-alerte':''}"${vieux?' style="opacity:.45"':''}>
       <div class="cx-hd">
         <div class="cx-nom">${cxEsc(nom)}</div>
         <div class="cx-meta">${g.down} DOWN sur ${g.total} liens · ${lignes.length} affichés</div>
       </div><div class="cx-corps">`;
+
+    if(!lignes.length){
+      html += '<div class="cx-l" style="color:var(--n4);font-size:11.5px;padding:18px 12px;text-align:center">Aucun lien en alarme</div>';
+    }
 
     for(const h of lignes){
       const v = cxVerdict(h, g.down), m = cxMin(h.depuis);
