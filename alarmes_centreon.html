@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alarmes supervision — cortex3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&family=Syne:wght@600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --accent:#FF7900;--surface:#fff;--bg:#f5f6f7;--line:#e3e5e8;
+  --text:#1c1f23;--muted:#6b7280;
+  --down:#c0392b;--up:#1e8449;--plan:#b8860b;--none:#8a9099;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:28px 20px 60px;background:var(--bg);color:var(--text);
+  font-family:'DM Sans',system-ui,sans-serif;font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-family:'Syne',sans-serif;font-weight:700;font-size:26px;
+  letter-spacing:-.01em;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 22px;font-size:13px}
+.sub code{font-family:'DM Mono',monospace;font-size:12px}
+
+.freshness{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  background:var(--surface);border:1px solid var(--line);
+  border-left:3px solid var(--accent);padding:12px 16px;
+  border-radius:4px;margin-bottom:18px}
+.freshness.stale{border-left-color:var(--none);background:#f0f1f2}
+.freshness.error{border-left-color:var(--down);background:#fdf3f2}
+.fresh-dot{width:8px;height:8px;border-radius:50%;background:var(--up);flex:none}
+.freshness.stale .fresh-dot{background:var(--none)}
+.freshness.error .fresh-dot{background:var(--down)}
+.fresh-sep{color:var(--line)}
+
+.collective{background:#fff4ea;border:1px solid #ffcf9e;border-radius:4px;
+  padding:13px 16px;margin-bottom:18px;font-size:13.5px}
+.collective b{color:#b35a00}
+.collective + .collective{margin-top:-8px}
+
+.grp{margin-bottom:22px;background:var(--surface);
+  border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.grp-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+  padding:11px 15px;background:#fafbfb;border-bottom:1px solid var(--line)}
+.grp-nom{font-family:'Syne',sans-serif;font-weight:600;font-size:15px}
+.grp-meta{color:var(--muted);font-size:12px}
+.grp.alerte .grp-head{background:#fff4ea;border-bottom-color:#ffcf9e}
+
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:11.5px;font-weight:700;color:var(--muted);
+  padding:9px 15px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:12px 15px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.host{font-family:'DM Mono',monospace;font-size:12.5px;font-weight:500}
+.client{color:var(--muted);font-size:12.5px;margin-top:2px}
+
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;
+  font-weight:700;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.b-down .dot{background:var(--down)} .b-down{color:var(--down)}
+.b-up .dot{background:var(--up)} .b-up{color:var(--up)}
+.b-plan .dot{background:var(--plan)} .b-plan{color:var(--plan)}
+.b-none .dot{background:var(--none)} .b-none{color:var(--none)}
+.since{color:var(--muted);font-size:11.5px;font-weight:400;margin-top:3px}
+.verdict{font-size:12.5px;max-width:250px}
+.verdict .action{color:var(--muted);font-size:11.5px;margin-top:2px}
+
+button{font-family:inherit;font-size:12px;font-weight:700;padding:7px 12px;
+  border-radius:3px;cursor:pointer;border:1px solid var(--accent);
+  background:var(--accent);color:#fff;white-space:nowrap}
+button:hover{background:#e56d00;border-color:#e56d00}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+button.ghost:hover{background:#f2f3f4;border-color:#c9cdd2}
+button:focus-visible{outline:2px solid #1c1f23;outline-offset:2px}
+
+.vide{padding:38px 16px;text-align:center;color:var(--muted);
+  background:var(--surface);border:1px solid var(--line);border-radius:4px}
+.controls{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.controls label{font-size:12.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
+@media(max-width:820px){.hide-s{display:none}td,th{padding:10px 9px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Alarmes supervision</h1>
+  <p class="sub">Source <code>cortex3.orange.ci</code> via le relais — regroupement par groupe d'hôtes Centreon</p>
+
+  <div class="freshness" id="freshness">
+    <span class="fresh-dot"></span>
+    <span id="freshText">Connexion…</span>
+    <span class="fresh-sep">|</span>
+    <span><b id="cDown">–</b> DOWN</span>
+    <span class="fresh-sep">|</span>
+    <span><b id="cPlan">–</b> en travaux</span>
+    <span class="fresh-sep">|</span>
+    <span><b id="cGrp">–</b> groupes touchés</span>
+  </div>
+
+  <div id="collectifs"></div>
+  <div id="groupes"><div class="vide">Chargement…</div></div>
+
+  <div class="controls">
+    <button class="ghost" onclick="charger()">Rafraîchir</button>
+    <label><input type="checkbox" id="filtreDown" checked onchange="render()"> Masquer les liens UP</label>
+  </div>
+
+</div>
+
+<script>
+/* ============ CONFIG — une seule ligne à remplir ============ */
+const FIREBASE = 'https://REMPLACER-default-rtdb.firebaseio.com';
+const BRANCHE  = 'centreon_statuts';
+const SEUIL_COLLECTIF = 3;     // nb de liens DOWN dans un groupe = panne collective
+const SEUIL_OBSOLETE  = 15;    // minutes avant de griser les données
+/* =========================================================== */
+
+let DATA = null, ERREUR = null;
+
+async function charger(){
+  try{
+    const r = await fetch(`${FIREBASE}/${BRANCHE}.json`, {cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    if(!j) throw new Error('branche vide — le relais n\u2019a encore rien poussé');
+    DATA = j; ERREUR = null;
+  }catch(e){ ERREUR = e.message; }
+  render();
+}
+
+function minutesDepuis(iso){
+  if(!iso) return null;
+  const t = typeof iso === 'number' ? iso*1000 : Date.parse(iso);
+  if(isNaN(t)) return null;
+  return Math.max(0, Math.round((Date.now()-t)/60000));
+}
+function duree(min){
+  if(min==null) return '';
+  const h=Math.floor(min/60), m=min%60;
+  return h ? `depuis ${h}h${String(m).padStart(2,'0')}` : `depuis ${m} min`;
+}
+
+function verdict(h, downDuGroupe){
+  if(h.downtime) return {cls:'b-plan',lib:'Travaux planifiés',v:'Downtime déclaré',
+    act:'Informer le client, pas d\u2019intervention'};
+  if(h.etat==='DOWN'){
+    if(downDuGroupe>=SEUIL_COLLECTIF) return {cls:'b-down',lib:'DOWN',
+      v:'Panne collective probable', act:downDuGroupe+' liens DOWN dans le groupe — ne pas appeler'};
+    return {cls:'b-down',lib:'DOWN',v:'Coupure isolée',
+      act:'Appeler le client — vérifier l\u2019énergie'};
+  }
+  if(h.etat==='UNREACHABLE') return {cls:'b-down',lib:'UNREACHABLE',
+    v:'Coupure en amont', act:'Le parent est injoignable — pas le lien client'};
+  if(h.etat==='UP') return {cls:'b-up',lib:'UP',v:'Lien nominal',
+    act:'Problème côté LAN client'};
+  return {cls:'b-none',lib:h.etat||'Inconnu',v:'État non déterminé',
+    act:'Vérifier la configuration Centreon'};
+}
+
+function render(){
+  const fr = document.getElementById('freshness');
+  fr.className = 'freshness';
+
+  if(ERREUR){
+    fr.classList.add('error');
+    document.getElementById('freshText').innerHTML = '<b>Pas de données</b> — '+ERREUR;
+    document.getElementById('groupes').innerHTML =
+      '<div class="vide">Vérifier que <code>relais_centreon.js</code> tourne sur le PC et que la branche <code>'+BRANCHE+'</code> est lisible.</div>';
+    document.getElementById('collectifs').innerHTML='';
+    ['cDown','cPlan','cGrp'].forEach(i=>document.getElementById(i).textContent='–');
+    return;
+  }
+  if(!DATA) return;
+
+  const ageMin = Math.round((Date.now()-DATA.maj)/60000);
+  const obsolete = ageMin > SEUIL_OBSOLETE;
+  if(obsolete) fr.classList.add('stale');
+  document.getElementById('freshText').innerHTML = obsolete
+    ? `<b>Données obsolètes</b> — dernière mise à jour il y a ${ageMin} min`
+    : `Dernière mise à jour il y a ${ageMin} min`;
+
+  const hosts = Object.values(DATA.hosts||{});
+  const grps  = DATA.groupes||{};
+  const masquerUp = document.getElementById('filtreDown').checked;
+
+  const nbDown = hosts.filter(h=>h.etat==='DOWN'&&!h.downtime).length;
+  document.getElementById('cDown').textContent = nbDown;
+  document.getElementById('cPlan').textContent = hosts.filter(h=>h.downtime).length;
+  document.getElementById('cGrp').textContent  = Object.values(grps).filter(g=>g.down>0).length;
+
+  /* bandeaux de panne collective */
+  document.getElementById('collectifs').innerHTML =
+    Object.values(grps).filter(g=>g.down>=SEUIL_COLLECTIF && !obsolete)
+      .sort((a,b)=>b.down-a.down)
+      .map(g=>`<div class="collective"><b>Panne collective probable — ${g.nom}</b> · `+
+        `${g.down} liens DOWN sur ${g.total}. Ouvrir un incident groupé plutôt qu\u2019appeler chaque client.</div>`)
+      .join('');
+
+  /* regroupement par groupe d'hôtes */
+  const parGrp = {};
+  hosts.forEach(h=>{ (parGrp[h.groupe] ||= []).push(h); });
+
+  const ordre = Object.keys(parGrp).sort((a,b)=>
+    (grps[cle(b)]?.down||0)-(grps[cle(a)]?.down||0) || a.localeCompare(b));
+
+  let html = '';
+  for(const nom of ordre){
+    const g = grps[cle(nom)] || {down:0,total:parGrp[nom].length};
+    let lignes = parGrp[nom].slice().sort((a,b)=>rang(a)-rang(b));
+    if(masquerUp) lignes = lignes.filter(h=>h.etat!=='UP');
+    if(!lignes.length) continue;
+
+    html += `<div class="grp${g.down>=SEUIL_COLLECTIF?' alerte':''}">
+      <div class="grp-head">
+        <span class="grp-nom">${esc(nom)}</span>
+        <span class="grp-meta">${g.down} DOWN sur ${g.total} liens supervisés</span>
+      </div>
+      <table><thead><tr>
+        <th>Lien / client</th><th>Statut</th><th>Pré-verdict</th><th class="hide-s">Adresse</th><th>Action</th>
+      </tr></thead><tbody>`;
+
+    for(const h of lignes){
+      const v = verdict(h, g.down);
+      const m = minutesDepuis(h.depuis);
+      html += `<tr${obsolete?' style="opacity:.45"':''}>
+        <td><div class="host">${esc(h.nom)}</div>${h.alias?`<div class="client">${esc(h.alias)}</div>`:''}</td>
+        <td><span class="badge ${v.cls}"><span class="dot"></span>${v.lib}</span>
+            ${m!=null?`<div class="since">${duree(m)}</div>`:''}
+            ${h.acquitte?'<div class="since">acquitté</div>':''}</td>
+        <td class="verdict">${v.v}<div class="action">${v.act}</div></td>
+        <td class="hide-s"><span class="host">${esc(h.adresse||'—')}</span></td>
+        <td><button onclick="creerTicket('${esc(h.nom)}')" ${obsolete||h.etat==='UP'?'disabled':''}>Créer le ticket</button></td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+  }
+
+  document.getElementById('groupes').innerHTML = html ||
+    '<div class="vide">Aucun lien en alarme.</div>';
+}
+
+const cle = s => String(s).replace(/[.#$/\[\]]/g,'_');
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rang = h => h.downtime?3 : h.etat==='DOWN'?0 : h.etat==='UNREACHABLE'?1 : h.etat==='UP'?4:2;
+
+function creerTicket(nom){
+  const h = Object.values(DATA.hosts).find(x=>x.nom===nom);
+  const g = DATA.groupes[cle(h.groupe)] || {down:0};
+  const v = verdict(h, g.down);
+  alert(`Formulaire pré-rempli :\n\nLien : ${h.nom}\nClient : ${h.alias||'—'}\n`+
+        `Groupe : ${h.groupe}\nAdresse : ${h.adresse||'—'}\n`+
+        `Début : ${duree(minutesDepuis(h.depuis))}\nPré-verdict : ${v.v}\n\n`+
+        `Reste à saisir : résultat de l\u2019appel client.`);
+}
+
+charger();
+setInterval(charger, 60000);
+</script>
+</body>
+</html>
