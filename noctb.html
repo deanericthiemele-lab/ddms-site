@@ -1481,7 +1481,6 @@ window.addEventListener('fbReady',()=>loadSeuils());
   height:480px}
 #page-cortex .cx-hd{padding:9px 12px;background:var(--n7);border-bottom:1px solid var(--n5);
   position:sticky;top:0;z-index:1}
-#page-cortex .cx-grp.cx-alerte .cx-hd{background:var(--vl);border-bottom-color:#f5c9a6}
 #page-cortex .cx-nom{font-family:var(--cond);font-size:15px;font-weight:700;
   letter-spacing:.3px;overflow-wrap:anywhere}
 #page-cortex .cx-meta{color:var(--n3);font-size:11px;margin-top:1px}
@@ -1543,7 +1542,6 @@ window.addEventListener('fbReady',()=>loadSeuils());
 /* ═══════ ALARMES CORTEX — lecture de la branche poussée par relais_centreon.js ═══════ */
 const CX_FIREBASE = 'https://ddms-architectures-default-rtdb.europe-west1.firebasedatabase.app';
 const CX_BRANCHE  = 'centreon_statuts';
-const CX_SEUIL_COLL = 3;    // liens DOWN dans un groupe = panne collective
 const CX_SEUIL_VIEUX = 15;  // minutes avant de griser
 /* Ordre d'affichage fixe. Les groupes absents de cette liste
    viennent ensuite, par ordre alphabetique. */
@@ -1579,20 +1577,18 @@ function cxMin(iso){
   const t = typeof iso === 'number' ? iso*1000 : Date.parse(iso);
   return isNaN(t) ? null : Math.max(0, Math.round((Date.now()-t)/60000));
 }
+const cxAff = h => h.duree || cxDuree(cxMin(h.depuis)) || '';
 function cxDuree(m){
   if(m==null) return '';
   const h=Math.floor(m/60), r=m%60;
   return h ? `depuis ${h}h${String(r).padStart(2,'0')}` : `depuis ${r} min`;
 }
 
-function cxVerdict(h, downGrp){
+function cxVerdict(h){
   if(h.downtime) return {c:'cx-plan',l:'Travaux planifiés',v:'Downtime déclaré',
     a:'Informer le client, pas d\u2019intervention'};
-  if(h.etat==='DOWN'){
-    if(downGrp>=CX_SEUIL_COLL) return {c:'cx-down',l:'DOWN',v:'Panne collective probable',
-      a:downGrp+' liens DOWN dans le groupe — ne pas appeler'};
-    return {c:'cx-down',l:'DOWN',v:'Coupure isolée',a:'Appeler le client — vérifier l\u2019énergie'};
-  }
+  if(h.etat==='DOWN') return {c:'cx-down',l:'DOWN',v:'Coupure',
+    a:'Appeler le client — vérifier l\u2019énergie'};
   if(h.etat==='UNREACHABLE') return {c:'cx-down',l:'UNREACHABLE',v:'Coupure en amont',
     a:'Le parent est injoignable — pas le lien client'};
   if(h.etat==='UP') return {c:'cx-up',l:'UP',v:'Lien nominal',a:'Problème côté LAN client'};
@@ -1650,7 +1646,7 @@ function cxRender(){
       .sort((a,b)=> (cxMin(a.depuis) ?? 1e9) - (cxMin(b.depuis) ?? 1e9));
     if(masquerUp) lignes = lignes.filter(h=>h.etat!=='UP');
 
-    html += `<div class="cx-grp${g.down>=CX_SEUIL_COLL?' cx-alerte':''}"${vieux?' style="opacity:.45"':''}>
+    html += `<div class="cx-grp"${vieux?' style="opacity:.45"':''}>
       <div class="cx-hd">
         <div class="cx-nom">${cxEsc(nom)}</div>
         <div class="cx-meta">${g.down} DOWN sur ${g.total} liens · ${lignes.length} affichés</div>
@@ -1661,13 +1657,13 @@ function cxRender(){
     }
 
     for(const h of lignes){
-      const v = cxVerdict(h, g.down), m = cxMin(h.depuis);
+      const v = cxVerdict(h);
       html += `<div class="cx-l">
         <div class="cx-l-h">
           <div><div class="cx-host">${cxEsc(h.nom)}</div>
             ${h.alias?`<div class="cx-cli">${cxEsc(h.alias)}</div>`:''}</div>
           <div class="cx-st"><span class="cx-bdg ${v.c}"><span class="cx-dot"></span>${v.l}</span>
-            ${m!=null?`<div class="cx-since">${cxDuree(m)}</div>`:''}
+            ${cxAff(h)?`<div class="cx-since">${cxEsc(cxAff(h))}</div>`:''}
             ${h.acquitte?'<div class="cx-since">acquitté</div>':''}</div>
         </div>
         <div class="cx-vd"><b>${v.v}</b><div class="cx-act">${v.a}</div></div>
@@ -1687,10 +1683,10 @@ function cxTicket(nom){
   const h = Object.values(CX_DATA.hosts).find(x=>x.nom===nom);
   if(!h) return;
   const g = CX_DATA.groupes[cxCle(h.groupe)] || {down:0};
-  const v = cxVerdict(h, g.down);
+  const v = cxVerdict(h);
   alert(`Formulaire pré-rempli :\n\nLien : ${h.nom}\nClient : ${h.alias||'—'}\n`+
         `Groupe : ${h.groupe}\nAdresse : ${h.adresse||'—'}\n`+
-        `Début : ${cxDuree(cxMin(h.depuis))}\nPré-verdict : ${v.v}\n\n`+
+        `Durée : ${cxAff(h)||'—'}\nPré-verdict : ${v.v}\n\n`+
         `Reste à saisir : résultat de l\u2019appel client.`);
 }
 
