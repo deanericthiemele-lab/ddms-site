@@ -1552,7 +1552,8 @@ const CX_ORDRE = [
   'FRANCHISES_AGENCES_OCI',
   'CALL_CENTER',
   'DATA_CENTER',
-  'VITIB'
+  'VITIB',
+  'AUTRES'
 ];
 
 let CX_DATA = null, CX_ERR = null;
@@ -1571,7 +1572,6 @@ async function cxCharger(){
 const cxCle = s => String(s).replace(/[.#$/\[\]]/g,'_');
 const cxEsc = s => String(s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const cxRang = h => h.downtime?3 : h.etat==='DOWN'?0 : h.etat==='UNREACHABLE'?1 : h.etat==='UP'?4:2;
 
 function cxMin(iso){
   if(!iso) return null;
@@ -1635,16 +1635,18 @@ function cxRender(){
   const parGrp = {};
   hosts.forEach(h=>{ (parGrp[h.groupe] ||= []).push(h); });
 
-  // tous les groupes connus restent visibles, meme sans alarme
-  const tous = new Set([...Object.keys(grps), ...Object.keys(parGrp)]
-    .map(k => grps[cxCle(k)]?.nom || k));
+  // les sept groupes restent visibles, meme sans alarme
+  const tous = new Set([...CX_ORDRE, ...Object.keys(grps).map(k=>grps[k].nom||k),
+                        ...Object.keys(parGrp)]);
   const rang = n => { const i = CX_ORDRE.indexOf(n); return i<0 ? 999 : i; };
   const ordre = [...tous].sort((a,b)=> rang(a)-rang(b) || a.localeCompare(b));
 
   let html = '';
   for(const nom of ordre){
     const g = grps[cxCle(nom)] || {down:0,total:(parGrp[nom]||[]).length};
-    let lignes = (parGrp[nom]||[]).slice().sort((a,b)=>cxRang(a)-cxRang(b));
+    // tri : alarme la plus recente en premier
+    let lignes = (parGrp[nom]||[]).slice()
+      .sort((a,b)=> (cxMin(a.depuis) ?? 1e9) - (cxMin(b.depuis) ?? 1e9));
     if(masquerUp) lignes = lignes.filter(h=>h.etat!=='UP');
 
     html += `<div class="cx-grp${g.down>=CX_SEUIL_COLL?' cx-alerte':''}"${vieux?' style="opacity:.45"':''}>
