@@ -1643,18 +1643,21 @@ function cxRenderInterne(){
   const badge = document.getElementById('b-cortex');
   if(badge) badge.textContent = vieux ? '—' : nbDown;
 
+  // Seuls les 7 groupes de CX_ORDRE sont affichés. Un hôte dont le groupe
+  // ne correspond à aucun des 7 (ex : données de test, groupe par ville) est ignoré.
+  // Le rapprochement tolère espaces/underscores et la casse.
+  const cxCanon = n => String(n||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_|_$/g,'');
+  const cxVers7 = n => CX_ORDRE.find(o => cxCanon(o)===cxCanon(n)) || null;
   const parGrp = {};
-  hosts.forEach(h=>{ (parGrp[h.groupe] ||= []).push(h); });
-
-  // les sept groupes restent visibles, meme sans alarme
-  const tous = new Set([...CX_ORDRE, ...Object.keys(grps).map(k=>grps[k].nom||k),
-                        ...Object.keys(parGrp)]);
-  const rang = n => { const i = CX_ORDRE.indexOf(n); return i<0 ? 999 : i; };
-  const ordre = [...tous].sort((a,b)=> rang(a)-rang(b) || a.localeCompare(b));
+  hosts.forEach(h=>{ const n = cxVers7(h.groupe); if(n) (parGrp[n] ||= []).push(h); });
+  const grps7 = {};
+  Object.keys(grps).forEach(k=>{ const n = cxVers7(grps[k].nom||k); if(n) grps7[n] = grps[k]; });
+  document.getElementById('cxGrp').textContent = Object.values(grps7).filter(g=>g.down>0).length;
 
   let html = '';
-  for(const nom of ordre){
-    const g = grps[cxCle(nom)] || {down:0,total:(parGrp[nom]||[]).length};
+  for(const nom of CX_ORDRE){
+    const g = grps7[nom] || {down:(parGrp[nom]||[]).filter(h=>h.etat==='DOWN'&&!h.downtime).length,
+                             total:(parGrp[nom]||[]).length};
     // tri : alarme la plus recente en premier
     let lignes = (parGrp[nom]||[]).filter(h=>h.etat!=='UP')
       .sort((a,b)=> (cxMin(a.depuis) ?? 1e9) - (cxMin(b.depuis) ?? 1e9));
