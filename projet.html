@@ -1027,7 +1027,9 @@ window.importPdaExcel=async function(e){
     }
     if(hIdx<0){ toast('En-tête introuvable (colonne Client ou Référence attendue)','error'); e.target.value=''; return; }
     if(!t.pda) t.pda=[];
-    let added=0, updated=0;
+    let added=0, ignored=0;
+    const KI=v=>String(v??'').trim().toUpperCase().replace(/\s+/g,' ');
+    const dispo=isDispoTache(t);
     for(let r=hIdx+1;r<aoa.length;r++){
       const row=aoa[r]; if(!row || !row.some(v=>String(v).trim()!=='')) continue;
       const get=f=>map[f]!==undefined?row[map[f]]:'';
@@ -1040,14 +1042,16 @@ window.importPdaExcel=async function(e){
       const obj={};
       pdaSchema(t).forEach(c=>{ obj[c.f]= c.type==='statut'?statut : c.type==='date'?toISODate(get(c.f)) : String(get(c.f)||'').trim(); });
       if(!obj.client && !obj.reference) continue;
-      const dispo=isDispoTache(t);
-      const idx=obj.reference?t.pda.findIndex(l=>(l.reference||'').toUpperCase()===obj.reference.toUpperCase() && (!dispo || (l.date||'')===(obj.date||''))):-1;
-      if(idx>=0){ t.pda[idx]={...t.pda[idx],...obj}; updated++; } else { t.pda.push(obj); added++; }
+      const ref=KI(obj.reference), cli=KI(obj.client);
+      const dateOk=l=>!dispo || (l.date||'')===(obj.date||'');
+      const idx = ref ? t.pda.findIndex(l=>KI(l.reference)===ref && dateOk(l))
+                      : t.pda.findIndex(l=>KI(l.client)===cli && dateOk(l));
+      if(idx>=0){ ignored++; } else { t.pda.push(obj); added++; }
     }
     syncPdaVolume(t);
     await fsSave(p);
     pdaClearForm(); renderPda(); renderProjet();
-    toast(`Import PDA : ${added} ajoutée(s), ${updated} mise(s) à jour ✓`,'success');
+    toast(`Import PDA : ${added} ajoutée(s), ${ignored} déjà en base (ignorée(s)) ✓`,'success');
   }catch(err){ toast('Erreur import : '+err.message,'error'); }
   e.target.value='';
 };
@@ -1061,6 +1065,75 @@ window.exportPdaExcel=function(){
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'PDA');
   XLSX.writeFile(wb,`PDA_${(t.titre||'tache').replace(/[^a-z0-9]+/gi,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
   toast(rows.length?'Export généré ✓':'Modèle vide généré ✓','success');
+};
+
+// Comparaison Excel ↔ base PDA — ne modifie rien, produit un classeur 2 onglets
+window.triggerComparePda=function(){
+  if(!pdaTache()) return;
+  document.getElementById('compare-pda-file').click();
+};
+window.comparePdaExcel=async function(e){
+  const file=e.target.files[0]; if(!file) return;
+  const t=pdaTache(); if(!t){ e.target.value=''; return; }
+  try{
+    const data=await file.arrayBuffer();
+    const wb=XLSX.read(data,{type:'array',cellDates:true});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    // détection de la ligne d'en-tête (même logique que l'import)
+    let hIdx=-1, map={};
+    for(let r=0;r<Math.min(aoa.length,30);r++){
+      const keys=(aoa[r]||[]).map(normKey); const m={};
+      pdaSchema(t).forEach(({f,alts})=>{ const ci=keys.findIndex(k=>k && alts.includes(k)); if(ci>=0) m[f]=ci; });
+      if(m.client!==undefined || m.reference!==undefined){ hIdx=r; map=m; break; }
+    }
+    if(hIdx<0){ toast('En-tête introuvable (colonne Client ou Référence attendue)','error'); e.target.value=''; return; }
+    // en-têtes du fichier source (dédoublonnés)
+    const seen={}; const headers=(aoa[hIdx]||[]).map((h,i)=>{
+      let n=String(h||'').trim()||('Col'+(i+1));
+      if(seen[n]!==undefined){ seen[n]++; n=n+' ('+seen[n]+')'; } else seen[n]=1;
+      return n;
+    });
+    // index de la base
+    const K=v=>String(v??'').trim().toUpperCase().replace(/\s+/g,' ');
+    const base=t.pda||[];
+    const byRef=new Map(), byCli=new Map();
+    base.forEach(l=>{
+      const r=K(l.reference), c=K(l.client);
+      if(r && !byRef.has(r)) byRef.set(r,l);
+      if(c && !byCli.has(c)) byCli.set(c,l);
+    });
+    const dedans=[], dehors=[]; const vus=new Set();
+    for(let r=hIdx+1;r<aoa.length;r++){
+      const row=aoa[r]; if(!row || !row.some(v=>String(v).trim()!=='')) continue;
+      const get=f=>map[f]!==undefined?row[map[f]]:'';
+      const ref=K(get('reference')), cli=K(get('client'));
+      if(!ref && !cli) continue;
+      const o={}; headers.forEach((h,i)=>{ const v=row[i]; o[h]=(v instanceof Date)?formatDate(v):(v??''); });
+      const hitRef=ref?byRef.get(ref):null;
+      const hitCli=(!hitRef && cli)?byCli.get(cli):null;
+      const hit=hitRef||hitCli;
+      if(hit){
+        vus.add(hit);
+        o['_Correspondance']=hitRef?'Référence':'Client';
+        o['_Client en base']=hit.client||'';
+        o['_Référence en base']=hit.reference||'';
+        o['_Statut en base']=hit.statut||'';
+        dedans.push(o);
+      }else{
+        o['_Motif']='Absent de la base PDA';
+        dehors.push(o);
+      }
+    }
+    const wbOut=XLSX.utils.book_new();
+    const mk=(rows,cols)=>XLSX.utils.json_to_sheet(rows.length?rows:[cols.reduce((a,c)=>(a[c]='',a),{})]);
+    XLSX.utils.book_append_sheet(wbOut, mk(dedans,[...headers,'_Correspondance','_Statut en base']), 'Deja en base');
+    XLSX.utils.book_append_sheet(wbOut, mk(dehors,[...headers,'_Motif']), 'Non pris en compte');
+    const nom=(t.titre||'tache').replace(/[^a-z0-9]+/gi,'_');
+    XLSX.writeFile(wbOut,`Comparaison_${nom}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    toast(`Comparaison : ${dedans.length} déjà en base · ${dehors.length} non pris en compte ✓`,'success');
+  }catch(err){ toast('Erreur comparaison : '+err.message,'error'); }
+  e.target.value='';
 };
 
 // Entrée = ajouter dans le formulaire PDA
@@ -1522,9 +1595,11 @@ document.addEventListener('input', function(e){
       <button class="btn-primary" onclick="pdaAdd()" title="Ajouter une ligne" style="padding:8px 14px">+ Ajouter</button>
       <button class="btn-cancel" onclick="triggerImportPda()" title="Importer des lignes depuis Excel">📥 Import Excel</button>
       <button class="btn-cancel" onclick="exportPdaExcel()" title="Exporter / télécharger un modèle">📤 Export Excel</button>
+      <button class="btn-cancel" onclick="triggerComparePda()" title="Comparer un fichier Excel avec les lignes déjà en base">🔎 Comparer</button>
       <button class="btn-cancel" onclick="pdaClearAll()" style="color:var(--red)">🗑 Vider</button>
       <span id="pda-total" style="font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:var(--accent);background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.2);border-radius:8px;padding:8px 12px;white-space:nowrap">Total dossier : 0</span>
       <input type="file" id="import-pda-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importPdaExcel(event)">
+      <input type="file" id="compare-pda-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="comparePdaExcel(event)">
     </div>
 
     <div id="pda-list"></div>
