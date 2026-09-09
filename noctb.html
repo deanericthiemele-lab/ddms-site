@@ -13753,20 +13753,86 @@ window.addEventListener('fbReady', function(){ if(typeof sbRenderList==='functio
 
 
 <script>
-function importMissionsImage(event){
+// ═══════════════════════════════════════════════════════════
+// IMAGE MISSIONS NOC B2B — Firebase Storage + Firestore
+// ═══════════════════════════════════════════════════════════
+const MISSIONS_IMAGE_DOC = 'noc_missions_image';
+const MISSIONS_IMAGE_ID = 'architecture_noc';
+const MISSIONS_IMAGE_PATH = 'noc_missions/architecture_noc';
+
+async function loadMissionsImage(){
+  try{
+    if(!window._db || !window._getDoc || !window._doc) return;
+    const snap = await window._getDoc(window._doc(window._db, MISSIONS_IMAGE_DOC, MISSIONS_IMAGE_ID));
+    if(snap.exists()){
+      const data = snap.data() || {};
+      if(data.url){
+        const img = document.getElementById('missions-image-preview');
+        if(img) img.src = data.url;
+      }
+    }
+  }catch(e){
+    console.warn('Chargement image Missions NOC:', e);
+  }
+}
+
+async function importMissionsImage(event){
   const file = event.target.files && event.target.files[0];
   if(!file) return;
   if(!file.type.startsWith('image/')){
     alert('Veuillez sélectionner une image.');
+    event.target.value = '';
     return;
   }
-  const reader = new FileReader();
-  reader.onload = function(e){
-    const img = document.getElementById('missions-image-preview');
-    if(img) img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
+
+  const img = document.getElementById('missions-image-preview');
+  const btn = document.querySelector('.missions-image-actions button');
+  const oldText = btn ? btn.innerHTML : '';
+
+  try{
+    if(btn){ btn.disabled = true; btn.innerHTML = '⏳ Enregistrement…'; }
+    if(!window._st || !window._ref || !window._upb || !window._url){
+      throw new Error('Firebase Storage n’est pas disponible.');
+    }
+
+    // Affichage immédiat sans attendre l'upload
+    if(img) img.src = URL.createObjectURL(file);
+
+    // Envoi de l'image dans Firebase Storage
+    const storageRef = window._ref(window._st, MISSIONS_IMAGE_PATH);
+    await new Promise((resolve, reject)=>{
+      const task = window._upb(storageRef, file, { contentType: file.type });
+      task.on('state_changed',
+        null,
+        reject,
+        async ()=>{
+          try{
+            const url = await window._url(storageRef);
+            // Enregistre l'URL dans Firestore pour la retrouver après actualisation
+            await window._set(
+              window._doc(window._db, MISSIONS_IMAGE_DOC, MISSIONS_IMAGE_ID),
+              { url, storagePath: MISSIONS_IMAGE_PATH, fileName: file.name, contentType: file.type, updatedAt: new Date().toISOString() },
+              { merge: true }
+            );
+            if(img) img.src = url;
+            resolve();
+          }catch(err){ reject(err); }
+        }
+      );
+    });
+
+    toast('Image enregistrée dans Firebase ✓','ok');
+  }catch(e){
+    console.error('Enregistrement image Missions NOC:', e);
+    toast('Erreur Firebase : '+e.message,'err');
+  }finally{
+    if(btn){ btn.disabled = false; btn.innerHTML = oldText || '🖼️ Importer une image'; }
+    event.target.value = '';
+  }
 }
+
+// Après connexion Firebase : récupérer l'image sauvegardée.
+window.addEventListener('fbReady', function(){ loadMissionsImage(); });
 </script>
 </body>
 </html>
