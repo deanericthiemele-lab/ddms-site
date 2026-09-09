@@ -13754,11 +13754,14 @@ window.addEventListener('fbReady', function(){ if(typeof sbRenderList==='functio
 
 <script>
 // ═══════════════════════════════════════════════════════════
-// IMAGE MISSIONS NOC B2B — Firebase Storage + Firestore
+// IMAGE MISSIONS NOC B2B — Firestore (persistance après actualisation)
 // ═══════════════════════════════════════════════════════════
+// L'image est compressée côté navigateur puis enregistrée directement
+// dans Firestore. Cela évite Firebase Storage et donc l'erreur
+// "storage/unauthorized" constatée sur cette page.
 const MISSIONS_IMAGE_DOC = 'noc_missions_image';
 const MISSIONS_IMAGE_ID = 'architecture_noc';
-const MISSIONS_IMAGE_PATH = 'noc_missions/architecture_noc';
+const MISSIONS_IMAGE_MAX_BYTES = 700000;
 
 async function loadMissionsImage(){
   try{
@@ -13766,9 +13769,9 @@ async function loadMissionsImage(){
     const snap = await window._getDoc(window._doc(window._db, MISSIONS_IMAGE_DOC, MISSIONS_IMAGE_ID));
     if(snap.exists()){
       const data = snap.data() || {};
-      if(data.url){
+      if(data.dataUrl){
         const img = document.getElementById('missions-image-preview');
-        if(img) img.src = data.url;
+        if(img) img.src = data.dataUrl;
       }
     }
   }catch(e){
@@ -13776,63 +13779,107 @@ async function loadMissionsImage(){
   }
 }
 
+function missionsImageToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = ()=>{
+      const source = new Image();
+      source.onerror = reject;
+      source.onload = ()=>{
+        // Réduction pour rester largement sous la limite Firestore d'un document.
+        const maxW = 1800, maxH = 1000;
+        let w = source.naturalWidth || source.width;
+        let h = source.naturalHeight || source.height;
+        const scale = Math.min(1, maxW/w, maxH/h);
+        w = Math.max(1, Math.round(w*scale));
+        h = Math.max(1, Math.round(h*scale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0,0,w,h);
+        ctx.drawImage(source,0,0,w,h);
+
+        let quality = 0.82;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        while(dataUrl.length > MISSIONS_IMAGE_MAX_BYTES * 1.37 && quality > 0.45){
+          quality -= 0.07;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+        // Si nécessaire, on réduit encore les dimensions.
+        if(dataUrl.length > MISSIONS_IMAGE_MAX_BYTES * 1.37){
+          const scale2 = 0.75;
+          canvas.width = Math.max(1,Math.round(w*scale2));
+          canvas.height = Math.max(1,Math.round(h*scale2));
+          const ctx2 = canvas.getContext('2d');
+          ctx2.fillStyle='#fff';
+          ctx2.fillRect(0,0,canvas.width,canvas.height);
+          ctx2.drawImage(source,0,0,canvas.width,canvas.height);
+          dataUrl = canvas.toDataURL('image/jpeg',0.68);
+        }
+        if(dataUrl.length > MISSIONS_IMAGE_MAX_BYTES * 1.37){
+          reject(new Error('Image trop volumineuse après compression.'));
+          return;
+        }
+        resolve(dataUrl);
+      };
+      source.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 async function importMissionsImage(event){
   const file = event.target.files && event.target.files[0];
   if(!file) return;
   if(!file.type.startsWith('image/')){
     alert('Veuillez sélectionner une image.');
-    event.target.value = '';
+    event.target.value='';
     return;
   }
 
   const img = document.getElementById('missions-image-preview');
   const btn = document.querySelector('.missions-image-actions button');
   const oldText = btn ? btn.innerHTML : '';
+  let previousSrc = img ? img.src : '';
 
   try{
-    if(btn){ btn.disabled = true; btn.innerHTML = '⏳ Enregistrement…'; }
-    if(!window._st || !window._ref || !window._upb || !window._url){
-      throw new Error('Firebase Storage n’est pas disponible.');
+    if(!window._db || !window._set || !window._doc){
+      throw new Error('Firebase Firestore n’est pas disponible.');
     }
+    if(btn){ btn.disabled=true; btn.innerHTML='⏳ Enregistrement…'; }
 
-    // Affichage immédiat sans attendre l'upload
+    // Aperçu immédiat.
     if(img) img.src = URL.createObjectURL(file);
 
-    // Envoi de l'image dans Firebase Storage
-    const storageRef = window._ref(window._st, MISSIONS_IMAGE_PATH);
-    await new Promise((resolve, reject)=>{
-      const task = window._upb(storageRef, file, { contentType: file.type });
-      task.on('state_changed',
-        null,
-        reject,
-        async ()=>{
-          try{
-            const url = await window._url(storageRef);
-            // Enregistre l'URL dans Firestore pour la retrouver après actualisation
-            await window._set(
-              window._doc(window._db, MISSIONS_IMAGE_DOC, MISSIONS_IMAGE_ID),
-              { url, storagePath: MISSIONS_IMAGE_PATH, fileName: file.name, contentType: file.type, updatedAt: new Date().toISOString() },
-              { merge: true }
-            );
-            if(img) img.src = url;
-            resolve();
-          }catch(err){ reject(err); }
-        }
-      );
-    });
+    const dataUrl = await missionsImageToDataUrl(file);
 
+    // Enregistrement permanent dans Firestore.
+    await window._set(
+      window._doc(window._db, MISSIONS_IMAGE_DOC, MISSIONS_IMAGE_ID),
+      {
+        dataUrl,
+        fileName:file.name,
+        contentType:'image/jpeg',
+        updatedAt:new Date().toISOString()
+      },
+      {merge:true}
+    );
+
+    if(img) img.src=dataUrl;
     toast('Image enregistrée dans Firebase ✓','ok');
   }catch(e){
-    console.error('Enregistrement image Missions NOC:', e);
+    console.error('Enregistrement image Missions NOC:',e);
+    if(img && previousSrc) img.src=previousSrc;
     toast('Erreur Firebase : '+e.message,'err');
   }finally{
-    if(btn){ btn.disabled = false; btn.innerHTML = oldText || '🖼️ Importer une image'; }
-    event.target.value = '';
+    if(btn){ btn.disabled=false; btn.innerHTML=oldText || '🖼️ Importer une image'; }
+    event.target.value='';
   }
 }
 
-// Après connexion Firebase : récupérer l'image sauvegardée.
 window.addEventListener('fbReady', function(){ loadMissionsImage(); });
 </script>
-</body>
-</html>
