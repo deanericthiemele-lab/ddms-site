@@ -197,6 +197,9 @@ table.tt td{border-bottom:1px solid var(--rule);padding:0;vertical-align:top;wid
   <aside class="rail">
     <a class="brand" href="#/"><b>Mon classeur</b><span id="brandSub">2nde</span></a>
     <nav class="nav" id="navMat"></nav>
+    <a class="nav" href="#/pronote" style="display:flex;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:7px;text-decoration:none;color:var(--ink);font-size:14.5px">
+      <span>PRONOTE</span><span class="tag" id="pronoteCount">0</span>
+    </a>
     <div class="rail-foot">
       <button class="btn sm" data-act="export">Sauvegarder</button>
       <button class="btn sm" data-act="import">Restaurer</button>
@@ -250,6 +253,7 @@ function migrer(o){
   return o;
 }
 let S = migrer(disk.read());
+S.pronote = S.pronote || pronoteNeuf();
 function save(){
   S.maj = Date.now();
   if(!disk.write(S)) toast('Mémoire saturée : fais une sauvegarde puis allège les fichiers.');
@@ -823,10 +827,294 @@ async function genererMatiere(mid){
   toast(l.length + ' chapitres préparés.');
 }
 
+
+/* ===================== PRONOTE : collecte structurée ===================== */
+function pronoteNeuf(){
+  return {
+    v:1, source:'PRONOTE',
+    profil:{},
+    etablissement:{},
+    emploiDuTemps:[],
+    devoirs:[],
+    notes:[],
+    moyennes:[],
+    competences:[],
+    matieres:[],
+    enseignants:[],
+    absences:[],
+    retards:[],
+    sanctions:[],
+    messages:[],
+    ressources:[],
+    bulletins:[],
+    conseilsDeClasse:[],
+    evenements:[],
+    pages:{},
+    pont:{url:'http://127.0.0.1:8765', jeton:'', dernier:'', erreurs:[], compte:''},
+    brut:[],
+    imports:[]
+  };
+}
+function assurerPronote(){
+  S.pronote = S.pronote || pronoteNeuf();
+  const d = pronoteNeuf();
+  Object.keys(d).forEach(k => {
+    if(k === 'v') return;
+    if(S.pronote[k] == null) S.pronote[k] = d[k];
+  });
+  return S.pronote;
+}
+function pnCount(){
+  const p = assurerPronote();
+  return Object.keys(p).filter(k => Array.isArray(p[k])).reduce((n,k) => n + p[k].length, 0);
+}
+function pnText(v){
+  if(v == null) return '';
+  if(typeof v === 'string') return v;
+  try { return JSON.stringify(v, null, 2); } catch(e){ return String(v); }
+}
+function pnFlatten(obj, path='', out=[]){
+  if(obj == null) return out;
+  if(typeof obj !== 'object'){ out.push({path, value:String(obj)}); return out; }
+  if(Array.isArray(obj)){
+    obj.forEach((v,i) => pnFlatten(v, path ? path+'['+i+']' : '['+i+']', out));
+    return out;
+  }
+  Object.keys(obj).forEach(k => pnFlatten(obj[k], path ? path+'.'+k : k, out));
+  return out;
+}
+function pnFindFirst(obj, keys){
+  const wanted = keys.map(x => norm(x));
+  const flat = pnFlatten(obj);
+  for(const x of flat){
+    const last = norm(x.path.split('.').pop().replace(/\[\d+\]$/,''));
+    if(wanted.some(k => last === k || last.includes(k))) return x.value;
+  }
+  return '';
+}
+function pnDetect(obj, hint=''){
+  const s = norm(hint + ' ' + pnText(obj).slice(0,12000));
+  if(/bulletin|trimestre|appreciation|moyenne generale/.test(s)) return 'bulletins';
+  if(/competence|acquis|maitrise|niveau de maitrise/.test(s)) return 'competences';
+  if(/absence|absente|retard|retards/.test(s)) return /retard/.test(s) ? 'retards' : 'absences';
+  if(/sanction|punition|retenue|exclusion/.test(s)) return 'sanctions';
+  if(/message|messagerie|destinataire|expediteur/.test(s)) return 'messages';
+  if(/ressource|document|piece jointe|fichier/.test(s)) return 'ressources';
+  if(/devoir|travail a faire|travail\.?faire|a faire/.test(s)) return 'devoirs';
+  if(/emploi du temps|horaire|seance|cours|professeur|enseignant|salle/.test(s)) return 'emploiDuTemps';
+  if(/note|evaluation|coefficient|sur ?20|moyenne/.test(s)) return 'notes';
+  if(/eleve|prenom|nom|classe|identite/.test(s)) return 'profil';
+  return 'pages';
+}
+function pnToRows(obj){
+  if(Array.isArray(obj)) return obj;
+  if(!obj || typeof obj !== 'object') return [{valeur:obj}];
+  const keys = Object.keys(obj);
+  const arrays = keys.filter(k => Array.isArray(obj[k]));
+  if(arrays.length){
+    const biggest = arrays.sort((a,b)=>obj[b].length-obj[a].length)[0];
+    if(obj[biggest].length) return obj[biggest];
+  }
+  return [obj];
+}
+function pnMergeCategory(cat, data, meta){
+  const p = assurerPronote();
+  if(cat === 'profil' || cat === 'etablissement'){
+    p[cat] = Object.assign({}, p[cat] || {}, data && typeof data === 'object' && !Array.isArray(data) ? data : {valeur:data});
+    return;
+  }
+  const rows = pnToRows(data);
+  rows.forEach(row => p[cat].push({
+    id:uid(), importId:meta.id, dateCollecte:meta.date,
+    donnees:row
+  }));
+}
+function pnImporter(obj, source, endpoint){
+  const p = assurerPronote();
+  const meta = {id:uid(), date:new Date().toISOString(), source:source || 'JSON', endpoint:endpoint || ''};
+  const cat = pnDetect(obj, endpoint || source || '');
+  pnMergeCategory(cat, obj, meta);
+  p.brut.push({id:meta.id, date:meta.date, source:meta.source, endpoint:meta.endpoint, categorie:cat, donnees:obj});
+  p.imports.push(meta);
+  save(); render();
+  return cat;
+}
+
+/* ---- récupération en ligne (pont local pronotepy) ---- */
+const PN_CATS = ['emploiDuTemps','devoirs','notes','moyennes','competences','matieres','enseignants',
+  'absences','retards','sanctions','messages','ressources','bulletins','conseilsDeClasse','evenements'];
+
+function pnPont(){
+  const p = assurerPronote();
+  if(!p.pont || typeof p.pont !== 'object') p.pont = {url:'http://127.0.0.1:8765', jeton:'', dernier:'', erreurs:[], compte:''};
+  return p.pont;
+}
+function pnUrlPont(chemin){
+  const pont = pnPont();
+  const base = (pont.url || 'http://127.0.0.1:8765').trim().replace(/\/+$/,'');
+  return base + chemin + (pont.jeton ? '?jeton=' + encodeURIComponent(pont.jeton) : '');
+}
+async function pnAppelPont(chemin){
+  const r = await fetch(pnUrlPont(chemin), {method:'GET', mode:'cors', cache:'no-store'});
+  if(r.status === 401) throw new Error('jeton refusé par le pont');
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return await r.json();
+}
+function pnAppliquerPaquet(paquet, source){
+  const p = assurerPronote();
+  const meta = {id:uid(), date:new Date().toISOString(), source:source || 'pont', endpoint:'/api/tout'};
+  let n = 0;
+  if(paquet.profil && typeof paquet.profil === 'object' && !Array.isArray(paquet.profil))
+    p.profil = Object.assign({}, p.profil, paquet.profil);
+  if(paquet.etablissement && typeof paquet.etablissement === 'object' && !Array.isArray(paquet.etablissement))
+    p.etablissement = Object.assign({}, p.etablissement, paquet.etablissement);
+  PN_CATS.forEach(k => {
+    if(!Array.isArray(paquet[k])) return;
+    p[k] = paquet[k].map(row => ({id:uid(), importId:meta.id, dateCollecte:meta.date, donnees:row}));
+    n += paquet[k].length;
+  });
+  Object.assign(p.pont, {dernier:meta.date, erreurs:paquet.erreurs || [],
+    compte:(paquet.profil && (paquet.profil.nom || paquet.profil.name)) || p.pont.compte || ''});
+  p.brut.unshift({id:meta.id, date:meta.date, source:meta.source, endpoint:'/api/tout',
+    categorie:'paquet complet', donnees:paquet});
+  p.brut = p.brut.slice(0, 2);
+  p.imports.push(meta);
+  if(p.imports.length > 30) p.imports = p.imports.slice(-30);
+  save(); render();
+  return n;
+}
+async function pnTester(){
+  toast('Test du pont…');
+  try{
+    const d = await pnAppelPont('/api/ping');
+    toast(d.connecte ? 'Pont OK — ' + (d.nom || 'compte PRONOTE') + (d.etablissement ? ' · ' + d.etablissement : '')
+      : 'Pont joignable mais pas connecté à PRONOTE (relance la connexion).');
+  }catch(e){ toast('Pont injoignable : ' + e.message); }
+}
+async function pnRecuperer(){
+  const pont = pnPont();
+  if(UI.pnEnCours) return;
+  UI.pnEnCours = true; render(); toast('Récupération PRONOTE en cours…');
+  try{
+    const paquet = await pnAppelPont('/api/tout');
+    const n = pnAppliquerPaquet(paquet, 'pont');
+    const err = (paquet.erreurs || []).length;
+    toast(n + ' éléments récupérés' + (err ? ' · ' + err + ' rubrique(s) en échec' : '') + '.');
+  }catch(e){
+    pont.erreurs = ['Échec de la récupération : ' + e.message];
+    save();
+    toast('Échec : ' + e.message);
+  }
+  UI.pnEnCours = false; render();
+}
+
+function pnReset(){
+  if(!confirm('Supprimer toutes les données PRONOTE collectées ?')) return;
+  S.pronote = pronoteNeuf(); save(); render(); toast('Données PRONOTE supprimées.');
+}
+function pnExport(){
+  const b = new Blob([JSON.stringify(assurerPronote(), null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(b); a.download = 'pronote-collecte-' + today() + '.json';
+  a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+}
+function pnStats(){
+  const p = assurerPronote();
+  return [
+    ['Emploi du temps',p.emploiDuTemps.length],['Devoirs',p.devoirs.length],['Notes',p.notes.length],
+    ['Moyennes',(p.moyennes||[]).length],['Compétences',p.competences.length],
+    ['Absences',p.absences.length],['Retards',p.retards.length],
+    ['Messages',p.messages.length],['Ressources',p.ressources.length],['Bulletins',p.bulletins.length],
+    ['Pages / autres',Array.isArray(p.pages) ? p.pages.length : Object.keys(p.pages||{}).length],
+    ['Réponses brutes',p.brut.length]
+  ];
+}
+function vuePronote(){
+  const p = assurerPronote(), tab = UI.pronoteTab || 'synthese';
+  const stats = pnStats();
+  let h = '<div class="sheet large"><div class="sheet-head"><h1>PRONOTE — Collecte des données</h1>' +
+    '<p>Un espace séparé pour récupérer, conserver et organiser les données reçues de PRONOTE.</p></div>';
+  h += '<div class="row" style="margin-bottom:12px">' +
+    [['synthese','Synthèse'],['enligne','En ligne'],['import','Importer'],['donnees','Données'],['brut','Brut']].map(x =>
+      '<button class="btn sm'+(tab===x[0]?' primary':'')+'" data-act="pn-tab" data-id="'+x[0]+'">'+x[1]+'</button>').join('') +
+    '<button class="btn sm" data-act="pn-export">Exporter</button><button class="btn sm" data-act="pn-reset">Vider</button></div>';
+
+  if(tab === 'synthese'){
+    h += '<div class="bloc"><div class="bloc-h"><h2>Structure de collecte</h2><span class="hint">'+pnCount()+' éléments</span></div>';
+    h += stats.map(x => '<div class="item item-row"><div class="grow"><h3>'+esc(x[0])+'</h3><div class="meta">Données classées dans cette rubrique</div></div><b>'+x[1]+'</b></div>').join('');
+    h += '</div><div class="bloc"><div class="card"><div class="card-h"><div><h2>Ce que le collecteur est prêt à recevoir</h2><div class="sub">Les réponses peuvent être importées une par une, sans exposer les identifiants de session.</div></div></div>' +
+      '<div class="card-b"><p class="hint">Profil · établissement · emploi du temps · devoirs · notes · compétences · absences · retards · sanctions · messages · ressources · bulletins · conseils de classe · événements. Les réponses non reconnues restent conservées dans « Brut / autres ».</p></div></div></div>';
+  }
+
+  if(tab === 'enligne'){
+    const pont = pnPont();
+    h += '<div class="bloc"><div class="bloc-h"><h2>Connexion au pont PRONOTE</h2>' +
+      '<span class="hint">' + (pont.dernier ? 'Dernière récupération : ' + esc(pont.dernier.slice(0,16).replace('T',' à ')) : 'Jamais récupéré') + '</span></div>' +
+      '<form data-form="pn-pont" class="form">' +
+      '<input type="text" name="url" value="' + esc(pont.url || 'http://127.0.0.1:8765') + '" placeholder="Adresse du pont (ex : http://127.0.0.1:8765)">' +
+      '<input type="text" name="jeton" value="' + esc(pont.jeton || '') + '" placeholder="Jeton affiché par le pont au démarrage">' +
+      '<label class="row" style="gap:8px;align-items:center;font-size:14px">' +
+      '<input type="checkbox" name="auto"' + (pont.auto ? ' checked' : '') + ' style="width:auto">' +
+      'Récupérer automatiquement à l’ouverture du classeur (au maximum une fois par demi-heure)</label>' +
+      '<div class="row"><button class="btn primary">Enregistrer</button>' +
+      '<button type="button" class="btn sm" data-act="pn-ping">Tester la connexion</button>' +
+      '<button type="button" class="btn sm' + (UI.pnEnCours ? '' : ' primary') + '" data-act="pn-fetch">' +
+      (UI.pnEnCours ? 'Récupération…' : 'Récupérer maintenant') + '</button></div>' +
+      '<div class="hint">Le pont est le petit programme <b>pronote_pont.py</b> qui tourne sur cet ordinateur : ' +
+      'c’est lui qui se connecte à PRONOTE et qui envoie les données ici. La page seule ne peut pas joindre PRONOTE ' +
+      '(le serveur refuse les requêtes venant d’une autre page). Rien n’est envoyé ailleurs : tout reste entre cet onglet et le pont.</div>' +
+      '</form></div>';
+    if((pont.erreurs || []).length){
+      h += '<div class="bloc"><div class="bloc-h"><h2>Dernières alertes</h2></div>' +
+        pont.erreurs.map(x => '<div class="item"><div class="meta">' + esc(x) + '</div></div>').join('') + '</div>';
+    }
+    h += '<div class="bloc"><div class="card"><div class="card-h"><div><h2>Mise en route</h2>' +
+      '<div class="sub">Trois étapes, une seule fois.</div></div></div><div class="card-b"><p class="hint">' +
+      '1. Installer : <code>pip install pronotepy</code>.<br>' +
+      '2. Se connecter une fois : <code>python pronote_pont.py connexion</code> puis coller le contenu du QR code PRONOTE et son code à 4 chiffres.<br>' +
+      '3. Lancer le pont : <code>python pronote_pont.py servir</code>, recopier le jeton affiché ci-dessus, puis « Récupérer maintenant ».<br>' +
+      'Chaque récupération remplace les rubriques par la version la plus récente de PRONOTE.</p></div></div></div>';
+  }
+
+  if(tab === 'import'){
+    h += '<div class="bloc"><div class="bloc-h"><h2>Importer une réponse PRONOTE</h2></div>' +
+      '<form data-form="pn-import" class="form">' +
+      '<input type="text" name="endpoint" placeholder="Nom de la requête / endpoint (ex : PageAccueil, notes, loadingPR_PRM.json)">' +
+      '<textarea name="json" style="min-height:260px" placeholder="Colle ici le JSON de la réponse PRONOTE"></textarea>' +
+      '<div class="row"><button class="btn primary">Analyser et classer</button>' +
+      '<label class="btn sm" style="cursor:pointer">Importer JSON<input type="file" id="pnJsonFile" accept=".json,application/json" style="display:none"></label>' +
+      '<label class="btn sm" style="cursor:pointer">Importer HAR<input type="file" id="pnHarFile" accept=".har,application/json" style="display:none"></label></div>' +
+      '<div class="hint">Pour une collecte complète, le meilleur fichier à me fournir ensuite est un export HAR de l’onglet Réseau de Firefox. Le collecteur conserve aussi la réponse originale.</div></form></div>';
+  }
+
+  if(tab === 'donnees'){
+    const cats = [['profil','Profil'],['etablissement','Établissement'],['emploiDuTemps','Emploi du temps'],['devoirs','Devoirs'],['notes','Notes'],['moyennes','Moyennes'],['competences','Compétences'],['absences','Absences'],['retards','Retards'],['sanctions','Sanctions'],['messages','Messages'],['ressources','Ressources'],['bulletins','Bulletins'],['conseilsDeClasse','Conseils de classe'],['evenements','Événements']];
+    h += '<div class="bloc"><div class="bloc-h"><h2>Données structurées</h2></div>';
+    cats.forEach(([k,label]) => {
+      const v = p[k];
+      const n = Array.isArray(v) ? v.length : Object.keys(v||{}).length;
+      h += '<div class="item item-row"><div class="grow"><h3>'+esc(label)+'</h3><div class="meta">'+esc(k)+'</div></div><b>'+n+'</b></div>';
+    });
+    h += '</div>';
+  }
+
+  if(tab === 'brut'){
+    h += '<div class="bloc"><div class="bloc-h"><h2>Réponses originales</h2><span class="hint">'+p.brut.length+' importations</span></div>';
+    h += p.brut.length ? p.brut.slice().reverse().map(x =>
+      '<div class="item"><h3>'+esc(x.categorie)+' · '+esc(x.endpoint || x.source)+'</h3>' +
+      '<div class="meta">'+esc(x.date)+'</div><details style="margin-top:8px"><summary class="btn sm">Voir JSON</summary>' +
+      '<pre style="white-space:pre-wrap;overflow:auto;max-height:420px;font-size:12px;margin-top:8px">'+esc(pnText(x.donnees))+'</pre></details></div>'
+    ).join('') : '<div class="bloc-vide">Aucune réponse importée.</div>';
+    h += '</div>';
+  }
+  return h + '</div>';
+}
+
 /* ===================== navigation ===================== */
 function route(){ return (location.hash || '#/jour').slice(1); }
 function go(r){ location.hash = r; }
-let UI = {tab:'prog', form:null, quiz:null, depot:[], analyse:[], move:null, prog:'', ouvert:null, gen:null};
+let UI = {tab:'prog', form:null, quiz:null, depot:[], analyse:[], move:null, prog:'', ouvert:null, gen:null,
+  pronoteTab:'synthese', pnEnCours:false};
 
 function renderNav(){
   const r = route();
@@ -836,7 +1124,14 @@ function renderNav(){
       (fb ? '<span class="tag">' + fb + '</span>' : '') + '</a>';
   }).join('');
   $('navMat').innerHTML = html;
-  $('navMobile').innerHTML = html;
+  $('navMobile').innerHTML = html + '<a href="#/pronote" class="' + (r === '/pronote' ? 'on' : '') + '">PRONOTE</a>';
+  const pn = $('pronoteCount');
+  if(pn) pn.textContent = pnCount();
+  const pnLink = document.querySelector('a[href="#/pronote"]');
+  if(pnLink) {
+    pnLink.style.background = r === '/pronote' ? 'var(--accent-soft)' : '';
+    pnLink.style.color = r === '/pronote' ? 'var(--accent)' : 'var(--ink)';
+  }
   $('brandSub').textContent = (S.eleve.prenom ? S.eleve.prenom + ' · ' : '') + (S.eleve.classe || '2nde') +
     (CLOUD.etat === 'sync' ? ' · en ligne' : CLOUD.etat === 'erreur' ? ' · hors ligne' : '');
 }
@@ -847,6 +1142,7 @@ function render(){
   else if(r.startsWith('/c/')) app.innerHTML = vueChapitre(r.slice(3));
   else if(r.startsWith('/prog/')) app.innerHTML = vueProg(r.slice(6));
   else if(r === '/quiz') app.innerHTML = vueQuiz();
+  else if(r === '/pronote') app.innerHTML = vuePronote();
   else app.innerHTML = vueAccueil();
   window.scrollTo(0,0);
 }
@@ -1331,6 +1627,11 @@ document.addEventListener('click', e => {
   const A = {
     'modal-close': () => closeModal(),
     'tab': () => { UI.tab = id; UI.form = null; render(); },
+    'pn-tab': () => { UI.pronoteTab = id; render(); },
+    'pn-ping': () => pnTester(),
+    'pn-fetch': () => pnRecuperer(),
+    'pn-export': () => pnExport(),
+    'pn-reset': () => pnReset(),
     'form': () => { UI.form = UI.form === id ? null : id; render(); },
     'open-chap': () => { UI.form = null; go('/c/' + id); },
     'reglages': () => modalReglages(),
@@ -1403,6 +1704,39 @@ function repondre(i){
 
 document.addEventListener('change', e => {
   const t = e.target;
+  if(t.id === 'pnJsonFile' && t.files.length){
+    const f = t.files[0], r = new FileReader();
+    r.onload = () => { try{
+      const obj = JSON.parse(r.result);
+      pnImporter(obj, f.name, f.name);
+      UI.pronoteTab = 'brut'; render(); toast('JSON PRONOTE importé.');
+    }catch(e){ toast('JSON illisible.'); } };
+    r.readAsText(f); t.value = ''; return;
+  }
+  if(t.id === 'pnHarFile' && t.files.length){
+    const f = t.files[0], r = new FileReader();
+    r.onload = () => {
+      try{
+        const har = JSON.parse(r.result), entries = (((har||{}).log||{}).entries||[]);
+        let n = 0;
+        entries.forEach(en => {
+          const resp = en.response || {}, c = resp.content || {};
+          let txt = c.text || '';
+          if(!txt) return;
+          if(c.encoding === 'base64'){
+            try{ txt = atob(txt); }catch(e){ return; }
+          }
+          let obj;
+          try{ obj = JSON.parse(txt); }catch(e){ return; }
+          pnImporter(obj, 'HAR', (en.request && en.request.url) || '');
+          n++;
+        });
+        UI.pronoteTab = 'brut'; render();
+        toast(n ? n + ' réponses JSON importées depuis le HAR.' : 'Aucune réponse JSON exploitable trouvée dans ce HAR.');
+      }catch(e){ toast('HAR illisible.'); }
+    };
+    r.readAsText(f); t.value = ''; return;
+  }
   if(t.id === 'depotFile' && t.files.length){ deposer(t.files, t.dataset.mid); t.value = ''; return; }
   if(t.id === 'packFile' && t.files.length){
     const r = new FileReader();
@@ -1432,6 +1766,24 @@ document.addEventListener('submit', async e => {
   const type = f.dataset.form;
 
   if(type === 'prog'){ UI.prog = d.txt; render(); return; }
+  if(type === 'pn-pont'){
+    const pont = pnPont();
+    pont.url = (d.url || 'http://127.0.0.1:8765').trim();
+    pont.jeton = (d.jeton || '').trim();
+    pont.auto = !!d.auto;
+    save(); render(); toast('Pont enregistré.');
+    return;
+  }
+  if(type === 'pn-import'){
+    try{
+      const a = (d.json || '').indexOf('{'), b = (d.json || '').lastIndexOf('}');
+      if(a < 0 || b < a) throw 0;
+      const obj = JSON.parse(d.json.slice(a,b+1));
+      const cat = pnImporter(obj, 'JSON', d.endpoint || '');
+      UI.pronoteTab = 'brut'; toast('Réponse importée et classée : ' + cat + '.');
+    }catch(err){ toast('JSON PRONOTE illisible.'); }
+    render(); return;
+  }
   if(type === 'tache'){ if(!d.mid) return; S.taches.push({id:uid(), mid:d.mid, desc:d.desc, date:d.date}); UI.form = null; }
   if(type === 'item'){
     const c = chap(d.cid), champ = d.champ;
@@ -1521,6 +1873,15 @@ $('importFile').addEventListener('change', e => {
 
 render();
 CLOUD.init();
+
+/* récupération PRONOTE automatique à l'ouverture, si elle est activée */
+(function pnAuto(){
+  const pont = pnPont();
+  if(!pont.auto || !pont.url) return;
+  const ecart = pont.dernier ? Date.now() - new Date(pont.dernier).getTime() : Infinity;
+  if(ecart < 30 * 60000) return;           // pas plus d'une fois par demi-heure
+  setTimeout(() => { pnRecuperer(); }, 1500);
+})();
 
 </script>
 </body>
