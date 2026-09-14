@@ -1,4 +1,10 @@
 export default async (request, context) => {
+  const url = new URL(request.url);
+  const publicPaths = ['/manifest.json', '/sw.js'];
+  if (publicPaths.includes(url.pathname) || url.pathname.startsWith('/icons/')) {
+    return context.next();
+  }
+
   const auth = request.headers.get("authorization");
   const validUser = Netlify.env.get("BASIC_AUTH_USER");
   const validPass = Netlify.env.get("BASIC_AUTH_PASS");
