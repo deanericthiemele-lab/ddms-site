@@ -69,10 +69,10 @@ const isCongestionProjet    = p => !!p && (p.nom||'').toUpperCase().includes('CO
 const isMaintenanceCEProjet = p => !!p && (p.nom||'').toUpperCase().includes('MAINTENANCE CE');
 const isMaintenanceLSProjet = p => !!p && (p.nom||'').toUpperCase().includes('MAINTENANCE LS');
 const CUSTOM_TABLE_TYPES = [
-  { test:isCallCenterProjet,    fields:[ {id:'client',label:'Client'}, {id:'reference',label:'Référence'}, {id:'produit',label:'Produit'}, {id:'localisation',label:'Localisation'} ] },
-  { test:isCongestionProjet,    fields:[ {id:'client',label:'Client'}, {id:'localite',label:'Localité'}, {id:'gps',label:'GPS'}, {id:'debit',label:'Débit'} ] },
-  { test:isMaintenanceCEProjet, fields:[ {id:'client',label:'Client'}, {id:'ip',label:'@IP'}, {id:'equipements',label:'Équipements'} ] },
-  { test:isMaintenanceLSProjet, fields:[ {id:'client',label:'Client'}, {id:'localisation',label:'Localisation'}, {id:'typeLien',label:'Type de lien'}, {id:'debit',label:'Débit'}, {id:'incidentsN1',label:'Incidents répétitifs (année N-1)'} ] },
+  { test:isCallCenterProjet,    fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'reference',label:'Référence'}, {id:'produit',label:'Produit'}, {id:'localisation',label:'Localisation'} ] },
+  { test:isCongestionProjet,    fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'localite',label:'Localité'}, {id:'gps',label:'GPS'}, {id:'debit',label:'Débit'} ] },
+  { test:isMaintenanceCEProjet, fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'ip',label:'@IP'}, {id:'equipements',label:'Équipements'} ] },
+  { test:isMaintenanceLSProjet, fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'localisation',label:'Localisation'}, {id:'typeLien',label:'Type de lien'}, {id:'debit',label:'Débit'}, {id:'incidentsN1',label:'Incidents répétitifs (année N-1)'} ] },
 ];
 const getCustomType = p => CUSTOM_TABLE_TYPES.find(ct => ct.test(p));
 
@@ -361,6 +361,7 @@ function renderProjet() {
   document.getElementById('btn-export-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
   document.getElementById('btn-import-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
   document.getElementById('btn-seed-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
+  document.getElementById('btn-import-resilience').style.display = ct ? 'inline-flex' : 'none';
   if(isMigrationProjet(p) && p.migSeedV!==MIG_SEED_V) migLoadSeed(p);
 }
 
@@ -402,6 +403,61 @@ window.reloadMigSeed=function(){
   migLoadSeed(p);
 };
 
+// ── IMPORT DES LIGNES DEPUIS "2026 PLAN DE RESILIENCE" (PDA des tâches sources) ──
+// Champs disponibles côté PDA source : client, reference, produit, localisation, recurrent, typeSite, dateConstruction, techno, statut
+// Champs sans correspondance directe dans les nouveaux projets (GPS, débit, @IP, incidents N-1…) sont laissés vides à compléter.
+window.importDepuisResilience=async function(){
+  const p=proj(); if(!p) return;
+  const ct=getCustomType(p); if(!ct) return;
+  if(!checkPassword('importer les données')) return;
+
+  const sources=projets.filter(pp=>(pp.nom||'').toUpperCase().includes('PLAN DE RESILIENCE'));
+  if(!sources.length){ toast('Aucun projet "PLAN DE RESILIENCE" trouvé','error'); return; }
+
+  let matchTest;
+  if(isCallCenterProjet(p))         matchTest = titre => /CALL CENTER/.test(titre);
+  else if(isCongestionProjet(p))    matchTest = titre => /CONGESTION/.test(titre);
+  else if(isMaintenanceCEProjet(p)) matchTest = titre => /MAINTENANCE/.test(titre) && /\bCE\b/.test(titre);
+  else if(isMaintenanceLSProjet(p)) matchTest = titre => /MAINTENANCE/.test(titre) && /\bLS\b/.test(titre);
+  else { toast('Type de projet non pris en charge','error'); return; }
+
+  let srcTask=null, srcProjNom='';
+  for(const sp of sources){
+    const t=(sp.taches||[]).find(tt=>matchTest((tt.titre||'').toUpperCase()));
+    if(t && (t.pda||[]).length){ srcTask=t; srcProjNom=sp.nom; break; }
+  }
+  if(!srcTask){ toast('Aucune ligne source (PDA) trouvée pour ce type de projet','error'); return; }
+
+  const mapLine = l => {
+    const base={ statut: l.statut || 'À faire' };
+    ct.fields.forEach(f=>{
+      if(f.id==='date')              base.date=l.dateConstruction||'';
+      else if(f.id==='client')            base.client=l.client||'';
+      else if(f.id==='reference')    base.reference=l.reference||'';
+      else if(f.id==='produit')      base.produit=l.produit||'';
+      else if(f.id==='localisation') base.localisation=l.localisation||'';
+      else if(f.id==='localite')     base.localite=l.localisation||'';
+      else if(f.id==='equipements')  base.equipements=l.produit||l.typeSite||'';
+      else if(f.id==='typeLien')     base.typeLien=l.techno||l.typeSite||'';
+      else base[f.id]=''; // gps, debit, ip, incidentsN1 : pas de source équivalente → à compléter manuellement
+    });
+    return base;
+  };
+  const nouvelles=(srcTask.pda||[]).map(mapLine);
+  const champsVides=ct.fields.filter(f=>!['date','client','reference','produit','localisation','localite','equipements','typeLien'].includes(f.id)).map(f=>f.label);
+  const noteVides = champsVides.length ? `\nChamps sans source (à compléter) : ${champsVides.join(', ')}.` : '';
+  if(!confirm(`Importer ${nouvelles.length} ligne(s) depuis "${srcProjNom} → ${srcTask.titre}" ?${noteVides}`)) return;
+
+  if(!p.taches) p.taches=[];
+  p.taches = p.taches.concat(nouvelles);
+  try{
+    toast('Import en cours…');
+    await fsSave(p);
+    renderProjet(); renderSidebar();
+    toast(`${nouvelles.length} ligne(s) importée(s) ✓`,'success');
+  }catch(e){ toast('Erreur : '+e.message,'error'); }
+};
+
 function renderMigrationKPIs(taches) {
   const cnt = st => taches.filter(t=>t.statut===st).length;
   const card=(lbl,val,color)=>`<div class="kpi-card"><span class="kpi-label">${lbl}</span><span class="kpi-val" style="color:${color}">${val}</span></div>`;
@@ -439,8 +495,8 @@ function renderTachesCustom(taches, ct) {
       const sc=gcol[t.statut]||'var(--text3)';
       html+=`<tr class="t-row ${t.statut==='Terminé'?'t-row-done':''}">
         <td class="t-cell-chk fix-chk"><div class="t-chk ${t.statut==='Terminé'?'checked':''}" onclick="toggleTache(${i})"></div></td>
-        <td class="t-cell-nom fix-nom"><span class="${t.statut==='Terminé'?'struck':''}">${t[cols[0].id]||'—'}</span></td>
-        ${cols.slice(1).map(f=>`<td>${t[f.id]||'—'}</td>`).join('')}
+        <td class="t-cell-nom fix-nom"><span class="${t.statut==='Terminé'?'struck':''}">${cols[0].type==='date'&&t[cols[0].id]?formatDate(t[cols[0].id]):(t[cols[0].id]||'—')}</span></td>
+        ${cols.slice(1).map(f=>`<td>${f.type==='date'&&t[f.id]?formatDate(t[f.id]):(t[f.id]||'—')}</td>`).join('')}
         <td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${t.statut}</span></td>
         <td class="t-cell-actions">
           <button class="btn-icon" onclick="editTache(${i})" title="Modifier">✏️</button>
@@ -666,7 +722,8 @@ function toggleTacheModalFields(p){
 }
 function buildCustomTacheFields(ct){
   const el=document.getElementById('tache-fields-custom');
-  el.innerHTML = ct.fields.map((f,idx)=>`<div class="field"><label>${f.label}${idx===0?' *':''}</label><input id="t-cf-${f.id}" placeholder="ex: ${f.label}"></div>`).join('')
+  const reqId=(ct.fields.find(f=>f.id==='client')||ct.fields[0]).id;
+  el.innerHTML = ct.fields.map(f=>`<div class="field"><label>${f.label}${f.id===reqId?' *':''}</label><input id="t-cf-${f.id}" type="${f.type==='date'?'date':'text'}" ${f.type==='date'?'':`placeholder="ex: ${f.label}"`}></div>`).join('')
     + `<div class="field"><label>Statut</label><select id="t-cf-statut"><option>À faire</option><option>En cours</option><option>Terminé</option><option>Bloqué</option></select></div>`;
 }
 
@@ -684,7 +741,8 @@ window.saveTache=async function(){
       dateMigration: document.getElementById('t-dateMigration').value,
     };
   } else if(ct){
-    const first=document.getElementById('t-cf-'+ct.fields[0].id).value.trim(); if(!first) return;
+    const reqField=(ct.fields.find(f=>f.id==='client')||ct.fields[0]).id;
+    const first=document.getElementById('t-cf-'+reqField).value.trim(); if(!first) return;
     obj={};
     ct.fields.forEach(f=>{ obj[f.id]=document.getElementById('t-cf-'+f.id).value.trim(); });
     obj.statut=document.getElementById('t-cf-statut').value;
@@ -1601,6 +1659,7 @@ document.addEventListener('input', function(e){
           <button class="btn-add-t" id="btn-export-mig" style="display:none;background:none;border:1px solid var(--border);color:var(--text2);" onclick="exportMigrationExcel()">⬇ Exporter</button>
           <button class="btn-add-t" id="btn-import-mig" style="display:none;background:none;border:1px solid var(--border);color:var(--text2);" onclick="triggerImportMigration()">⬆ Importer</button>
           <input type="file" id="import-mig-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importMigrationExcel(event)">
+          <button class="btn-add-t" id="btn-import-resilience" style="display:none;background:none;border:1px solid var(--border);color:var(--text2);" onclick="importDepuisResilience()" title="Importer les lignes depuis 2026 PLAN DE RESILIENCE">↙ Depuis Plan de Résilience</button>
           <button class="btn-add-t" onclick="openAddTache()"><span id="btn-add-t-label">+ Ajouter une tâche</span></button>
         </div>
       </div>
