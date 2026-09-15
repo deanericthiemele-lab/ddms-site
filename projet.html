@@ -63,6 +63,19 @@ const MIGI = {
 };
 const isDoneStatut = t => t.statut==='Terminé' || t.statut==='Migré' || t.statut==='MIGRE';
 
+// ── PROJETS "FICHE PERSONNALISÉE" : colonnes de tâches spécifiques par type de projet ──
+const isCallCenterProjet    = p => !!p && (p.nom||'').toUpperCase().includes('CALL CENTER');
+const isCongestionProjet    = p => !!p && (p.nom||'').toUpperCase().includes('CONGESTION') && !isMigrationProjet(p);
+const isMaintenanceCEProjet = p => !!p && (p.nom||'').toUpperCase().includes('MAINTENANCE CE');
+const isMaintenanceLSProjet = p => !!p && (p.nom||'').toUpperCase().includes('MAINTENANCE LS');
+const CUSTOM_TABLE_TYPES = [
+  { test:isCallCenterProjet,    fields:[ {id:'client',label:'Client'}, {id:'reference',label:'Référence'}, {id:'produit',label:'Produit'}, {id:'localisation',label:'Localisation'} ] },
+  { test:isCongestionProjet,    fields:[ {id:'client',label:'Client'}, {id:'localite',label:'Localité'}, {id:'gps',label:'GPS'}, {id:'debit',label:'Débit'} ] },
+  { test:isMaintenanceCEProjet, fields:[ {id:'client',label:'Client'}, {id:'ip',label:'@IP'}, {id:'equipements',label:'Équipements'} ] },
+  { test:isMaintenanceLSProjet, fields:[ {id:'client',label:'Client'}, {id:'localisation',label:'Localisation'}, {id:'typeLien',label:'Type de lien'}, {id:'debit',label:'Débit'}, {id:'incidentsN1',label:'Incidents répétitifs (année N-1)'} ] },
+];
+const getCustomType = p => CUSTOM_TABLE_TYPES.find(ct => ct.test(p));
+
 function toast(msg, type='info') {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -342,8 +355,9 @@ function renderProjet() {
   document.getElementById('v-kpi').innerHTML = isMigrationProjet(p) ? renderMigrationKPIs(taches) : '';
 
   renderTaches();
-  document.getElementById('btn-add-t-label').textContent = isMigrationProjet(p) ? '+ Ajouter une ligne' : '+ Ajouter une tâche';
-  document.getElementById('th-lbl-text').textContent = isMigrationProjet(p) ? 'Lignes de migration' : 'Tâches';
+  const ct=getCustomType(p);
+  document.getElementById('btn-add-t-label').textContent = (isMigrationProjet(p)||ct) ? '+ Ajouter une ligne' : '+ Ajouter une tâche';
+  document.getElementById('th-lbl-text').textContent = isMigrationProjet(p) ? 'Lignes de migration' : (ct ? 'Lignes' : 'Tâches');
   document.getElementById('btn-export-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
   document.getElementById('btn-import-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
   document.getElementById('btn-seed-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
@@ -399,13 +413,55 @@ function renderMigrationKPIs(taches) {
   </div>`;
 }
 
+function renderTachesCustom(taches, ct) {
+  const groups={'À faire':[],'En cours':[],'Bloqué':[],'Terminé':[]};
+  taches.forEach((t,i)=>{ (groups[t.statut]||groups['À faire']).push({...t,_i:i}); });
+  const gcol={'À faire':'var(--text3)','En cours':'var(--accent)','Bloqué':'var(--red)','Terminé':'var(--green)'};
+  const gicon={'À faire':'○','En cours':'◑','Bloqué':'✕','Terminé':'●'};
+  const cols=ct.fields;
+
+  let html=`<div class="t-table-wrap">
+    <table class="t-table">
+      <thead><tr>
+        <th style="width:32px" class="fix-chk"></th>
+        <th class="fix-nom">${cols[0].label}</th>
+        ${cols.slice(1).map(f=>`<th>${f.label}</th>`).join('')}
+        <th>Statut</th>
+        <th style="width:64px"></th>
+      </tr></thead>
+      <tbody>`;
+
+  Object.entries(groups).forEach(([grp,items])=>{
+    if(!items.length) return;
+    html+=`<tr class="t-group-row"><td colspan="${cols.length+3}" class="fix-grp" style="color:${gcol[grp]};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px"><span class="grp-lbl">${gicon[grp]} ${grp} <span style="opacity:.5">(${items.length})</span></span></td></tr>`;
+    items.forEach(t=>{
+      const i=t._i;
+      const sc=gcol[t.statut]||'var(--text3)';
+      html+=`<tr class="t-row ${t.statut==='Terminé'?'t-row-done':''}">
+        <td class="t-cell-chk fix-chk"><div class="t-chk ${t.statut==='Terminé'?'checked':''}" onclick="toggleTache(${i})"></div></td>
+        <td class="t-cell-nom fix-nom"><span class="${t.statut==='Terminé'?'struck':''}">${t[cols[0].id]||'—'}</span></td>
+        ${cols.slice(1).map(f=>`<td>${t[f.id]||'—'}</td>`).join('')}
+        <td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${t.statut}</span></td>
+        <td class="t-cell-actions">
+          <button class="btn-icon" onclick="editTache(${i})" title="Modifier">✏️</button>
+          <button class="btn-icon del" onclick="deleteTache(${i})" title="Supprimer">✕</button>
+        </td>
+      </tr>`;
+    });
+  });
+
+  html+=`</tbody></table></div>`;
+  return html;
+}
+
 function renderTaches() {
   const p=proj(); if(!p) return;
   const taches=p.taches||[];
   const el=document.getElementById('taches-list');
-  if(!taches.length){ el.innerHTML=emptyState(isMigrationProjet(p)?'Aucune ligne — cliquez "+ Ajouter une ligne"':'Aucune tâche — cliquez "+ Ajouter une tâche"'); return; }
+  const ct=getCustomType(p);
+  if(!taches.length){ el.innerHTML=emptyState((isMigrationProjet(p)||ct)?'Aucune ligne — cliquez "+ Ajouter une ligne"':'Aucune tâche — cliquez "+ Ajouter une tâche"'); return; }
 
-  el.innerHTML = isMigrationProjet(p) ? renderTachesMigration(taches) : renderTachesDefault(taches);
+  el.innerHTML = isMigrationProjet(p) ? renderTachesMigration(taches) : (ct ? renderTachesCustom(taches,ct) : renderTachesDefault(taches));
   fixStickyOffsets(el);
 }
 
@@ -545,12 +601,17 @@ window.toggleTache=async function(i){
 window.editTache=function(i){
   const p=proj(); const t=p.taches[i]; editTacheIdx=i;
   toggleTacheModalFields(p);
+  const ct=getCustomType(p);
   if(isMigrationProjet(p)){
     document.getElementById('t-raisonSociale').value=t.raisonSociale||'';
     document.getElementById('t-nd').value=t.nd||'';
     document.getElementById('t-statut-mig').value=t.statut||'A migré';
     document.getElementById('t-porteur-mig').value=t.porteur||'';
     document.getElementById('t-dateMigration').value=t.dateMigration||'';
+    document.getElementById('tache-modal-title').innerHTML='Modifier la ligne <button class="modal-close" onclick="closeModal(\'modal-tache\')">✕</button>';
+  } else if(ct){
+    ct.fields.forEach(f=>{ document.getElementById('t-cf-'+f.id).value=t[f.id]||''; });
+    document.getElementById('t-cf-statut').value=t.statut||'À faire';
     document.getElementById('tache-modal-title').innerHTML='Modifier la ligne <button class="modal-close" onclick="closeModal(\'modal-tache\')">✕</button>';
   } else {
     document.getElementById('t-titre').value=t.titre||'';
@@ -576,9 +637,14 @@ window.openAddTache=function(){
   editTacheIdx=null;
   const p=proj();
   toggleTacheModalFields(p);
+  const ct=getCustomType(p);
   if(isMigrationProjet(p)){
     ['t-nd','t-raisonSociale','t-dateMigration','t-porteur-mig'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('t-statut-mig').value='A migré';
+    document.getElementById('tache-modal-title').innerHTML='Nouvelle ligne <button class="modal-close" onclick="closeModal(\'modal-tache\')">✕</button>';
+  } else if(ct){
+    ct.fields.forEach(f=>{ document.getElementById('t-cf-'+f.id).value=''; });
+    document.getElementById('t-cf-statut').value='À faire';
     document.getElementById('tache-modal-title').innerHTML='Nouvelle ligne <button class="modal-close" onclick="closeModal(\'modal-tache\')">✕</button>';
   } else {
     ['t-titre','t-objectif','t-volume','t-realise','t-porteur','t-dateDebut','t-dateFin','t-desc'].forEach(id=>document.getElementById(id).value='');
@@ -592,13 +658,22 @@ window.openAddTache=function(){
 
 function toggleTacheModalFields(p){
   const mig=isMigrationProjet(p);
-  document.getElementById('tache-fields-default').style.display = mig ? 'none' : 'block';
+  const ct=getCustomType(p);
+  document.getElementById('tache-fields-default').style.display = (mig||ct) ? 'none' : 'block';
   document.getElementById('tache-fields-migration').style.display = mig ? 'block' : 'none';
+  document.getElementById('tache-fields-custom').style.display = ct ? 'block' : 'none';
+  if(ct) buildCustomTacheFields(ct);
+}
+function buildCustomTacheFields(ct){
+  const el=document.getElementById('tache-fields-custom');
+  el.innerHTML = ct.fields.map((f,idx)=>`<div class="field"><label>${f.label}${idx===0?' *':''}</label><input id="t-cf-${f.id}" placeholder="ex: ${f.label}"></div>`).join('')
+    + `<div class="field"><label>Statut</label><select id="t-cf-statut"><option>À faire</option><option>En cours</option><option>Terminé</option><option>Bloqué</option></select></div>`;
 }
 
 window.saveTache=async function(){
   const p=proj(); if(!p) return;
   let obj;
+  const ct=getCustomType(p);
   if(isMigrationProjet(p)){
     const raisonSociale=document.getElementById('t-raisonSociale').value.trim(); if(!raisonSociale) return;
     obj={
@@ -608,6 +683,11 @@ window.saveTache=async function(){
       porteur: document.getElementById('t-porteur-mig').value,
       dateMigration: document.getElementById('t-dateMigration').value,
     };
+  } else if(ct){
+    const first=document.getElementById('t-cf-'+ct.fields[0].id).value.trim(); if(!first) return;
+    obj={};
+    ct.fields.forEach(f=>{ obj[f.id]=document.getElementById('t-cf-'+f.id).value.trim(); });
+    obj.statut=document.getElementById('t-cf-statut').value;
   } else {
     const titre=document.getElementById('t-titre').value.trim(); if(!titre) return;
     obj={
@@ -634,7 +714,7 @@ window.saveTache=async function(){
     await fsSave(p);
     if(isMigrationProjet(p)){
       saveSuggestionValues({'t-nd':obj.nd,'t-raisonSociale':obj.raisonSociale,'t-porteur-mig':obj.porteur});
-    } else {
+    } else if(!ct) {
       saveSuggestionValues({'t-titre':obj.titre,'t-objectif':obj.objectif,'t-porteur':obj.porteur});
     }
     closeModal('modal-tache'); renderProjet(); toast('Enregistré ✓','success');
@@ -1613,6 +1693,8 @@ document.addEventListener('input', function(e){
       </div>
       <div class="field"><label>Date de migration</label><input id="t-dateMigration" type="date"></div>
     </div>
+
+    <div id="tache-fields-custom" style="display:none"></div>
 
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal('modal-tache')">Annuler</button>
