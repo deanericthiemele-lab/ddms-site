@@ -1008,10 +1008,22 @@ async function extraireProgrammeIA(file, mid){
   }
 }
 
+function viderProgramme(mid){
+  const supprimes = new Set(S.chapitres.filter(c => c.mid === mid).map(c => c.id));
+  S.sections = S.sections.filter(s => s.mid !== mid);
+  S.chapitres = S.chapitres.filter(c => c.mid !== mid);
+  S.docs.forEach(d => { if(d.mid === mid && supprimes.has(d.cid)) d.cid = ''; });
+  (S.devoirs || []).forEach(dv => { if(dv.mid === mid) (dv.points || []).forEach(p => { if(supprimes.has(p.cid)) p.cid = ''; }); });
+  if(UI.mid === mid) UI.cid = '';
+  save();
+}
 function modalProgramme(){
   const m = mat(UI.mid), parsed = UI.prog ? parseProgramme(UI.prog) : [];
+  const existe = chapsDe(UI.mid).length > 0;
   let h = '<h2>Programme — ' + esc(m.nom) + '</h2>' +
     '<p class="hint">Colle le programme tel qu\'il est écrit, ou charge le fichier. Il reste en mémoire et sert de plan à toute la matière. Le texte grisé ci-dessous n\'est qu\'un exemple : clique et remplace-le par le vrai programme.</p>' +
+    (existe ? '<div class="row" style="margin-bottom:10px"><span class="hint">' + chapsDe(UI.mid).length + ' chapitre' + (chapsDe(UI.mid).length > 1 ? 's' : '') + ' déjà enregistré' + (chapsDe(UI.mid).length > 1 ? 's' : '') + '</span>' +
+      '<button type="button" class="btn s" data-a="prog-vider" style="color:var(--ko)">Vider le programme</button></div>' : '') +
     '<form data-f="prog" class="form">' +
     '<textarea name="txt" style="min-height:170px" placeholder="SECTION 1 — Nombres et calculs&#10;Chapitre 1 : Ensembles de nombres&#10;Chapitre 2 : Calcul littéral&#10;&#10;SECTION 2 — Fonctions&#10;Chapitre 3 : Généralités sur les fonctions">' + esc(UI.prog) + '</textarea>' +
     '<div class="row"><button class="btn">Analyser</button>' +
@@ -1432,6 +1444,13 @@ document.addEventListener('click', e => {
       const cs = chapsDe(UI.mid);
       UI.cid = cs.length ? cs[0].id : ''; UI.mode = 'chapitre';
       fermer(); render(); toast('Programme enregistré.');
+    },
+    'prog-vider': () => {
+      const n = chapsDe(UI.mid).length;
+      if(!confirm('Vider le programme de ' + mat(UI.mid).nom + ' ? Les ' + n + ' chapitres, leurs cours et leurs quiz seront supprimés. Les documents déjà chargés restent, juste détachés du chapitre.')) return;
+      viderProgramme(UI.mid);
+      UI.prog = ''; UI.mode = 'chapitre';
+      fermer(); render(); toast('Programme vidé.');
     },
     gen: () => genererChapitre(i),
     'gen-mat': () => genererMatiere(UI.mid),
