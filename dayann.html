@@ -300,6 +300,16 @@ const FS = {
     q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
 };
 function toDataURL(f){ return new Promise(r => { const x = new FileReader(); x.onload = () => r(x.result); x.readAsDataURL(f); }); }
+/* Empreinte du contenu d'un fichier, pour repérer un doublon (même fichier
+   importé ou scanné deux fois). Renvoie null si indisponible (contexte non
+   sécurisé) : le doublon n'est alors simplement pas détecté, sans bloquer. */
+async function empreinte(blob){
+  try{
+    const buf = await blob.arrayBuffer();
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2,'0')).join('');
+  }catch(e){ return null; }
+}
 async function storeFile(f){
   if(!f) return null;
   const meta = {id:uid(), name:f.name, type:f.type, size:f.size};
@@ -658,6 +668,11 @@ async function analyserDevoir(file, mid){
   if(UI.gen) return;
   UI.gen = 'devoir'; UI.genMsg = 'Lecture de la copie…'; render();
   try{
+    const hash = await empreinte(file);
+    if(hash && S.docs.some(d => d.mid === mid && d.hash === hash)){
+      toast('« ' + file.name + ' » est déjà dans ' + mat(mid).nom + ' — ignoré.');
+      UI.gen = ''; render(); return;
+    }
     let texte = await extraireTexte(file);
     let images = [];
     const estImage = (file.type || '').startsWith('image/');
@@ -673,10 +688,12 @@ async function analyserDevoir(file, mid){
       const c = cs.find(x => norm(x.titre) === norm(p.chapitre || ''));
       return {notion:p.notion || 'Point', pct:Math.max(0, Math.min(100, Math.round(p.pct || 0))), cid:c ? c.id : '', commentaire:p.commentaire || ''};
     });
-    const meta = await storeFile(file);
-    S.devoirs.push({id:uid(), mid, titre:o.titre || 'Devoir', note:o.note || null, points, file:meta, ts:Date.now()});
-    if(meta) S.docs.push({id:uid(), mid, cid:points.length === 1 ? points[0].cid : '', nom:file.name, type:file.type,
-      taille:file.size, file:meta, texte:String(texte || '').slice(0,6000)});
+    const compte = {};
+    points.forEach(p => { if(p.cid) compte[p.cid] = (compte[p.cid] || 0) + 1; });
+    let cidDoc = '', max = 0;
+    Object.keys(compte).forEach(k => { if(compte[k] > max){ max = compte[k]; cidDoc = k; } });
+    const doc = await rangerDocument(file, mid, {cid:cidDoc, texte, images, source:'devoir', autoClasser:false});
+    if(doc) S.devoirs.push({id:uid(), mid, titre:o.titre || 'Devoir', note:o.note || null, points, file:doc.file, ts:Date.now()});
     save(); toast('Devoir analysé : ' + points.length + ' point' + (points.length > 1 ? 's' : '') + ' relevé' + (points.length > 1 ? 's' : '') + '.');
   }catch(e){
     toast(e.message === 'sans-cle' ? 'Ajoute ta clé Claude dans Réglages.' : 'Lecture impossible : ' + e.message);
@@ -950,10 +967,6 @@ function panelScanner(m){
     '<div class="scan-actions">' +
     '<button class="btn p" data-a="scan-start">Activer la caméra</button>' +
     '<button class="btn p" data-a="scan-capture">Prendre la photo</button>' +
-    '<label class="btn" style="cursor:pointer">Importer une photo<input type="file" id="scanFile" accept="image/*" style="display:none"></label>' +
-    (UI.scanRaw ? '<button class="btn" data-a="scan-ajuster">Ajuster les coins</button>' : '') +
-    '<button class="btn" data-a="scan-rot-l" id="scanRotL" style="display:' + (UI.scanImage ? 'inline-block' : 'none') + '">↶ Tourner</button>' +
-    '<button class="btn" data-a="scan-rot-r" id="scanRotR" style="display:' + (UI.scanImage ? 'inline-block' : 'none') + '">Tourner ↷</button>' +
     '<button class="btn p" data-a="scan-save" id="scanSave" style="display:' + (UI.scanImage ? 'inline-block' : 'none') + '">Enregistrer dans ' + esc(m.nom) + '</button>' +
     '<button class="btn" data-a="scan-stop">Arrêter la caméra</button></div>' +
     '</div></section>';
@@ -992,6 +1005,11 @@ async function extraireProgrammeIA(file, mid){
     UI.genMsg = 'Extraction de la structure…'; modalProgramme();
     const o = await appelClaude(promptExtraireProgramme(mid, images.length ? '' : texte), images);
     if(!o.programme) throw new Error('réponse vide');
+    /* Le fichier du programme officiel est conservé comme document de la
+       matière, mais jamais rattaché à un seul chapitre : il les concerne
+       tous, c'est lui qui les a fait naître. */
+    await rangerDocument(file, mid, {cid:'', autoClasser:false, texte:o.programme, source:'programme'});
+    save();
     UI.gen = ''; UI.prog = o.programme; modalProgramme();
   }catch(e){
     UI.gen = '';
@@ -1114,43 +1132,72 @@ async function classerDocParVision(file, mid){
   return classerImages(images, mid, file.name);
 }
 
+/* ===================== rangement centralisé de tout document importé =====================
+   Utilisée par Documents, Scanner, Évaluation (copie corrigée) et Programme
+   (fichier source) : même détection de doublon, même classement automatique
+   par chapitre, même stockage. Rien n'est importé sans passer par ici. */
+async function rangerDocument(file, mid, opts){
+  opts = opts || {};
+  const hash = await empreinte(file);
+  if(hash && S.docs.some(d => d.mid === mid && d.hash === hash)){
+    toast('« ' + (opts.nom || file.name) + ' » est déjà dans ' + mat(mid).nom + ' — ignoré.');
+    return null;
+  }
+  let texte = opts.texte != null ? opts.texte : await extraireTexte(file);
+  let cid = opts.cid || '';
+  if(!cid && opts.autoClasser !== false && (!texte || texte.trim().length < 60) && (S.cle || '').trim()){
+    let images = opts.images;
+    if(!images){
+      if((file.type || '').startsWith('image/')) images = [await toDataURL(file)];
+      else if(file.type === 'application/pdf'){ try{ images = await pagesEnImages(file, 4); }catch(e){ images = []; } }
+      else images = [];
+    }
+    if(images && images.length){
+      const vu = await classerImages(images, mid, file.name);
+      if(vu){ cid = vu.cid; if(!texte && vu.texte) texte = vu.texte; }
+    }
+  }
+  if(!cid && opts.autoClasser !== false){
+    const cs = chapsDe(mid);
+    const mots = norm(file.name + ' ' + String(texte).slice(0,1200)).split(/[^a-z0-9]+/).filter(w => w.length > 4);
+    let best = 0;
+    cs.forEach(c => {
+      const clefs = norm(c.titre).split(/[^a-z0-9]+/).filter(w => w.length > 4);
+      let sc = 0;
+      clefs.forEach(w => { mots.forEach(x => { if(x === w || x.indexOf(w) === 0) sc++; }); });
+      if(sc > best){ best = sc; cid = c.id; }
+    });
+    if(best < 2) cid = '';
+  }
+  const meta = await storeFile(file);
+  if(!meta) return null;
+  const doc = {id:uid(), mid, cid, nom:opts.nom || file.name, type:file.type, taille:file.size,
+    file:meta, texte:String(texte || '').slice(0, 6000), hash, source:opts.source || ''};
+  S.docs.push(doc);
+  return doc;
+}
+
 async function chargerDocs(files){
+  if(UI.docsBusy) return;
+  UI.docsBusy = true;
   const l = [...files];
   UI.analyse = l.map(f => f.name);
   modalDocs();
+  let ajoutes = 0;
   for(const f of l){
-    let texte = await extraireTexte(f);
-    const meta = await storeFile(f);
-    const cs = chapsDe(UI.mid);
-    let cid = '';
-    const estScanne = (!texte || texte.trim().length < 60) && (f.type === 'application/pdf' || (f.type || '').startsWith('image/'));
-    if(estScanne && (S.cle || '').trim()){
-      UI.analyse = UI.analyse.map(n => n === f.name ? n + ' (lecture par vision…)' : n);
-      if($('modalHost').querySelector('.mbg')) modalDocs();
-      const vu = await classerDocParVision(f, UI.mid);
-      if(vu){ cid = vu.cid; if(vu.texte) texte = vu.texte; }
-    }
-    if(!cid){
-      const mots = norm(f.name + ' ' + String(texte).slice(0,1200)).split(/[^a-z0-9]+/).filter(w => w.length > 4);
-      let best = 0;
-      cs.forEach(c => {
-        const clefs = norm(c.titre).split(/[^a-z0-9]+/).filter(w => w.length > 4);
-        let sc = 0;
-        clefs.forEach(w => { mots.forEach(x => { if(x === w || x.indexOf(w) === 0) sc++; }); });
-        if(sc > best){ best = sc; cid = c.id; }
-      });
-      if(best < 2) cid = '';
-    }
-    S.docs.push({id:uid(), mid:UI.mid, cid, nom:f.name, type:f.type,
-      taille:f.size, file:meta, texte:String(texte).slice(0, 6000)});
-    UI.analyse = UI.analyse.filter(x => x !== f.name);
+    UI.analyse = UI.analyse.map(n => n === f.name ? n + ' (lecture…)' : n);
+    if($('modalHost').querySelector('.mbg')) modalDocs();
+    const doc = await rangerDocument(f, UI.mid);
+    if(doc) ajoutes++;
+    UI.analyse = UI.analyse.filter(x => x !== f.name && x !== f.name + ' (lecture…)');
     save();
     if($('modalHost').querySelector('.mbg')) modalDocs();
     render();
   }
   UI.analyse = [];
   save(); fermer(); render();
-  toast(l.length + (l.length > 1 ? ' documents rangés dans ' : ' document rangé dans ') + mat(UI.mid).nom + '.');
+  if(ajoutes) toast(ajoutes + (ajoutes > 1 ? ' documents rangés dans ' : ' document rangé dans ') + mat(UI.mid).nom + '.');
+  UI.docsBusy = false;
 }
 
 /* ===================== scanner : traitement d'image ===================== */
@@ -1438,21 +1485,20 @@ async function sansRecadrer(){
 }
 async function sauvegarderScan(){
   if(!UI.scanImage) return toast('Prends d\'abord une photo.');
-  let cid = '';
-  let texte = '';
-  const st = $('scanStatus');
-  if((S.cle || '').trim()){
+  if(UI.scanBusy) return;
+  UI.scanBusy = true;
+  try{
+    const st = $('scanStatus');
     if(st) st.textContent = 'Lecture du contenu…';
-    const vu = await classerImages([UI.scanImage], UI.mid, 'scan');
-    if(vu){ cid = vu.cid; texte = vu.texte || ''; }
+    const blob = await (await fetch(UI.scanImage)).blob();
+    const file = new File([blob], 'scan-' + today() + '-' + Date.now() + '.jpg', {type:'image/jpeg'});
+    const doc = await rangerDocument(file, UI.mid, {images:[UI.scanImage], source:'scanner'});
+    if(!doc) return;
+    UI.scanImage = null; stopScan(); save(); render();
+    toast('Document enregistré dans ' + mat(UI.mid).nom + (doc.cid && chap(doc.cid) ? ' · ' + chap(doc.cid).titre : ' — non rattaché, corrige-le dans Documents si besoin') + '.');
+  } finally {
+    UI.scanBusy = false;
   }
-  const blob = await (await fetch(UI.scanImage)).blob();
-  const file = new File([blob], 'scan-' + today() + '-' + Date.now() + '.jpg', {type:'image/jpeg'});
-  const meta = await storeFile(file);
-  if(!meta) return;
-  S.docs.push({id:uid(), mid:UI.mid, cid, nom:file.name, type:file.type, taille:file.size, file:meta, texte, source:'scanner'});
-  UI.scanImage = null; stopScan(); save(); render();
-  toast('Document enregistré dans ' + mat(UI.mid).nom + (cid && chap(cid) ? ' · ' + chap(cid).titre : ' — non rattaché, corrige-le dans Documents si besoin') + '.');
 }
 
 /* ===================== évènements ===================== */
@@ -1524,7 +1570,7 @@ document.addEventListener('click', e => {
         UI.scanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}}, audio:false});
         const vv = $('scanVideo'); if(vv){ vv.style.display = 'block'; vv.srcObject = UI.scanStream; await vv.play(); }
         toast('Caméra activée.');
-      }catch(err){ toast('Caméra indisponible ici : utilise « Importer une photo ».'); }
+      }catch(err){ toast('Caméra indisponible ici.'); }
     },
     'scan-capture': async () => {
       const vv = $('scanVideo'), cc = $('scanCanvas');
