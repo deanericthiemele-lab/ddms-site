@@ -226,6 +226,10 @@ function migrer(o){
   return o;
 }
 let S = migrer(disk.read());
+/* Configuration Firebase intégrée : connecte automatiquement tout nouvel
+   appareil au même classeur, sans passer par Réglages. */
+const FB_PAR_DEFAUT = {"apiKey":"AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU","authDomain":"ddms-architectures.firebaseapp.com","projectId":"ddms-architectures","storageBucket":"ddms-architectures.firebasestorage.app","appId":"1:767552965189:web:5b0c5ab6cd5bf97a5fb12c","code":"dayann-2nde"};
+if(!S.fb) S.fb = FB_PAR_DEFAUT;
 function save(){
   S.maj = Date.now();
   if(!disk.write(S)) toast('Mémoire pleine : fais une sauvegarde.');
@@ -1418,15 +1422,23 @@ document.addEventListener('submit', async e => {
   if(type === 'fb'){
     try{
       let t = (d.cfg || '').trim();
+      /* Si le bloc entier de Firebase (imports, commentaires, initializeApp...)
+         a été collé, on isole d'abord le seul objet firebaseConfig. */
+      const m = t.match(/firebaseConfig\s*=\s*(\{[\s\S]*?\})\s*;/);
+      if(m) t = m[1];
       const a = t.indexOf('{'), b = t.lastIndexOf('}');
       if(a < 0) throw 0;
-      t = t.slice(a, b + 1).replace(/([{,\s])([A-Za-z0-9_]+)\s*:/g, '$1"$2":').replace(/'/g,'"').replace(/,\s*}/g,'}');
+      t = t.slice(a, b + 1)
+        .replace(/\/\/.*$/gm, '')
+        .replace(/([{,\s])([A-Za-z0-9_]+)\s*:/g, '$1"$2":')
+        .replace(/'/g,'"')
+        .replace(/,\s*}/g,'}');
       const cfg = JSON.parse(t);
       if(!cfg.apiKey || !cfg.projectId) throw 0;
       cfg.code = (d.code || 'classeur').trim();
       S.fb = cfg; save(); fermer();
       CLOUD.init(); toast('Firebase branché.');
-    }catch(err){ toast('Configuration illisible : colle l\'objet firebaseConfig entier.'); }
+    }catch(err){ toast('Configuration illisible : colle l\'objet firebaseConfig (ou le bloc entier, ça marche aussi).'); }
   }
 });
 
