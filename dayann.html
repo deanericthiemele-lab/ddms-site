@@ -208,12 +208,12 @@ function today(){ return new Date().toISOString().slice(0,10); }
 function neuf(){
   const noms = ['Mathématiques','Français','Physique-Chimie','SVT','Histoire-Géographie','Anglais','Espagnol'];
   return {v:3, eleve:{prenom:'', classe:'2nde', profil:''}, cle:'', fb:null,
-    matieres:noms.map(n => ({id:uid(), nom:n})), sections:[], chapitres:[], docs:[], evaluations:[]};
+    matieres:noms.map(n => ({id:uid(), nom:n})), sections:[], chapitres:[], docs:[], devoirs:[]};
 }
 function migrer(o){
   if(!o || !o.matieres) return neuf();
   o.docs = o.docs || [];
-  o.evaluations = o.evaluations || [];
+  o.devoirs = o.devoirs || [];
   o.sections = o.sections || [];
   (o.chapitres || []).forEach(c => {
     c.cours = c.cours || [];
@@ -497,20 +497,37 @@ function etatSync(){
 }
 
 
-async function appelClaude(prompt){
+async function appelClaude(prompt, images){
   const key = (S.cle || '').trim();
   if(!key) throw new Error('sans-cle');
+  const contenu = (images || []).map(u => {
+    const m = String(u).match(/^data:([^;]+);base64,(.*)$/);
+    return m ? {type:'image', source:{type:'base64', media_type:m[1], data:m[2]}} : null;
+  }).filter(Boolean);
+  contenu.push({type:'text', text:prompt});
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{'content-type':'application/json', 'x-api-key':key,
       'anthropic-version':'2023-06-01', 'anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-4-6', max_tokens:6000, messages:[{role:'user', content:prompt}]})
+    body:JSON.stringify({model:'claude-sonnet-4-6', max_tokens:6000, messages:[{role:'user', content:contenu}]})
   });
   if(!r.ok) throw new Error(r.status === 401 ? 'cle-invalide' : 'erreur ' + r.status);
   const data = await r.json();
   const txt = (data.content || []).filter(x => x.type === 'text').map(x => x.text).join('');
   const net = txt.replace(/```json|```/g,'').trim();
   return JSON.parse(net.slice(net.indexOf('{'), net.lastIndexOf('}') + 1));
+}
+/* Rend la première page d'un PDF en image, pour lire une copie scannée
+   sans couche de texte (via la même bibliothèque pdf.js déjà chargée). */
+async function pageEnImage(file){
+  const lib = await loadPdfjs();
+  const doc = await lib.getDocument({data:await file.arrayBuffer(), isEvalSupported:false}).promise;
+  const page = await doc.getPage(1);
+  const viewport = page.getViewport({scale:1.6});
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width; canvas.height = viewport.height;
+  await page.render({canvasContext:canvas.getContext('2d'), viewport}).promise;
+  return canvas.toDataURL('image/jpeg', .9);
 }
 
 /* ===================== documents : contexte pour l'IA ===================== */
@@ -578,7 +595,7 @@ async function genererMatiere(mid){
   toast('Matière préparée.');
 }
 
-/* ===================== évaluation ===================== */
+/* ===================== évaluation : lecture des devoirs corrigés ===================== */
 function quizStats(mid){
   const by = {};
   chapsDe(mid).forEach(c => (c.quiz || []).forEach(q => {
@@ -590,7 +607,7 @@ function quizStats(mid){
   }));
   return by;
 }
-function evaluationsDe(mid){ return (S.evaluations || []).filter(e => e.mid === mid); }
+function devoirsDe(mid){ return (S.devoirs || []).filter(x => x.mid === mid).sort((a,b) => b.ts - a.ts); }
 function faiblessesMat(mid){
   const out = [];
   const qs = quizStats(mid);
@@ -598,24 +615,54 @@ function faiblessesMat(mid){
     const x = qs[n], pct = x.total ? Math.round(x.ok * 100 / x.total) : 0;
     out.push({notion:n, pct, source:'Quiz', cid:x.cid});
   });
-  evaluationsDe(mid).forEach(e => {
-    const pct = e.max ? Math.round(Number(e.score) / Number(e.max) * 100) : 0;
-    out.push({notion:e.chap && chap(e.chap) ? chap(e.chap).titre : (e.notion || e.titre || 'Évaluation'),
-      pct, source:(e.type || 'Devoir') + (e.titre ? ' · ' + e.titre : ''), cid:e.chap || ''});
-  });
+  devoirsDe(mid).forEach(dv => (dv.points || []).forEach(p => {
+    out.push({notion:p.notion, pct:p.pct, source:'Devoir · ' + dv.titre, cid:p.cid || ''});
+  }));
   return out.sort((a,b) => a.pct - b.pct);
 }
-function modalEval(){
-  const cs = chapsDe(UI.mid);
-  modal('<h2>Ajouter une note</h2><form data-f="eval" class="form">' +
-    '<input type="hidden" name="mid" value="' + UI.mid + '">' +
-    '<input type="text" name="titre" placeholder="Nom du devoir">' +
-    '<select name="type"><option>Devoir</option><option>Contrôle</option><option>Examen</option><option>Interrogation</option></select>' +
-    '<div class="row"><input type="number" name="score" step="0.25" placeholder="Note" required style="flex:1">' +
-    '<input type="number" name="max" value="20" step="0.5" style="width:80px"></div>' +
-    '<select name="chap"><option value="">Aucun chapitre précis</option>' +
-    cs.map(c => '<option value="' + c.id + '">' + esc(c.titre) + '</option>').join('') + '</select>' +
-    '<button class="btn p">Enregistrer</button></form>');
+
+function promptDevoir(mid, avecTexte){
+  const cs = chapsDe(mid);
+  return 'Tu es professeur de ' + mat(mid).nom + ' en classe de seconde. Élève : ' + profil() + '\n' +
+    'Voici une copie de devoir déjà corrigée par le professeur (notes, ratures, appréciations).\n' +
+    (avecTexte ? '' : 'Lis-la comme une image : identifie les questions, les réponses de l\'élève, les corrections et annotations du professeur.\n') +
+    (cs.length ? 'Chapitres déjà connus dans cette matière, pour associer chaque point si possible : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n' : '') +
+    '\nProduis UNIQUEMENT un JSON valide, sans texte autour :\n' +
+    '{"titre":"nom du devoir si visible","note":{"score":12,"sur":20} ou null si illisible,' +
+    '"points":[{"notion":"nom court de la notion évaluée","chapitre":"titre exact d\'un chapitre de la liste, ou vide","pct":0-100,"commentaire":"ce qui a été vu dans la copie, en une phrase"}]}\n\n' +
+    'Règles :\n- "pct" : ton estimation de maîtrise démontrée sur CETTE notion dans CETTE copie (0 = tout faux, 100 = tout juste), basée sur les points obtenus, les corrections et les remarques du professeur.\n' +
+    '- Une copie donne en général 3 à 8 points, une notion par exercice ou groupe de questions.\n' +
+    '- "chapitre" doit reprendre EXACTEMENT un titre de la liste s\'il correspond, sinon laisse vide.\n' +
+    '- Si la note globale n\'est pas visible ou pas donnée, mets "note" à null plutôt que d\'inventer.';
+}
+async function analyserDevoir(file, mid){
+  if(UI.gen) return;
+  UI.gen = 'devoir'; UI.genMsg = 'Lecture de la copie…'; render();
+  try{
+    let texte = await extraireTexte(file);
+    let images = [];
+    const estImage = (file.type || '').startsWith('image/');
+    if(estImage){
+      images = [await toDataURL(file)];
+    } else if(!texte || texte.trim().length < 60){
+      try{ images = [await pageEnImage(file)]; }catch(e){}
+    }
+    if(!texte && !images.length) throw new Error('lecture impossible');
+    const o = await appelClaude(promptDevoir(mid, !!texte && !images.length), images);
+    const cs = chapsDe(mid);
+    const points = (o.points || []).map(p => {
+      const c = cs.find(x => norm(x.titre) === norm(p.chapitre || ''));
+      return {notion:p.notion || 'Point', pct:Math.max(0, Math.min(100, Math.round(p.pct || 0))), cid:c ? c.id : '', commentaire:p.commentaire || ''};
+    });
+    const meta = await storeFile(file);
+    S.devoirs.push({id:uid(), mid, titre:o.titre || 'Devoir', note:o.note || null, points, file:meta, ts:Date.now()});
+    if(meta) S.docs.push({id:uid(), mid, cid:points.length === 1 ? points[0].cid : '', nom:file.name, type:file.type,
+      taille:file.size, file:meta, texte:String(texte || '').slice(0,6000)});
+    save(); toast('Devoir analysé : ' + points.length + ' point' + (points.length > 1 ? 's' : '') + ' relevé' + (points.length > 1 ? 's' : '') + '.');
+  }catch(e){
+    toast(e.message === 'sans-cle' ? 'Ajoute ta clé Claude dans Réglages.' : 'Lecture impossible : ' + e.message);
+  }
+  UI.gen = ''; render();
 }
 
 /* ===================== rendu ===================== */
@@ -828,12 +875,17 @@ document.addEventListener('pointerup', () => { DRAG = null; });
 
 /* ===================== panneau : évaluation ===================== */
 function panelEvaluation(m){
-  const data = faiblessesMat(UI.mid), ev = evaluationsDe(UI.mid);
-  let h = '<section class="pan full"><div class="pan-h"><h2>Évaluation — ' + esc(m.nom) + '</h2>' +
-    '<button class="btn s p" data-a="eval-add">Ajouter une note</button></div><div class="pan-b">';
-  if(!data.length) h += '<div class="vide"><b>Pas encore de données</b>Fais un quiz ou ajoute une note de devoir : les points faibles apparaîtront ici, avec un accès direct au chapitre à réviser.</div>';
+  const data = faiblessesMat(UI.mid), dv = devoirsDe(UI.mid);
+  let h = '<section class="pan full"><div class="pan-h"><h2>Évaluation — ' + esc(m.nom) + '</h2></div><div class="pan-b">';
+
+  h += '<p class="hint">Partage une copie corrigée (photo ou PDF) : elle est lue, notion par notion, pour repérer précisément ce qui coince.</p>' +
+    '<label class="btn p" style="cursor:pointer;display:inline-block;margin-bottom:14px">Analyser un devoir noté' +
+    '<input type="file" id="devoirFile" accept="image/*,application/pdf" style="display:none"></label>';
+  if(UI.gen === 'devoir') h += '<div class="charge"><i></i>' + esc(UI.genMsg) + '</div>';
+
+  if(!data.length) h += '<div class="vide"><b>Pas encore de données</b>Fais un quiz ou partage une copie corrigée : les points faibles apparaîtront ici, avec un accès direct au chapitre à réviser.</div>';
   else {
-    h += '<p class="hint">Classé du plus faible au plus solide. Cliquer sur un point ouvre directement le quiz du chapitre concerné, dans la fenêtre de droite.</p>';
+    h += '<p class="hint">Classé du plus faible au plus solide. Cliquer ouvre directement le quiz du chapitre concerné, dans la fenêtre de droite.</p>';
     h += '<div class="eval-grid">' + data.map(x => {
       const cls = x.pct < 50 ? 'weak' : x.pct < 80 ? 'mid' : 'good';
       return '<div class="eval-card ' + cls + '"><h3>' + esc(x.notion) + '</h3>' +
@@ -842,10 +894,14 @@ function panelEvaluation(m){
         '</div>';
     }).join('') + '</div>';
   }
-  if(ev.length) h += '<div style="margin-top:20px"><b style="font-size:13.5px">Notes enregistrées</b>' +
-    ev.slice().reverse().map(e => '<div class="doc"><span class="g"><b>' + esc(e.titre || e.type) + '</b> · ' + e.score + '/' + e.max +
-      (e.chap && chap(e.chap) ? ' · ' + esc(chap(e.chap).titre) : '') + '</span>' +
-      '<button class="btn d" data-a="eval-del" data-i="' + e.id + '">✕</button></div>').join('') + '</div>';
+
+  if(dv.length) h += '<div style="margin-top:22px"><b style="font-size:13.5px">Devoirs analysés</b>' +
+    dv.map(d => '<div class="doc" style="align-items:flex-start"><div class="g"><b>' + esc(d.titre) + '</b>' +
+      (d.note ? ' · ' + d.note.score + '/' + d.note.sur : '') +
+      '<div class="hint">' + (d.points || []).map(p => esc(p.notion) + ' ' + p.pct + '%').join(' · ') + '</div></div>' +
+      (d.file ? '<button class="btn s" data-a="devoir-open" data-i="' + d.id + '">Ouvrir</button>' : '') +
+      '<button class="btn d" data-a="devoir-del" data-i="' + d.id + '">✕</button></div>').join('') + '</div>';
+
   return h + '</div></section>';
 }
 
@@ -1328,8 +1384,8 @@ document.addEventListener('click', e => {
     'ret-del': () => { const c = chap(i); c.retenir = c.retenir.filter(x => x.id !== v); save(); render(); },
     'doc-open': () => { const d = S.docs.find(x => x.id === i); if(d) ouvrir(d.file); },
     'doc-del': () => { S.docs = S.docs.filter(x => x.id !== i); save(); modalDocs(); render(); },
-    'eval-add': () => modalEval(),
-    'eval-del': () => { S.evaluations = (S.evaluations || []).filter(x => x.id !== i); save(); render(); },
+    'devoir-open': () => { const dv = (S.devoirs || []).find(x => x.id === i); if(dv && dv.file) ouvrir(dv.file); },
+    'devoir-del': () => { S.devoirs = (S.devoirs || []).filter(x => x.id !== i); save(); render(); },
     'scan-start': async () => {
       try{
         if(UI.scanStream) return;
@@ -1384,6 +1440,7 @@ document.addEventListener('change', e => {
     return;
   }
   if(t.id === 'docFile' && t.files.length){ chargerDocs(t.files); t.value = ''; return; }
+  if(t.id === 'devoirFile' && t.files.length){ analyserDevoir(t.files[0], UI.mid); t.value = ''; return; }
   if(t.id === 'scanFile' && t.files.length){
     toDataURL(t.files[0]).then(raw => traiterScan(raw));
     t.value = ''; return;
@@ -1409,11 +1466,6 @@ document.addEventListener('submit', async e => {
     const c = chap(d.cid);
     c.retenir.push({id:uid(), k:d.k, texte:d.texte});
     UI.ouvert.ret = false; save(); render(); return;
-  }
-  if(type === 'eval'){
-    S.evaluations = S.evaluations || [];
-    S.evaluations.push({id:uid(), mid:d.mid, titre:d.titre, type:d.type, score:d.score, max:d.max || 20, chap:d.chap || ''});
-    save(); fermer(); render(); toast('Note enregistrée.'); return;
   }
   if(type === 'reg'){
     S.eleve.prenom = d.prenom; S.eleve.classe = d.classe; S.eleve.profil = d.profil; S.cle = d.cle || '';
