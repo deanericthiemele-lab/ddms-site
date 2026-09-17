@@ -700,8 +700,7 @@ function renderSide(m){
   h += '<div class="act"><button class="btn s" data-a="programme">Programme</button>' +
     '<button class="btn s" data-a="documents">Documents' + (docsDe(UI.mid).length ? ' · ' + docsDe(UI.mid).length : '') + '</button></div>';
   h += '<div class="modebar">' +
-    '<button class="btn s' + (UI.mode === 'scanner' ? ' on' : '') + '" data-a="mode" data-i="scanner">Scanner</button>' +
-    '<button class="btn s' + (UI.mode === 'evaluation' ? ' on' : '') + '" data-a="mode" data-i="evaluation">Évaluation' +
+    '<button class="btn s' + (UI.mode === 'evaluation' ? ' on' : '') + '" data-a="mode" data-i="evaluation" style="width:100%">Évaluation' +
     (faiblessesMat(UI.mid).filter(f => f.pct < 60).length ? ' · ' + faiblessesMat(UI.mid).filter(f => f.pct < 60).length : '') + '</button></div>';
 
   const secs = sectionsDe(UI.mid), cs = chapsDe(UI.mid);
@@ -1093,24 +1092,55 @@ function modalReglages(){
 }
 
 /* ===================== import de documents ===================== */
+/* ===================== documents : lecture par vision si le PDF est scanné ===================== */
+function promptClasserDoc(mid, nomFichier){
+  const cs = chapsDe(mid);
+  return 'Tu regardes les pages scannées d\'un document (cours ou devoir) de ' + mat(mid).nom + ' en seconde. Nom du fichier : « ' + nomFichier + ' ».\n' +
+    (cs.length ? 'Chapitres existants dans cette matière : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n' : 'Aucun chapitre n\'existe encore dans cette matière.\n') +
+    '\nProduis UNIQUEMENT un JSON valide, sans texte autour :\n' +
+    '{"chapitre":"titre exact d\'un chapitre de la liste, ou vide si aucun ne correspond","texte":"transcription fidèle et condensée du contenu, en gardant les notions, définitions et exemples importants"}\n\n' +
+    'Règles :\n- "chapitre" doit reprendre EXACTEMENT un titre de la liste, jamais en inventer un.\n' +
+    '- "texte" sert à écrire des cours plus tard : garde le fond, pas besoin de recopier mot à mot.';
+}
+async function classerDocParVision(file, mid){
+  try{
+    const images = await pagesEnImages(file, 4);
+    if(!images.length) return null;
+    const o = await appelClaude(promptClasserDoc(mid, file.name), images);
+    const cs = chapsDe(mid);
+    const c = cs.find(x => norm(x.titre) === norm(o.chapitre || ''));
+    return {cid:c ? c.id : '', texte:o.texte || ''};
+  }catch(e){ return null; }
+}
+
 async function chargerDocs(files){
   const l = [...files];
   UI.analyse = l.map(f => f.name);
   modalDocs();
   for(const f of l){
-    const texte = await extraireTexte(f);
+    let texte = await extraireTexte(f);
     const meta = await storeFile(f);
     const cs = chapsDe(UI.mid);
     let cid = '';
-    const mots = norm(f.name + ' ' + String(texte).slice(0,1200)).split(/[^a-z0-9]+/).filter(w => w.length > 4);
-    let best = 0;
-    cs.forEach(c => {
-      const clefs = norm(c.titre).split(/[^a-z0-9]+/).filter(w => w.length > 4);
-      let sc = 0;
-      clefs.forEach(w => { mots.forEach(x => { if(x === w || x.indexOf(w) === 0) sc++; }); });
-      if(sc > best){ best = sc; cid = c.id; }
-    });
-    S.docs.push({id:uid(), mid:UI.mid, cid:best >= 2 ? cid : '', nom:f.name, type:f.type,
+    const estScanne = (!texte || texte.trim().length < 60) && (f.type === 'application/pdf' || (f.type || '').startsWith('image/'));
+    if(estScanne && (S.cle || '').trim()){
+      UI.analyse = UI.analyse.map(n => n === f.name ? n + ' (lecture par vision…)' : n);
+      if($('modalHost').querySelector('.mbg')) modalDocs();
+      const vu = await classerDocParVision(f, UI.mid);
+      if(vu){ cid = vu.cid; if(vu.texte) texte = vu.texte; }
+    }
+    if(!cid){
+      const mots = norm(f.name + ' ' + String(texte).slice(0,1200)).split(/[^a-z0-9]+/).filter(w => w.length > 4);
+      let best = 0;
+      cs.forEach(c => {
+        const clefs = norm(c.titre).split(/[^a-z0-9]+/).filter(w => w.length > 4);
+        let sc = 0;
+        clefs.forEach(w => { mots.forEach(x => { if(x === w || x.indexOf(w) === 0) sc++; }); });
+        if(sc > best){ best = sc; cid = c.id; }
+      });
+      if(best < 2) cid = '';
+    }
+    S.docs.push({id:uid(), mid:UI.mid, cid, nom:f.name, type:f.type,
       taille:f.size, file:meta, texte:String(texte).slice(0, 6000)});
     UI.analyse = UI.analyse.filter(x => x !== f.name);
     save();
