@@ -239,6 +239,7 @@ tr:hover td{background:#fafbfc}
     <button class="nav-tab" onclick="go('circuit')">🔄 Circuit Bid</button>
     <button class="nav-tab" id="tab-saisie" onclick="go('saisie')">＋ Nouveau dossier</button>
   </div>
+  <select id="sel-nav-an" class="fsel" style="margin-right:8px" onchange="window._navYr=this.value;updateCount();renderDash();"><option value="ALL">Toutes années</option></select>
   <div class="nav-info" id="nav-info">Chargement…</div>
   <div style="display:flex;align-items:center;padding:0 12px;border-left:1px solid var(--bd);gap:8px;flex-shrink:0">
     <span id="nav-role-badge" style="display:inline-flex;align-items:center;padding:2px 10px;border-radius:999px;font-size:10px;font-weight:700"></span>
@@ -259,7 +260,7 @@ tr:hover td{background:#fafbfc}
       <div class="cc-body"><div id="ch-seg"></div></div>
     </div>
     <div class="chart-card" id="cc-mois">
-      <div class="cc-hdr" onclick="toggleCard('cc-mois')" style="display:flex;align-items:center;gap:6px"><span class="cc-ttl" id="cc-mois-ttl">Entrées par mois — tous AO</span><span class="cc-arrow" style="margin-left:auto">▾</span><select id="sel-mois-an" class="fsel" style="font-size:10px;padding:2px 5px;margin-left:4px;height:22px" onclick="event.stopPropagation()" onchange="renderChMois()"></select></div>
+      <div class="cc-hdr" onclick="toggleCard('cc-mois')" style="display:flex;align-items:center;gap:6px"><span class="cc-ttl" id="cc-mois-ttl">Entrées par mois — tous AO</span><span class="cc-arrow" style="margin-left:auto">▾</span></div>
       <div class="cc-body"><div id="ch-mois"></div></div>
     </div>
     <div class="chart-card" id="cc-univers">
@@ -568,7 +569,7 @@ async function importSeed(){
     finishLoad();
   } catch(e){ console.error('importSeed error',e); D=SEED.map(d=>({...d})); finishLoad(); }
 }
-function finishLoad(){ updateCount(); setStatus('✅ '+D.length+' dossiers','#1D9E75'); applyCustomOpts(); renderDash(); renderTable(); }
+function finishLoad(){ populateNavYear(); updateCount(); applyCustomOpts(); renderDash(); renderTable(); }
 
 async function doSave(entry){
   try { const docId=entry.firestoreId||String(entry._key||Date.now()); entry.firestoreId=docId; await db.collection(COL).doc(docId).set(entry); } catch(e){ alert('Erreur Firebase : '+e.message); }
@@ -583,7 +584,7 @@ async function deleteDossier(key){
   const d=D.find(x=>x._key===key); if(!d) return;
   if(!confirm('Supprimer "'+d.client+'" ? Irréversible.')) return;
   if(db && d.firestoreId) await db.collection(COL).doc(d.firestoreId).delete();
-  D=D.filter(x=>x._key!==key); updateCount(); setStatus('✅ '+D.length+' dossiers','#1D9E75');
+  D=D.filter(x=>x._key!==key); populateNavYear(); updateCount();
   renderTable(); renderDash(); closeMod();
 }
 
@@ -646,10 +647,28 @@ function go(p){
   if(p==='saisie'){ resetForm(); if(editKey){ const d=D.find(x=>x._key===editKey); if(d)loadIntoForm(d); } }
 }
 function toggleCard(id){ document.getElementById(id)?.classList.toggle('collapsed'); }
+function populateNavYear(){
+  const sel=document.getElementById('sel-nav-an'); if(!sel)return;
+  const ans=[...new Set(D.map(d=>(d.recu_le||'').substring(0,4)).filter(y=>y.length===4&&!isNaN(y)))].sort().reverse();
+  const cur=window._navYr||sel.value||'ALL';
+  sel.innerHTML='<option value="ALL">Toutes années</option>'+ans.map(y=>`<option value="${y}">${y}</option>`).join('');
+  sel.value=ans.includes(cur)?cur:'ALL';
+  window._navYr=sel.value;
+}
+function yrFilter(arr){
+  const yr=window._navYr||'ALL';
+  return yr==='ALL'?arr:arr.filter(d=>(d.recu_le||'').startsWith(yr));
+}
+function effYr(){
+  const yr=window._navYr||'ALL';
+  return yr==='ALL'?String((new Date()).getFullYear()):yr;
+}
 function updateCount(){
-  document.getElementById('nb-pipe').textContent=D.filter(d=>['Attente notification','En cours de traitement','Standby'].includes(d.statut)).length;
-  document.getElementById('nb-gagnes').textContent=D.filter(d=>d.statut==='Gagné').length;
-  document.getElementById('nb-sanssuite').textContent=D.filter(d=>['Perdu','No GO','Abandonné','Infructueux'].includes(d.statut)).length;
+  const Df=yrFilter(D);
+  document.getElementById('nb-pipe').textContent=Df.filter(d=>['Attente notification','En cours de traitement','Standby'].includes(d.statut)).length;
+  document.getElementById('nb-gagnes').textContent=Df.filter(d=>d.statut==='Gagné').length;
+  document.getElementById('nb-sanssuite').textContent=Df.filter(d=>['Perdu','No GO','Abandonné','Infructueux'].includes(d.statut)).length;
+  setStatus('✅ '+Df.length+' dossiers','#1D9E75');
 }
 
 // SVG CHARTS
@@ -664,15 +683,7 @@ function barSVG(data,W=300,cbFn){ const H=160,mx=Math.max(...data.map(d=>d.v),1)
 
 // CHART MOIS
 function renderChMois(){
-  const sel=document.getElementById('sel-mois-an'); if(!sel)return;
-  // Peupler les années disponibles
-  const ans=[...new Set(D.map(d=>(d.recu_le||'').substring(0,4)).filter(y=>y.length===4&&!isNaN(y)))].sort();
-  const curVal=sel.value;
-  sel.innerHTML=ans.map(y=>`<option value="${y}">${y}</option>`).join('');
-  // Garder la sélection ou prendre l'année en cours
-  const now=new Date();
-  sel.value=(curVal&&ans.includes(curVal))?curVal:String(now.getFullYear());
-  const yr=sel.value;
+  const yr=effYr();
   document.getElementById('cc-mois-ttl').textContent='Entrées par mois — tous AO '+yr;
   const mois=['janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'];
   window._drillYr=yr;
@@ -682,22 +693,23 @@ function renderChMois(){
 
 // DASHBOARD
 function renderDash(){
-  const gagnes=D.filter(d=>d.statut==='Gagné'); window.actif=D.filter(d=>['Attente notification','En cours de traitement','Standby'].includes(d.statut)); const actif=window.actif;
+  const Df=yrFilter(D);
+  const gagnes=Df.filter(d=>d.statut==='Gagné'); window.actif=Df.filter(d=>['Attente notification','En cours de traitement','Standby'].includes(d.statut)); const actif=window.actif;
   const cas=actif.reduce((s,d)=>s+(d.cas_potentiel||0),0), casg=gagnes.reduce((s,d)=>s+(d.cas_potentiel||0),0);
   
   const stL=['Attente notification','En cours de traitement','Gagné','No GO','Abandonné','Perdu','Standby','Infructueux'];
   const stC=['#378ADD','#F59E0B','#1D9E75','#E24B4A','#9CA3AF','#D85A30','#D1D5DB','#7C3AED'];
-  const stData=stL.map((s,i)=>({v:D.filter(d=>d.statut===s).length,l:s,c:stC[i]})).filter(d=>d.v>0);
-  document.getElementById('ch-statut').innerHTML=donutSVG(stData,stC,D.length,'drillStatut')+'<div class="legend" style="padding:0 10px 8px">'+stData.map(d=>`<div class="leg-item leg-click" onclick="openDrill(this.dataset.st,D.filter(x=>x.statut===this.dataset.st))" data-st="${d.l}"><div class="leg-sq" style="background:${d.c}"></div>${d.l} (${d.v})</div>`).join('')+'</div>';
+  const stData=stL.map((s,i)=>({v:Df.filter(d=>d.statut===s).length,l:s,c:stC[i]})).filter(d=>d.v>0);
+  document.getElementById('ch-statut').innerHTML=donutSVG(stData,stC,Df.length,'drillStatut')+'<div class="legend" style="padding:0 10px 8px">'+stData.map(d=>`<div class="leg-item leg-click" onclick="openDrill(this.dataset.st,yrFilter(D).filter(x=>x.statut===this.dataset.st))" data-st="${d.l}"><div class="leg-sq" style="background:${d.c}"></div>${d.l} (${d.v})</div>`).join('')+'</div>';
   const uvM={};actif.forEach(d=>{if(d.univers)uvM[d.univers]=(uvM[d.univers]||0)+(d.cas_potentiel||0);});
   const uvData=Object.entries(uvM).sort((a,b)=>b[1]-a[1]).map(([l,v])=>({l,v:+v.toFixed(1),c:UV_COLOR[l]||'#888'}));
   document.getElementById('ch-univers').innerHTML=uvData.length?hbarSVG(uvData,360,'drillUnivers'):'<p style="padding:12px;color:var(--tx3)">—</p>';
   renderChMois();
-  const pub=D.filter(d=>d.segment==='PUBLIC').length,pri=D.filter(d=>d.segment==='PRIVÉ').length;
+  const pub=Df.filter(d=>d.segment==='PUBLIC').length,pri=Df.filter(d=>d.segment==='PRIVÉ').length;
       // Haute valeur >= 100M
   (function(){
     var HV_EN_COURS=['Attente notification','En cours de traitement','Standby'];
-    var hv=D.filter(function(d){return d.cas_potentiel>=100&&HV_EN_COURS.indexOf(d.statut)!==-1;}).sort(function(a,b){return b.cas_potentiel-a.cas_potentiel;}).slice(0,10);
+    var hv=Df.filter(function(d){return d.cas_potentiel>=100&&HV_EN_COURS.indexOf(d.statut)!==-1;}).sort(function(a,b){return b.cas_potentiel-a.cas_potentiel;}).slice(0,10);
     var hvEl=document.getElementById('hv-body');
     if(!hvEl) return;
     if(!hv.length){ hvEl.innerHTML='<p style="padding:12px;color:var(--tx3);font-size:12px">Aucun dossier ≥ 100 MFCFA</p>'; return; }
@@ -715,7 +727,7 @@ function renderDash(){
     html+='</div>';
     hvEl.innerHTML=html;
   })();
-    document.getElementById('ch-seg').innerHTML=donutSVG([{v:pub,l:'PUBLIC'},{v:pri,l:'PRIVÉ'}],['#378ADD','#5B21B6'],D.length,'drillSegment')+'<div class="legend" style="padding:0 10px 8px"><div class="leg-item leg-click" onclick="drillSegment(this.getAttribute(\\"data-sg\\"))" data-sg="PUBLIC"><div class="leg-sq" style="background:#378ADD"></div>PUBLIC ('+pub+')</div><div class="leg-item leg-click" onclick="drillSegment(this.getAttribute(\\"data-sg\\"))" data-sg="PRIVÉ"><div class="leg-sq" style="background:#5B21B6"></div>PRIVÉ ('+pri+')</div></div>';
+    document.getElementById('ch-seg').innerHTML=donutSVG([{v:pub,l:'PUBLIC'},{v:pri,l:'PRIVÉ'}],['#378ADD','#5B21B6'],Df.length,'drillSegment')+'<div class="legend" style="padding:0 10px 8px"><div class="leg-item leg-click" onclick="drillSegment(this.getAttribute(\\"data-sg\\"))" data-sg="PUBLIC"><div class="leg-sq" style="background:#378ADD"></div>PUBLIC ('+pub+')</div><div class="leg-item leg-click" onclick="drillSegment(this.getAttribute(\\"data-sg\\"))" data-sg="PRIVÉ"><div class="leg-sq" style="background:#5B21B6"></div>PRIVÉ ('+pri+')</div></div>';
   renderMoisEnCours();
   renderKpiAO();
 }
@@ -725,7 +737,7 @@ function renderKpiAO(yr){
   const el=document.getElementById('kpi-ao-bar'); if(!el)return;
   const now=new Date(), yCur=now.getFullYear(), mCur=now.getMonth()+1;
   // Année sélectionnée (depuis select ou défaut année en cours)
-  if(!yr){ const sel=document.getElementById('sel-mois-an'); yr=sel?sel.value:String(yCur); }
+  if(!yr) yr=effYr();
   const nomsMois=['','janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'];
   const isCurrentYear=(parseInt(yr)===yCur);
 
@@ -788,7 +800,7 @@ function renderKpiAO(yr){
 function renderMoisEnCours(){
   const el=document.getElementById('moisenc-body'); if(!el)return;
   const now=new Date();
-  const yr=now.getFullYear(), mo=now.getMonth()+1;
+  const yr=effYr(), mo=now.getMonth()+1;
   const prefix=yr+'-'+String(mo).padStart(2,'0');
   const nomsMois=['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
   document.getElementById('moisenc-ttl').textContent='📅 Reçus en '+nomsMois[mo-1]+' '+yr;
@@ -867,7 +879,7 @@ function showDrwToast(msg){
   t.textContent=msg; t.classList.add('show');
   clearTimeout(t._tid); t._tid=setTimeout(()=>t.classList.remove('show'),2500);
 }
-async function saveDrw(){ const d=D.find(x=>x._key===drwKey); if(!d)return; d.groupement=document.getElementById('drw-group').value; d.sous_traitance=document.getElementById('drw-sous').value; d.duree_contrat=document.getElementById('drw-duree').value; setStatus('⏳ Enregistrement…','#F59E0B'); await save(d); setStatus('✅ '+D.length+' dossiers','#1D9E75'); drwDirty=false; renderCircuit(); renderTable(); renderGagnes(); showDrwToast('✅ Dossier enregistré avec succès !'); }
+async function saveDrw(){ const d=D.find(x=>x._key===drwKey); if(!d)return; d.groupement=document.getElementById('drw-group').value; d.sous_traitance=document.getElementById('drw-sous').value; d.duree_contrat=document.getElementById('drw-duree').value; setStatus('⏳ Enregistrement…','#F59E0B'); await save(d); updateCount(); drwDirty=false; renderCircuit(); renderTable(); renderGagnes(); showDrwToast('✅ Dossier enregistré avec succès !'); }
 function closeDrw(){ if(drwDirty&&!confirm('Modifications non sauvegardées. Fermer ?'))return; document.getElementById('drw-overlay').style.display='none'; document.getElementById('drw-panel').style.display='none'; drwKey=null; drwDirty=false; }
 
 // DETAIL MODAL
@@ -928,8 +940,8 @@ async function submitForm(){
   const now=new Date(),existing=editKey?D.find(x=>x._key===editKey):null;
   const entry={_key:existing?existing._key:Date.now(),firestoreId:existing?.firestoreId||undefined,num:existing?.num||String(D.length+1),sharepoint:g('sf-sp'),am_ev:g('sf-am'),av_tam:g('sf-tam'),segment:g('sf-seg'),client:g('sf-client'),objet:g('sf-objet'),source:g('sf-source'),univers:g('sf-univers'),recu_le:g('sf-recu'),mois_reception:g('sf-mois'),categorie_age:g('sf-age'),age_mois:parseFloat(g('sf-agemois'))||0,a_deposer:g('sf-depot'),duree_contrat:g('sf-duree'),groupement:g('sf-group'),sous_traitance:g('sf-sous'),recurrent_ht:parseFloat(g('sf-rec'))||0,fms_couts_fixes:parseFloat(g('sf-fms'))||0,cas_potentiel:parseFloat(g('sf-cas'))||0,statut:g('sf-statut'),date_maj:g('sf-majdate')||now.toISOString().slice(0,10),annee_maj:g('sf-majan')||String(now.getFullYear()),mois_maj:g('sf-majmois'),observations:g('sf-obs'),fiche_prequa:g('sf-prequa'),cr_gonogo:g('sf-gonogo'),offre_technique:g('sf-otech'),cvt:g('sf-cvt'),offre_financiere:g('sf-ofin'),cvf:g('sf-cvf'),docs_admin:g('sf-dadmin'),decharge:g('sf-decharge'),cr_depouillement:g('sf-crdep'),notification:g('sf-notif'),cr_postmortem:g('sf-postm')};
   if(existing){Object.assign(existing,entry);}else{D.push(entry);}
-  setStatus('⏳ Enregistrement…','#F59E0B');await save(entry);setStatus('✅ '+D.length+' dossiers','#1D9E75');
-  updateCount();renderDash();document.getElementById('f-alert').classList.remove('hidden');
+  setStatus('⏳ Enregistrement…','#F59E0B');await save(entry);populateNavYear();updateCount();
+  renderDash();document.getElementById('f-alert').classList.remove('hidden');
   setTimeout(()=>{document.getElementById('f-alert').classList.add('hidden');resetForm();go('pipeline');},1500);
 }
 
@@ -944,10 +956,10 @@ function drillMois(nomMois){
   const list=D.filter(d=>(d.recu_le||'').startsWith(prefix));
   openDrill(nomMois+' '+yr,list);
 }
-function drillStatut(statut){openDrill(statut,D.filter(d=>d.statut===statut));}
-function drillSegment(segment){openDrill(segment,D.filter(d=>d.segment===segment));}
+function drillStatut(statut){openDrill(statut,yrFilter(D).filter(d=>d.statut===statut));}
+function drillSegment(segment){openDrill(segment,yrFilter(D).filter(d=>d.segment===segment));}
 function drillUnivers(univers){
-  const list=(window.actif||D).filter(d=>d.univers===univers);
+  const list=(window.actif||yrFilter(D)).filter(d=>d.univers===univers);
   openDrill('CAS — '+univers,list);
 }
 function closeDrill(){document.getElementById('drillOverlay').classList.remove('open');}
