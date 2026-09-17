@@ -700,7 +700,8 @@ function renderSide(m){
   h += '<div class="act"><button class="btn s" data-a="programme">Programme</button>' +
     '<button class="btn s" data-a="documents">Documents' + (docsDe(UI.mid).length ? ' · ' + docsDe(UI.mid).length : '') + '</button></div>';
   h += '<div class="modebar">' +
-    '<button class="btn s' + (UI.mode === 'evaluation' ? ' on' : '') + '" data-a="mode" data-i="evaluation" style="width:100%">Évaluation' +
+    '<button class="btn s' + (UI.mode === 'scanner' ? ' on' : '') + '" data-a="mode" data-i="scanner">Scanner</button>' +
+    '<button class="btn s' + (UI.mode === 'evaluation' ? ' on' : '') + '" data-a="mode" data-i="evaluation">Évaluation' +
     (faiblessesMat(UI.mid).filter(f => f.pct < 60).length ? ' · ' + faiblessesMat(UI.mid).filter(f => f.pct < 60).length : '') + '</button></div>';
 
   const secs = sectionsDe(UI.mid), cs = chapsDe(UI.mid);
@@ -1102,15 +1103,18 @@ function promptClasserDoc(mid, nomFichier){
     'Règles :\n- "chapitre" doit reprendre EXACTEMENT un titre de la liste, jamais en inventer un.\n' +
     '- "texte" sert à écrire des cours plus tard : garde le fond, pas besoin de recopier mot à mot.';
 }
-async function classerDocParVision(file, mid){
+async function classerImages(images, mid, nomFichier){
   try{
-    const images = await pagesEnImages(file, 4);
     if(!images.length) return null;
-    const o = await appelClaude(promptClasserDoc(mid, file.name), images);
+    const o = await appelClaude(promptClasserDoc(mid, nomFichier), images);
     const cs = chapsDe(mid);
     const c = cs.find(x => norm(x.titre) === norm(o.chapitre || ''));
     return {cid:c ? c.id : '', texte:o.texte || ''};
   }catch(e){ return null; }
+}
+async function classerDocParVision(file, mid){
+  const images = await pagesEnImages(file, 4);
+  return classerImages(images, mid, file.name);
 }
 
 async function chargerDocs(files){
@@ -1437,14 +1441,21 @@ async function sansRecadrer(){
 }
 async function sauvegarderScan(){
   if(!UI.scanImage) return toast('Prends d\'abord une photo.');
-  const cid = ($('scanChap') || {}).value || '';
+  let cid = ($('scanChap') || {}).value || '';
+  let texte = '';
+  const st = $('scanStatus');
+  if(!cid && (S.cle || '').trim()){
+    if(st) st.textContent = 'Reconnaissance du chapitre…';
+    const vu = await classerImages([UI.scanImage], UI.mid, 'scan');
+    if(vu){ cid = vu.cid; texte = vu.texte || ''; }
+  }
   const blob = await (await fetch(UI.scanImage)).blob();
   const file = new File([blob], 'scan-' + today() + '-' + Date.now() + '.jpg', {type:'image/jpeg'});
   const meta = await storeFile(file);
   if(!meta) return;
-  S.docs.push({id:uid(), mid:UI.mid, cid, nom:file.name, type:file.type, taille:file.size, file:meta, texte:'', source:'scanner'});
+  S.docs.push({id:uid(), mid:UI.mid, cid, nom:file.name, type:file.type, taille:file.size, file:meta, texte, source:'scanner'});
   UI.scanImage = null; stopScan(); save(); render();
-  toast('Document enregistré dans ' + mat(UI.mid).nom + (cid && chap(cid) ? ' · ' + chap(cid).titre : '') + '.');
+  toast('Document enregistré dans ' + mat(UI.mid).nom + (cid && chap(cid) ? ' · ' + chap(cid).titre : ' — non rattaché') + '.');
 }
 
 /* ===================== évènements ===================== */
