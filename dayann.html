@@ -92,6 +92,7 @@ a{color:var(--acc)}
 input[type=text],input[type=number],input[type=date],select,textarea{width:100%;border:1px solid var(--rule2);
   border-radius:7px;padding:7px 10px;font-size:14px;background:#FDFDFC}
 textarea{min-height:90px;resize:vertical;line-height:1.5}
+textarea::placeholder,input::placeholder{color:#A6A6A0;font-style:italic}
 label.f{display:block;font-size:12px;color:var(--ink2);margin-bottom:3px}
 .form{display:grid;gap:9px;margin:10px 0}
 
@@ -530,6 +531,23 @@ async function pageEnImage(file){
   await page.render({canvasContext:canvas.getContext('2d'), viewport}).promise;
   return canvas.toDataURL('image/jpeg', .9);
 }
+/* Rend jusqu'à `max` pages d'un PDF en images, pour lire un programme
+   scanné ou sans couche de texte, sur plusieurs pages. */
+async function pagesEnImages(file, max){
+  const lib = await loadPdfjs();
+  const doc = await lib.getDocument({data:await file.arrayBuffer(), isEvalSupported:false}).promise;
+  const n = Math.min(max || 6, doc.numPages);
+  const out = [];
+  for(let i = 1; i <= n; i++){
+    const page = await doc.getPage(i);
+    const viewport = page.getViewport({scale:1.4});
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width; canvas.height = viewport.height;
+    await page.render({canvasContext:canvas.getContext('2d'), viewport}).promise;
+    out.push(canvas.toDataURL('image/jpeg', .85));
+  }
+  return out;
+}
 
 /* ===================== documents : contexte pour l'IA ===================== */
 function docsUtiles(c){
@@ -950,14 +968,55 @@ function modal(html){ $('modalHost').innerHTML = '<div class="mbg" data-a="ferme
   '<button class="mclose" data-a="fermer-btn" aria-label="Fermer" title="Fermer">✕</button>' + html + '</div></div>'; }
 function fermer(){ $('modalHost').innerHTML = ''; UI.prog = ''; }
 
+/* ===================== programme : extraction depuis un fichier ===================== */
+function promptExtraireProgramme(mid, texte){
+  return 'Tu reçois le programme officiel scolaire de ' + mat(mid).nom + ' en classe de seconde (France), ' +
+    (texte ? 'sous forme de texte extrait d\'un PDF' : 'sous forme d\'images des pages du document') + '.\n' +
+    'Ce document contient sûrement des objectifs, des compétences, une introduction, des préambules : IGNORE tout ce qui n\'est pas la liste des sections et des chapitres à enseigner. ' +
+    'Ne garde QUE la structure du programme — les grandes parties, et à l\'intérieur les chapitres ou notions, dans l\'ordre du document. C\'est ça qui est sûr et à retenir, rien d\'autre.\n' +
+    (texte ? '\nTexte du document :\n' + texte.slice(0, 14000) + '\n' : '') +
+    '\nProduis UNIQUEMENT un JSON valide, sans texte autour, sans balises de code :\n' +
+    '{"programme":"SECTION 1 — nom de la section\\nChapitre 1 : titre\\nChapitre 2 : titre\\n\\nSECTION 2 — nom de la section\\nChapitre 3 : titre"}\n\n' +
+    'Règles :\n- Reprends les intitulés tels qu\'écrits dans le document, sans en inventer ni en ajouter.\n' +
+    '- Numérote les chapitres en continu d\'une section à l\'autre, comme dans l\'exemple.\n' +
+    '- Si le document ne présente pas de grandes parties, crée une seule section nommée d\'après la matière.\n' +
+    '- La valeur de "programme" doit être une seule chaîne de texte avec des \\n, exactement dans ce format.';
+}
+async function extraireProgrammeIA(file, mid){
+  UI.gen = 'prog'; UI.genMsg = 'Lecture du programme…'; modalProgramme();
+  try{
+    let texte = await extraireTexte(file);
+    let images = [];
+    if(!texte || texte.trim().length < 80){
+      UI.genMsg = 'Lecture des pages…'; modalProgramme();
+      try{ images = await pagesEnImages(file, 6); }catch(e){}
+    }
+    if(!texte && !images.length) throw new Error('fichier illisible');
+    UI.genMsg = 'Extraction de la structure…'; modalProgramme();
+    const o = await appelClaude(promptExtraireProgramme(mid, images.length ? '' : texte), images);
+    if(!o.programme) throw new Error('réponse vide');
+    UI.gen = ''; UI.prog = o.programme; modalProgramme();
+  }catch(e){
+    UI.gen = '';
+    if(e.message === 'sans-cle'){
+      toast('Sans clé Claude, le texte brut du PDF est utilisé tel quel — à vérifier.');
+      try{ UI.prog = await extraireTexte(file) || ''; }catch(e2){}
+    } else {
+      toast('Extraction impossible : ' + e.message);
+    }
+    modalProgramme();
+  }
+}
+
 function modalProgramme(){
   const m = mat(UI.mid), parsed = UI.prog ? parseProgramme(UI.prog) : [];
   let h = '<h2>Programme — ' + esc(m.nom) + '</h2>' +
-    '<p class="hint">Colle le programme tel qu\'il est écrit, ou charge le fichier. Il reste en mémoire et sert de plan à toute la matière.</p>' +
+    '<p class="hint">Colle le programme tel qu\'il est écrit, ou charge le fichier. Il reste en mémoire et sert de plan à toute la matière. Le texte grisé ci-dessous n\'est qu\'un exemple : clique et remplace-le par le vrai programme.</p>' +
     '<form data-f="prog" class="form">' +
     '<textarea name="txt" style="min-height:170px" placeholder="SECTION 1 — Nombres et calculs&#10;Chapitre 1 : Ensembles de nombres&#10;Chapitre 2 : Calcul littéral&#10;&#10;SECTION 2 — Fonctions&#10;Chapitre 3 : Généralités sur les fonctions">' + esc(UI.prog) + '</textarea>' +
     '<div class="row"><button class="btn">Analyser</button>' +
-    '<label class="btn s" style="cursor:pointer">Depuis un fichier<input type="file" id="progFile" style="display:none"></label></div></form>';
+    '<label class="btn s" style="cursor:pointer">Depuis un fichier (l\'IA en extrait le programme)<input type="file" id="progFile" accept=".pdf,.txt,.md" style="display:none"></label></div></form>';
+  if(UI.gen === 'prog') h += '<div class="charge"><i></i>' + esc(UI.genMsg || 'Lecture…') + '</div>';
   if(parsed.length){
     let n = 0;
     h += '<div style="margin-top:12px"><b style="font-size:13.5px">Aperçu — ' + parsed.length + ' sections, ' +
@@ -1457,10 +1516,7 @@ document.addEventListener('change', e => {
     t.value = ''; return;
   }
   if(t.id === 'progFile' && t.files.length){
-    extraireTexte(t.files[0]).then(txt => {
-      if(!txt) return toast('Fichier illisible : copie-colle le texte.');
-      UI.prog = txt; modalProgramme();
-    });
+    extraireProgrammeIA(t.files[0], UI.mid);
     t.value = '';
   }
 });
