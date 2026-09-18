@@ -1277,7 +1277,10 @@ async function rangerOrphelins(){
 }
 
 function modalDocs(){
-  const m = mat(UI.mid), l = docsDe(UI.mid), cs = chapsDe(UI.mid);
+  const m = mat(UI.mid), cs = chapsDe(UI.mid);
+  // le chapitre ouvert d'abord, puis les non rattachés, puis le reste
+  const rang = d => d.cid === UI.cid ? 0 : !d.cid ? 1 : 2;
+  const l = docsDe(UI.mid).slice().sort((a,b) => rang(a) - rang(b));
   let h = '<h2>Documents — ' + esc(m.nom) + '</h2>' +
     '<p class="hint">Cours, devoirs, notes, corrigés. Ils sont lus et servent à écrire les leçons, les exemples et les quiz.</p>' +
     '<label class="btn p" style="cursor:pointer;display:block;text-align:center;margin:10px 0">' +
@@ -2002,8 +2005,26 @@ if(typeof CLOUD !== 'undefined') CLOUD.init();
 
 /* PWA : enregistrement du service worker */
 if('serviceWorker' in navigator && location.protocol === 'https:'){
+  let rechargement = false;
+  // un nouveau service worker a pris la main : on recharge une seule fois
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if(rechargement) return;
+    rechargement = true;
+    location.reload();
+  });
+
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/dayann-sw.js', {scope:'/dayann.html'}).catch(() => {});
+    navigator.serviceWorker.register('/dayann-sw.js', {scope:'/dayann.html'}).then(reg => {
+      const verifier = () => { try{ reg.update(); }catch(e){} };
+      verifier();
+      // à chaque retour dans l'application (ouverture, bascule d'onglet)
+      document.addEventListener('visibilitychange', () => {
+        if(document.visibilityState === 'visible') verifier();
+      });
+      window.addEventListener('focus', verifier);
+      // filet de sécurité : toutes les 30 minutes si l'app reste ouverte
+      setInterval(verifier, 30 * 60000);
+    }).catch(() => {});
   });
 }
 

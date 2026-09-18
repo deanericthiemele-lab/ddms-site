@@ -1,5 +1,5 @@
 /* Service worker du classeur de Dayann — portée limitée à /dayann.html */
-const CACHE = 'classeur-v2';
+const CACHE = 'classeur-v3';
 const RESSOURCES = [
   '/dayann.html',
   '/dayann.webmanifest',
