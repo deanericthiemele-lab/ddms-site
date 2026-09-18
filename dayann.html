@@ -1196,7 +1196,7 @@ async function extraireProgrammeIA(file, mid){
     /* Le fichier du programme officiel est conservé comme document de la
        matière, mais jamais rattaché à un seul chapitre : il les concerne
        tous, c'est lui qui les a fait naître. */
-    await rangerDocument(file, mid, {cid:'', autoClasser:false, texte:o.programme, source:'programme'});
+    await rangerDocument(file, mid, {cid:'', autoClasser:false, texte:o.programme, source:'programme', verifierMatiere:false});
     save();
     UI.gen = ''; UI.prog = o.programme; modalProgramme();
   }catch(e){
@@ -1302,9 +1302,35 @@ function promptClasserDoc(mid, nomFichier){
   return 'Tu regardes les pages scannées d\'un document (cours ou devoir) de ' + mat(mid).nom + ' en seconde. Nom du fichier : « ' + nomFichier + ' ».\n' +
     (cs.length ? 'Chapitres existants dans cette matière : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n' : 'Aucun chapitre n\'existe encore dans cette matière.\n') +
     '\nProduis UNIQUEMENT un JSON valide, sans texte autour :\n' +
-    '{"chapitre":"titre exact d\'un chapitre de la liste, ou vide si aucun ne correspond","texte":"transcription fidèle et condensée du contenu, en gardant les notions, définitions et exemples importants"}\n\n' +
-    'Règles :\n- "chapitre" doit reprendre EXACTEMENT un titre de la liste, jamais en inventer un.\n' +
+    '{"matiere":"la matière scolaire réellement traitée par ce document","correspond":true,"chapitre":"titre exact d\'un chapitre de la liste, ou vide si aucun ne correspond","texte":"transcription fidèle et condensée du contenu, en gardant les notions, définitions et exemples importants"}\n\n' +
+    'Règles :\n- "matiere" : nomme la matière du document tel qu\'il est (Mathématiques, Histoire-Géographie, SVT, Physique-Chimie, Français, Anglais…).\n' +
+    '- "correspond" : false si le document ne relève manifestement pas de ' + mat(mid).nom + ', true sinon. En cas de doute, mets true.\n' +
+    '- "chapitre" doit reprendre EXACTEMENT un titre de la liste, jamais en inventer un.\n' +
     '- "texte" sert à écrire des cours plus tard : garde le fond, pas besoin de recopier mot à mot.';
+}
+
+function promptVerifMatiere(mid, nomFichier, texte){
+  return 'Voici le contenu d\'un document scolaire de seconde. Nom du fichier : « ' + nomFichier + ' ».\n\n' +
+    String(texte).slice(0, 2500) + '\n\n' +
+    'Produis UNIQUEMENT un JSON valide, sans texte autour :\n' +
+    '{"matiere":"la matière scolaire réellement traitée","correspond":true}\n\n' +
+    'Règles :\n- "correspond" : false si ce document ne relève manifestement pas de la matière « ' + mat(mid).nom + ' », true sinon.\n' +
+    '- En cas de doute, mets true. Un document interdisciplinaire ou transversal correspond.';
+}
+
+async function verifierMatiere(mid, nomFichier, texte){
+  if(!(S.cle || '').trim()) return null;
+  if(!texte || String(texte).trim().length < 120) return null;
+  try{ return await appelClaude(promptVerifMatiere(mid, nomFichier, texte)); }
+  catch(e){ return null; }
+}
+
+function alerteMatiere(o, mid, nom){
+  if(!o || o.correspond !== false) return true;
+  const trouvee = String(o.matiere || '').trim();
+  return confirm('« ' + nom + ' » ressemble à un document' +
+    (trouvee ? ' de ' + trouvee : ' d\'une autre matière') +
+    ', pas à du ' + mat(mid).nom + '.\n\nL\'importer quand même dans ' + mat(mid).nom + ' ?');
 }
 async function classerImages(images, mid, nomFichier){
   try{
@@ -1312,7 +1338,7 @@ async function classerImages(images, mid, nomFichier){
     const o = await appelClaude(promptClasserDoc(mid, nomFichier), images);
     const cs = chapsDe(mid);
     const c = cs.find(x => norm(x.titre) === norm(o.chapitre || ''));
-    return {cid:c ? c.id : '', texte:o.texte || ''};
+    return {cid:c ? c.id : '', texte:o.texte || '', matiere:o.matiere || '', correspond:o.correspond};
   }catch(e){ return null; }
 }
 async function classerDocParVision(file, mid){
@@ -1333,6 +1359,7 @@ async function rangerDocument(file, mid, opts){
   }
   let texte = opts.texte != null ? opts.texte : await extraireTexte(file);
   let cid = opts.cid || '';
+  let verdict = null;
   if(!cid && opts.autoClasser !== false && (!texte || texte.trim().length < 60) && (S.cle || '').trim()){
     let images = opts.images;
     if(!images){
@@ -1342,7 +1369,15 @@ async function rangerDocument(file, mid, opts){
     }
     if(images && images.length){
       const vu = await classerImages(images, mid, file.name);
-      if(vu){ cid = vu.cid; if(!texte && vu.texte) texte = vu.texte; }
+      if(vu){ cid = vu.cid; if(!texte && vu.texte) texte = vu.texte; verdict = vu; }
+    }
+  }
+  // contrôle de cohérence : le document relève-t-il bien de cette matière ?
+  if(opts.verifierMatiere !== false){
+    if(!verdict) verdict = await verifierMatiere(mid, opts.nom || file.name, texte);
+    if(!alerteMatiere(verdict, mid, opts.nom || file.name)){
+      toast('Import annulé.');
+      return null;
     }
   }
   if(!cid && opts.autoClasser !== false){
