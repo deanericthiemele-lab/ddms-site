@@ -580,16 +580,20 @@ async function pagesEnImages(file, max){
 function docsUtiles(c){
   const liees = S.docs.filter(d => d.cid === c.id && d.texte);
   if(liees.length) return liees;
-  // repêchage : score sur les mots du titre, du plus pertinent au moins pertinent
+  // repêchage par score sur les mots du titre : d'abord les documents non rattachés,
+  // puis, si rien ne sort, ceux rattachés à un autre chapitre de la même matière
   const mots = [...new Set(norm(c.titre).split(/[^a-z0-9]+/).filter(w => w.length > 3))];
   if(!mots.length) return [];
-  const notes = S.docs.filter(d => d.mid === c.mid && d.texte && !d.cid).map(d => {
+  const pecher = liste => liste.map(d => {
     const champ = norm(d.nom + ' ' + d.texte);
     let sc = 0;
     mots.forEach(w => { if(champ.includes(w)) sc += champ.split(w).length - 1; });
     return {d, sc};
-  }).filter(x => x.sc > 0).sort((a,b) => b.sc - a.sc);
-  return notes.slice(0, 4).map(x => x.d);
+  }).filter(x => x.sc > 0).sort((a,b) => b.sc - a.sc).slice(0, 4).map(x => x.d);
+
+  const dispo = S.docs.filter(d => d.mid === c.mid && d.texte);
+  const libres = pecher(dispo.filter(d => !d.cid));
+  return libres.length ? libres : pecher(dispo.filter(d => d.cid && d.cid !== c.id));
 }
 function extraitsDocs(c){
   const l = docsUtiles(c);
