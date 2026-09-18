@@ -63,6 +63,11 @@ a{color:var(--acc)}
   .tabsm button.on{color:var(--ink);border-bottom-color:var(--acc);font-weight:600}
 }
 
+.rech{margin-bottom:8px}
+.rech input{width:100%;padding:8px 10px;border:1px solid var(--rule2);border-radius:8px;
+  background:var(--page);font-family:inherit;font-size:13.5px}
+.rech input:focus{outline:none;border-color:var(--acc)}
+#qres:not(:empty){margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--rule)}
 .mat-sel{display:flex;gap:6px;margin-bottom:10px}
 .mat-sel select{flex:1}
 .side .act{display:flex;gap:6px;margin-bottom:8px}
@@ -715,8 +720,29 @@ function render(){
   renderMain(m, c);
 }
 
+function resultatsRecherche(q){
+  const t = norm(q || '').trim();
+  if(t.length < 2) return '';
+  const mots = t.split(/\s+/);
+  const res = [];
+  S.chapitres.forEach(c => {
+    const m = mat(c.mid), s = c.sid ? (sectionsDe(c.mid).find(x => x.id === c.sid) || {}).titre : '';
+    const champ = norm([c.titre, m ? m.nom : '', s || ''].join(' '));
+    if(mots.every(w => champ.includes(w))) res.push({c, m, s});
+  });
+  if(!res.length) return '<div class="hint" style="padding:6px 2px">Aucun chapitre trouvé.</div>';
+  return res.slice(0, 12).map(x => {
+    const e = etat(x.c);
+    return '<button class="ch" data-a="go-chap" data-i="' + x.c.id + '" style="width:100%;text-align:left">' +
+      '<span class="pt ' + e.coul + '"></span><span class="t">' + esc(x.c.titre) +
+      '<span class="hint" style="display:block">' + esc(x.m ? x.m.nom : '') + (x.s ? ' · ' + esc(x.s) : '') + '</span></span></button>';
+  }).join('');
+}
+
 function renderSide(m){
-  let h = '<div class="mat-sel"><select data-a="mat">' +
+  let h = '<div class="rech"><input id="q" type="search" autocomplete="off" placeholder="Rechercher un chapitre…" value="' + esc(UI.q || '') + '"></div>' +
+    '<div id="qres">' + resultatsRecherche(UI.q) + '</div>';
+  h += '<div class="mat-sel"><select data-a="mat">' +
     S.matieres.map(x => '<option value="' + x.id + '"' + (x.id === UI.mid ? ' selected' : '') + '>' + esc(x.nom) + '</option>').join('') +
     '</select><button class="btn s" data-a="mat-new" title="Ajouter une matière">+</button></div>';
   h += '<div class="act"><button class="btn s" data-a="programme">Programme</button>' +
@@ -724,7 +750,6 @@ function renderSide(m){
   h += '<div class="modebar">' +
     '<button class="btn s' + (UI.mode === 'bilan' ? ' on' : '') + '" data-a="mode" data-i="bilan">Bilan' +
     (bilanGlobal().reduce((s,x) => s + x.faibles.length, 0) ? ' · ' + bilanGlobal().reduce((s,x) => s + x.faibles.length, 0) : '') + '</button>' +
-    '<button class="btn s' + (UI.mode === 'scanner' ? ' on' : '') + '" data-a="mode" data-i="scanner">Scanner</button>' +
     '<button class="btn s' + (UI.mode === 'evaluation' ? ' on' : '') + '" data-a="mode" data-i="evaluation">Évaluation' +
     (faiblessesMat(UI.mid).filter(f => f.pct < 60).length ? ' · ' + faiblessesMat(UI.mid).filter(f => f.pct < 60).length : '') + '</button></div>';
 
@@ -759,15 +784,6 @@ function renderSide(m){
 
 function renderMain(m, c){
   const grid = $('mainGrid');
-  if(UI.mode === 'scanner'){
-    $('tabsm').innerHTML = ''; grid.innerHTML = panelScanner(m);
-    if(UI.scanAjust){
-      const img = $('cropImg');
-      if(img && !img.complete) img.addEventListener('load', tracerPolygone, {once:true});
-      requestAnimationFrame(tracerPolygone);
-    }
-    return;
-  }
   if(UI.mode === 'bilan'){ $('tabsm').innerHTML = ''; grid.innerHTML = panelBilan(); return; }
   if(UI.mode === 'evaluation'){ $('tabsm').innerHTML = ''; grid.innerHTML = panelEvaluation(m); return; }
 
@@ -962,7 +978,7 @@ function bilanGlobal(){
       total: cs.length,
       prep: cs.filter(c => c.genere).length,
       test: avec.filter(x => x.vu).length,
-      notes: devs.filter(d => d.note != null).slice(0,3),
+      notes: devs.filter(d => d.note && d.note.sur).slice(0,3),
       faibles: avec.filter(x => x.vu && x.pct < 80).sort((a,b) => a.pct - b.pct),
       oublies: avec.filter(x => !x.vu && (x.docs > 0 || x.c.genere)),
       dormants: avec.filter(x => x.vu && x.pct >= 80 &&
@@ -997,7 +1013,7 @@ function panelBilan(){
       (test ? 'Tous les chapitres testés sont maîtrisés.' : 'Fais un premier quiz pour que les faiblesses apparaissent ici.') + '</div>';
   }
 
-  const ligne = (x, info) => '<button class="ch" data-a="go-chap" data-i="' + x.c.id + '" style="width:100%;text-align:left">' +
+  const ligne = (x, info) => '<button class="ch" data-a="bilan-go" data-i="' + x.c.id + '" style="width:100%;text-align:left">' +
     '<span class="pt ' + (x.pct >= 80 ? 'v' : x.pct >= 40 ? 'o' : 'r') + '"></span><span class="t">' + esc(x.c.titre) + '</span>' +
     '<span class="hint" style="margin-left:auto">' + info + '</span></button>';
 
@@ -1005,7 +1021,7 @@ function panelBilan(){
     if(!b.faibles.length && !b.dormants.length && !b.oublies.length) return;
     h += '<div class="sec-t" style="margin-top:14px">' + esc(b.m.nom) +
       ' · ' + b.test + '/' + b.total + ' travaillés' +
-      (b.notes.length ? ' · dernières notes : ' + b.notes.map(d => esc(d.note)).join(', ') : '') + '</div>';
+      (b.notes.length ? ' · dernières notes : ' + b.notes.map(d => esc(d.note.score + '/' + d.note.sur)).join(', ') : '') + '</div>';
 
     b.faibles.forEach(x => {
       const src = [x.e.testees ? 'quiz' : '', x.cop.length ? x.cop.length + ' copie' + (x.cop.length > 1 ? 's' : '') : '']
@@ -1023,9 +1039,60 @@ function panelBilan(){
   return h + '</div></section>';
 }
 
+function commentaireEval(mid){
+  const dv = devoirsDe(mid).filter(d => d.note && d.note.sur);
+  const f = faiblessesMat(mid);
+  if(!dv.length && !f.length) return '';
+
+  const lignes = [];
+
+  if(dv.length){
+    const s20 = d => Math.round(d.note.score * 20 / d.note.sur * 10) / 10;
+    const notes = dv.map(s20);
+    const moy = Math.round(notes.reduce((a,b) => a + b, 0) / notes.length * 10) / 10;
+    lignes.push('<b>' + dv.length + ' devoir' + (dv.length > 1 ? 's' : '') + ' analysé' +
+      (dv.length > 1 ? 's' : '') + ' · moyenne ' + moy + '/20.</b>');
+
+    if(notes.length >= 2){
+      // devoirsDe trie du plus récent au plus ancien
+      const ecart = Math.round((notes[0] - notes[notes.length - 1]) * 10) / 10;
+      if(ecart >= 2) lignes.push('La tendance est à la hausse : ' + ecart + ' points gagnés depuis le premier devoir. Ce qui a été travaillé a payé, continue de la même façon.');
+      else if(ecart <= -2) lignes.push('La tendance est à la baisse : ' + Math.abs(ecart) + ' points perdus depuis le premier devoir. Reprends les chapitres listés ci-dessous avant le prochain contrôle.');
+      else lignes.push('Les résultats sont stables. Pour progresser, c\'est sur les notions les plus faibles ci-dessous qu\'il faut appuyer, pas sur ce qui est déjà acquis.');
+    }
+  }
+
+  const faibles = f.filter(x => x.pct < 50);
+  const moyens = f.filter(x => x.pct >= 50 && x.pct < 80);
+  const solides = f.filter(x => x.pct >= 80);
+
+  if(faibles.length){
+    lignes.push('<b>Priorité :</b> ' + faibles.slice(0,3).map(x => esc(x.notion)).join(', ') +
+      (faibles.length > 3 ? ' et ' + (faibles.length - 3) + ' autre' + (faibles.length > 4 ? 's' : '') : '') +
+      '. Ce sont les notions où le plus de points se perdent.');
+  }
+  if(moyens.length) lignes.push(moyens.length + ' notion' + (moyens.length > 1 ? 's' : '') +
+    ' à consolider : compris dans les grandes lignes, mais pas encore assez sûr pour un devoir.');
+  if(solides.length) lignes.push(solides.length + ' notion' + (solides.length > 1 ? 's' : '') +
+    ' maîtrisée' + (solides.length > 1 ? 's' : '') + '. Repasse-les de temps en temps pour ne pas les perdre.');
+
+  // provenance des faiblesses
+  const parCopie = f.filter(x => /devoir/i.test(x.source || '')).length;
+  if(parCopie && f.length > parCopie)
+    lignes.push('Ce diagnostic croise les quiz et les copies corrigées : quand les deux se rejoignent sur une notion, c\'est un vrai manque, pas un accident.');
+  else if(!parCopie && f.length)
+    lignes.push('Ce diagnostic ne repose que sur les quiz. Partage une copie corrigée pour savoir ce qui coince vraiment en devoir.');
+
+  return '<div class="meth" style="margin:0 0 16px"><b>Ce que disent les résultats</b>' +
+    lignes.map(x => '<div style="color:#8E2318;font-size:13.5px;line-height:1.5;margin-bottom:5px">' + x + '</div>').join('') +
+    '</div>';
+}
+
 function panelEvaluation(m){
   const data = faiblessesMat(UI.mid), dv = devoirsDe(UI.mid);
   let h = '<section class="pan full on"><div class="pan-h"><h2>Évaluation — ' + esc(m.nom) + '</h2></div><div class="pan-b">';
+
+  h += commentaireEval(UI.mid);
 
   h += '<p class="hint">Partage une copie corrigée (photo ou PDF) : elle est lue, notion par notion, pour repérer précisément ce qui coince.</p>' +
     '<label class="btn p" style="cursor:pointer;display:inline-block;margin-bottom:14px">Analyser un devoir noté' +
@@ -1615,6 +1682,13 @@ async function sauvegarderScan(){
 }
 
 /* ===================== évènements ===================== */
+document.addEventListener('input', e => {
+  if(e.target.id !== 'q') return;
+  UI.q = e.target.value;
+  const z = $('qres');
+  if(z) z.innerHTML = resultatsRecherche(UI.q);
+});
+
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-a]');
   if(!t) return;
@@ -1633,8 +1707,20 @@ document.addEventListener('click', e => {
     'go-chap': () => {
       const c = chap(i);
       if(!c) return;
+      UI.q = '';
       UI.mid = c.mid; UI.cid = c.id; UI.mode = 'chapitre'; UI.tab = 'cours';
       UI.rep = null; UI.ordre = null; render();
+      if(!c.genere && !UI.gen) genererChapitre(c.id, true);
+    },
+    'bilan-go': () => {
+      const c = chap(i);
+      if(!c) return;
+      UI.mid = c.mid; UI.cid = c.id; UI.mode = 'chapitre';
+      UI.rep = null; UI.ordre = null;
+      const rates = c.quiz.filter(q => q.last === 'ko').map(q => q.id);
+      if(rates.length){ c.prog = {i:0, fini:false, serie:rates}; UI.tab = 'quiz'; }
+      else UI.tab = 'cours';
+      save(); render();
     },
     tab: () => { UI.tab = i; render(); },
     chap: () => {
