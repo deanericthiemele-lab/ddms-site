@@ -63,6 +63,8 @@ a{color:var(--acc)}
   .tabsm button.on{color:var(--ink);border-bottom-color:var(--acc);font-weight:600}
 }
 
+.ch.hl{background:#FFF6D8;box-shadow:inset 3px 0 0 #E3A008}
+.sec-t.hl{background:#FFF6D8;color:#8A5B00;border-radius:5px;padding-left:6px}
 .chap-new{display:flex;gap:6px;margin-top:12px}
 .chap-new input{flex:1;padding:7px 9px;border:1px solid var(--rule2);border-radius:7px;
   background:var(--page);font-family:inherit;font-size:13px}
@@ -230,13 +232,14 @@ function today(){ return new Date().toISOString().slice(0,10); }
 function neuf(){
   const noms = ['Mathématiques','Français','Physique-Chimie','SVT','Histoire-Géographie','Anglais','Espagnol'];
   return {v:3, eleve:{prenom:'', classe:'2nde', profil:''}, cle:'', fb:null,
-    matieres:noms.map(n => ({id:uid(), nom:n})), sections:[], chapitres:[], docs:[], devoirs:[]};
+    matieres:noms.map(n => ({id:uid(), nom:n})), sections:[], chapitres:[], docs:[], devoirs:[], bulletins:[]};
 }
 function migrer(o){
   if(!o || !o.matieres) return neuf();
   o.docs = o.docs || [];
   o.devoirs = o.devoirs || [];
   o.sections = o.sections || [];
+  o.bulletins = o.bulletins || [];
   (o.chapitres || []).forEach(c => {
     c.cours = c.cours || [];
     c.retenir = c.retenir || [];
@@ -295,8 +298,30 @@ function etat(c){
   return {pct, coul, mot, ok, testees, total:q.length, rates:q.filter(x => x.last === 'ko')};
 }
 function profil(){
-  return (S.eleve.profil || '').trim() ||
+  const base = (S.eleve.profil || '').trim() ||
     'Élève de seconde. Il comprend les notions mais manque de méthode : rédaction incomplète, étapes non justifiées, points perdus en devoir. Il faut donc toujours montrer la rédaction attendue.';
+  return base + apportBulletins();
+}
+
+/* Ce que disent les bulletins sur l'élève, ajouté à toutes les demandes de
+   contenu : le cours et les exemples tiennent compte des remarques des
+   professeurs et du niveau réel dans la matière. */
+function apportBulletins(mid){
+  const l = S.bulletins || [];
+  if(!l.length) return '';
+  let t = '';
+  const dernier = l[l.length - 1];
+  if(dernier.appreciationGenerale) t += '\nAppréciation générale du dernier bulletin : ' + dernier.appreciationGenerale;
+  const nom = mid ? norm(mat(mid).nom) : '';
+  const lignes = [];
+  l.forEach(b => (b.matieres || []).forEach(x => {
+    if(mid && norm(x.matiere || '').indexOf(nom) === -1 && nom.indexOf(norm(x.matiere || '')) === -1) return;
+    lignes.push('· ' + (b.periode || 'bulletin') + ' — ' + (x.matiere || '') +
+      (x.moyenne != null ? ' : ' + x.moyenne + '/20' : '') +
+      (x.appreciation ? ' — « ' + x.appreciation + ' »' : ''));
+  }));
+  if(lignes.length) t += '\nBulletins :\n' + lignes.slice(-8).join('\n');
+  return t ? '\n' + t : '';
 }
 
 /* ===================== interface : état ===================== */
@@ -680,7 +705,7 @@ function extraitsDocs(c){
 function promptChapitre(c){
   const sec = sectionDe(c);
   return 'Tu es professeur de ' + mat(c.mid).nom + ' en classe de seconde.\n' +
-    'Élève : ' + profil() + '\n' +
+    'Élève : ' + profil() + apportBulletins(c.mid) + '\n' +
     'Chapitre à préparer : « ' + c.titre + ' »' + (sec ? ', partie « ' + sec.titre + ' »' : '') + '.\n' +
     extraitsDocs(c) +
     '\nProduis UNIQUEMENT un JSON valide, sans texte autour, sans balises de code :\n' +
@@ -821,6 +846,7 @@ function render(){
 
 function resultatsRecherche(q){
   const t = norm(q || '').trim();
+  UI.hl = null;
   if(t.length < 2) return '';
   const mots = t.split(/\s+/);
   const res = [];
@@ -829,8 +855,18 @@ function resultatsRecherche(q){
     const champ = norm([c.titre, m ? m.nom : '', s || ''].join(' '));
     if(mots.every(w => champ.includes(w))) res.push({c, m, s});
   });
-  if(!res.length) return '<div class="hint" style="padding:6px 2px">Aucun chapitre trouvé.</div>';
-  return res.slice(0, 12).map(x => {
+  // blocs dont le titre correspond, même sans chapitre créé
+  const blocs = S.sections.filter(s => mots.every(w => norm(s.titre).includes(w)));
+  UI.hl = {chapitres:res.map(x => x.c.id), sections:blocs.map(s => s.id)
+    .concat(res.filter(x => x.c.sid).map(x => x.c.sid))};
+
+  let h = '';
+  if(blocs.length) h += blocs.map(s =>
+    '<button class="ch" data-a="go-bloc" data-i="' + s.id + '" style="width:100%;text-align:left">' +
+    '<span class="pt"></span><span class="t">' + esc(s.titre) +
+    '<span class="hint" style="display:block">' + esc(mat(s.mid).nom) + ' · bloc du programme</span></span></button>').join('');
+  if(!res.length && !blocs.length) return '<div class="hint" style="padding:6px 2px">Aucun chapitre trouvé.</div>';
+  return h + res.slice(0, 12).map(x => {
     const e = etat(x.c);
     return '<button class="ch" data-a="go-chap" data-i="' + x.c.id + '" style="width:100%;text-align:left">' +
       '<span class="pt ' + e.coul + '"></span><span class="t">' + esc(x.c.titre) +
@@ -845,7 +881,8 @@ function renderSide(m){
     S.matieres.map(x => '<option value="' + x.id + '"' + (x.id === UI.mid ? ' selected' : '') + '>' + esc(x.nom) + '</option>').join('') +
     '</select><button class="btn s" data-a="mat-new" title="Ajouter une matière">+</button></div>';
   h += '<div class="act"><button class="btn s" data-a="programme">Programme</button>' +
-    '<button class="btn s" data-a="documents">Documents' + (docsDe(UI.mid).length ? ' · ' + docsDe(UI.mid).length : '') + '</button></div>';
+    '<button class="btn s" data-a="documents">Documents' + (docsDe(UI.mid).length ? ' · ' + docsDe(UI.mid).length : '') + '</button>' +
+    '<button class="btn s" data-a="bulletins">Bulletins' + ((S.bulletins || []).length ? ' · ' + S.bulletins.length : '') + '</button></div>';
   h += '<div class="modebar">' +
     '<button class="btn s' + (UI.mode === 'bilan' ? ' on' : '') + '" data-a="mode" data-i="bilan">Bilan' +
     (bilanGlobal().reduce((s,x) => s + x.faibles.length, 0) ? ' · ' + bilanGlobal().reduce((s,x) => s + x.faibles.length, 0) : '') + '</button>' +
@@ -861,10 +898,12 @@ function renderSide(m){
     h += secs.map(s => {
       const l = chapsDeSection(s.id);
       if(!l.length) return '';
-      return '<div class="sec-t">' + esc(s.titre) + '</div>' + l.map(c => {
+      const hlS = UI.hl && UI.hl.sections.indexOf(s.id) > -1;
+      return '<div class="sec-t' + (hlS ? ' hl' : '') + '">' + esc(s.titre) + '</div>' + l.map(c => {
         n++;
         const e = etat(c);
-        return '<button class="ch' + (UI.mode === 'chapitre' && UI.cid === c.id ? ' on' : '') + '" data-a="chap" data-i="' + c.id + '">' +
+        const hlC = UI.hl && UI.hl.chapitres.indexOf(c.id) > -1;
+        return '<button class="ch' + (UI.mode === 'chapitre' && UI.cid === c.id ? ' on' : '') + (hlC ? ' hl' : '') + '" data-a="chap" data-i="' + c.id + '">' +
           '<span class="n">' + n + '</span><span class="t">' + esc(c.titre) + '</span>' +
           '<span class="pt ' + e.coul + '" title="' + e.mot + '"></span></button>';
       }).join('');
@@ -923,6 +962,64 @@ async function ajouterChapitre(mid, titre){
   const s = secs.find(x => x.id === sid);
   toast(s ? 'Chapitre ajouté dans « ' + s.titre +' ».' : 'Chapitre ajouté hors programme.');
   if(!UI.gen) genererChapitre(c.id, true);
+}
+
+function promptBulletin(){
+  return 'Tu lis le bulletin scolaire d\'un élève de seconde.\n\n' +
+    'Produis UNIQUEMENT un JSON valide, sans texte autour :\n' +
+    '{"periode":"Trimestre 1 2025-2026","moyenneGenerale":12.4,"appreciationGenerale":"texte du conseil de classe",' +
+    '"matieres":[{"matiere":"Mathématiques","moyenne":11.2,"moyenneClasse":12.8,"appreciation":"texte du professeur"}]}\n\n' +
+    'Règles :\n- Recopie fidèlement les appréciations, sans les reformuler ni les adoucir.\n' +
+    '- Les moyennes sont des nombres, ramenés sur 20. Mets null si illisible.\n' +
+    '- N\'invente aucune matière ni aucune note absente du document.';
+}
+
+async function chargerBulletin(files){
+  if(UI.docsBusy) return;
+  if(!(S.cle || '').trim()){ toast('Ajoute ta clé Claude dans Réglages.'); return; }
+  UI.docsBusy = true;
+  const l = [...files];
+  let images = [], texte = '';
+  UI.analyse = ['Lecture du bulletin…']; modalBulletins();
+  try{
+    if(l.length === 1) texte = await extraireTexte(l[0]);
+    if(!texte || texte.trim().length < 80){
+      for(const f of l){ images = images.concat(await enImages(f, 4)); if(images.length >= 8) break; }
+      images = images.slice(0, 8);
+    }
+    if(!texte && !images.length) throw new Error('format non reconnu');
+    UI.analyse = ['Analyse des notes et appréciations…']; modalBulletins();
+    const o = await appelClaude(promptBulletin() + (images.length ? '' : '\n\nContenu :\n' + texte.slice(0, 6000)), images);
+    if(!o.matieres || !o.matieres.length) throw new Error('aucune matière lue');
+    S.bulletins = S.bulletins || [];
+    S.bulletins.push({id:uid(), ts:Date.now(), periode:o.periode || '',
+      moyenneGenerale:o.moyenneGenerale, appreciationGenerale:o.appreciationGenerale || '',
+      matieres:o.matieres});
+    // les cours sont réécrits en tenant compte des remarques des professeurs
+    S.chapitres.forEach(c => { if(c.genere) c.perime = 1; });
+    save(); toast('Bulletin ajouté : ' + (o.matieres.length) + ' matières.');
+  }catch(e){ toast('Échec : ' + (e.message || e)); }
+  UI.analyse = []; UI.docsBusy = false;
+  modalBulletins(); render();
+}
+
+function modalBulletins(){
+  const l = S.bulletins || [];
+  let h = '<h3>Bulletins</h3><p class="hint">Charge les bulletins de Dayann : les moyennes et les appréciations ' +
+    'des professeurs servent à écrire les cours, les exemples et le bilan.</p>' +
+    '<label class="btn p" style="width:100%;display:block;text-align:center;margin-bottom:10px;cursor:pointer">' +
+    'Charger un bulletin<input type="file" id="bulFile" multiple style="display:none"></label>';
+  if(UI.analyse && UI.analyse.length) h += '<div class="charge"><i></i>' + esc(UI.analyse[0]) + '</div>';
+  if(!l.length) h += '<div class="vide">Aucun bulletin pour l\'instant.</div>';
+  l.slice().reverse().forEach(b => {
+    h += '<div class="item"><div class="t">' + esc(b.periode || 'Bulletin') +
+      (b.moyenneGenerale != null ? ' — ' + b.moyenneGenerale + '/20' : '') +
+      '<button class="x" data-a="bul-del" data-i="' + b.id + '">×</button></div>';
+    if(b.appreciationGenerale) h += '<div class="meta">' + esc(b.appreciationGenerale) + '</div>';
+    h += '<div class="meta">' + (b.matieres || []).map(x => esc(x.matiere) +
+      (x.moyenne != null ? ' ' + x.moyenne : '')).join(' · ') + '</div></div>';
+  });
+  modal(h);
 }
 
 function renderMain(m, c){
@@ -1490,27 +1587,33 @@ function modalReglages(){
 /* ===================== import de documents ===================== */
 /* ===================== documents : lecture par vision si le PDF est scanné ===================== */
 function promptClasserDoc(mid, nomFichier){
-  const cs = chapsDe(mid);
+  const cs = chapsDe(mid), secs = sectionsDe(mid);
   return 'Tu regardes les pages scannées d\'un document (cours ou devoir) de ' + mat(mid).nom + ' en seconde. Nom du fichier : « ' + nomFichier + ' ».\n' +
-    (cs.length ? 'Chapitres existants dans cette matière : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n' : 'Aucun chapitre n\'existe encore dans cette matière.\n') +
+    (cs.length ? 'Chapitres déjà créés : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n' : 'Aucun chapitre n\'est encore créé.\n') +
+    (secs.length ? 'Blocs du programme :\n' + secs.map((s, i) => (i + 1) + '. ' + s.titre).join('\n') + '\n' : '') +
     '\nProduis UNIQUEMENT un JSON valide, sans texte autour :\n' +
-    '{"matiere":"la matière scolaire réellement traitée par ce document","correspond":true,"chapitre":"titre exact d\'un chapitre de la liste, ou vide si aucun ne correspond","titre":"nom de fichier court et parlant décrivant le contenu","texte":"transcription fidèle et condensée du contenu, en gardant les notions, définitions et exemples importants"}\n\n' +
+    '{"matiere":"la matière scolaire réellement traitée par ce document","correspond":true,"chapitre":"titre exact d\'un chapitre déjà créé, ou vide","bloc":2,"nouveauChapitre":"titre du chapitre à créer, ou vide","titre":"nom de fichier court et parlant décrivant le contenu","texte":"transcription fidèle et condensée du contenu, en gardant les notions, définitions et exemples importants"}\n\n' +
     'Règles :\n- "matiere" : nomme la matière du document tel qu\'il est (Mathématiques, Histoire-Géographie, SVT, Physique-Chimie, Français, Anglais…).\n' +
     '- "correspond" : false si le document ne relève manifestement pas de ' + mat(mid).nom + ', true sinon. En cas de doute, mets true.\n' +
-    '- "chapitre" doit reprendre EXACTEMENT un titre de la liste, jamais en inventer un.\n' +
+    '- "chapitre" : si un chapitre déjà créé traite ce contenu, reprends EXACTEMENT son titre. Sinon laisse vide.\n' +
+    '- "bloc" : le numéro du bloc du programme dont relève ce contenu, même si aucun chapitre n\'existe encore. 0 si aucun.\n' +
+    '- "nouveauChapitre" : UNIQUEMENT si "chapitre" est vide. Le titre du chapitre que ce document constitue, formulé comme un intitulé de cours (« Les ensembles de nombres », « Vecteurs et coordonnées »). Vide si le document est trop partiel pour former un chapitre.\n' +
     '- "titre" : 3 à 8 mots décrivant le contenu réel, sans extension ni date, par exemple « Cours — La Méditerranée antique ». Pas de caractères spéciaux.\n' +
     '- "texte" sert à écrire des cours plus tard : garde le fond, pas besoin de recopier mot à mot.';
 }
 
 function promptVerifMatiere(mid, nomFichier, texte){
-  const cs = chapsDe(mid);
+  const cs = chapsDe(mid), secs = sectionsDe(mid);
   return 'Voici le contenu d\'un document scolaire de seconde en ' + mat(mid).nom + '. Nom du fichier : « ' + nomFichier + ' ».\n\n' +
     String(texte).slice(0, 3000) + '\n\n' +
-    (cs.length ? 'Chapitres de la matière : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n\n' : '') +
+    (cs.length ? 'Chapitres déjà créés : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n' : 'Aucun chapitre n\'est encore créé.\n') +
+    (secs.length ? 'Blocs du programme :\n' + secs.map((s, i) => (i + 1) + '. ' + s.titre).join('\n') + '\n\n' : '\n') +
     'Produis UNIQUEMENT un JSON valide, sans texte autour :\n' +
-    '{"matiere":"la matière scolaire réellement traitée","correspond":true,"chapitre":"titre exact d\'un chapitre de la liste, ou vide","titre":"nom de fichier court et parlant décrivant le contenu"}\n\n' +
+    '{"matiere":"la matière scolaire réellement traitée","correspond":true,"chapitre":"titre exact d\'un chapitre déjà créé, ou vide","bloc":2,"nouveauChapitre":"titre du chapitre à créer, ou vide","titre":"nom de fichier court et parlant décrivant le contenu"}\n\n' +
     'Règles :\n- "correspond" : false si ce document ne relève manifestement pas de « ' + mat(mid).nom + ' », true sinon. En cas de doute, mets true. Un document interdisciplinaire correspond.\n' +
-    '- "chapitre" : le chapitre de la liste que ce document traite vraiment. Reprends EXACTEMENT son titre, n\'en invente jamais. Si le document couvre plusieurs chapitres, choisis celui qu\'il traite le plus. Si aucun ne correspond, laisse vide.\n' +
+    '- "chapitre" : si l\'un des chapitres déjà créés traite ce contenu, reprends EXACTEMENT son titre. Sinon laisse vide.\n' +
+    '- "bloc" : le numéro du bloc du programme dont relève ce contenu, même si aucun chapitre n\'existe encore. 0 si aucun.\n' +
+    '- "nouveauChapitre" : à remplir UNIQUEMENT si "chapitre" est vide. Donne le titre du chapitre que ce document constitue, formulé comme un intitulé de cours (par exemple « Les ensembles de nombres » ou « Vecteurs et coordonnées »). Vide si le document est trop partiel ou trop général pour former un chapitre.\n' +
     '- "titre" : 3 à 8 mots décrivant le contenu réel, sans extension ni date, par exemple « Cours — La Méditerranée antique » ou « DS2 corrigé — Fonctions affines ». Pas de caractères spéciaux.';
 }
 
@@ -1540,7 +1643,8 @@ async function classerImages(images, mid, nomFichier){
     const o = await appelClaude(promptClasserDoc(mid, nomFichier), images);
     const cs = chapsDe(mid);
     const c = cs.find(x => norm(x.titre) === norm(o.chapitre || ''));
-    return {cid:c ? c.id : '', texte:o.texte || '', matiere:o.matiere || '', correspond:o.correspond, titre:o.titre || ''};
+    return {cid:c ? c.id : '', texte:o.texte || '', matiere:o.matiere || '', correspond:o.correspond,
+      titre:o.titre || '', bloc:o.bloc, nouveauChapitre:o.nouveauChapitre || ''};
   }catch(e){ return null; }
 }
 async function classerDocParVision(file, mid){
@@ -1601,6 +1705,43 @@ function marquerARefaire(doc){
   });
 }
 
+/* Un document dont aucun chapitre ne traite encore le sujet crée son chapitre,
+   placé dans le bloc du programme indiqué par l'analyse. Si le titre existe
+   déjà, on rejoint ce chapitre plutôt que d'en créer un doublon. */
+function chapitreDepuisVerdict(mid, verdict){
+  if(!verdict) return '';
+  const titre = String(verdict.nouveauChapitre || '').trim();
+  if(titre.length < 4) return '';
+  const deja = chapsDe(mid).find(c => norm(c.titre) === norm(titre));
+  if(deja) return deja.id;
+  const secs = sectionsDe(mid);
+  const n = parseInt(verdict.bloc, 10);
+  const sid = (n >= 1 && n <= secs.length) ? secs[n - 1].id : '';
+  const freres = sid ? chapsDeSection(sid) : S.chapitres.filter(c => c.mid === mid);
+  const ord = freres.length ? Math.max(...freres.map(c => c.ord || 0)) + 1 : 1;
+  const c = newChap(mid, sid, titre, ord);
+  S.chapitres.push(c);
+  return c.id;
+}
+
+/* Deux photos d'un même cours n'ont pas le même fichier, donc pas la même
+   empreinte : on compare aussi le contenu. Au-delà de 70 % de mots communs
+   avec un document déjà rangé, c'est le même et on ne le garde pas. */
+function memeContenu(mid, texte){
+  const t = String(texte || '');
+  if(t.trim().length < 200) return null;
+  const mots = new Set(norm(t).split(/[^a-z0-9]+/).filter(w => w.length > 3));
+  if(mots.size < 20) return null;
+  for(const d of S.docs.filter(x => x.mid === mid && x.texte)){
+    const autres = new Set(norm(d.texte).split(/[^a-z0-9]+/).filter(w => w.length > 3));
+    if(autres.size < 20) continue;
+    let communs = 0;
+    mots.forEach(w => { if(autres.has(w)) communs++; });
+    if(communs / Math.min(mots.size, autres.size) > 0.7) return d;
+  }
+  return null;
+}
+
 async function rangerDocument(file, mid, opts){
   opts = opts || {};
   if(opts.compresser !== false) file = await compresserImage(file);
@@ -1628,6 +1769,12 @@ async function rangerDocument(file, mid, opts){
       return null;
     }
     if(!cid && verdict && verdict.chapitre) cid = cidDepuisTitre(mid, verdict.chapitre);
+    if(!cid) cid = chapitreDepuisVerdict(mid, verdict);
+  }
+  const jumeau = opts.doublon === false ? null : memeContenu(mid, texte);
+  if(jumeau){
+    toast('« ' + (opts.nom || file.name) + ' » a le même contenu que « ' + jumeau.nom + ' » : ignoré.');
+    return null;
   }
   if(!cid && opts.autoClasser !== false){
     const cs = chapsDe(mid);
@@ -1998,10 +2145,16 @@ document.addEventListener('click', e => {
       if(!confirm('Réécrire entièrement ce chapitre ?\nLe cours, les points à retenir et le quiz seront remplacés, et les résultats du quiz remis à zéro.')) return;
       genererChapitre(i);
     },
+    'go-bloc': () => {
+      const s = S.sections.find(x => x.id === i);
+      if(!s) return;
+      UI.mid = s.mid; UI.mode = 'chapitre'; UI.cid = '';
+      render();
+    },
     'go-chap': () => {
       const c = chap(i);
       if(!c) return;
-      UI.q = '';
+      UI.q = ''; UI.hl = null;
       UI.mid = c.mid; UI.cid = c.id; UI.mode = 'chapitre'; UI.tab = 'cours';
       UI.rep = null; UI.ordre = null; render();
       if(!c.genere && !UI.gen) genererChapitre(c.id, true);
@@ -2045,6 +2198,8 @@ document.addEventListener('click', e => {
       const mm = {id:uid(), nom:n.trim()};
       S.matieres.push(mm); UI.mid = mm.id; UI.cid = ''; UI.mode = 'chapitre'; save(); render();
     },
+    bulletins: () => modalBulletins(),
+    'bul-del': () => { S.bulletins = (S.bulletins || []).filter(x => x.id !== i); save(); modalBulletins(); },
     programme: () => modalProgramme(),
     documents: () => modalDocs(),
     reglages: () => ouvrirReglages(),
@@ -2153,6 +2308,7 @@ document.addEventListener('change', e => {
     if(d){ d.cid = t.value; save(); modalDocs(); render(); }
     return;
   }
+  if(t.id === 'bulFile' && t.files.length){ chargerBulletin(t.files); t.value = ''; return; }
   if(t.id === 'docPhoto' && t.files.length){
     UI.photos = (UI.photos || []).concat([...t.files]);
     t.value = '';
