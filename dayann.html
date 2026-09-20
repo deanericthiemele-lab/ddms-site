@@ -282,7 +282,8 @@ function etat(c){
   const ok = q.filter(x => x.last === 'ok').length;
   const pct = q.length ? Math.round(ok * 100 / q.length) : 0;
   let coul = '', mot = 'Pas commencé';
-  if(!q.length) mot = c.genere ? 'À tester' : 'Vide';
+  if(c.perime) mot = 'À mettre à jour';
+  else if(!q.length) mot = c.genere ? 'À tester' : 'Vide';
   else if(!testees) mot = 'Pas commencé';
   else if(pct >= 80){ coul = 'v'; mot = 'Maîtrisé'; }
   else if(pct >= 40){ coul = 'o'; mot = 'En cours'; }
@@ -625,15 +626,21 @@ function promptChapitre(c){
 async function genererChapitre(cid, silencieux){
   const c = chap(cid);
   if(!c || UI.gen) return false;
-  UI.gen = cid; UI.genMsg = 'Préparation du chapitre…'; render();
+  UI.gen = cid; UI.genMsg = c.perime ? 'Mise à jour du cours…' : 'Préparation du chapitre…'; render();
   try{
+    // on garde le score des notions déjà travaillées quand le cours est réécrit
+    const acquis = {};
+    (c.quiz || []).forEach(q => { if(q.notion && q.last) acquis[norm(q.notion)] = {ok:q.ok, ko:q.ko, last:q.last}; });
     const o = await appelClaude(promptChapitre(c));
     c.cours = (o.cours || []).map(x => ({id:uid(), titre:x.titre, texte:x.texte, exemple:x.exemple}));
     c.retenir = (o.retenir || []).map(x => ({id:uid(), k:x.k || 'À retenir', texte:x.texte}));
-    c.quiz = (o.quiz || []).map(x => ({id:uid(), q:x.q, ops:(x.ops || []).slice(0,4), bonne:0,
-      expl:x.expl, notion:x.notion, ok:0, ko:0, last:null}));
+    c.quiz = (o.quiz || []).map(x => {
+      const a = x.notion ? acquis[norm(x.notion)] : null;
+      return {id:uid(), q:x.q, ops:(x.ops || []).slice(0,4), bonne:0,
+        expl:x.expl, notion:x.notion, ok:a ? a.ok : 0, ko:a ? a.ko : 0, last:a ? a.last : null};
+    });
     c.prog = {i:0, fini:false, serie:c.quiz.map(q => q.id)};
-    c.genere = 1;
+    c.genere = 1; c.perime = 0;
     UI.gen = ''; save(); render();
     if(!silencieux) toast('Chapitre prêt.');
     return true;
@@ -1288,7 +1295,9 @@ function modalDocs(){
   let h = '<h2>Documents — ' + esc(m.nom) + '</h2>' +
     '<p class="hint">Cours, devoirs, notes, corrigés. Ils sont lus et servent à écrire les leçons, les exemples et les quiz.</p>' +
     '<label class="btn p" style="cursor:pointer;display:block;text-align:center;margin:10px 0">' +
-    'Charger des documents<input type="file" id="docFile" multiple style="display:none"></label>';
+    'Charger des documents<input type="file" id="docFile" multiple style="display:none"></label>' +
+    '<label class="btn s" style="width:100%;display:block;text-align:center;margin-bottom:10px;cursor:pointer">' +
+    'Prendre des photos<input type="file" id="docPhoto" accept="image/*" capture="environment" multiple style="display:none"></label>';
   const orphelins = l.filter(d => !d.cid && d.texte).length;
   if(orphelins && cs.length) h += '<button class="btn s" data-a="doc-ranger" style="width:100%;margin-bottom:10px">' +
     'Ranger automatiquement les ' + orphelins + ' document' + (orphelins > 1 ? 's' : '') + ' non rattaché' + (orphelins > 1 ? 's' : '') + '</button>';
@@ -1344,10 +1353,11 @@ function promptClasserDoc(mid, nomFichier){
   return 'Tu regardes les pages scannées d\'un document (cours ou devoir) de ' + mat(mid).nom + ' en seconde. Nom du fichier : « ' + nomFichier + ' ».\n' +
     (cs.length ? 'Chapitres existants dans cette matière : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n' : 'Aucun chapitre n\'existe encore dans cette matière.\n') +
     '\nProduis UNIQUEMENT un JSON valide, sans texte autour :\n' +
-    '{"matiere":"la matière scolaire réellement traitée par ce document","correspond":true,"chapitre":"titre exact d\'un chapitre de la liste, ou vide si aucun ne correspond","texte":"transcription fidèle et condensée du contenu, en gardant les notions, définitions et exemples importants"}\n\n' +
+    '{"matiere":"la matière scolaire réellement traitée par ce document","correspond":true,"chapitre":"titre exact d\'un chapitre de la liste, ou vide si aucun ne correspond","titre":"nom de fichier court et parlant décrivant le contenu","texte":"transcription fidèle et condensée du contenu, en gardant les notions, définitions et exemples importants"}\n\n' +
     'Règles :\n- "matiere" : nomme la matière du document tel qu\'il est (Mathématiques, Histoire-Géographie, SVT, Physique-Chimie, Français, Anglais…).\n' +
     '- "correspond" : false si le document ne relève manifestement pas de ' + mat(mid).nom + ', true sinon. En cas de doute, mets true.\n' +
     '- "chapitre" doit reprendre EXACTEMENT un titre de la liste, jamais en inventer un.\n' +
+    '- "titre" : 3 à 8 mots décrivant le contenu réel, sans extension ni date, par exemple « Cours — La Méditerranée antique ». Pas de caractères spéciaux.\n' +
     '- "texte" sert à écrire des cours plus tard : garde le fond, pas besoin de recopier mot à mot.';
 }
 
@@ -1357,9 +1367,10 @@ function promptVerifMatiere(mid, nomFichier, texte){
     String(texte).slice(0, 3000) + '\n\n' +
     (cs.length ? 'Chapitres de la matière : ' + cs.map(c => '« ' + c.titre + ' »').join(', ') + '.\n\n' : '') +
     'Produis UNIQUEMENT un JSON valide, sans texte autour :\n' +
-    '{"matiere":"la matière scolaire réellement traitée","correspond":true,"chapitre":"titre exact d\'un chapitre de la liste, ou vide"}\n\n' +
+    '{"matiere":"la matière scolaire réellement traitée","correspond":true,"chapitre":"titre exact d\'un chapitre de la liste, ou vide","titre":"nom de fichier court et parlant décrivant le contenu"}\n\n' +
     'Règles :\n- "correspond" : false si ce document ne relève manifestement pas de « ' + mat(mid).nom + ' », true sinon. En cas de doute, mets true. Un document interdisciplinaire correspond.\n' +
-    '- "chapitre" : le chapitre de la liste que ce document traite vraiment. Reprends EXACTEMENT son titre, n\'en invente jamais. Si le document couvre plusieurs chapitres, choisis celui qu\'il traite le plus. Si aucun ne correspond, laisse vide.';
+    '- "chapitre" : le chapitre de la liste que ce document traite vraiment. Reprends EXACTEMENT son titre, n\'en invente jamais. Si le document couvre plusieurs chapitres, choisis celui qu\'il traite le plus. Si aucun ne correspond, laisse vide.\n' +
+    '- "titre" : 3 à 8 mots décrivant le contenu réel, sans extension ni date, par exemple « Cours — La Méditerranée antique » ou « DS2 corrigé — Fonctions affines ». Pas de caractères spéciaux.';
 }
 
 async function verifierMatiere(mid, nomFichier, texte){
@@ -1388,7 +1399,7 @@ async function classerImages(images, mid, nomFichier){
     const o = await appelClaude(promptClasserDoc(mid, nomFichier), images);
     const cs = chapsDe(mid);
     const c = cs.find(x => norm(x.titre) === norm(o.chapitre || ''));
-    return {cid:c ? c.id : '', texte:o.texte || '', matiere:o.matiere || '', correspond:o.correspond};
+    return {cid:c ? c.id : '', texte:o.texte || '', matiere:o.matiere || '', correspond:o.correspond, titre:o.titre || ''};
   }catch(e){ return null; }
 }
 async function classerDocParVision(file, mid){
@@ -1400,8 +1411,57 @@ async function classerDocParVision(file, mid){
    Utilisée par Documents, Scanner, Évaluation (copie corrigée) et Programme
    (fichier source) : même détection de doublon, même classement automatique
    par chapitre, même stockage. Rien n'est importé sans passer par ici. */
+/* Réduit une photo avant stockage : côté max 1600 px, JPEG qualité 0,75.
+   Une photo de téléphone passe ainsi de 4 Mo à environ 300 Ko, sans perte
+   de lisibilité du texte. Renvoie le fichier d'origine si la réduction échoue
+   ou ne fait pas gagner de place. */
+async function compresserImage(file, cote, qualite){
+  if(!(file.type || '').startsWith('image/')) return file;
+  if(file.type === 'image/gif' || file.type === 'image/svg+xml') return file;
+  cote = cote || 1600; qualite = qualite || 0.75;
+  try{
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((ok, ko) => {
+      const i = new Image();
+      i.onload = () => ok(i); i.onerror = ko; i.src = url;
+    });
+    const f = Math.min(1, cote / Math.max(img.width, img.height));
+    const w = Math.round(img.width * f), h = Math.round(img.height * f);
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#fff'; cx.fillRect(0, 0, w, h);
+    cx.drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(url);
+    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', qualite));
+    if(!blob || blob.size >= file.size) return file;
+    const nom = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    return new File([blob], nom, {type:'image/jpeg', lastModified:Date.now()});
+  }catch(e){ return file; }
+}
+
+function nomDepuisContenu(verdict, file){
+  const t = String((verdict && verdict.titre) || '').trim();
+  if(!t) return null;
+  const propre = t.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').slice(0, 70).trim();
+  if(propre.length < 4) return null;
+  const ext = (file.name.match(/\.[^.]+$/) || [''])[0];
+  return propre + ext;
+}
+
+/* Un nouveau document rend périmés les cours déjà écrits qu'il concerne :
+   ils seront réécrits à la prochaine ouverture du chapitre. */
+function marquerARefaire(doc){
+  if(!doc || !doc.texte) return;
+  chapsDe(doc.mid).forEach(c => {
+    if(!c.genere) return;
+    if(docsUtiles(c).some(d => d.id === doc.id)) c.perime = 1;
+  });
+}
+
 async function rangerDocument(file, mid, opts){
   opts = opts || {};
+  if(opts.compresser !== false) file = await compresserImage(file);
   const hash = await empreinte(file);
   if(hash && S.docs.some(d => d.mid === mid && d.hash === hash)){
     toast('« ' + (opts.nom || file.name) + ' » est déjà dans ' + mat(mid).nom + ' — ignoré.');
@@ -1445,9 +1505,11 @@ async function rangerDocument(file, mid, opts){
   }
   const meta = await storeFile(file);
   if(!meta) return null;
-  const doc = {id:uid(), mid, cid, nom:opts.nom || file.name, type:file.type, taille:file.size,
+  const nom = (!opts.nom && nomDepuisContenu(verdict, file)) || opts.nom || file.name;
+  const doc = {id:uid(), mid, cid, nom, type:file.type, taille:file.size,
     file:meta, texte:String(texte || '').slice(0, 6000), hash, source:opts.source || ''};
   S.docs.push(doc);
+  marquerARefaire(doc);
   return doc;
 }
 
@@ -1826,7 +1888,12 @@ document.addEventListener('click', e => {
     chap: () => {
       UI.mode = 'chapitre'; UI.cid = i; UI.rep = null; UI.ordre = null; UI.tab = 'cours'; render();
       const c = chap(i);
-      if(c && !c.genere && !UI.gen) genererChapitre(i, true);
+      if(!c || UI.gen) return;
+      if(!c.genere) genererChapitre(i, true);
+      else if(c.perime){
+        toast('Nouveaux documents : mise à jour du cours…');
+        genererChapitre(i, true);
+      }
     },
     reviser: () => {
       UI.mode = 'chapitre'; UI.cid = i; UI.rep = null; UI.ordre = null; UI.tab = 'quiz';
@@ -1934,7 +2001,7 @@ document.addEventListener('change', e => {
     if(d){ d.cid = t.value; save(); modalDocs(); render(); }
     return;
   }
-  if(t.id === 'docFile' && t.files.length){ chargerDocs(t.files); t.value = ''; return; }
+  if((t.id === 'docFile' || t.id === 'docPhoto') && t.files.length){ chargerDocs(t.files); t.value = ''; return; }
   if(t.id === 'devoirFile' && t.files.length){ analyserDevoir(t.files[0], UI.mid); t.value = ''; return; }
   if(t.id === 'scanFile' && t.files.length){
     toDataURL(t.files[0]).then(raw => traiterScan(raw));
