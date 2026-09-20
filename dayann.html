@@ -561,6 +561,21 @@ async function pageEnImage(file){
 }
 /* Rend jusqu'à `max` pages d'un PDF en images, pour lire un programme
    scanné ou sans couche de texte, sur plusieurs pages. */
+/* Met un fichier sous forme d'images pour la lecture visuelle.
+   Un PDF est rendu page par page ; une photo est utilisée telle quelle,
+   réduite au passage. Renvoie un tableau vide pour tout autre format. */
+async function enImages(file, max){
+  const type = file.type || '';
+  if(type.startsWith('image/')){
+    try{ return [await toDataURL(await compresserImage(file, 1600, 0.8))]; }
+    catch(e){ try{ return [await toDataURL(file)]; }catch(e2){ return []; } }
+  }
+  if(type === 'application/pdf' || /\.pdf$/i.test(file.name)){
+    try{ return await pagesEnImages(file, max); }catch(e){ return []; }
+  }
+  return [];
+}
+
 async function pagesEnImages(file, max){
   const lib = await loadPdfjs();
   const doc = await lib.getDocument({data:await file.arrayBuffer(), isEvalSupported:false}).promise;
@@ -1199,16 +1214,25 @@ function promptExtraireProgramme(mid, texte){
     '- Si le document ne présente pas de grandes parties, crée une seule section nommée d\'après la matière.\n' +
     '- La valeur de "programme" doit être une seule chaîne de texte avec des \\n, exactement dans ce format.';
 }
-async function extraireProgrammeIA(file, mid){
+async function extraireProgrammeIA(entree, mid){
+  const fichiers = Array.isArray(entree) ? entree : [entree];
+  const file = fichiers[0];
   UI.gen = 'prog'; UI.genMsg = 'Lecture du programme…'; modalProgramme();
   try{
-    let texte = await extraireTexte(file);
+    // plusieurs pages : on les lit toutes comme des images
+    let texte = fichiers.length > 1 ? '' : await extraireTexte(file);
     let images = [];
     if(!texte || texte.trim().length < 80){
-      UI.genMsg = 'Lecture des pages…'; modalProgramme();
-      try{ images = await pagesEnImages(file, 6); }catch(e){}
+      UI.genMsg = fichiers.length > 1 ? 'Lecture des ' + fichiers.length + ' pages…' : 'Lecture des pages…';
+      modalProgramme();
+      for(const f of fichiers){
+        const im = await enImages(f, 6);
+        images = images.concat(im);
+        if(images.length >= 8) break;
+      }
+      images = images.slice(0, 8);
     }
-    if(!texte && !images.length) throw new Error('fichier illisible');
+    if(!texte && !images.length) throw new Error('format non reconnu (utilise une photo, un PDF ou colle le texte)');
     UI.genMsg = 'Extraction de la structure…'; modalProgramme();
     const o = await appelClaude(promptExtraireProgramme(mid, images.length ? '' : texte), images);
     if(!o.programme) throw new Error('réponse vide');
@@ -1249,7 +1273,8 @@ function modalProgramme(){
     '<form data-f="prog" class="form">' +
     '<textarea name="txt" style="min-height:170px" placeholder="SECTION 1 — Nombres et calculs&#10;Chapitre 1 : Ensembles de nombres&#10;Chapitre 2 : Calcul littéral&#10;&#10;SECTION 2 — Fonctions&#10;Chapitre 3 : Généralités sur les fonctions">' + esc(UI.prog) + '</textarea>' +
     '<div class="row"><button class="btn">Analyser</button>' +
-    '<label class="btn s" style="cursor:pointer">Depuis un fichier (l\'IA en extrait le programme)<input type="file" id="progFile" accept=".pdf,.txt,.md" style="display:none"></label></div></form>';
+    '<label class="btn s" style="cursor:pointer">Depuis un fichier (l\'IA en extrait le programme)<input type="file" id="progFile" accept=".pdf,.txt,.md,image/*" multiple style="display:none"></label>' +
+    '<label class="btn s" style="cursor:pointer">Prendre en photo<input type="file" id="progPhoto" accept="image/*" capture="environment" multiple style="display:none"></label></div></form>';
   if(UI.gen === 'prog') h += '<div class="charge"><i></i>' + esc(UI.genMsg || 'Lecture…') + '</div>';
   if(parsed.length){
     let n = 0;
@@ -1403,7 +1428,8 @@ async function classerImages(images, mid, nomFichier){
   }catch(e){ return null; }
 }
 async function classerDocParVision(file, mid){
-  const images = await pagesEnImages(file, 4);
+  const images = await enImages(file, 4);
+  if(!images.length) return null;
   return classerImages(images, mid, file.name);
 }
 
@@ -1472,11 +1498,7 @@ async function rangerDocument(file, mid, opts){
   let verdict = null;
   if(!cid && opts.autoClasser !== false && (!texte || texte.trim().length < 60) && (S.cle || '').trim()){
     let images = opts.images;
-    if(!images){
-      if((file.type || '').startsWith('image/')) images = [await toDataURL(file)];
-      else if(file.type === 'application/pdf'){ try{ images = await pagesEnImages(file, 4); }catch(e){ images = []; } }
-      else images = [];
-    }
+    if(!images) images = await enImages(file, 4);
     if(images && images.length){
       const vu = await classerImages(images, mid, file.name);
       if(vu){ cid = vu.cid; if(!texte && vu.texte) texte = vu.texte; verdict = vu; }
@@ -2007,8 +2029,8 @@ document.addEventListener('change', e => {
     toDataURL(t.files[0]).then(raw => traiterScan(raw));
     t.value = ''; return;
   }
-  if(t.id === 'progFile' && t.files.length){
-    extraireProgrammeIA(t.files[0], UI.mid);
+  if((t.id === 'progFile' || t.id === 'progPhoto') && t.files.length){
+    extraireProgrammeIA([...t.files], UI.mid);
     t.value = '';
   }
 });
