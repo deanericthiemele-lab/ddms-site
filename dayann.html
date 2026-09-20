@@ -844,24 +844,109 @@ function render(){
   renderMain(m, c);
 }
 
+/* Recherche par le sens : « nombre réel », « Chasles », « fonction du second degré »
+   ne figurent pas forcément dans un intitulé. On demande à Claude où la notion
+   est traitée, dans toutes les matières à la fois. */
+function promptOuEstCeTraite(question){
+  let plan = '';
+  S.matieres.forEach(m => {
+    const secs = sectionsDe(m.id), cs = chapsDe(m.id);
+    if(!cs.length && !secs.length) return;
+    plan += '\n### ' + m.nom + '\n';
+    secs.forEach(s => {
+      plan += '- BLOC : ' + s.titre + '\n';
+      chapsDeSection(s.id).forEach(c => { plan += '   - CHAPITRE : ' + c.titre + '\n'; });
+    });
+    S.chapitres.filter(c => c.mid === m.id && !secs.some(s => s.id === c.sid))
+      .forEach(c => { plan += '   - CHAPITRE : ' + c.titre + '\n'; });
+  });
+
+  return 'Voici le plan de travail d\'un élève de seconde, matière par matière :\n' + plan +
+    '\nIl cherche où est traité ceci : « ' + question + ' ».\n\n' +
+    'Produis UNIQUEMENT un JSON valide, sans texte autour :\n' +
+    '{"reponses":[{"chapitre":"titre exact d\'un CHAPITRE de la liste, ou vide","bloc":"titre exact d\'un BLOC de la liste, ou vide","pourquoi":"une phrase : ce que ce chapitre dit de cette notion"}],"aucun":"phrase à afficher si rien ne traite la notion, sinon vide"}\n\n' +
+    'Règles :\n- Classe du plus pertinent au moins pertinent, 4 réponses au maximum.\n' +
+    '- Reprends EXACTEMENT les titres de la liste, n\'en invente aucun.\n' +
+    '- La notion cherchée n\'est presque jamais écrite telle quelle dans les titres : raisonne sur le contenu réel du chapitre. Par exemple « nombre réel » relève d\'un chapitre sur les ensembles de nombres, « relation de Chasles » d\'un chapitre sur les vecteurs.\n' +
+    '- Si un BLOC traite la notion mais qu\'aucun chapitre n\'est encore créé dedans, renvoie le bloc et laisse "chapitre" vide.\n' +
+    '- Si vraiment rien ne correspond, renvoie "reponses" vide et explique en une phrase dans "aucun".';
+}
+
+async function rechercheIA(q){
+  q = String(q || '').trim();
+  if(q.length < 2 || UI.rechBusy) return;
+  if(!(S.cle || '').trim()){ toast('Ajoute ta clé Claude dans Réglages.'); return; }
+  UI.rechBusy = true;
+  const z = $('qres');
+  if(z) z.innerHTML = '<div class="charge"><i></i>Recherche de « ' + esc(q) +' »…</div>';
+  try{
+    const o = await appelClaude(promptOuEstCeTraite(q));
+    const rep = (o.reponses || []).filter(r => r.chapitre || r.bloc);
+    if(!rep.length){
+      if(z) z.innerHTML = '<div class="hint" style="padding:6px 2px">' +
+        esc(o.aucun || 'Cette notion n\'apparaît dans aucun chapitre pour l\'instant.') + '</div>';
+      UI.rechBusy = false; return;
+    }
+    const ids = [], sids = [];
+    let h = '';
+    rep.forEach(r => {
+      const c = r.chapitre ? S.chapitres.find(x => norm(x.titre) === norm(r.chapitre)) : null;
+      const s = r.bloc ? S.sections.find(x => norm(x.titre) === norm(r.bloc)) : (c ? S.sections.find(x => x.id === c.sid) : null);
+      if(c){
+        ids.push(c.id); if(c.sid) sids.push(c.sid);
+        h += '<button class="ch" data-a="go-chap" data-i="' + c.id + '" style="width:100%;text-align:left">' +
+          '<span class="pt ' + etat(c).coul + '"></span><span class="t">' + esc(c.titre) +
+          '<span class="hint" style="display:block">' + esc(mat(c.mid).nom) +
+          (r.pourquoi ? ' — ' + esc(r.pourquoi) : '') + '</span></span></button>';
+      } else if(s){
+        sids.push(s.id);
+        h += '<button class="ch" data-a="go-bloc" data-i="' + s.id + '" style="width:100%;text-align:left">' +
+          '<span class="pt"></span><span class="t">' + esc(s.titre) +
+          '<span class="hint" style="display:block">' + esc(mat(s.mid).nom) + ' · bloc' +
+          (r.pourquoi ? ' — ' + esc(r.pourquoi) : '') + '</span></span></button>';
+      }
+    });
+    UI.hl = {chapitres:ids, sections:sids};
+    if(z) z.innerHTML = h;
+    render();
+    const z2 = $('qres');
+    if(z2) z2.innerHTML = h;
+  }catch(e){
+    if(z) z.innerHTML = '<div class="hint" style="padding:6px 2px">Recherche impossible : ' + esc(e.message || e) + '</div>';
+  }
+  UI.rechBusy = false;
+}
+
 function resultatsRecherche(q){
   const t = norm(q || '').trim();
   UI.hl = null;
   if(t.length < 2) return '';
-  const mots = t.split(/\s+/);
+  // on cherche sur la racine des mots : « nombre reel » trouve « Ensembles de nombres »
+  const mots = t.split(/\s+/).filter(w => w.length > 1).map(w => w.length > 5 ? w.slice(0, 5) : w);
+  if(!mots.length) return '';
+
+  const score = champ => {
+    let n = 0;
+    mots.forEach(w => { if(champ.indexOf(w) > -1) n++; });
+    return n;
+  };
+
   const res = [];
   S.chapitres.forEach(c => {
     const m = mat(c.mid), s = c.sid ? (sectionsDe(c.mid).find(x => x.id === c.sid) || {}).titre : '';
-    const champ = norm([c.titre, m ? m.nom : '', s || ''].join(' '));
-    if(mots.every(w => champ.includes(w))) res.push({c, m, s});
+    const sc = score(norm([c.titre, m ? m.nom : '', s || ''].join(' ')));
+    if(sc) res.push({c, m, s, sc});
   });
-  // blocs dont le titre correspond, même sans chapitre créé
-  const blocs = S.sections.filter(s => mots.every(w => norm(s.titre).includes(w)));
+  res.sort((a, b) => b.sc - a.sc);
+
+  const blocs = S.sections.map(s => ({s, sc:score(norm(s.titre))})).filter(x => x.sc)
+    .sort((a, b) => b.sc - a.sc).map(x => x.s);
+
   UI.hl = {chapitres:res.map(x => x.c.id), sections:blocs.map(s => s.id)
     .concat(res.filter(x => x.c.sid).map(x => x.c.sid))};
 
   let h = '';
-  if(blocs.length) h += blocs.map(s =>
+  if(blocs.length) h += blocs.slice(0, 4).map(s =>
     '<button class="ch" data-a="go-bloc" data-i="' + s.id + '" style="width:100%;text-align:left">' +
     '<span class="pt"></span><span class="t">' + esc(s.titre) +
     '<span class="hint" style="display:block">' + esc(mat(s.mid).nom) + ' · bloc du programme</span></span></button>').join('');
@@ -875,7 +960,8 @@ function resultatsRecherche(q){
 }
 
 function renderSide(m){
-  let h = '<div class="rech"><input id="q" type="search" autocomplete="off" placeholder="Rechercher un chapitre…" value="' + esc(UI.q || '') + '"></div>' +
+  let h = '<div class="rech"><input id="q" type="search" autocomplete="off" placeholder="Chercher une notion, un thème…" value="' + esc(UI.q || '') + '">' +
+    '<div class="hint" style="margin-top:4px;font-size:11.5px">Entrée : trouve où la notion est traitée</div></div>' +
     '<div id="qres">' + resultatsRecherche(UI.q) + '</div>';
   h += '<div class="mat-sel"><select data-a="mat">' +
     S.matieres.map(x => '<option value="' + x.id + '"' + (x.id === UI.mid ? ' selected' : '') + '>' + esc(x.nom) + '</option>').join('') +
@@ -2123,6 +2209,13 @@ async function sauvegarderScan(){
 }
 
 /* ===================== évènements ===================== */
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Enter' || e.target.id !== 'q') return;
+  e.preventDefault();
+  e.target.blur();
+  rechercheIA(e.target.value);
+});
+
 document.addEventListener('input', e => {
   if(e.target.id !== 'q') return;
   UI.q = e.target.value;
