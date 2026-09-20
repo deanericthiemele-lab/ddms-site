@@ -296,7 +296,7 @@ function profil(){
 }
 
 /* ===================== interface : état ===================== */
-let UI = {mid:'', cid:'', gen:'', genMsg:'', tab:'chap', mode:'chapitre', modal:null, prog:'', ouvert:{}, scanStream:null, scanImage:null};
+let UI = {mid:'', cid:'', gen:'', genMsg:'', tab:'chap', mode:'chapitre', modal:null, prog:'', ouvert:{}, scanStream:null, scanImage:null, photos:[], pages:[]};
 if(S.matieres.length) UI.mid = S.matieres[0].id;
 
 /* ===================== fichiers ===================== */
@@ -1274,7 +1274,15 @@ function modalProgramme(){
     '<textarea name="txt" style="min-height:170px" placeholder="SECTION 1 — Nombres et calculs&#10;Chapitre 1 : Ensembles de nombres&#10;Chapitre 2 : Calcul littéral&#10;&#10;SECTION 2 — Fonctions&#10;Chapitre 3 : Généralités sur les fonctions">' + esc(UI.prog) + '</textarea>' +
     '<div class="row"><button class="btn">Analyser</button>' +
     '<label class="btn s" style="cursor:pointer">Depuis un fichier (l\'IA en extrait le programme)<input type="file" id="progFile" accept=".pdf,.txt,.md,image/*" multiple style="display:none"></label>' +
-    '<label class="btn s" style="cursor:pointer">Prendre en photo<input type="file" id="progPhoto" accept="image/*" capture="environment" multiple style="display:none"></label></div></form>';
+    '<label class="btn s" style="cursor:pointer">' +
+    (UI.pages && UI.pages.length ? 'Ajouter une page' : 'Prendre en photo') +
+    '<input type="file" id="progPhoto" accept="image/*" capture="environment" style="display:none"></label>' +
+    (UI.pages && UI.pages.length
+      ? '<span class="hint">' + UI.pages.length + ' page' + (UI.pages.length > 1 ? 's' : '') + '</span>' +
+        '<button type="button" class="btn p s" data-a="pages-go">Analyser les photos</button>' +
+        '<button type="button" class="btn s" data-a="pages-vider">Vider</button>'
+      : '') +
+    '</div></form>';
   if(UI.gen === 'prog') h += '<div class="charge"><i></i>' + esc(UI.genMsg || 'Lecture…') + '</div>';
   if(parsed.length){
     let n = 0;
@@ -1321,8 +1329,15 @@ function modalDocs(){
     '<p class="hint">Cours, devoirs, notes, corrigés. Ils sont lus et servent à écrire les leçons, les exemples et les quiz.</p>' +
     '<label class="btn p" style="cursor:pointer;display:block;text-align:center;margin:10px 0">' +
     'Charger des documents<input type="file" id="docFile" multiple style="display:none"></label>' +
-    '<label class="btn s" style="width:100%;display:block;text-align:center;margin-bottom:10px;cursor:pointer">' +
-    'Prendre des photos<input type="file" id="docPhoto" accept="image/*" capture="environment" multiple style="display:none"></label>';
+    '<label class="btn s" style="width:100%;display:block;text-align:center;margin-bottom:8px;cursor:pointer">' +
+    (UI.photos && UI.photos.length ? 'Ajouter une photo' : 'Prendre des photos') +
+    '<input type="file" id="docPhoto" accept="image/*" capture="environment" style="display:none"></label>' +
+    (UI.photos && UI.photos.length
+      ? '<div class="row" style="margin-bottom:10px;gap:6px;align-items:center">' +
+        '<span class="hint">' + UI.photos.length + ' photo' + (UI.photos.length > 1 ? 's' : '') + ' en attente</span>' +
+        '<button class="btn p s" data-a="photos-go" style="margin-left:auto">Importer</button>' +
+        '<button class="btn s" data-a="photos-vider">Vider</button></div>'
+      : '');
   const orphelins = l.filter(d => !d.cid && d.texte).length;
   if(orphelins && cs.length) h += '<button class="btn s" data-a="doc-ranger" style="width:100%;margin-bottom:10px">' +
     'Ranger automatiquement les ' + orphelins + ' document' + (orphelins > 1 ? 's' : '') + ' non rattaché' + (orphelins > 1 ? 's' : '') + '</button>';
@@ -1964,6 +1979,20 @@ document.addEventListener('click', e => {
     },
     'ret-form': () => { UI.ouvert.ret = true; render(); },
     'ret-del': () => { const c = chap(i); c.retenir = c.retenir.filter(x => x.id !== v); save(); render(); },
+    'pages-go': () => {
+      const l = UI.pages || [];
+      if(!l.length) return;
+      UI.pages = [];
+      extraireProgrammeIA(l, UI.mid);
+    },
+    'pages-vider': () => { UI.pages = []; modalProgramme(); },
+    'photos-go': () => {
+      const l = UI.photos || [];
+      if(!l.length) return;
+      UI.photos = [];
+      chargerDocs(l);
+    },
+    'photos-vider': () => { UI.photos = []; modalDocs(); },
     'doc-ranger': () => rangerOrphelins(),
     'doc-open': () => { const d = S.docs.find(x => x.id === i); if(d) ouvrir(d.file); },
     'doc-del': () => { S.docs = S.docs.filter(x => x.id !== i); save(); modalDocs(); render(); },
@@ -2023,13 +2052,25 @@ document.addEventListener('change', e => {
     if(d){ d.cid = t.value; save(); modalDocs(); render(); }
     return;
   }
-  if((t.id === 'docFile' || t.id === 'docPhoto') && t.files.length){ chargerDocs(t.files); t.value = ''; return; }
+  if(t.id === 'docPhoto' && t.files.length){
+    UI.photos = (UI.photos || []).concat([...t.files]);
+    t.value = '';
+    modalDocs();
+    return;
+  }
+  if(t.id === 'docFile' && t.files.length){ chargerDocs(t.files); t.value = ''; return; }
   if(t.id === 'devoirFile' && t.files.length){ analyserDevoir(t.files[0], UI.mid); t.value = ''; return; }
   if(t.id === 'scanFile' && t.files.length){
     toDataURL(t.files[0]).then(raw => traiterScan(raw));
     t.value = ''; return;
   }
-  if((t.id === 'progFile' || t.id === 'progPhoto') && t.files.length){
+  if(t.id === 'progPhoto' && t.files.length){
+    UI.pages = (UI.pages || []).concat([...t.files]);
+    t.value = '';
+    modalProgramme();
+    return;
+  }
+  if(t.id === 'progFile' && t.files.length){
     extraireProgrammeIA([...t.files], UI.mid);
     t.value = '';
   }
