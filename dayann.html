@@ -63,6 +63,10 @@ a{color:var(--acc)}
   .tabsm button.on{color:var(--ink);border-bottom-color:var(--acc);font-weight:600}
 }
 
+.chap-new{display:flex;gap:6px;margin-top:12px}
+.chap-new input{flex:1;padding:7px 9px;border:1px solid var(--rule2);border-radius:7px;
+  background:var(--page);font-family:inherit;font-size:13px}
+.chap-new input:focus{outline:none;border-color:var(--acc)}
 .rech{margin-bottom:8px}
 .rech input{width:100%;padding:8px 10px;border:1px solid var(--rule2);border-radius:8px;
   background:var(--page);font-family:inherit;font-size:13.5px}
@@ -870,11 +874,55 @@ function renderSide(m){
       '<button class="ch' + (UI.mode === 'chapitre' && UI.cid === c.id ? ' on' : '') + '" data-a="chap" data-i="' + c.id + '">' +
       '<span class="n"></span><span class="t">' + esc(c.titre) + '</span><span class="pt ' + etat(c).coul + '"></span></button>').join('');
     const reste = cs.filter(c => !c.genere).length;
+    h += '<form data-f="chap-new" class="chap-new">' +
+      '<input name="titre" placeholder="Ajouter un chapitre du prof…" autocomplete="off">' +
+      '<button class="btn s">+</button></form>';
     h += '<div style="margin-top:14px">' + (reste ?
       '<button class="btn s" data-a="gen-mat" style="width:100%">Préparer les ' + reste + ' chapitres restants</button>' :
       '<span class="hint">Tous les chapitres sont préparés.</span>') + '</div>';
   }
   $('side').innerHTML = h;
+}
+
+/* Un chapitre ajouté à la main (découpage du professeur) doit rejoindre le bon
+   bloc du programme officiel. On demande à Claude dans quelle section il entre ;
+   sans clé ou en cas d'échec, il part en « Hors programme » et reste déplaçable. */
+function promptPlacerChapitre(mid, titre, secs){
+  return 'Programme de ' + mat(mid).nom + ' en seconde, découpé en blocs :\n' +
+    secs.map((s, i) => (i + 1) + '. ' + s.titre + (chapsDeSection(s.id).length
+      ? ' (contient déjà : ' + chapsDeSection(s.id).map(c => c.titre).join(' ; ') + ')' : '')).join('\n') +
+    '\n\nLe professeur a annoncé ce chapitre : « ' + titre + ' ».\n\n' +
+    'Produis UNIQUEMENT un JSON valide, sans texte autour :\n' +
+    '{"bloc":2,"titre":"intitulé du chapitre, corrigé si besoin"}\n\n' +
+    'Règles :\n- "bloc" : le numéro du bloc de la liste où ce chapitre relève vraiment. Si aucun ne convient, mets 0.\n' +
+    '- "titre" : reprends l\'intitulé du professeur, en corrigeant seulement l\'orthographe et les abréviations. N\'invente pas un autre sujet.';
+}
+
+async function ajouterChapitre(mid, titre){
+  titre = String(titre || '').trim();
+  if(!titre) return;
+  const secs = sectionsDe(mid);
+  let sid = '', propre = titre;
+
+  if(secs.length && (S.cle || '').trim()){
+    toast('Placement du chapitre…');
+    try{
+      const o = await appelClaude(promptPlacerChapitre(mid, titre, secs));
+      const n = parseInt(o.bloc, 10);
+      if(n >= 1 && n <= secs.length) sid = secs[n - 1].id;
+      if(o.titre && String(o.titre).trim().length > 2) propre = String(o.titre).trim();
+    }catch(e){}
+  }
+
+  const freres = sid ? chapsDeSection(sid) : S.chapitres.filter(c => c.mid === mid);
+  const ord = freres.length ? Math.max(...freres.map(c => c.ord || 0)) + 1 : 1;
+  const c = newChap(mid, sid, propre, ord);
+  S.chapitres.push(c);
+  UI.mode = 'chapitre'; UI.cid = c.id; UI.tab = 'cours';
+  save(); render();
+  const s = secs.find(x => x.id === sid);
+  toast(s ? 'Chapitre ajouté dans « ' + s.titre +' ».' : 'Chapitre ajouté hors programme.');
+  if(!UI.gen) genererChapitre(c.id, true);
 }
 
 function renderMain(m, c){
@@ -2136,6 +2184,7 @@ document.addEventListener('submit', async e => {
   const d = {};
   new FormData(f).forEach((v,k) => { d[k] = typeof v === 'string' ? v.trim() : v; });
   const type = f.dataset.f;
+  if(type === 'chap-new'){ f.reset(); ajouterChapitre(UI.mid, d.titre); return; }
   if(type === 'prog'){ UI.prog = d.txt; modalProgramme(); return; }
   if(type === 'ret'){
     const c = chap(d.cid);
