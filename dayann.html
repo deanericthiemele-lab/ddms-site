@@ -376,6 +376,21 @@ async function loadPdfjs(){
     lib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(new Blob([w], {type:'text/javascript'})); }catch(e){}
   PDFLIB = lib; return lib;
 }
+/* Chargement à la demande d'une bibliothèque externe, une seule fois.
+   En cas d'échec (hors ligne, CDN bloqué), on renonce sans casser l'import. */
+const LIBS = {};
+function chargerLib(cle, url, global){
+  if(LIBS[cle] !== undefined) return Promise.resolve(LIBS[cle]);
+  return new Promise(res => {
+    const sc = document.createElement('script');
+    sc.src = url;
+    sc.onload = () => res(LIBS[cle] = window[global] || null);
+    sc.onerror = () => res(LIBS[cle] = null);
+    document.head.appendChild(sc);
+    setTimeout(() => res(LIBS[cle] = window[global] || null), 9000);
+  });
+}
+
 async function extraireTexte(f){
   const n = norm(f.name), t = f.type || '';
   try{
@@ -390,6 +405,44 @@ async function extraireTexte(f){
         if(out.length > 8000) break;
       }
       return out.slice(0, 8000);
+    }
+    // Word (.docx)
+    if(/\.docx$/.test(n) || t === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'){
+      const lib = await chargerLib('mammoth', 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js', 'mammoth');
+      if(!lib) return '';
+      const r = await lib.extractRawText({arrayBuffer:await f.arrayBuffer()});
+      return String(r.value || '').slice(0, 8000);
+    }
+    // Excel (.xlsx, .xls) et autres tableurs
+    if(/\.(xlsx|xls|ods)$/.test(n) || t.indexOf('spreadsheet') > -1 || t === 'application/vnd.ms-excel'){
+      const lib = await chargerLib('xlsx', 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', 'XLSX');
+      if(!lib) return '';
+      const wb = lib.read(await f.arrayBuffer(), {type:'array'});
+      let out = '';
+      wb.SheetNames.forEach(nom => {
+        out += '\n--- ' + nom + ' ---\n' + lib.utils.sheet_to_csv(wb.Sheets[nom]);
+      });
+      return out.slice(0, 8000);
+    }
+    // PowerPoint (.pptx) : le texte des diapositives, lu dans le XML
+    if(/\.pptx$/.test(n) || t.indexOf('presentationml') > -1){
+      const zip = await chargerLib('jszip', 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', 'JSZip');
+      if(!zip) return '';
+      const z = await zip.loadAsync(await f.arrayBuffer());
+      const noms = Object.keys(z.files).filter(x => /^ppt\/slides\/slide\d+\.xml$/.test(x))
+        .sort((a,b) => (+a.match(/\d+/)) - (+b.match(/\d+/)));
+      let out = '';
+      for(const s of noms){
+        const xml = await z.files[s].async('string');
+        out += (xml.match(/<a:t>[^<]*<\/a:t>/g) || []).map(x => x.slice(5, -6)).join(' ') + '\n';
+        if(out.length > 8000) break;
+      }
+      return out.slice(0, 8000);
+    }
+    // dernier recours : tout fichier dont le contenu est lisible comme du texte
+    if(f.size < 2e6){
+      const brut = await f.text();
+      if(brut && !/[\x00-\x08\x0e-\x1f]/.test(brut.slice(0, 500))) return brut.slice(0, 8000);
     }
   }catch(e){}
   return '';
@@ -1138,7 +1191,7 @@ function panelEvaluation(m){
 
   h += '<p class="hint">Partage une copie corrigée (photo ou PDF) : elle est lue, notion par notion, pour repérer précisément ce qui coince.</p>' +
     '<label class="btn p" style="cursor:pointer;display:inline-block;margin-bottom:14px">Analyser un devoir noté' +
-    '<input type="file" id="devoirFile" accept="image/*,application/pdf" style="display:none"></label>';
+    '<input type="file" id="devoirFile" style="display:none"></label>';
   if(UI.gen === 'devoir') h += '<div class="charge"><i></i>' + esc(UI.genMsg) + '</div>';
 
   if(!data.length) h += '<div class="vide"><b>Pas encore de données</b>Fais un quiz ou partage une copie corrigée : les points faibles apparaîtront ici, avec un accès direct au chapitre à réviser.</div>';
@@ -1273,7 +1326,7 @@ function modalProgramme(){
     '<form data-f="prog" class="form">' +
     '<textarea name="txt" style="min-height:170px" placeholder="SECTION 1 — Nombres et calculs&#10;Chapitre 1 : Ensembles de nombres&#10;Chapitre 2 : Calcul littéral&#10;&#10;SECTION 2 — Fonctions&#10;Chapitre 3 : Généralités sur les fonctions">' + esc(UI.prog) + '</textarea>' +
     '<div class="row"><button class="btn">Analyser</button>' +
-    '<label class="btn s" style="cursor:pointer">Depuis un fichier (l\'IA en extrait le programme)<input type="file" id="progFile" accept=".pdf,.txt,.md,image/*" multiple style="display:none"></label>' +
+    '<label class="btn s" style="cursor:pointer">Depuis un fichier (l\'IA en extrait le programme)<input type="file" id="progFile" multiple style="display:none"></label>' +
     '<label class="btn s" style="cursor:pointer">' +
     (UI.pages && UI.pages.length ? 'Ajouter une page' : 'Prendre en photo') +
     '<input type="file" id="progPhoto" accept="image/*" capture="environment" style="display:none"></label>' +
