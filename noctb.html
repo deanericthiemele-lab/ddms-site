@@ -8445,12 +8445,14 @@ async function tkImportIncidentsFile(file){
     tkLog('Rapprochement par ticket (ligne la plus proche de la date NOC)…');
 
     let maj=0, majTermine=0, majOuvert=0, introuvable=0, sansCreation=0;
+    const refsIntrouvables = [];
     const totalTickets = nbTicketsIndexes;
     let processed = 0;
     for(const [refKey, ticketsForRef] of ticketMap.entries()){
       const refRows = rowsByRef.get(refKey);
       if(!refRows || !refRows.length){
         introuvable += ticketsForRef.length;
+        ticketsForRef.forEach(t=>refsIntrouvables.push(t.ref));
         processed += ticketsForRef.length;
         if(btn) btn.textContent = `⏳ Import… ${Math.round((processed/totalTickets)*100)}%`;
         continue;
@@ -8470,7 +8472,7 @@ async function tkImportIncidentsFile(file){
 
       for(const t of ticketsSorted){
         processed++;
-        if(!availableRows.length){ introuvable++; }
+        if(!availableRows.length){ introuvable++; refsIntrouvables.push(t.ref); }
         else{
           const debutMs = t.debut ? new Date(t.debut).getTime() : null;
           let bestIdx = -1, bestDiff = Infinity;
@@ -8535,6 +8537,13 @@ async function tkImportIncidentsFile(file){
       }
     }
 
+    // Diagnostic : montre côte à côte les références NOC non trouvées et les ND Excel jamais utilisés,
+    // pour repérer immédiatement un écart de format entre les deux.
+    if(refsIntrouvables.length){
+      tkLog(`Références NOC SANS correspondance dans l'Excel (${refsIntrouvables.length}) : ${refsIntrouvables.slice(0,40).map(r=>'"'+r+'"').join(', ')}`, 'warn');
+      const ndInutilises = [...rowsByRef.keys()].filter(k=>!ticketMap.has(k));
+      tkLog(`ND de l'Excel sans ticket NOC (${ndInutilises.length}) : ${ndInutilises.slice(0,40).map(r=>'"'+r+'"').join(', ')}`, 'warn');
+    }
     tkLog(`Terminé : ${maj} mis à jour (${majTermine} → Terminé, ${majOuvert} → Ouvert) · ${introuvable} ticket(s) sans correspondance dans le fichier`, maj>0?'ok':'warn');
     if(sansCreation>0){
       tkLog(`⚠ ${sansCreation} ticket(s) rapproché(s) par référence mais SANS date de création lisible (colonne "${rows[0][IDX_CREATION]||'?'}") — ces tickets ne compteront pas dans "Confirmés SAV B2B"`, 'warn');
