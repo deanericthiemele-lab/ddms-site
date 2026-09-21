@@ -8446,6 +8446,10 @@ async function tkImportIncidentsFile(file){
 
     let maj=0, majTermine=0, majOuvert=0, introuvable=0, sansCreation=0;
     const refsIntrouvables = [];
+    const idsRapproches = new Set();
+    // Écart maximal accepté entre le début NOC du ticket et la date de création de la ligne SAV : au-delà,
+    // c'est un autre incident de la même référence (ancien dossier, ou dossier d'un autre jour) — pas un rapprochement.
+    const TK_MATCH_MAX_MS = 3*24*3600*1000;
     const totalTickets = nbTicketsIndexes;
     let processed = 0;
     for(const [refKey, ticketsForRef] of ticketMap.entries()){
@@ -8472,7 +8476,9 @@ async function tkImportIncidentsFile(file){
 
       for(const t of ticketsSorted){
         processed++;
-        if(!availableRows.length){ introuvable++; refsIntrouvables.push(t.ref); }
+        const debutMs0 = t.debut ? new Date(t.debut).getTime() : null;
+        const candidatOk = availableRows.some(r=>{ const cd=tkParseDate(r[IDX_CREATION]); return !(debutMs0!==null && cd) || Math.abs(cd.getTime()-debutMs0)<=TK_MATCH_MAX_MS; });
+        if(!availableRows.length || !candidatOk){ introuvable++; refsIntrouvables.push(t.ref); }
         else{
           const debutMs = t.debut ? new Date(t.debut).getTime() : null;
           let bestIdx = -1, bestDiff = Infinity;
@@ -8481,9 +8487,11 @@ async function tkImportIncidentsFile(file){
             let diff;
             if(debutMs!==null && creationDate) diff = Math.abs(creationDate.getTime()-debutMs);
             else diff = Infinity; // pas de date pour comparer -> dernier recours
-            if(diff < bestDiff){ bestDiff = diff; bestIdx = i; }
+            if(diff < bestDiff && diff <= TK_MATCH_MAX_MS){ bestDiff = diff; bestIdx = i; }
           });
-          const best = availableRows.splice(bestIdx>=0 ? bestIdx : 0, 1)[0];
+          if(bestIdx<0) bestIdx = Math.max(0, availableRows.findIndex(r=>!tkParseDate(r[IDX_CREATION]))); // dernier recours : ligne sans date
+          const best = availableRows.splice(bestIdx, 1)[0];
+          idsRapproches.add(t.id);
 
           const finDate       = tkParseDate(best[idxFin]);
           const creationDate  = tkParseDate(best[IDX_CREATION]);
@@ -8537,13 +8545,35 @@ async function tkImportIncidentsFile(file){
       }
     }
 
-    // Diagnostic : montre côte à côte les références NOC non trouvées et les ND Excel jamais utilisés,
-    // pour repérer immédiatement un écart de format entre les deux.
-    if(refsIntrouvables.length){
-      tkLog(`Références NOC SANS correspondance dans l'Excel (${refsIntrouvables.length}) : ${refsIntrouvables.slice(0,40).map(r=>'"'+r+'"').join(', ')}`, 'warn');
-      const ndInutilises = [...rowsByRef.keys()].filter(k=>!ticketMap.has(k));
-      tkLog(`ND de l'Excel sans ticket NOC (${ndInutilises.length}) : ${ndInutilises.slice(0,40).map(r=>'"'+r+'"').join(', ')}`, 'warn');
-    }
+    // Diagnostic limité aux jours couverts par le fichier (les tickets d'autres jours ne peuvent pas
+    // y figurer). Montre les tickets NOC non rapprochés avec leur client et, si l'Excel contient un
+    // dossier du même client, son ND — pour repérer tout de suite un écart de référence.
+    try{
+      const idxClientX = headers.findIndex(h=>h.includes('raison sociale'));
+      const idxNdBck = headers.findIndex(h=>h==='nd backup');
+      const hhmm = d => d ? String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0') : '?';
+      const crs = dataRows.map(r=>tkParseDate(r[IDX_CREATION])).filter(Boolean).map(d=>d.getTime());
+      if(crs.length){
+        const dMin = new Date(Math.min(...crs)); dMin.setHours(0,0,0,0);
+        const dMax = new Date(Math.max(...crs)); dMax.setHours(23,59,59,999);
+        const tkJour = (DB.tickets||[]).filter(t=>{ const d=t.debut?new Date(t.debut):null; return d && !isNaN(d) && d>=dMin && d<=dMax; });
+        const nonRap = tkJour.filter(t=>!idsRapproches.has(t.id));
+        tkLog(`Tickets NOC des jours couverts par le fichier : ${tkJour.length} · rapprochés : ${tkJour.length-nonRap.length} · non rapprochés : ${nonRap.length}`, nonRap.length?'warn':'ok');
+        const usedNd = new Set(); // ND Excel effectivement rapprochés d'un ticket
+        tkJour.forEach(t=>{ if(idsRapproches.has(t.id)) usedNd.add(norm(t.ref)); });
+        nonRap.slice(0,40).forEach(t=>{
+          const cl = norm(t.client);
+          const memeClient = cl.length>=3 ? dataRows.filter(r=>{ const rc=norm(r[idxClientX]); return rc && (rc.includes(cl)||cl.includes(rc)); }) : [];
+          const hint = memeClient.length
+            ? ' → Excel, même client : '+memeClient.slice(0,3).map(r=>`ND ${String(r[idxRef]).trim()} (créé ${hhmm(tkParseDate(r[IDX_CREATION]))})`).join(', ')
+            : ' → aucun dossier de ce client dans l\'Excel';
+          tkLog(`  NOC ${hhmm(new Date(t.debut))} | ${t.client||'?'} | réf "${t.ref}"${hint}`, memeClient.length?'err':'warn');
+        });
+        const dossSansNoc = dataRows.filter(r=>!usedNd.has(norm(r[idxRef])));
+        tkLog(`Dossiers Excel sans ticket NOC rapproché : ${dossSansNoc.length} / ${dataRows.length}`, 'warn');
+        dossSansNoc.slice(0,40).forEach(r=>tkLog(`  SAV ${hhmm(tkParseDate(r[IDX_CREATION]))} | ${String(r[idxClientX]||'?').trim()} | ND "${String(r[idxRef]).trim()}"${idxNdBck>=0&&String(r[idxNdBck]||'').trim()?' (backup '+String(r[idxNdBck]).trim()+')':''}`));
+      }
+    }catch(e){ tkLog('Diagnostic indisponible : '+e.message,'warn'); }
     tkLog(`Terminé : ${maj} mis à jour (${majTermine} → Terminé, ${majOuvert} → Ouvert) · ${introuvable} ticket(s) sans correspondance dans le fichier`, maj>0?'ok':'warn');
     if(sansCreation>0){
       tkLog(`⚠ ${sansCreation} ticket(s) rapproché(s) par référence mais SANS date de création lisible (colonne "${rows[0][IDX_CREATION]||'?'}") — ces tickets ne compteront pas dans "Confirmés SAV B2B"`, 'warn');
