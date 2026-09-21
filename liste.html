@@ -1,0 +1,3812 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Catalogue Domotique — Datalink CI</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --primary:#2c4a6e;--primary-d:#1f3650;--primary-l:#f1f4f8;
+  --teal:#2f6b75;--indigo:#4c5a8f;--cmp:#4a7a5c;
+  --bg:#f6f7f9;--white:#fff;--border:#e3e7ec;
+  --text:#1f2933;--muted:#6b7280;--danger:#b3442f;--danger-l:#fbeeec;
+  --ok:#2f7a4a;--ok-l:#eef6f0;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,'Segoe UI',Arial,sans-serif;font-size:14.5px;line-height:1.55}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px;border-radius:4px}
+
+/* ── Barre du haut ── */
+.nav{position:sticky;top:0;z-index:50;background:var(--white);border-bottom:1px solid var(--border);height:60px;display:flex;align-items:center;gap:1rem;padding:0 1.3rem;box-shadow:0 1px 3px rgba(0,0,0,.03)}
+.nav b{font-weight:800;color:var(--primary);font-size:.95rem}
+.nav span{color:var(--muted);font-size:.8rem}
+.sync-badge{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:.76rem;font-weight:600;padding:5px 11px;border-radius:20px;white-space:nowrap}
+.sync-badge.local{background:#fff4e5;color:#8a5a1f}
+.sync-badge.cloud{background:var(--ok-l);color:var(--ok)}
+.sync-badge.err{background:var(--danger-l);color:var(--danger)}
+.toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:70;background:#1f2933;color:#fff;font-size:.85rem;font-weight:600;padding:10px 16px;border-radius:8px;max-width:90%;text-align:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1}
+.sync-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+.wrap{max-width:1120px;margin:0 auto;padding:1.6rem 1.3rem 8rem}
+
+.head{margin-bottom:1.6rem}
+.head h1{font-size:1.5rem;font-weight:800;color:var(--primary);letter-spacing:-.01em}
+.head p{color:var(--muted);font-size:.9rem;margin-top:.4rem;max-width:70ch}
+
+.total-bar{display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.8rem}
+.total-card{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:.9rem 1.2rem;min-width:150px}
+.total-card b{display:block;font-size:1.15rem;color:var(--primary)}
+.total-card span{font-size:.75rem;color:var(--muted)}
+
+/* ── Sections par catégorie ── */
+.cat{background:var(--white);border:1px solid var(--border);border-radius:12px;margin-bottom:1.3rem;overflow:hidden}
+.cat-head{display:flex;align-items:center;gap:.7rem;padding:1rem 1.3rem;cursor:pointer;user-select:none;border-bottom:1px solid transparent}
+.cat-head:hover{background:var(--primary-l)}
+.cat-ic{font-size:1.3rem}
+.cat-title{font-weight:700;font-size:1.02rem;flex:1}
+.cat-count{font-size:.78rem;color:var(--muted);background:var(--bg);padding:3px 10px;border-radius:12px}
+.cat-chevron{color:var(--muted);transition:transform .2s;font-size:.8rem}
+.cat.open .cat-chevron{transform:rotate(90deg)}
+.cat.open .cat-head{border-bottom-color:var(--border)}
+.cat-body{display:none}
+.cat.open .cat-body{display:block}
+
+.sub{padding:.7rem 1.3rem .2rem;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+
+table{width:100%;border-collapse:collapse}
+thead th{text-align:left;font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:.5rem .9rem;border-bottom:1px solid var(--border)}
+tbody tr{border-bottom:1px solid #f0f2f5}
+tbody tr:last-child{border-bottom:none}
+tbody td{padding:.55rem .9rem;vertical-align:middle}
+.col-check{width:4%}
+.col-nom{width:22%}
+.col-desc{width:27%}
+.col-prix{width:17%}
+.col-qte{width:8%}
+.col-lien{width:15%}
+.col-actions{width:6%;text-align:right}
+.col-desc{font-size:.8rem;color:var(--muted);line-height:1.45}
+
+.nom-text{font-size:.88rem;font-weight:600;color:var(--text);line-height:1.35}
+.btn-info{display:inline-block;text-align:left;margin-top:4px;background:none;border:none;padding:0;font-family:inherit;font-size:.78rem;font-weight:700;color:var(--primary);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.btn-info:hover{color:var(--primary-d)}
+#infoDialog{max-width:560px;max-height:85vh;overflow:auto}
+#veilleDialog{max-width:1000px;max-height:92vh;overflow:auto;padding:20px}
+#veilleDialog h3{font-size:1.15rem;margin:0}
+.veille-top{position:sticky;top:-20px;z-index:10;background:var(--white);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:-20px -20px .6rem;padding:14px 20px 10px;border-bottom:1px solid var(--border)}
+.veille-top-btns{display:flex;gap:8px;align-items:center}
+.veille-meta{font-size:.82rem;color:var(--muted);margin-bottom:.7rem}
+.veille-etat{border-radius:10px;padding:.7rem .9rem;font-size:.88rem;margin-bottom:.8rem}
+.veille-etat.info{background:var(--primary-l);color:var(--primary-d)}
+.veille-etat.attente{background:#fff7e6;color:#8a5a1f}
+.veille-etat.erreur{background:var(--danger-l);color:var(--danger);font-weight:600}
+.vcols{display:grid;gap:12px;margin-bottom:.8rem}
+@media(min-width:860px){.vcols{grid-template-columns:repeat(3,1fr)}}
+.vcol{border:1px solid var(--border);border-radius:12px;padding:12px 14px;font-size:.86rem;background:var(--white)}
+.vcol h4{font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;margin:0 0 .15rem}
+.vcol .vsous{font-size:.76rem;color:var(--muted);margin-bottom:.5rem}
+.vcol .vtitre{font-size:.98rem;font-weight:700;color:var(--text);margin-bottom:.3rem;line-height:1.3}
+.vcol .vinfo{font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
+.vcol .vlab{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:.5rem 0 .15rem}
+.vcol ul{margin:0 0 0 1.05rem;padding:0}.vcol li{margin-bottom:.15rem}
+.vcol .vwarn{background:#fff7e6;color:#8a5a1f;border-radius:6px;padding:.3rem .5rem;font-size:.8rem;margin:.4rem 0}
+.vcol .vliens{display:flex;flex-wrap:wrap;gap:6px;margin-top:.6rem}
+.vcol .vliens a{font-size:.78rem;font-weight:700;text-decoration:none;color:var(--primary);border:1px solid var(--border);border-radius:6px;padding:5px 9px}
+.vcol .vliens a:hover{background:var(--primary-l)}
+.vsource-block{border-top:1px solid var(--border);padding-top:.55rem;margin-top:.55rem}
+.vsource-title{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:.45rem}
+
+.vbas{border-top:4px solid #4a7a5c}.vbas h4{color:#4a7a5c}
+.vmoy{border-top:4px solid #2c6fb0}.vmoy h4{color:#2c6fb0}
+.vhaut{border-top:4px solid #9a6a2a}.vhaut h4{color:#9a6a2a}
+.vcand{display:flex;gap:9px;border:1px solid var(--border);border-radius:9px;padding:.5rem .6rem;margin-bottom:.45rem}
+.vcand img{width:56px;height:56px;object-fit:cover;border-radius:7px;background:#f1f4f8;flex-shrink:0}
+.vcand .vt{font-weight:700;font-size:.84rem;line-height:1.3;color:var(--text)}
+.vchip{display:inline-block;font-size:.7rem;font-weight:700;padding:1px 7px;border-radius:999px;background:#eef5f0;color:#3f6d51;margin:2px 3px 0 0}
+.vchip.neutre{background:#f1f4f8;color:var(--muted)}
+.vdirect{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#eef5f0;color:#3f6d51;margin-left:6px}
+.veille-sources{font-size:.78rem;color:var(--muted);margin-bottom:.6rem}
+.veille-sources a{color:var(--primary)}
+.vbadge{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:999px;background:#fff7e6;color:#8a5a1f;margin-left:6px}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid #d7c9a8;border-top-color:#8a5a1f;border-radius:50%;animation:tourne .8s linear infinite;vertical-align:-1px;margin-right:6px}
+@keyframes tourne{to{transform:rotate(360deg)}}
+#infoDialog h3{font-size:1.1rem;margin-bottom:.2rem}
+#infoDialog .info-court{color:var(--text);font-size:.92rem;margin-bottom:.9rem}
+#infoDialog h4{font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);margin:1rem 0 .35rem}
+#infoDialog ul{margin:0 0 0 1.1rem;padding:0}
+#infoDialog li{font-size:.88rem;color:var(--text);line-height:1.5;margin-bottom:.2rem}
+#infoDialog .info-note{background:var(--primary-l);border-radius:8px;padding:.6rem .8rem;font-size:.86rem;color:var(--primary-d);margin-top:1rem}
+#infoDialog .info-foot{font-size:.74rem;color:var(--muted);margin:.9rem 0 .7rem}
+#infoDialog .info-actions{display:flex;justify-content:flex-end}
+
+.prix-wrap{display:flex;align-items:center;gap:5px}
+.prix-input{border:1px solid var(--border);background:var(--white);font-size:.88rem;font-weight:700;width:100px;padding:6px 8px;border-radius:6px;color:var(--primary);text-align:right}
+.prix-input:focus{border-color:var(--primary)}
+.prix-input.vide{color:var(--muted);font-weight:500}
+.prix-unit{font-size:.76rem;color:var(--muted);white-space:nowrap}
+
+.lien-btn{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;font-weight:600;color:var(--primary);text-decoration:none;padding:6px 10px;border:1px solid var(--border);border-radius:6px;transition:background .15s;white-space:nowrap}
+.lien-btn:hover{background:var(--primary-l)}
+
+.del-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;padding:6px 8px;border-radius:6px;transition:background .15s,color .15s}
+.del-btn:hover{background:var(--danger-l);color:var(--danger)}
+
+.add-row{padding:.8rem 1.3rem 1rem;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;background:#fafbfc}
+.add-row input{border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:.85rem;font-family:inherit}
+.add-row input.nom{flex:1;min-width:180px}
+.add-row input.recherche{flex:1;min-width:160px}
+.add-row input.prix{width:135px}
+.add-btn{background:var(--primary);color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:.85rem;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
+.add-btn:hover{background:var(--primary-d)}
+
+/* ── Bandeau config Firebase ── */
+.fb-banner{background:#fff4e5;border:1px solid #f0d9b5;border-radius:10px;padding:.9rem 1.2rem;margin-bottom:1.6rem;font-size:.85rem;color:#8a5a1f;display:flex;gap:.8rem;align-items:flex-start}
+.fb-banner b{display:block;margin-bottom:.2rem}
+.fb-banner code{background:rgba(0,0,0,.06);padding:1px 6px;border-radius:4px;font-size:.82rem}
+
+/* ── Sélection et devis ── */
+.chk{width:18px;height:18px;accent-color:var(--primary);cursor:pointer}
+tbody tr.sel{background:var(--primary-l)}
+.qte-input{border:1px solid var(--border);background:var(--white);font-size:.88rem;font-weight:700;width:64px;padding:6px 8px;border-radius:6px;color:var(--primary);text-align:center}
+.qte-input:disabled{opacity:.35}
+.quote-bar{position:fixed;left:0;right:0;bottom:0;z-index:60;background:var(--white);border-top:1px solid var(--border);box-shadow:0 -4px 16px rgba(0,0,0,.07);padding:.7rem 1.3rem;display:flex;gap:.8rem 1.2rem;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.qb-info b{display:block;color:var(--primary);font-size:.98rem}
+.qb-info span{font-size:.8rem;color:var(--muted)}
+.qb-info .warn{color:#8a5a1f;font-weight:600}
+.qb-fields{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.qb-fields input{border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:.85rem;font-family:inherit}
+.qb-fields .client{width:210px}
+.qb-fields label{display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--muted);margin:0}
+.qb-fields .tva{width:64px;text-align:right}
+.qb-fields select{border:1px solid var(--border);border-radius:6px;padding:7px 8px;font-size:.85rem;font-family:inherit;background:var(--white);color:var(--text)}
+.head{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.btn-assistant{background:var(--primary);color:#fff;border:none;border-radius:10px;padding:11px 18px;font-size:.92rem;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 4px 14px rgba(44,74,110,.25)}
+.btn-assistant:hover{background:var(--primary-d)}
+#assistantDialog{max-width:980px;width:calc(100% - 20px);max-height:94vh;overflow:auto;padding:0}
+.as-head{position:sticky;top:0;z-index:20;background:var(--white);padding:14px 22px 10px;border-bottom:1px solid var(--border)}
+.as-head-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px 16px;flex-wrap:wrap}
+.as-head h3{font-size:1.15rem;margin:0}
+.as-head .as-etape{font-size:.78rem;color:var(--muted);margin:.15rem 0 .55rem}
+.as-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.as-appl{display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted);margin:0}
+.as-appl select{border:1px solid var(--border);border-radius:6px;padding:7px 8px;font-size:.82rem;font-family:inherit;background:var(--white);color:var(--text)}
+.as-progress{height:6px;background:var(--border);border-radius:99px;overflow:hidden;margin-top:10px}
+.as-progress i{display:block;height:100%;background:var(--primary);transition:width .25s}
+.as-body{padding:12px 22px 14px}
+.as-champ{margin-bottom:1.05rem}
+.as-champ>label{display:block;font-weight:700;font-size:.9rem;margin-bottom:.4rem;color:var(--text)}
+.as-champ .as-aide{font-size:.76rem;color:var(--muted);font-weight:400}
+.as-choix{display:flex;flex-wrap:wrap;gap:8px}
+.as-opt{border:1px solid var(--border);background:var(--white);border-radius:10px;padding:9px 13px;font-size:.88rem;font-weight:600;cursor:pointer;font-family:inherit;color:var(--text);text-align:left}
+.as-opt:hover{border-color:var(--primary)}
+.as-opt.on{border-color:var(--primary);background:var(--primary-l);color:var(--primary-d);box-shadow:0 0 0 2px var(--primary-l)}
+.as-nb{display:flex;align-items:center;gap:10px}
+.as-nb button{width:40px;height:40px;border-radius:10px;border:1px solid var(--border);background:var(--white);font-size:1.25rem;font-weight:700;cursor:pointer;color:var(--primary)}
+.as-nb button:hover{background:var(--primary-l)}
+.as-nb output{min-width:36px;text-align:center;font-weight:800;font-size:1.1rem;color:var(--text)}
+.as-foot{position:sticky;bottom:0;background:var(--white);border-top:1px solid var(--border);padding:12px 22px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap}
+.as-foot .droite{display:flex;gap:8px;flex-wrap:wrap}
+.as-err{color:var(--danger);font-size:.82rem;font-weight:600;min-height:1.2em;margin:.2rem 0 0}
+.as-resume-meta{font-size:.86rem;color:var(--muted);margin-bottom:.4rem}
+.as-resume-meta b{color:var(--text)}
+.as-options{display:flex;gap:6px 22px;flex-wrap:wrap;align-items:center;margin:0 0 .7rem}
+.as-enreg{display:flex;align-items:center;gap:7px;font-size:.82rem;color:var(--text);margin:0;font-weight:600}
+.as-marge{display:flex;align-items:center;gap:6px;font-size:.82rem;color:var(--text);margin:0;font-weight:600}
+.as-marge input{width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:.85rem;text-align:right}
+.as-enreg input,.qb-enreg input{width:auto;margin:0}
+.as-scroll{overflow-x:auto}
+.as-table{width:100%;border-collapse:collapse;font-size:.84rem;min-width:620px}
+.as-table th{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--border)}
+.as-table td{padding:.45rem .5rem;border-bottom:1px solid #f0f2f5;vertical-align:top}
+.as-table tr.as-cat td{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--primary);background:var(--primary-l);border-bottom:none}
+.as-table .as-raison{font-size:.73rem;color:var(--muted);margin-top:2px}
+.as-table td.as-g{min-width:215px}
+.as-table .as-modele{font-size:.78rem;color:var(--text);margin-bottom:5px}
+.as-table .as-pv{display:flex;gap:5px;align-items:center}
+.as-table input.as-prix{width:100px;padding:6px 8px;font-size:.84rem;border-radius:6px}
+.as-table select.as-dev{width:auto;padding:6px 6px;font-size:.8rem;border:1px solid var(--border);border-radius:6px;background:var(--white);font-family:inherit}
+.as-prixetat{display:none;font-size:.84rem;border-radius:8px;padding:8px 12px;margin:0 0 .7rem;line-height:1.5}
+.as-prixetat.on{display:block;background:#eef2f8;color:var(--primary-d)}
+.as-prixetat.ok{background:#eef5f0;color:#2f5e42}
+.as-prixetat.err{background:var(--danger-l);color:var(--danger);font-weight:600}
+.as-prixetat .qb-clear{padding:4px 9px;margin-left:6px}
+.as-table input.as-auto{border-color:#d9a441;background:#fffaf0}
+.as-table .as-autotag{font-size:.72rem;color:#8a5a1f;font-weight:700;margin-top:2px}
+.as-table .as-conv{font-size:.74rem;color:var(--primary);font-weight:700;margin-top:2px}
+.as-table .as-ref{font-size:.72rem;color:var(--muted);margin-top:3px;line-height:1.35}
+.as-table .as-use{border:1px solid var(--border);background:var(--white);border-radius:5px;padding:1px 7px;font-size:.72rem;font-weight:700;cursor:pointer;color:var(--primary);font-family:inherit}
+.as-table .as-ltot{font-size:.78rem;font-weight:700;color:var(--text);margin-top:3px}
+.as-table .as-qte{display:flex;align-items:center;gap:4px}
+.as-table .as-qte button{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--white);cursor:pointer;font-weight:700;color:var(--primary)}
+.as-table .as-qte output{min-width:22px;text-align:center;font-weight:700}
+.as-table tr.zero td{opacity:.4}
+@media(max-width:720px){
+  .as-table{min-width:0}
+  .as-table thead{display:none}
+  .as-table tbody tr{display:block;padding:0}
+  .as-table tbody tr[data-i]{padding:.6rem 0;border-bottom:1px solid var(--border)}
+  .as-table tbody td{display:block;padding:0;border:none}
+  .as-table tbody tr.as-cat td{padding:.4rem .5rem}
+  .as-table td.as-qt{margin-top:.3rem}
+  .as-table td.as-g{min-width:0;margin-top:.5rem;padding:.45rem .55rem;background:#f8f9fb;border-radius:8px}
+  .as-table td.as-g::before{content:attr(data-lib);display:block;font-size:.68rem;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .as-table input.as-prix{width:100%;flex:1}
+  .as-head,.as-foot,.as-body{padding-left:14px;padding-right:14px}
+  .as-head{padding-top:10px;padding-bottom:8px}
+  .as-head h3{font-size:1rem}
+  .as-head .as-etape{display:none}
+  .as-head-top{gap:6px 10px}
+  .as-actions{gap:6px;width:100%;justify-content:flex-start}
+  .as-actions .qb-clear,.as-actions .add-btn{padding:6px 9px;font-size:.78rem}
+  .as-appl{width:100%}
+  .as-appl select{flex:1}
+  .as-progress{margin-top:6px}
+}
+.as-total{display:flex;justify-content:flex-end;gap:.4rem 1.4rem;margin:.7rem 0 .2rem;font-size:.9rem;flex-wrap:wrap;align-items:center}
+.as-total b{color:var(--primary);font-size:1.02rem}
+.as-note{font-size:.76rem;color:var(--muted);margin-top:.6rem;line-height:1.5}
+.as-manque{color:#8a5a1f;font-weight:700}
+.qb-enreg{white-space:nowrap}
+.statut{display:none;margin-top:8px;padding:8px 12px;border-radius:8px;background:#eef5f0;color:#2f5e42;font-size:.84rem;font-weight:700}
+.statut.show{display:block}
+.statut.err{background:var(--danger-l);color:var(--danger)}
+.prix-trouve{display:block;margin-top:4px;background:none;border:none;padding:0;font-family:inherit;font-size:.72rem;font-weight:700;color:var(--primary);cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-align:left;line-height:1.3}
+.prix-trouve[hidden]{display:none}
+.vprix{margin-top:.4rem;border:1px solid var(--primary);background:var(--primary-l);color:var(--primary-d);border-radius:7px;padding:5px 9px;font-size:.76rem;font-weight:700;cursor:pointer;font-family:inherit;text-align:left}
+.vprix:hover{background:var(--primary);color:#fff}
+.as-modele a{color:var(--primary);font-weight:600}
+.as-modele .as-src{font-size:.68rem;color:var(--muted);font-weight:400}
+#devisListeDialog{max-width:1000px;width:calc(100% - 20px);max-height:92vh;overflow:auto;padding:0}
+.dl-top{position:sticky;top:0;z-index:10;background:var(--white);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 20px 10px;border-bottom:1px solid var(--border)}
+.dl-top h3{margin:0;font-size:1.15rem}
+.dl-body{padding:10px 20px 18px}
+.dl-table{width:100%;border-collapse:collapse;font-size:.84rem;min-width:640px}
+.dl-table th{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;padding:.4rem .5rem;border-bottom:1px solid var(--border)}
+.dl-table td{padding:.5rem;border-bottom:1px solid #f0f2f5;vertical-align:top}
+.dl-table .dl-act{display:flex;gap:6px;flex-wrap:wrap}
+.dl-table .dl-act button{border:1px solid var(--border);background:var(--white);border-radius:6px;padding:4px 9px;font-size:.76rem;font-weight:700;cursor:pointer;font-family:inherit;color:var(--primary)}
+.dl-table .dl-act button.sup{color:var(--danger)}
+.dl-tag{display:inline-block;font-size:.7rem;font-weight:700;padding:1px 7px;border-radius:999px;background:#eef5f0;color:#3f6d51;margin-right:4px}
+.dl-tag.non{background:#fff7e6;color:#8a5a1f}
+.qb-actions{display:flex;gap:.6rem;align-items:center}
+.qb-clear{background:none;border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:.82rem;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit}
+.qb-clear:hover{background:var(--primary-l)}
+.add-btn:disabled{opacity:.4;cursor:not-allowed}
+.add-btn.danger{background:var(--danger)}
+.add-btn.danger:hover{background:#963a28}
+.cat-clear{background:none;border:1px solid var(--border);border-radius:6px;padding:4px 10px;font-size:.75rem;font-weight:600;color:var(--muted);cursor:pointer;font-family:inherit;white-space:nowrap}
+.cat-clear:hover{background:var(--primary-l);color:var(--primary)}
+dialog{margin:auto;border:0;border-radius:14px;padding:22px;max-width:380px;width:calc(100% - 40px);box-shadow:0 20px 50px rgba(0,0,0,.3);color:var(--text);font-family:inherit}
+dialog::backdrop{background:rgba(15,23,42,.55)}
+dialog h3{font-size:1.05rem;color:var(--primary);margin-bottom:.3rem}
+dialog p{color:var(--muted);font-size:.88rem;margin-bottom:.8rem}
+dialog input{width:100%;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:.92rem;font-family:inherit}
+dialog input:focus{outline:none;border-color:var(--primary)}
+#delErr{color:var(--danger);font-size:.82rem;font-weight:600;min-height:1.3em;margin:.4rem 0}
+.del-actions{display:flex;gap:.6rem;justify-content:flex-end}
+@media(max-width:720px){.qb-fields .client{width:100%}.qb-actions{width:100%}.qb-actions .add-btn{flex:1}}
+@media(max-width:720px){.nav{padding:0 .9rem;gap:.6rem}.nav-sub{display:none}.sync-badge{white-space:normal;line-height:1.2;max-width:75%;font-size:.7rem;padding:4px 9px}}
+
+@media(max-width:720px){
+  .col-lien .lien-btn{padding:6px 8px}
+  thead{display:none}
+  tbody td{display:block;padding:.3rem 1.1rem}
+  tbody tr{padding:.5rem 0;display:block}
+  .col-actions{text-align:left}
+  .prix-input{width:100%}
+}
+</style>
+</head>
+<body>
+
+
+<nav class="nav">
+  <b>Datalink CI</b>
+  <span class="nav-sub">Catalogue de sourcing domotique</span>
+  <div class="sync-badge local" id="syncBadge"><span class="sync-dot"></span><span id="syncText">Firebase non configuré — données locales seulement</span></div>
+</nav>
+
+<main class="wrap">
+
+  <div class="head">
+    <h1>Votre devis en ligne</h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="qb-clear" id="btnDevisListe" type="button">📂 Devis enregistrés</button><button class="btn-assistant" id="btnAssistant" type="button">🧭 Devis par questionnaire</button></div>
+  </div>
+
+  <div id="categories"></div>
+
+</main>
+
+<div class="quote-bar" id="quoteBar">
+  <div class="qb-info"><b id="qbCount">Aucun produit sélectionné</b><span id="qbTotal">Total HT : 0 FCFA</span></div>
+  <div class="qb-fields">
+    <input class="client" id="qbClient" type="text" placeholder="Nom du client (facultatif)" aria-label="Nom du client">
+    <label>Gamme <select id="qbGamme" aria-label="Gamme du devis"><option value="bas">Bas de gamme</option><option value="moyen">Moyen de gamme</option><option value="haut">Haut de gamme</option></select></label>
+    <label class="qb-enreg"><input type="checkbox" id="qbEnreg" checked> Enregistrer dans Firebase</label>
+    <label title="Ta marge, ajoutée au prix du marché trouvé sur Amazon.fr / Alibaba">Marge <input class="tva" id="qbMarge" type="number" min="0" max="500" step="1" value="30"> %</label>
+    <label>TVA <input class="tva" id="qbTva" type="number" min="0" max="100" step="0.5" value="18"> %</label>
+  </div>
+  <div class="qb-actions">
+    <button class="qb-clear" id="qbClear" type="button" title="Vide toutes les cases cochées et les quantités (les prix et les liens ne changent pas)">Reprendre le devis</button>
+    <button class="qb-clear" id="qbEnregBtn" type="button" disabled title="Enregistre ce devis dans Firebase, sans créer de PDF">Enregistrer</button>
+    <button class="add-btn" id="qbPdf" type="button" disabled>Générer le devis PDF</button>
+  </div>
+</div>
+
+<dialog id="assistantDialog" aria-labelledby="asTitre">
+  <div class="as-head">
+    <div class="as-head-top">
+      <div><h3 id="asTitre"></h3><div class="as-etape" id="asEtape"></div></div>
+      <div class="as-actions" id="asActions"></div>
+    </div>
+    <div class="statut" id="asStatut" role="status"></div>
+    <div class="as-progress"><i id="asBarre"></i></div>
+  </div>
+  <div class="as-body" id="asCorps"></div>
+  <div class="as-foot" id="asPied"></div>
+</dialog>
+
+<dialog id="devisListeDialog" aria-labelledby="dlTitre">
+  <div class="dl-top"><h3 id="dlTitre">Devis enregistrés dans Firebase</h3><button type="button" class="qb-clear" id="dlFermer">✕ Fermer</button></div>
+  <div class="dl-body" id="dlCorps"></div>
+</dialog>
+
+<dialog id="delDialog" aria-labelledby="delTitle">
+  <form id="delForm" autocomplete="off">
+    <h3 id="delTitle">Suppression protégée</h3>
+    <p id="delMsg"></p>
+    <input type="password" id="delPw" placeholder="Mot de passe" aria-label="Mot de passe" required>
+    <div id="delErr" role="alert"></div>
+    <div class="del-actions">
+      <button type="button" class="qb-clear" id="delCancel">Annuler</button>
+      <button type="submit" class="add-btn danger">Supprimer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pwVeille" aria-labelledby="pwVeilleTitle">
+  <form id="pwVeilleForm" autocomplete="off">
+    <h3 id="pwVeilleTitle">Recherche des modèles récents</h3>
+    <p id="pwVeilleTexte">Chaque recherche interroge Alibaba et Amazon.fr pour les 3 gammes. Le coût réel dépend de l'utilisation Claude et Apify. Entre le mot de passe pour continuer.</p>
+    <input type="password" id="pwVeilleInput" placeholder="Mot de passe" aria-label="Mot de passe" required>
+    <div class="del-actions" style="margin-top:.8rem">
+      <button type="button" class="qb-clear" id="pwVeilleCancel">Annuler</button>
+      <button type="submit" class="add-btn">Lancer</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="veilleDialog" aria-labelledby="veilleTitle">
+  <div class="veille-top">
+    <h3 id="veilleTitle"></h3>
+    <div class="veille-top-btns">
+      <button type="button" class="add-btn" id="veilleLancer">Lancer la recherche</button>
+      <button type="button" class="qb-clear" id="veilleClose">✕ Fermer</button>
+    </div>
+  </div>
+  <p class="veille-meta" id="veilleMeta"></p>
+  <div class="statut" id="veilleStatut" role="status"></div>
+  <div id="veilleEtat"></div>
+  <div class="vcols" id="veilleCols"></div>
+  <div class="veille-sources" id="veilleSources"></div>
+  <p class="info-foot">Alibaba : annonces lues en direct au moment de la recherche, avec les badges affichés par Alibaba (à confirmer sur la page du fournisseur avant de payer). Amazon.fr : copies enregistrées des pages, donc prix et stock peuvent avoir changé.</p>
+</dialog>
+
+<dialog id="infoDialog" aria-labelledby="infoTitle">
+  <h3 id="infoTitle"></h3>
+  <p class="info-court" id="infoCourt"></p>
+  <div id="infoBody"></div>
+  <p class="info-foot">Informations générales : à confirmer avec la fiche du produit et avec le fournisseur.</p>
+  <div class="info-actions"><button type="button" class="add-btn" id="infoClose">Fermer</button></div>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   CONFIGURATION FIREBASE — à remplir pour activer la synchronisation
+   ═══════════════════════════════════════════════════════════════
+   Où trouver ces 6 valeurs :
+   1. console.firebase.google.com → votre projet (ex. celui de DDMS,
+      ou un nouveau projet dédié à ce catalogue)
+   2. ⚙️ Paramètres du projet → Vos applications → </> Web
+      (créez une application Web si aucune n'existe encore)
+   3. Copiez l'objet "firebaseConfig" affiché et collez-le ci-dessous,
+      à la place de l'objet vide.
+   Tant que cet objet reste vide, l'outil fonctionne uniquement en
+   local (localStorage) — rien ne casse, mais rien ne se synchronise.
+*/
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDHbiAC8mfdg2ToiqytMgPUxWGEYNYf5RU",
+  authDomain: "ddms-architectures.firebaseapp.com",
+  projectId: "ddms-architectures",
+  storageBucket: "ddms-architectures.firebasestorage.app",
+  messagingSenderId: "767552965189",
+  appId: "1:767552965189:web:5b0c5ab6cd5bf97a5fb12c"
+};
+const FIRESTORE_COLLECTION = "catalogue_domotique"; // équipements et prix HT (une ligne = un document)
+const FIRESTORE_BROUILLON  = "devis_en_cours";      // sélection en cours : produits cochés, quantités, client, TVA (document « courant »)
+const FIRESTORE_DEVIS      = "devis";               // historique : un document par devis PDF généré
+
+/* ═══════════════════════════════════════════════════════════════
+   DONNÉES DE DÉPART — catalogue déduit de la formation Datalink CI
+   et de la nomenclature complète fournie par Dean, dédupliquée.
+   ═══════════════════════════════════════════════════════════════ */
+// Fiche détaillée de chaque équipement : choix possibles, points à vérifier, à savoir (lecture seule, non stockée en base)
+const DETAILS = {
+ "Caméra IP intérieure": {
+  "c": [
+   "Fixe ou orientable (moteur)",
+   "Résolution de 2 MP (1080p) à 4 MP ou plus",
+   "Wi-Fi seul, ou Wi-Fi + câble réseau",
+   "Stockage : carte SD, cloud ou enregistreur",
+   "Avec ou sans vision de nuit, micro et haut-parleur"
+  ],
+  "v": [
+   "Compatible Tuya / Smart Life",
+   "Alimentation par adaptateur (prise européenne)",
+   "Vision de nuit et détection de mouvement",
+   "Wi-Fi 2,4 GHz : beaucoup de caméras n'acceptent pas le 5 GHz"
+  ],
+  "n": "Sans carte SD ni abonnement cloud, il n'y a pas d'enregistrement : seulement l'image en direct."
+ },
+ "Caméra IP extérieure": {
+  "c": [
+   "Forme tube (bullet) ou dôme",
+   "Wi-Fi, câble réseau ou PoE",
+   "Résolution de 2 à 8 MP",
+   "Vision de nuit infrarouge ou en couleur",
+   "Avec projecteur et sirène intégrés"
+  ],
+  "v": [
+   "Indice d'étanchéité IP65 ou plus",
+   "Alimentation 12 V ou PoE (prévoir l'adaptateur)",
+   "Température de fonctionnement (chaleur)",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "IP65 protège de la pluie et de la poussière ; IP67 supporte même une immersion courte."
+ },
+ "Caméra Wi-Fi sur batterie / solaire": {
+  "c": [
+   "Batterie rechargeable seule (recharge par câble)",
+   "Batterie + petit panneau solaire",
+   "Wi-Fi ou 4G (avec carte SIM)",
+   "Avec ou sans station de base"
+  ],
+  "v": [
+   "Capacité de la batterie (mAh) et autonomie annoncée",
+   "Taille et puissance du panneau solaire",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Elle filme surtout quand elle détecte un mouvement, pour économiser la batterie."
+ },
+ "Caméra PoE": {
+  "c": [
+   "Fixe : tube (bullet) ou dôme",
+   "Résolution de 2 à 8 MP",
+   "Avec ou sans micro",
+   "Avec ou sans projecteur"
+  ],
+  "v": [
+   "Norme PoE compatible avec ton switch ou ton enregistreur (802.3af ou 802.3at)",
+   "ONVIF si elle doit fonctionner avec un enregistreur d'une autre marque",
+   "Câble réseau de bonne qualité (Cat5e ou Cat6), 100 m maximum"
+  ],
+  "n": "Il faut un switch PoE ou un enregistreur NVR PoE. Sinon, ajoute un injecteur PoE."
+ },
+ "Caméra PTZ motorisée": {
+  "c": [
+   "Intérieure ou extérieure",
+   "Zoom numérique ou optique (5x, 10x, 20x…)",
+   "Suivi automatique des personnes ou non",
+   "Wi-Fi, câble ou PoE"
+  ],
+  "v": [
+   "Type de zoom : l'optique garde une image nette, le numérique la dégrade",
+   "Angle de rotation, horizontal et vertical",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Une caméra fixe grand angle coûte moins cher et couvre souvent aussi bien."
+ },
+ "Caméra panoramique 360°": {
+  "c": [
+   "Objectif fisheye fixe (image redressée ensuite)",
+   "Caméra en forme d'ampoule (se visse dans une douille)",
+   "Version motorisée à double objectif"
+  ],
+  "v": [
+   "Résolution suffisante (au moins 3 MP) pour zoomer dans l'image",
+   "Modes d'affichage : panoramique, quadrant, 360°",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Placée au centre d'une pièce, elle peut remplacer plusieurs caméras."
+ },
+ "Caméra avec IA (personne/véhicule/colis)": {
+  "c": [
+   "Détection de personne seule",
+   "Personne + véhicule + animal + colis",
+   "Suivi automatique du mouvement",
+   "Reconnaissance de visages (selon le modèle)"
+  ],
+  "v": [
+   "L'IA fonctionne-t-elle dans la caméra ou dans le cloud ?",
+   "Vision de nuit en couleur",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Une IA dans la caméra marche sans abonnement ; une IA dans le cloud est souvent payante."
+ },
+ "Sonnette vidéo connectée": {
+  "c": [
+   "Sur pile rechargeable, ou câblée sur transformateur",
+   "Avec ou sans carillon intérieur",
+   "Résolution de 2 MP ou plus",
+   "Wi-Fi 2,4 GHz"
+  ],
+  "v": [
+   "Alimentation : pile (autonomie) ou 12-24 V",
+   "Vision de nuit et angle de vue large",
+   "Communication dans les deux sens (micro et haut-parleur)",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Le modèle sur pile s'installe sans câbler, mais il faut recharger la pile."
+ },
+ "Interphone vidéo IP / visiophone": {
+  "c": [
+   "Platine de rue seule, ou kit avec écran",
+   "Filaire (2 fils ou réseau) ou Wi-Fi",
+   "Commande d'ouverture d'un portillon ou d'un portail",
+   "Avec lecteur de badge ou de code intégré"
+  ],
+  "v": [
+   "Sortie relais pour commander la gâche ou le portail",
+   "Étanchéité de la platine extérieure (IP65)",
+   "Compatible Tuya / Smart Life ou norme SIP"
+  ],
+  "n": "Le câblage entre l'entrée et la maison est souvent le plus gros du travail."
+ },
+ "Moniteur intérieur vidéo": {
+  "c": [
+   "Écran de 7 pouces, tactile ou à boutons",
+   "Filaire ou Wi-Fi",
+   "Avec enregistrement de photos ou de vidéos (carte SD)",
+   "Un ou plusieurs moniteurs par platine de rue"
+  ],
+  "v": [
+   "Compatible avec la platine extérieure (même marque et même norme)",
+   "Nombre de moniteurs acceptés",
+   "Alimentation 12-24 V ou PoE"
+  ],
+  "n": "Prends le moniteur et la platine chez le même fournisseur, ou vérifie leur compatibilité."
+ },
+ "Enregistreur NVR": {
+  "c": [
+   "4, 8, 16 ou 32 voies (caméras)",
+   "Avec ou sans ports PoE intégrés",
+   "1 ou 2 emplacements de disque dur",
+   "Résolution jusqu'à 4K"
+  ],
+  "v": [
+   "Nombre de caméras acceptées",
+   "ONVIF pour accepter des caméras d'autres marques",
+   "Résolution maximale par voie",
+   "Capacité maximale de disque dur"
+  ],
+  "n": "Il est souvent vendu sans disque dur : à acheter à part."
+ },
+ "Enregistreur DVR": {
+  "c": [
+   "4, 8, 16 ou 32 voies",
+   "Analogique seul, ou hybride (analogique + IP)",
+   "Résolution de 2 à 5 MP",
+   "1 ou 2 disques"
+  ],
+  "v": [
+   "Type de caméras acceptées : AHD, TVI, CVI ou analogique",
+   "Nombre de voies et résolution maximale",
+   "Application pour voir à distance"
+  ],
+  "n": "Un DVR hybride accepte aussi des caméras IP, ce qui évite de tout changer plus tard."
+ },
+ "Disque dur pour vidéosurveillance": {
+  "c": [
+   "Capacités de 1, 2, 4, 6 To ou plus",
+   "Disque « surveillance » ou disque SSD"
+  ],
+  "v": [
+   "Disque conçu pour l'écriture continue (surveillance)",
+   "Capacité maximale acceptée par l'enregistreur",
+   "Format 3,5 pouces (2,5 pouces pour certains modèles)"
+  ],
+  "n": "La durée d'enregistrement dépend du nombre de caméras, de leur résolution et de la compression (H.265 économise de la place)."
+ },
+ "Projecteur avec caméra intégrée": {
+  "c": [
+   "Projecteur LED de 10 à 50 W",
+   "Wi-Fi ou câble",
+   "Avec sirène ou alarme intégrée",
+   "Avec micro et haut-parleur"
+  ],
+  "v": [
+   "Étanchéité IP65 minimum",
+   "Détection de mouvement et portée réglable",
+   "Alimentation 220 V (raccordement fixe)",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Il se raccorde au 220 V comme un projecteur classique : fais-le poser par un électricien."
+ },
+ "Détecteur d'ouverture porte/fenêtre": {
+  "c": [
+   "Zigbee, Wi-Fi ou Bluetooth",
+   "Pile bouton (CR2032) ou pile AAA",
+   "Blanc ou noir, petit ou grand format",
+   "Pour porte, fenêtre ou tiroir"
+  ],
+  "v": [
+   "Protocole adapté à ta passerelle (Zigbee, Wi-Fi ou Bluetooth)",
+   "Autonomie de la pile annoncée",
+   "Écart maximal entre les deux pièces"
+  ],
+  "n": "En Zigbee, la pile tient bien plus longtemps qu'en Wi-Fi."
+ },
+ "Détecteur de mouvement PIR": {
+  "c": [
+   "Zigbee, Wi-Fi ou Bluetooth",
+   "Intérieur ou extérieur",
+   "Fixé au mur ou dans un angle",
+   "Avec ou sans mesure de luminosité"
+  ],
+  "v": [
+   "Portée en mètres et angle de détection",
+   "Sensibilité réglable, protection contre les animaux",
+   "Autonomie de la pile"
+  ],
+  "n": "Ne le place pas face au soleil, à une fenêtre ou à un climatiseur : ils créent de fausses alertes."
+ },
+ "Détecteur de mouvement double technologie": {
+  "c": [
+   "Infrarouge + micro-ondes",
+   "Filaire ou sans fil",
+   "Intérieur ou extérieur",
+   "Avec ou sans immunité aux animaux"
+  ],
+  "v": [
+   "Portée et angle",
+   "Alimentation : pile ou 12 V",
+   "Compatible avec ta centrale d'alarme"
+  ],
+  "n": "Il coûte plus cher qu'un détecteur PIR simple, mais donne moins de fausses alertes."
+ },
+ "Détecteur de bris de vitre": {
+  "c": [
+   "Acoustique : il écoute le bruit",
+   "Vibration : il se colle sur la vitre",
+   "Sans fil ou filaire"
+  ],
+  "v": [
+   "Portée d'écoute en mètres",
+   "Compatible avec ta centrale d'alarme",
+   "Types de vitre pris en charge : simple, feuilletée, trempée"
+  ],
+  "n": "Un détecteur acoustique peut surveiller plusieurs fenêtres d'une même pièce."
+ },
+ "Détecteur de vibration": {
+  "c": [
+   "Zigbee ou Wi-Fi",
+   "À pile",
+   "Sensibilité réglable"
+  ],
+  "v": [
+   "Sensibilité réglable pour éviter les fausses alertes",
+   "Autonomie de la pile",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Utile sur une porte blindée, un coffre ou une vitrine."
+ },
+ "Barrière infrarouge": {
+  "c": [
+   "1, 2, 3 ou 4 faisceaux",
+   "Portée de 10 à 200 m",
+   "Filaire ou sans fil",
+   "Intérieure ou extérieure"
+  ],
+  "v": [
+   "Portée réelle en extérieur : elle diminue avec la pluie et le brouillard",
+   "Nombre de faisceaux : plusieurs évitent les fausses alertes",
+   "Alimentation 12 V",
+   "Compatible avec ta centrale d'alarme"
+  ],
+  "n": "Un seul faisceau se déclenche pour un oiseau ou un insecte ; 2 à 4 faisceaux sont plus fiables."
+ },
+ "Capteur d'ouverture portail/garage": {
+  "c": [
+   "Aimant + capteur classique",
+   "Version renforcée pour gros portail",
+   "Zigbee, Wi-Fi ou filaire"
+  ],
+  "v": [
+   "Écart maximal entre l'aimant et le capteur (plus large que pour une porte)",
+   "Résistance à l'extérieur (IP65)",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": ""
+ },
+ "Centrale d'alarme": {
+  "c": [
+   "Wi-Fi seul, Wi-Fi + GSM (carte SIM) ou 4G",
+   "Nombre d'appareils acceptés : 32, 64, 100 ou plus",
+   "Avec batterie de secours intégrée",
+   "Avec sirène intégrée ou non"
+  ],
+  "v": [
+   "Autonomie de la batterie en cas de coupure de courant",
+   "Accessoires compatibles (radio 433 MHz ou Zigbee)",
+   "Appel ou SMS en plus de l'application",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Avec les coupures de courant, la batterie de secours et la carte SIM comptent : le Wi-Fi peut tomber avec le courant."
+ },
+ "Sirène intérieure": {
+  "c": [
+   "Wi-Fi ou Zigbee",
+   "Sur secteur, sur pile ou avec batterie",
+   "Volume de 85 à 110 dB"
+  ],
+  "v": [
+   "Volume en décibels (dB)",
+   "Alimentation et batterie de secours",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Au-dessus de 100 dB, le bruit devient très pénible pour un intrus."
+ },
+ "Sirène extérieure avec flash": {
+  "c": [
+   "Filaire ou sans fil",
+   "Avec batterie de secours",
+   "Flash rouge, bleu ou blanc",
+   "Wi-Fi, Zigbee ou radio 433 MHz"
+  ],
+  "v": [
+   "Étanchéité IP65 ou plus",
+   "Volume (dB) et durée de sonnerie réglable",
+   "Alarme anti-arrachement (boîtier ouvert)",
+   "Batterie intégrée"
+  ],
+  "n": ""
+ },
+ "Clavier / télécommande d'alarme": {
+  "c": [
+   "Clavier à code",
+   "Télécommande porte-clés",
+   "Clavier avec lecteur de badge",
+   "Sur pile ou branché"
+  ],
+  "v": [
+   "Compatible avec ta centrale (même fréquence ou même protocole)",
+   "Clavier rétroéclairé",
+   "Autonomie de la pile"
+  ],
+  "n": ""
+ },
+ "Bouton SOS / panique": {
+  "c": [
+   "Bouton mural",
+   "Pendentif ou bracelet",
+   "Zigbee, Wi-Fi ou radio 433 MHz"
+  ],
+  "v": [
+   "Étanchéité si on le porte (douche, extérieur)",
+   "Portée du signal radio",
+   "Autonomie de la pile"
+  ],
+  "n": "Utile pour une personne âgée ou isolée."
+ },
+ "Badge / lecteur RFID (alarme)": {
+  "c": [
+   "Badge, porte-clés ou carte",
+   "Fréquence 125 kHz ou 13,56 MHz",
+   "Lecteur intégré au clavier ou séparé"
+  ],
+  "v": [
+   "Fréquence compatible avec ta centrale",
+   "Nombre de badges enregistrables"
+  ],
+  "n": ""
+ },
+ "Serrure connectée": {
+  "c": [
+   "Ouverture par code, empreinte, badge, clé ou application",
+   "Wi-Fi direct, ou Bluetooth + passerelle",
+   "Serrure complète, ou poignée à monter sur ta porte",
+   "Pile AA ou batterie rechargeable"
+  ],
+  "v": [
+   "Dimensions de la mortaise adaptées à ta porte",
+   "Épaisseur de la porte et sens d'ouverture (gauche ou droite)",
+   "Ouverture de secours par clé",
+   "Autonomie de la pile et alerte de pile faible"
+  ],
+  "n": "Prévois toujours une clé mécanique de secours."
+ },
+ "Poignée / cylindre connecté": {
+  "c": [
+   "Cylindre européen à remplacer",
+   "Boîtier à poser sur la serrure existante",
+   "Avec ou sans clavier",
+   "Bluetooth ou Wi-Fi"
+  ],
+  "v": [
+   "Longueur du cylindre adaptée à ta porte (en mm)",
+   "Compatible avec ta serrure actuelle",
+   "Autonomie de la pile"
+  ],
+  "n": "Mesure ton cylindre actuel avant d'acheter."
+ },
+ "Gâche / ventouse électromagnétique": {
+  "c": [
+   "Gâche électrique 12 V pour porte ou portillon",
+   "Ventouse électromagnétique (force de 180 à 600 kg)",
+   "Modèle qui s'ouvre sans courant, ou qui reste verrouillé sans courant"
+  ],
+  "v": [
+   "Force de retenue de la ventouse en kg",
+   "Alimentation 12 V ou 24 V",
+   "Comportement en cas de coupure de courant, à choisir selon la porte",
+   "Type de porte : bois, métal, verre"
+  ],
+  "n": "Pour une issue de secours, choisis un modèle qui s'ouvre sans courant."
+ },
+ "Contrôleur d'accès (badge/code/empreinte/facial)": {
+  "c": [
+   "Badge, code, empreinte, visage ou combinaison",
+   "Autonome ou en réseau",
+   "Intérieur ou extérieur",
+   "Capacité de 500 à plusieurs milliers d'utilisateurs"
+  ],
+  "v": [
+   "Sortie relais pour commander la gâche ou le portail",
+   "Étanchéité IP65 pour l'extérieur",
+   "Nombre d'utilisateurs et d'événements mémorisés",
+   "Alimentation 12 V"
+  ],
+  "n": ""
+ },
+ "Motorisation de portail": {
+  "c": [
+   "Portail battant (bras) ou coulissant (crémaillère)",
+   "Poids maximum du portail : 300, 500, 800 kg ou plus",
+   "Alimentation 220 V ou solaire",
+   "Avec ou sans batterie de secours"
+  ],
+  "v": [
+   "Poids et largeur de ton portail",
+   "Batterie de secours pour les coupures de courant",
+   "Cellules de sécurité (photocellules)",
+   "Télécommande radio ou Wi-Fi"
+  ],
+  "n": "Un moteur trop faible s'use vite : prévois une marge sur le poids."
+ },
+ "Motorisation de porte de garage": {
+  "c": [
+   "Porte sectionnelle ou basculante",
+   "Moteur au plafond (rail) ou sur le côté",
+   "Force de 600 N, 800 N ou 1000 N",
+   "Avec ou sans batterie de secours"
+  ],
+  "v": [
+   "Surface et poids de la porte",
+   "Hauteur de la porte compatible avec le rail",
+   "Déverrouillage manuel de secours",
+   "Cellules de sécurité (photocellules)"
+  ],
+  "n": ""
+ },
+ "Détecteur de fumée connecté": {
+  "c": [
+   "Wi-Fi ou Zigbee",
+   "Pile 3 V, pile 9 V ou batterie de 10 ans",
+   "Fumée seule, ou fumée + chaleur",
+   "Photoélectrique ou ionique"
+  ],
+  "v": [
+   "Norme EN 14604 (détecteurs de fumée)",
+   "Volume de l'alarme (85 dB ou plus)",
+   "Autonomie de la pile",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Le détecteur photoélectrique réagit mieux aux feux qui couvent avant de flamber."
+ },
+ "Détecteur de monoxyde de carbone": {
+  "c": [
+   "Wi-Fi ou Zigbee",
+   "Sur pile ou sur secteur",
+   "Combiné fumée + monoxyde de carbone"
+  ],
+  "v": [
+   "Norme EN 50291",
+   "Durée de vie du capteur (5 à 7 ans)",
+   "Volume de l'alarme (85 dB)"
+  ],
+  "n": "Un groupe électrogène doit toujours rester dehors, à l'air libre."
+ },
+ "Détecteur de fuite de gaz": {
+  "c": [
+   "Gaz naturel (méthane) ou GPL (gaz de bouteille)",
+   "Sur secteur ou sur pile",
+   "Avec sortie pour électrovanne"
+  ],
+  "v": [
+   "Type de gaz détecté : méthane, GPL, ou les deux",
+   "Alimentation 220 V (souvent)",
+   "Hauteur de pose : basse pour le GPL, haute pour le méthane"
+  ],
+  "n": "Le gaz de bouteille (butane, propane) est plus lourd que l'air : le capteur se pose près du sol."
+ },
+ "Détecteur de fuite d'eau / inondation": {
+  "c": [
+   "Wi-Fi ou Zigbee",
+   "À pile",
+   "Avec sonde déportée (câble)",
+   "Avec sirène intégrée"
+  ],
+  "v": [
+   "Autonomie de la pile",
+   "Longueur du câble de la sonde",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Place-le sous l'évier, derrière la machine à laver, près du chauffe-eau."
+ },
+ "Électrovanne de coupure (eau/gaz)": {
+  "c": [
+   "Eau (laiton) ou gaz (certifiée)",
+   "Diamètres 1/2, 3/4 ou 1 pouce",
+   "Normalement fermée ou normalement ouverte",
+   "Alimentation 12 V ou 220 V"
+  ],
+  "v": [
+   "Diamètre de ta canalisation",
+   "Certification gaz : n'utilise jamais une vanne d'eau sur du gaz",
+   "Pression de fonctionnement",
+   "Comportement en cas de coupure de courant"
+  ],
+  "n": "Pour le gaz, fais-la poser par un professionnel."
+ },
+ "Ampoule connectée": {
+  "c": [
+   "Culot E27 (gros), E14 (petit) ou B22",
+   "Blanche seule, blanc chaud/froid réglable, ou couleurs (RGB)",
+   "Wi-Fi ou Zigbee",
+   "Puissance de 5 à 15 W"
+  ],
+  "v": [
+   "Culot de tes douilles (E27 ou B22)",
+   "Tension 220-240 V",
+   "Puissance et lumens (luminosité)",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "En Zigbee, les ampoules servent aussi de relais pour le réseau."
+ },
+ "Ruban LED connecté": {
+  "c": [
+   "Couleur unique, blanc réglable ou RGB (multicolore)",
+   "Longueur de 2, 5 ou 10 m",
+   "Alimentation 12 V ou 24 V avec transformateur",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Tension (12 V ou 24 V) et puissance du transformateur",
+   "Nombre de LED par mètre",
+   "Étanchéité IP65 en extérieur ou en salle de bain",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Un transformateur trop faible fait chauffer ou clignoter le ruban."
+ },
+ "Spot / plafonnier connecté": {
+  "c": [
+   "Spot encastré (trou de 70 à 90 mm) ou plafonnier à poser",
+   "Blanc réglable ou RGB",
+   "Puissance de 5 à 36 W"
+  ],
+  "v": [
+   "Diamètre du trou de perçage",
+   "Alimentation 220-240 V, driver inclus",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": ""
+ },
+ "Interrupteur mural connecté": {
+  "c": [
+   "1, 2, 3 ou 4 boutons",
+   "Avec ou sans fil neutre",
+   "Wi-Fi ou Zigbee",
+   "Tactile ou à bouton poussoir",
+   "Plaque 86 × 86 mm (norme chinoise) ou format européen"
+  ],
+  "v": [
+   "Fil neutre : présent ou non dans ta boîte d'encastrement",
+   "Taille de la plaque et de la boîte",
+   "Puissance maximale par bouton",
+   "Tension 220-240 V"
+  ],
+  "n": "Beaucoup de boîtes d'encastrement n'ont pas de fil neutre : demande la version « sans neutre »."
+ },
+ "Variateur connecté": {
+  "c": [
+   "Variateur mural, ou module caché",
+   "Compatible LED ou incandescence",
+   "Wi-Fi ou Zigbee",
+   "1 ou 2 canaux"
+  ],
+  "v": [
+   "Compatibilité avec tes lampes LED (« LED dimmable »)",
+   "Charge minimale et maximale en W",
+   "Fil neutre requis ou non"
+  ],
+  "n": "Une ampoule LED non dimmable clignote avec un variateur."
+ },
+ "Prise connectée": {
+  "c": [
+   "Wi-Fi ou Zigbee",
+   "Prise européenne (type C/E), 16 A ou 10 A",
+   "Avec ou sans mesure de consommation",
+   "Format mini (10 A) ou standard (16 A)"
+  ],
+  "v": [
+   "Puissance maximale : 10 A = 2 300 W, 16 A = 3 680 W",
+   "Prise type C/E, la norme de la Côte d'Ivoire",
+   "Certification CE",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Ne branche jamais un appareil qui dépasse la puissance maximale de la prise."
+ },
+ "Capteur de présence / luminosité": {
+  "c": [
+   "Présence par infrarouge ou par radar (micro-ondes)",
+   "Zigbee ou Wi-Fi",
+   "Sur pile ou sur secteur"
+  ],
+  "v": [
+   "Portée et angle",
+   "Capteur de luminosité (lux) réglable",
+   "Alimentation : pile ou 5 V"
+  ],
+  "n": "Un capteur radar détecte même une personne immobile, ce qu'un capteur infrarouge simple peut manquer."
+ },
+ "Volet roulant motorisé": {
+  "c": [
+   "Moteur tubulaire à glisser dans le tube du volet",
+   "Moteur radio ou Wi-Fi",
+   "Couple de 6, 10, 20 ou 30 Nm selon le poids",
+   "Fins de course réglables"
+  ],
+  "v": [
+   "Diamètre du tube du volet (45 mm ou 59 mm par exemple)",
+   "Couple (Nm) adapté à la taille et au poids du volet",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Mesure la largeur, la hauteur et le tube du volet avant de choisir le moteur."
+ },
+ "Store motorisé (intérieur/extérieur)": {
+  "c": [
+   "Store banne extérieur ou store intérieur (enrouleur)",
+   "Moteur radio ou Wi-Fi",
+   "Avec ou sans capteur de vent"
+  ],
+  "v": [
+   "Poids et dimensions du store",
+   "Type de moteur (tubulaire ou à courroie)",
+   "Capteur de vent pour protéger le store"
+  ],
+  "n": ""
+ },
+ "Rideau motorisé": {
+  "c": [
+   "Rail motorisé complet, ou robot à fixer sur un rail existant",
+   "Rail droit ou courbe",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Longueur du rail",
+   "Poids maximal du rideau",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": ""
+ },
+ "Commande murale / télécommande volet": {
+  "c": [
+   "Interrupteur mural monter / descendre / stop",
+   "Télécommande radio 433 MHz, de 1 à 16 canaux"
+  ],
+  "v": [
+   "Fréquence radio identique à celle du moteur",
+   "Nombre de volets commandés (canaux)"
+  ],
+  "n": "Prends la commande de la même marque que le moteur."
+ },
+ "Thermostat connecté": {
+  "c": [
+   "Pour chauffage électrique, chaudière ou climatiseur",
+   "Wi-Fi ou Zigbee",
+   "Tactile ou à boutons",
+   "Avec sonde de sol"
+  ],
+  "v": [
+   "Charge maximale en ampères (16 A pour un chauffage électrique)",
+   "Type de système commandé",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Vérifie qu'il gère le mode rafraîchissement si tu veux piloter un climatiseur."
+ },
+ "Module IR pour climatiseur": {
+  "c": [
+   "Boîtier rond ou carré à poser dans la pièce",
+   "Avec ou sans capteur de température et d'humidité",
+   "Wi-Fi ou Zigbee",
+   "Peut aussi remplacer les télécommandes de la télé et du décodeur"
+  ],
+  "v": [
+   "Marque de ton split dans la liste des marques prises en charge",
+   "Portée infrarouge (environ 8 à 10 m)",
+   "Alimentation 5 V (USB)",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Il reproduit la télécommande : il ne connaît pas l'état réel du split si quelqu'un utilise la vraie télécommande."
+ },
+ "Ventilateur connecté": {
+  "c": [
+   "Sur pied, brasseur d'air de plafond ou tour",
+   "Wi-Fi ou télécommande",
+   "Avec ou sans variation de vitesse",
+   "Avec éclairage intégré (plafond)"
+  ],
+  "v": [
+   "Puissance et tension 220-240 V",
+   "Vitesses réglables depuis l'application",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Avec un ventilateur classique, une prise connectée allume et éteint seulement : elle ne règle pas la vitesse."
+ },
+ "Chauffage / radiateur connecté": {
+  "c": [
+   "Radiateur électrique ou sèche-serviettes",
+   "Panneau rayonnant Wi-Fi",
+   "Programmable par semaine"
+  ],
+  "v": [
+   "Puissance (W) adaptée à la pièce",
+   "Tension 220-240 V",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Produit peu demandé sous un climat chaud."
+ },
+ "Vanne thermostatique intelligente": {
+  "c": [
+   "Tête à visser sur un radiateur à eau",
+   "Wi-Fi ou Zigbee",
+   "Fonctionne sur pile AA"
+  ],
+  "v": [
+   "Filetage compatible avec ton radiateur (M30×1,5 en général)",
+   "Autonomie de la pile"
+  ],
+  "n": "Elle ne sert que sur un chauffage central à eau chaude, rare sous ton climat."
+ },
+ "Capteur température / humidité": {
+  "c": [
+   "Zigbee ou Wi-Fi",
+   "Avec ou sans écran",
+   "Pile bouton ou pile AAA",
+   "Intérieur, ou extérieur avec sonde déportée"
+  ],
+  "v": [
+   "Précision (± 0,3 °C par exemple)",
+   "Autonomie de la pile",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Il peut déclencher un scénario : par exemple allumer le climatiseur au-dessus de 30 °C."
+ },
+ "Enceinte connectée": {
+  "c": [
+   "Avec assistant vocal intégré (Google, Alexa)",
+   "Sans assistant, avec Bluetooth ou Wi-Fi seulement",
+   "Petit ou grand format",
+   "Sur secteur ou sur batterie"
+  ],
+  "v": [
+   "Assistant vocal disponible en français",
+   "Wi-Fi 2,4 GHz et 5 GHz",
+   "Puissance du son",
+   "Compatible Google Home ou Alexa"
+  ],
+  "n": ""
+ },
+ "Barre de son connectée": {
+  "c": [
+   "2.0, 2.1 ou 5.1 canaux",
+   "Avec ou sans caisson de basses",
+   "Entrée HDMI ARC, optique ou Bluetooth"
+  ],
+  "v": [
+   "Connexion possible avec ta télé (HDMI ARC ou optique)",
+   "Puissance (W) adaptée à la pièce",
+   "Wi-Fi si tu veux la piloter à distance"
+  ],
+  "n": ""
+ },
+ "Box TV / téléviseur connecté": {
+  "c": [
+   "Box Android TV ou Google TV",
+   "Téléviseur Smart TV",
+   "Résolution HD, Full HD ou 4K"
+  ],
+  "v": [
+   "Système : Android TV ou Google TV",
+   "Résolution 4K",
+   "Wi-Fi 5 GHz"
+  ],
+  "n": "Pour piloter depuis Google Home, choisis un modèle avec Chromecast intégré."
+ },
+ "Télécommande universelle": {
+  "c": [
+   "Boîtier infrarouge Wi-Fi, commandé par téléphone",
+   "Télécommande physique programmable",
+   "Avec radiofréquence (RF) en plus, pour volets et portails"
+  ],
+  "v": [
+   "Compatible avec les marques de tes appareils",
+   "Portée infrarouge",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "C'est le même type de boîtier que le module IR pour climatiseur."
+ },
+ "Réfrigérateur / four connecté": {
+  "c": [
+   "Modèles de marque avec application (LG, Samsung, Hisense…)",
+   "Fonctions : alerte porte ouverte, température, recettes"
+  ],
+  "v": [
+   "Application disponible dans ton pays et en français",
+   "Compatible Google Home ou Alexa",
+   "Tension 220-240 V"
+  ],
+  "n": "Achète-les chez un distributeur officiel pour avoir la garantie et le service après-vente."
+ },
+ "Machine à laver connectée": {
+  "c": [
+   "Lave-linge, ou lave-linge séchant",
+   "Marques avec application (LG ThinQ, Samsung SmartThings…)",
+   "Capacité de 7 à 12 kg"
+  ],
+  "v": [
+   "Application disponible et en français",
+   "Compatible Google Home ou Alexa",
+   "Fonction de démarrage à distance (souvent à activer sur la machine)"
+  ],
+  "n": "LG : l'application ThinQ fonctionne avec Google Assistant et Alexa."
+ },
+ "Machine à café connectée": {
+  "c": [
+   "Machine à capsules",
+   "Machine à grains automatique",
+   "Cafetière filtre programmable"
+  ],
+  "v": [
+   "Application et compatibilité Google Home ou Alexa",
+   "Remplissage du réservoir à faire à l'avance"
+  ],
+  "n": "Il faut préparer l'eau et le café avant : seule la mise en marche se fait à distance."
+ },
+ "Prise connectée pour gros appareil": {
+  "c": [
+   "16 A (3 680 W)",
+   "20 A ou plus, prises industrielles",
+   "Avec mesure de consommation",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Puissance de l'appareil branché (chauffe-eau, machine…)",
+   "16 A réels, certifiés CE",
+   "Bornes vissées solides"
+  ],
+  "n": "Pour un chauffe-eau, préfère un contacteur ou un relais dans le tableau électrique."
+ },
+ "Chauffe-eau connecté": {
+  "c": [
+   "Chauffe-eau avec application intégrée",
+   "Chauffe-eau classique + relais connecté dans le tableau",
+   "Capacité de 50, 80 ou 100 litres"
+  ],
+  "v": [
+   "Puissance (W) et tension 220-240 V",
+   "Relais adapté à la puissance (16 A ou 32 A)",
+   "Installation par un électricien"
+  ],
+  "n": "La solution avec relais s'adapte à ton chauffe-eau actuel, sans le changer."
+ },
+ "VMC connectée": {
+  "c": [
+   "Simple flux ou double flux",
+   "Avec détecteur d'humidité",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Débit d'air (m³/h) adapté à la surface",
+   "Niveau de bruit (dB)",
+   "Tension 220-240 V"
+  ],
+  "n": ""
+ },
+ "Miroir connecté": {
+  "c": [
+   "Miroir à LED tactile simple",
+   "Miroir avec écran intégré",
+   "Avec anti-buée et enceinte Bluetooth"
+  ],
+  "v": [
+   "Étanchéité IP44 minimum en salle de bain",
+   "Tension 220-240 V",
+   "Taille du miroir"
+  ],
+  "n": ""
+ },
+ "Détecteur d'humidité": {
+  "c": [
+   "Zigbee ou Wi-Fi",
+   "Avec ou sans écran",
+   "À pile"
+  ],
+  "v": [
+   "Plage de mesure (0 à 100 %)",
+   "Précision",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "C'est en général le même capteur que le capteur température + humidité."
+ },
+ "Arrosage automatique connecté": {
+  "c": [
+   "Programmateur de robinet (1 sortie) ou contrôleur multi-zones (2 à 8 zones)",
+   "Wi-Fi ou Zigbee",
+   "Sur pile ou sur secteur"
+  ],
+  "v": [
+   "Nombre de zones",
+   "Pression et débit d'eau",
+   "Raccord de tuyau adapté à ton robinet",
+   "Tension 24 V si tu ajoutes des électrovannes"
+  ],
+  "n": "Un programmateur de robinet suffit pour un petit jardin."
+ },
+ "Capteur d'humidité du sol / pluie": {
+  "c": [
+   "Sonde plantée dans la terre",
+   "Capteur de pluie",
+   "Zigbee ou Wi-Fi"
+  ],
+  "v": [
+   "Résistance de la sonde à l'eau et à la corrosion",
+   "Autonomie de la pile",
+   "Compatible avec ton programmateur d'arrosage"
+  ],
+  "n": ""
+ },
+ "Station météo connectée": {
+  "c": [
+   "Station intérieure seule",
+   "Station avec capteur extérieur (température, vent, pluie)",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Capteurs inclus (vent, pluie, UV)",
+   "Portée entre le capteur extérieur et la console",
+   "Alimentation solaire ou pile"
+  ],
+  "n": ""
+ },
+ "Éclairage extérieur connecté": {
+  "c": [
+   "Projecteur LED",
+   "Applique murale",
+   "Lampe solaire",
+   "Avec détecteur de mouvement"
+  ],
+  "v": [
+   "Étanchéité IP65 ou plus",
+   "Puissance et lumens",
+   "Alimentation 220 V ou solaire",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Les lampes solaires n'ont pas besoin de câble, mais éclairent moins fort."
+ },
+ "Robot tondeuse connecté": {
+  "c": [
+   "Avec câble périmétrique enterré",
+   "Sans câble (GPS ou vision)",
+   "Surface de 300 à 2 000 m² ou plus"
+  ],
+  "v": [
+   "Surface de ton terrain",
+   "Pente maximale gérée",
+   "Application et service après-vente disponibles"
+  ],
+  "n": "Choisis une marque avec un service après-vente."
+ },
+ "Pompe / filtration piscine connectée": {
+  "c": [
+   "Pompe fixe avec minuterie connectée",
+   "Relais connecté sur ta pompe actuelle",
+   "Pompe à vitesse variable"
+  ],
+  "v": [
+   "Puissance de la pompe (W)",
+   "Relais adapté (16 A ou plus)",
+   "Débit adapté au volume de la piscine"
+  ],
+  "n": ""
+ },
+ "Purificateur d'air connecté": {
+  "c": [
+   "Filtre HEPA (particules fines) avec charbon actif",
+   "Avec capteur de qualité de l'air intégré",
+   "Pour 20, 40 ou 60 m²"
+  ],
+  "v": [
+   "CADR (débit d'air propre)",
+   "Surface adaptée à la pièce",
+   "Prix et disponibilité des filtres de remplacement",
+   "Niveau de bruit (dB)"
+  ],
+  "n": ""
+ },
+ "Capteur CO₂ / COV / particules fines": {
+  "c": [
+   "CO₂ seul",
+   "CO₂ + température + humidité",
+   "CO₂ + COV + particules fines (PM2.5)",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Type de capteur CO₂ : NDIR (fiable) ou estimé (moins précis)",
+   "Étalonnage du capteur",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Un capteur NDIR mesure vraiment le CO₂ ; un capteur « équivalent » l'estime seulement."
+ },
+ "Interrupteur / relais connecté": {
+  "c": [
+   "Petit module de 1 à 4 canaux caché derrière l'interrupteur",
+   "Wi-Fi ou Zigbee",
+   "Avec ou sans fil neutre",
+   "Charge de 10 A à 16 A"
+  ],
+  "v": [
+   "Puissance maximale supportée",
+   "Fil neutre requis ou non",
+   "Taille compatible avec ta boîte d'encastrement",
+   "Contact sec (sans tension) ou sous tension"
+  ],
+  "n": "C'est la solution pour rendre connecté un interrupteur existant sans changer la plaque."
+ },
+ "Module relais DIN": {
+  "c": [
+   "1 à 4 canaux",
+   "Wi-Fi ou Zigbee",
+   "16 A, 32 A ou 63 A",
+   "Avec ou sans mesure de consommation"
+  ],
+  "v": [
+   "Calibre (A) adapté à la charge",
+   "Largeur du module (1 à 4 modules DIN)",
+   "Rail DIN standard de 35 mm",
+   "Installation par un électricien"
+  ],
+  "n": ""
+ },
+ "Prise / multiprise connectée": {
+  "c": [
+   "3 à 6 prises",
+   "Prises commandables séparément ou ensemble",
+   "Avec ports USB",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Puissance totale maximale (16 A = 3 680 W)",
+   "Type de prises (C/E)",
+   "Prises réellement contrôlables séparément"
+  ],
+  "n": "Certaines multiprises ne commandent que l'ensemble : lis la fiche."
+ },
+ "Contacteur / disjoncteur connecté": {
+  "c": [
+   "Contacteur (commande une charge) ou disjoncteur (protège)",
+   "1P, 2P ou 4P",
+   "16, 32 ou 63 A",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Calibre et courbe de déclenchement",
+   "Nombre de pôles (1P, 2P, 3P, 4P)",
+   "Certification CE et normes de protection",
+   "Installation par un électricien"
+  ],
+  "n": "Un contacteur commande une charge ; un disjoncteur protège. Ne les confonds pas."
+ },
+ "Compteur électrique intelligent": {
+  "c": [
+   "Monophasé ou triphasé",
+   "Sur rail DIN ou à pince",
+   "Wi-Fi ou Zigbee",
+   "Avec ou sans relais de coupure"
+  ],
+  "v": [
+   "Monophasé (maisons) ou triphasé (immeubles, usines)",
+   "Courant maximal (63 A, 100 A)",
+   "Précision et certification",
+   "Compatible Tuya / Smart Life"
+  ],
+  "n": "Il ne remplace pas le compteur de la CIE : il mesure en plus, sur ton tableau."
+ },
+ "Capteur de courant / tension": {
+  "c": [
+   "Pince ampèremétrique qui entoure le fil",
+   "Module de mesure sur rail DIN",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Courant maximal de la pince (50, 100 ou 200 A)",
+   "Monophasé ou triphasé",
+   "Diamètre de câble accepté"
+  ],
+  "n": "La pince se pose sans couper le fil, mais dans le tableau électrique : à faire par un électricien."
+ },
+ "Analyseur de puissance": {
+  "c": [
+   "Monophasé ou triphasé",
+   "Avec écran ou sans",
+   "Communication Modbus ou Wi-Fi",
+   "Mesure de l'énergie consommée et produite"
+  ],
+  "v": [
+   "Grandeurs mesurées : tension, courant, puissance, énergie",
+   "Précision (classe 1 ou 0,5)",
+   "Communication compatible avec ton système"
+  ],
+  "n": "C'est un appareil pour professionnels : un compteur intelligent suffit pour une maison."
+ },
+ "Gestionnaire d'énergie (energy gateway)": {
+  "c": [
+   "Boîtier avec pinces de mesure",
+   "Compatible solaire et batterie",
+   "Wi-Fi ou Ethernet"
+  ],
+  "v": [
+   "Nombre de circuits mesurables",
+   "Compatible avec ton onduleur ou tes compteurs",
+   "Application et cloud du fabricant"
+  ],
+  "n": ""
+ },
+ "Disjoncteur différentiel connecté": {
+  "c": [
+   "30 mA (protège les personnes) ou 300 mA",
+   "2P (monophasé) ou 4P (triphasé)",
+   "25, 40 ou 63 A",
+   "Wi-Fi ou Zigbee"
+  ],
+  "v": [
+   "Sensibilité 30 mA pour les prises et la salle de bain",
+   "Calibre selon ton installation",
+   "Certification CE et normes de protection",
+   "Installation par un électricien"
+  ],
+  "n": "Ne remplace jamais un différentiel toi-même : c'est un organe de sécurité."
+ },
+ "Parafoudre / protection surtension": {
+  "c": [
+   "Type 1, 2 ou 3",
+   "Monophasé ou triphasé",
+   "Avec témoin d'usure"
+  ],
+  "v": [
+   "Type adapté à ton installation (type 2 au tableau général)",
+   "Courant de décharge maximal (kA)",
+   "Disjoncteur de protection en amont",
+   "Mise à la terre correcte"
+  ],
+  "n": "Il ne protège que si la mise à la terre de la maison est bonne."
+ },
+ "Détecteur d'arc électrique": {
+  "c": [
+   "Module pour tableau électrique (AFDD)",
+   "1 ou 2 pôles"
+  ],
+  "v": [
+   "Norme des dispositifs de détection d'arc (EN 62606)",
+   "Calibre 16 A ou 32 A",
+   "Installation par un électricien"
+  ],
+  "n": "Produit peu courant : à proposer seulement sur demande."
+ },
+ "Onduleur (UPS) connecté": {
+  "c": [
+   "Line-interactive ou en ligne (double conversion)",
+   "Puissance de 600 VA à 3 kVA ou plus",
+   "Batterie interne ou externe",
+   "Port USB ou Wi-Fi pour le suivi"
+  ],
+  "v": [
+   "Puissance en VA ou W selon les appareils à alimenter",
+   "Autonomie en minutes",
+   "Onde sinusoïdale pure",
+   "Batterie remplaçable"
+  ],
+  "n": "Pour une passerelle et un routeur, un petit modèle de 600 à 1 000 VA tient plusieurs heures."
+ },
+ "Batterie domestique / stockage": {
+  "c": [
+   "Batterie lithium (LiFePO4) ou plomb-gel",
+   "Capacité de 2 à 15 kWh",
+   "Basse tension (48 V) ou haute tension",
+   "Murale ou sur pied"
+  ],
+  "v": [
+   "Capacité utile (kWh) et puissance de sortie (kW)",
+   "Nombre de cycles de charge",
+   "Compatible avec ton onduleur",
+   "Certifications de sécurité et de transport"
+  ],
+  "n": "Les batteries au lithium sont des marchandises réglementées à l'expédition."
+ },
+ "Inverseur de source automatique (ATS)": {
+  "c": [
+   "2P ou 4P",
+   "De 16 A à 125 A",
+   "Réseau / groupe électrogène, ou réseau / onduleur",
+   "Monophasé ou triphasé"
+  ],
+  "v": [
+   "Calibre supérieur au courant de la maison",
+   "Temps de bascule (moins de 2 secondes)",
+   "Installation obligatoire par un électricien"
+  ],
+  "n": "Il empêche le courant du groupe électrogène de repartir dans le réseau."
+ },
+ "Panneau photovoltaïque": {
+  "c": [
+   "Monocristallin (meilleur rendement) ou polycristallin",
+   "Puissance de 100 à 600 W",
+   "Format 12 V ou 24 V pour petits systèmes",
+   "Cadre rigide ou souple"
+  ],
+  "v": [
+   "Puissance (W) et tension (V)",
+   "Garantie de puissance (souvent 25 ans)",
+   "Dimensions et poids",
+   "Certification IEC"
+  ],
+  "n": "Prévois la surface libre sur le toit avant de choisir la taille."
+ },
+ "Micro-onduleur / onduleur solaire": {
+  "c": [
+   "Micro-onduleur (un par panneau)",
+   "Onduleur pour plusieurs panneaux (string)",
+   "Hybride (avec batterie)",
+   "Autonome, sans réseau (off-grid)"
+  ],
+  "v": [
+   "Puissance de l'onduleur supérieure ou égale à celle des panneaux",
+   "Réseau 220-240 V, 50 Hz",
+   "Rendement et suivi par Wi-Fi",
+   "Type : injection réseau, hybride ou autonome"
+  ],
+  "n": "Un onduleur qui injecte dans le réseau s'arrête pendant une coupure. Un onduleur hybride ou autonome continue de fournir du courant."
+ },
+ "Batterie et régulateur solaire": {
+  "c": [
+   "Régulateur PWM (simple) ou MPPT (plus efficace)",
+   "Système 12 V, 24 V ou 48 V",
+   "Batterie plomb, gel ou lithium"
+  ],
+  "v": [
+   "Courant du régulateur (20, 40 ou 60 A)",
+   "Tension du système (12, 24 ou 48 V)",
+   "Type de batterie accepté par le régulateur"
+  ],
+  "n": "Le MPPT récupère environ 10 à 30 % d'énergie de plus qu'un PWM."
+ },
+ "Monitoring photovoltaïque": {
+  "c": [
+   "Module Wi-Fi sur l'onduleur",
+   "Compteur d'énergie à pince",
+   "Application du fabricant"
+  ],
+  "v": [
+   "Compatible avec la marque de ton onduleur",
+   "Mesure de la production et de la consommation"
+  ],
+  "n": ""
+ },
+ "Borne de recharge (wallbox) connectée": {
+  "c": [
+   "Puissance de 3,7 kW, 7,4 kW ou 22 kW",
+   "Monophasé ou triphasé",
+   "Prise Type 2, avec câble fixe ou sans câble",
+   "Wi-Fi et application"
+  ],
+  "v": [
+   "Puissance disponible dans ta maison",
+   "Type de prise de la voiture (Type 2, CCS, GB/T)",
+   "Longueur du câble (5 ou 7 m)",
+   "Installation par un électricien"
+  ],
+  "n": "Vérifie que ton abonnement électrique supporte la puissance de la borne."
+ },
+ "Gestionnaire de charge / délestage": {
+  "c": [
+   "Module qui mesure la consommation totale de la maison",
+   "Intégré à la borne, ou séparé",
+   "Compatible solaire"
+  ],
+  "v": [
+   "Compatible avec ta borne",
+   "Mesure du courant au tableau (pinces)",
+   "Monophasé ou triphasé"
+  ],
+  "n": "Il réduit la puissance de la recharge quand la maison consomme trop."
+ },
+ "Hub / centrale domotique": {
+  "c": [
+   "Hub Wi-Fi + Zigbee + Bluetooth",
+   "Hub multiprotocole (Zigbee, Z-Wave, Matter…)",
+   "Avec enceinte ou écran intégrés",
+   "Avec batterie de secours"
+  ],
+  "v": [
+   "Protocoles pris en charge : Zigbee 3.0, Matter",
+   "Nombre maximal d'appareils",
+   "Connexion réseau par câble (Ethernet)",
+   "Compatible Tuya / Smart Life et Google Home"
+  ],
+  "n": "Un hub avec batterie de secours continue de fonctionner pendant une coupure."
+ },
+ "Passerelle multiprotocole (Zigbee/Z-Wave/KNX)": {
+  "c": [
+   "Zigbee + Bluetooth mesh",
+   "Zigbee + Z-Wave",
+   "Zigbee + Matter",
+   "KNX (bâtiments)"
+  ],
+  "v": [
+   "Protocoles couverts",
+   "Connexion Ethernet ou Wi-Fi",
+   "Compatible avec les capteurs que tu vends"
+  ],
+  "n": "Dans une maison Tuya, une passerelle Zigbee suffit."
+ },
+ "Routeur / switch réseau": {
+  "c": [
+   "Routeur Wi-Fi 5 ou Wi-Fi 6",
+   "Wi-Fi maillé (plusieurs bornes)",
+   "Switch de 5, 8 ou 16 ports",
+   "Switch avec ports PoE"
+  ],
+  "v": [
+   "Wi-Fi 2,4 GHz : indispensable pour la plupart des objets connectés",
+   "Nombre d'appareils en même temps",
+   "Ports PoE si tu as des caméras PoE",
+   "Alimentation 12 V"
+  ],
+  "n": "Beaucoup d'objets connectés ne fonctionnent qu'en 2,4 GHz."
+ },
+ "Point d'accès Wi-Fi": {
+  "c": [
+   "Au plafond (PoE)",
+   "Mural",
+   "Extérieur",
+   "Wi-Fi 5 ou 6"
+  ],
+  "v": [
+   "Alimentation PoE ou adaptateur secteur",
+   "Portée et nombre d'utilisateurs",
+   "Compatible avec ton routeur (itinérance)"
+  ],
+  "n": "Un câble réseau vers la borne donne un meilleur signal qu'un répéteur sans fil."
+ },
+ "Passerelle Zigbee": {
+  "c": [
+   "Câble réseau (Ethernet) ou Wi-Fi",
+   "Zigbee 3.0",
+   "Avec ou sans Bluetooth mesh",
+   "Avec ou sans Matter",
+   "Avec enceinte ou micro (rare)"
+  ],
+  "v": [
+   "Compatible Tuya / Smart Life",
+   "Port Ethernet : plus stable que le Wi-Fi",
+   "Nombre maximal d'appareils Zigbee",
+   "Compatible avec les capteurs Zigbee que tu achètes"
+  ],
+  "n": "Prévois une passerelle par étage si la maison est grande."
+ },
+ "Panneau tactile mural": {
+  "c": [
+   "Écran de 4, 6 ou 8 pouces",
+   "Fixé sur une boîte d'encastrement de 86 mm",
+   "Avec passerelle Zigbee intégrée",
+   "Avec assistant vocal intégré"
+  ],
+  "v": [
+   "Alimentation : 5 V, 12 V ou 220 V",
+   "Système : Android ou Tuya",
+   "Compatible Tuya / Smart Life",
+   "Résolution de l'écran"
+  ],
+  "n": ""
+ },
+ "Assistant vocal": {
+  "c": [
+   "Enceinte Google Nest",
+   "Amazon Echo (Alexa)",
+   "Écran avec assistant (Nest Hub, Echo Show)",
+   "Micro intégré à une passerelle ou à un panneau"
+  ],
+  "v": [
+   "Langue française prise en charge",
+   "Disponibilité dans ton pays (Côte d'Ivoire)",
+   "Compatible avec Tuya / Smart Life"
+  ],
+  "n": "Prévois une enceinte par pièce où tu veux pouvoir parler."
+ }
+};
+
+// Description en une phrase de chaque équipement (lecture seule, non stockée en base)
+const DESCRIPTIONS = {
+ "Caméra IP intérieure": "Caméra qui filme dans la maison et s'affiche sur le téléphone.",
+ "Caméra IP extérieure": "Caméra résistante à la pluie qui surveille la cour et le portail.",
+ "Caméra Wi-Fi sur batterie / solaire": "Caméra sans fil qui marche sur batterie, sans prise à côté.",
+ "Caméra PoE": "Caméra alimentée et connectée par un seul câble réseau.",
+ "Caméra PTZ motorisée": "Caméra qui tourne et zoome à distance pour suivre un mouvement.",
+ "Caméra panoramique 360°": "Caméra qui voit toute la pièce d'un seul coup d'œil.",
+ "Caméra avec IA (personne/véhicule/colis)": "Caméra qui reconnaît une personne, un véhicule ou un colis.",
+ "Sonnette vidéo connectée": "Sonnette qui montre le visiteur sur le téléphone et permet de lui parler.",
+ "Interphone vidéo IP / visiophone": "Portier à l'entrée pour voir et parler au visiteur.",
+ "Moniteur intérieur vidéo": "Écran dans la maison pour voir et répondre à l'interphone.",
+ "Enregistreur NVR": "Boîtier qui enregistre les vidéos des caméras IP.",
+ "Enregistreur DVR": "Boîtier qui enregistre les vidéos des caméras analogiques.",
+ "Disque dur pour vidéosurveillance": "Disque qui garde les vidéos des caméras, jour et nuit.",
+ "Projecteur avec caméra intégrée": "Projecteur qui éclaire et filme quand quelqu'un approche.",
+ "Détecteur d'ouverture porte/fenêtre": "Petit capteur qui prévient quand une porte ou une fenêtre s'ouvre.",
+ "Détecteur de mouvement PIR": "Détecte le mouvement d'une personne grâce à la chaleur qu'elle dégage.",
+ "Détecteur de mouvement double technologie": "Détecteur de mouvement plus fiable, avec moins de fausses alertes.",
+ "Détecteur de bris de vitre": "Capteur qui réagit au bruit d'une vitre qui casse.",
+ "Détecteur de vibration": "Capteur qui sent les chocs quand on force une porte ou une fenêtre.",
+ "Barrière infrarouge": "Faisceau invisible qui prévient quand quelqu'un le traverse.",
+ "Capteur d'ouverture portail/garage": "Capteur qui indique si le portail ou le garage est ouvert.",
+ "Centrale d'alarme": "Boîtier qui reçoit les alertes des capteurs et déclenche l'alarme.",
+ "Sirène intérieure": "Sirène qui sonne fort dans la maison en cas d'alarme.",
+ "Sirène extérieure avec flash": "Sirène avec lumière clignotante qui alerte à l'extérieur.",
+ "Clavier / télécommande d'alarme": "Pour activer ou couper l'alarme avec un code ou un bouton.",
+ "Bouton SOS / panique": "Bouton qui déclenche l'alarme tout de suite en cas d'urgence.",
+ "Badge / lecteur RFID (alarme)": "Badge qu'on approche pour activer ou couper l'alarme.",
+ "Serrure connectée": "Serrure qui s'ouvre avec un code, une empreinte ou le téléphone.",
+ "Poignée / cylindre connecté": "Poignée ou cylindre qui rend une porte commandable par téléphone.",
+ "Gâche / ventouse électromagnétique": "Verrou électrique qui garde la porte fermée jusqu'à l'ordre d'ouvrir.",
+ "Contrôleur d'accès (badge/code/empreinte/facial)": "Lecteur qui autorise l'entrée par badge, code, empreinte ou visage.",
+ "Motorisation de portail": "Moteur qui ouvre et ferme le portail.",
+ "Motorisation de porte de garage": "Moteur qui lève et baisse la porte du garage.",
+ "Détecteur de fumée connecté": "Détecteur qui sonne et prévient le téléphone en cas de fumée.",
+ "Détecteur de monoxyde de carbone": "Détecte un gaz toxique invisible, produit par un groupe électrogène.",
+ "Détecteur de fuite de gaz": "Détecteur qui prévient en cas de fuite de gaz.",
+ "Détecteur de fuite d'eau / inondation": "Capteur posé au sol qui prévient dès qu'il touche de l'eau.",
+ "Électrovanne de coupure (eau/gaz)": "Vanne qui coupe l'eau ou le gaz toute seule en cas de fuite.",
+ "Ampoule connectée": "Ampoule qu'on allume et qu'on règle depuis le téléphone.",
+ "Ruban LED connecté": "Ruban lumineux dont on choisit la couleur depuis le téléphone.",
+ "Spot / plafonnier connecté": "Lampe de plafond qu'on commande depuis le téléphone.",
+ "Interrupteur mural connecté": "Interrupteur du mur qui marche aussi depuis le téléphone.",
+ "Variateur connecté": "Bouton qui règle la force de la lumière.",
+ "Prise connectée": "Prise qui allume ou éteint un appareil depuis le téléphone.",
+ "Capteur de présence / luminosité": "Capteur qui allume la lumière quand quelqu'un entre dans le noir.",
+ "Volet roulant motorisé": "Volet qui monte et descend tout seul avec un moteur.",
+ "Store motorisé (intérieur/extérieur)": "Store qui se déploie et se replie avec un moteur.",
+ "Rideau motorisé": "Rideau qui s'ouvre et se ferme avec un moteur.",
+ "Commande murale / télécommande volet": "Bouton ou télécommande pour monter et descendre le volet.",
+ "Thermostat connecté": "Appareil qui garde la pièce à la température choisie.",
+ "Module IR pour climatiseur": "Boîtier qui remplace la télécommande du split, depuis le téléphone.",
+ "Ventilateur connecté": "Ventilateur qu'on allume et qu'on règle depuis le téléphone.",
+ "Chauffage / radiateur connecté": "Radiateur qu'on programme et qu'on règle depuis le téléphone.",
+ "Vanne thermostatique intelligente": "Vanne qui règle automatiquement la chaleur d'un radiateur.",
+ "Capteur température / humidité": "Capteur qui indique la chaleur et l'humidité d'une pièce.",
+ "Enceinte connectée": "Enceinte qui joue de la musique et comprend la voix.",
+ "Barre de son connectée": "Barre qui améliore le son de la télé.",
+ "Box TV / téléviseur connecté": "Télé ou boîtier qui donne accès aux chaînes et au streaming.",
+ "Télécommande universelle": "Une seule télécommande pour la télé, le climatiseur et le décodeur.",
+ "Réfrigérateur / four connecté": "Frigo ou four qu'on surveille depuis le téléphone.",
+ "Machine à laver connectée": "Machine à laver qu'on lance depuis le téléphone.",
+ "Machine à café connectée": "Machine à café qu'on lance à distance.",
+ "Prise connectée pour gros appareil": "Prise renforcée pour allumer un gros appareil à distance.",
+ "Chauffe-eau connecté": "Chauffe-eau qu'on allume à distance ou à heure fixe.",
+ "VMC connectée": "Ventilation qui renouvelle l'air de la maison, réglée par téléphone.",
+ "Miroir connecté": "Miroir avec écran qui affiche l'heure et la météo.",
+ "Détecteur d'humidité": "Capteur qui prévient quand l'air est trop humide.",
+ "Arrosage automatique connecté": "Système qui arrose le jardin aux heures choisies.",
+ "Capteur d'humidité du sol / pluie": "Capteur qui évite d'arroser quand ce n'est pas nécessaire.",
+ "Station météo connectée": "Appareil qui mesure la météo chez soi.",
+ "Éclairage extérieur connecté": "Lumière du jardin ou du portail qui s'allume toute seule le soir.",
+ "Robot tondeuse connecté": "Robot qui tond la pelouse tout seul.",
+ "Pompe / filtration piscine connectée": "Pompe de piscine qu'on programme depuis le téléphone.",
+ "Purificateur d'air connecté": "Appareil qui nettoie l'air de la poussière et des particules.",
+ "Capteur CO₂ / COV / particules fines": "Capteur qui mesure la qualité de l'air et dit quand aérer.",
+ "Interrupteur / relais connecté": "Petit boîtier qui coupe ou remet le courant à distance.",
+ "Module relais DIN": "Relais qui se place dans le tableau électrique pour commander un circuit.",
+ "Prise / multiprise connectée": "Multiprise dont on commande les prises depuis le téléphone.",
+ "Contacteur / disjoncteur connecté": "Disjoncteur qu'on coupe et qu'on remet depuis le téléphone.",
+ "Compteur électrique intelligent": "Compteur qui montre la consommation en direct sur le téléphone.",
+ "Capteur de courant / tension": "Capteur qui mesure l'électricité qui passe dans un circuit.",
+ "Analyseur de puissance": "Appareil qui mesure en détail la consommation d'électricité.",
+ "Gestionnaire d'énergie (energy gateway)": "Boîtier qui suit la consommation de toute la maison.",
+ "Disjoncteur différentiel connecté": "Disjoncteur qui coupe le courant en cas de fuite et protège les personnes.",
+ "Parafoudre / protection surtension": "Protège les appareils contre la foudre et les coups de courant.",
+ "Détecteur d'arc électrique": "Coupe le courant si des étincelles dangereuses apparaissent dans les fils.",
+ "Onduleur (UPS) connecté": "Batterie de secours qui garde routeur et caméras allumés pendant une coupure.",
+ "Batterie domestique / stockage": "Grosse batterie qui stocke l'électricité pour plus tard.",
+ "Inverseur de source automatique (ATS)": "Bascule tout seul entre le réseau, l'onduleur et le groupe électrogène.",
+ "Panneau photovoltaïque": "Panneau qui transforme le soleil en électricité.",
+ "Micro-onduleur / onduleur solaire": "Transforme le courant des panneaux solaires en courant utilisable.",
+ "Batterie et régulateur solaire": "Batterie qui stocke le courant solaire, protégée par un régulateur.",
+ "Monitoring photovoltaïque": "Affiche sur le téléphone ce que produisent les panneaux.",
+ "Borne de recharge (wallbox) connectée": "Borne à la maison pour recharger une voiture électrique.",
+ "Gestionnaire de charge / délestage": "Répartit le courant pour que la recharge ne fasse pas disjoncter.",
+ "Hub / centrale domotique": "Le cerveau qui relie tous les objets connectés de la maison.",
+ "Passerelle multiprotocole (Zigbee/Z-Wave/KNX)": "Boîtier qui fait parler entre eux des objets de langages différents.",
+ "Routeur / switch réseau": "Le routeur donne internet à la maison, le switch ajoute des prises réseau.",
+ "Point d'accès Wi-Fi": "Boîtier qui renforce le Wi-Fi dans une zone de la maison.",
+ "Passerelle Zigbee": "Boîtier qui relie les capteurs Zigbee à internet.",
+ "Panneau tactile mural": "Écran au mur pour commander toute la maison.",
+ "Assistant vocal": "Appareil qui obéit à la voix pour commander la maison."
+};
+
+const CATALOGUE_INITIAL = [
+
+{ cat:"securite", catNom:"🔒 Sécurité", sous:"Vidéosurveillance", items:[
+  ["Caméra IP intérieure","wifi security camera indoor"],
+  ["Caméra IP extérieure","wifi security camera outdoor"],
+  ["Caméra Wi-Fi sur batterie / solaire","wireless battery solar security camera"],
+  ["Caméra PoE","poe ip security camera"],
+  ["Caméra PTZ motorisée","ptz camera wifi wireless"],
+  ["Caméra panoramique 360°","360 panoramic wifi camera"],
+  ["Caméra avec IA (personne/véhicule/colis)","ai human vehicle detection camera"],
+  ["Sonnette vidéo connectée","wifi video doorbell camera"],
+  ["Interphone vidéo IP / visiophone","ip video intercom door phone"],
+  ["Moniteur intérieur vidéo","indoor video monitor intercom"],
+  ["Enregistreur NVR","nvr network video recorder"],
+  ["Enregistreur DVR","dvr video recorder cctv"],
+  ["Disque dur pour vidéosurveillance","surveillance hard drive hdd"],
+  ["Projecteur avec caméra intégrée","led floodlight camera wifi"],
+]},
+{ cat:"securite", catNom:"🔒 Sécurité", sous:"Détection d'intrusion", items:[
+  ["Détecteur d'ouverture porte/fenêtre","wifi door window sensor tuya"],
+  ["Détecteur de mouvement PIR","wifi pir motion sensor tuya"],
+  ["Détecteur de mouvement double technologie","dual tech motion detector alarm"],
+  ["Détecteur de bris de vitre","wifi glass break sensor tuya"],
+  ["Détecteur de vibration","vibration shock sensor alarm"],
+  ["Barrière infrarouge","infrared beam detector outdoor"],
+  ["Capteur d'ouverture portail/garage","garage door gate sensor wifi"],
+]},
+{ cat:"securite", catNom:"🔒 Sécurité", sous:"Alarme", items:[
+  ["Centrale d'alarme","wifi alarm host hub tuya"],
+  ["Sirène intérieure","indoor wifi siren alarm tuya"],
+  ["Sirène extérieure avec flash","outdoor strobe siren alarm wifi"],
+  ["Clavier / télécommande d'alarme","alarm keypad remote control wireless"],
+  ["Bouton SOS / panique","wireless sos panic button"],
+  ["Badge / lecteur RFID (alarme)","rfid card reader alarm system"],
+]},
+{ cat:"securite", catNom:"🔒 Sécurité", sous:"Contrôle d'accès", items:[
+  ["Serrure connectée","smart door lock wifi"],
+  ["Poignée / cylindre connecté","smart lock cylinder handle"],
+  ["Gâche / ventouse électromagnétique","electric strike magnetic lock door"],
+  ["Contrôleur d'accès (badge/code/empreinte/facial)","access control system rfid fingerprint"],
+  ["Motorisation de portail","smart gate opener motor wifi"],
+  ["Motorisation de porte de garage","garage door opener motor wifi"],
+]},
+{ cat:"securite", catNom:"🔒 Sécurité", sous:"Incendie et fluides", items:[
+  ["Détecteur de fumée connecté","wifi smoke detector tuya"],
+  ["Détecteur de monoxyde de carbone","wifi carbon monoxide detector tuya"],
+  ["Détecteur de fuite de gaz","wifi gas leak detector tuya"],
+  ["Détecteur de fuite d'eau / inondation","wifi water leak sensor tuya"],
+  ["Électrovanne de coupure (eau/gaz)","smart shutoff valve wifi water gas"],
+]},
+
+{ cat:"energie", catNom:"⚡ Électricité / énergie", sous:"Éclairage", items:[
+  ["Ampoule connectée","smart bulb wifi"],
+  ["Ruban LED connecté","smart led strip wifi tuya"],
+  ["Spot / plafonnier connecté","smart ceiling light wifi tuya"],
+  ["Interrupteur mural connecté","smart wall switch wifi"],
+  ["Variateur connecté","smart dimmer switch wifi"],
+  ["Prise connectée","smart plug wifi"],
+  ["Capteur de présence / luminosité","light presence sensor wifi tuya"],
+]},
+{ cat:"confort", catNom:"🌡️ Confort", sous:"Volets, stores et portes", items:[
+  ["Volet roulant motorisé","smart roller shutter motor wifi"],
+  ["Store motorisé (intérieur/extérieur)","smart blind motor wifi tuya"],
+  ["Rideau motorisé","smart curtain motor wifi tuya"],
+  ["Commande murale / télécommande volet","curtain blind wall remote control"],
+]},
+{ cat:"confort", catNom:"🌡️ Confort", sous:"Climat et température", items:[
+  ["Thermostat connecté","smart thermostat wifi tuya"],
+  ["Module IR pour climatiseur","smart ir remote control wifi ac"],
+  ["Ventilateur connecté","smart fan wifi tuya"],
+  ["Chauffage / radiateur connecté","smart heater radiator wifi tuya"],
+  ["Vanne thermostatique intelligente","smart radiator valve trv wifi"],
+  ["Capteur température / humidité","wifi temperature humidity sensor tuya"],
+]},
+{ cat:"confort", catNom:"🌡️ Confort", sous:"Audio / multimédia", items:[
+  ["Enceinte connectée","smart speaker wifi"],
+  ["Barre de son connectée","smart soundbar wifi"],
+  ["Box TV / téléviseur connecté","android tv box smart"],
+  ["Télécommande universelle","smart universal remote control wifi ir"],
+]},
+{ cat:"confort", catNom:"🌡️ Confort", sous:"Électroménager connecté", items:[
+  ["Réfrigérateur / four connecté","smart wifi oven refrigerator"],
+  ["Machine à laver connectée","smart wifi washing machine"],
+  ["Machine à café connectée","smart wifi coffee machine"],
+  ["Prise connectée pour gros appareil","heavy duty smart plug wifi 16a"],
+]},
+{ cat:"confort", catNom:"🌡️ Confort", sous:"Salle de bain / buanderie", items:[
+  ["Chauffe-eau connecté","smart water heater wifi"],
+  ["VMC connectée","smart ventilation fan wifi"],
+  ["Miroir connecté","smart mirror bathroom"],
+  ["Détecteur d'humidité","wifi humidity sensor tuya"],
+]},
+{ cat:"confort", catNom:"🌡️ Confort", sous:"Jardin / extérieur", items:[
+  ["Arrosage automatique connecté","smart irrigation controller wifi tuya"],
+  ["Capteur d'humidité du sol / pluie","soil moisture rain sensor wifi"],
+  ["Station météo connectée","smart weather station wifi"],
+  ["Éclairage extérieur connecté","smart outdoor light wifi tuya"],
+  ["Robot tondeuse connecté","smart robot lawn mower wifi"],
+  ["Pompe / filtration piscine connectée","smart pool pump filter wifi"],
+]},
+{ cat:"confort", catNom:"🌡️ Confort", sous:"Qualité de l'air", items:[
+  ["Purificateur d'air connecté","smart air purifier wifi"],
+  ["Capteur CO₂ / COV / particules fines","wifi air quality co2 pm2.5 sensor"],
+]},
+
+{ cat:"energie", catNom:"⚡ Électricité / énergie", sous:"Commande électrique", items:[
+  ["Interrupteur / relais connecté","smart relay module wifi tuya"],
+  ["Module relais DIN","din rail smart relay wifi tuya"],
+  ["Prise / multiprise connectée","smart power strip wifi tuya"],
+  ["Contacteur / disjoncteur connecté","smart circuit breaker wifi tuya"],
+]},
+{ cat:"energie", catNom:"⚡ Électricité / énergie", sous:"Mesure et gestion de la consommation", items:[
+  ["Compteur électrique intelligent","smart energy meter wifi"],
+  ["Capteur de courant / tension","current voltage sensor smart meter"],
+  ["Analyseur de puissance","power quality analyzer smart"],
+  ["Gestionnaire d'énergie (energy gateway)","smart energy management gateway"],
+]},
+{ cat:"energie", catNom:"⚡ Électricité / énergie", sous:"Protection électrique", items:[
+  ["Disjoncteur différentiel connecté","smart rcd circuit breaker wifi"],
+  ["Parafoudre / protection surtension","smart surge protector wifi"],
+  ["Détecteur d'arc électrique","arc fault detector afdd"],
+]},
+{ cat:"energie", catNom:"⚡ Électricité / énergie", sous:"Onduleurs et stockage", items:[
+  ["Onduleur (UPS) connecté","smart wifi ups battery backup"],
+  ["Batterie domestique / stockage","home energy storage battery lithium"],
+  ["Inverseur de source automatique (ATS)","automatic transfer switch ats"],
+]},
+{ cat:"energie", catNom:"⚡ Électricité / énergie", sous:"Solaire", items:[
+  ["Panneau photovoltaïque","solar photovoltaic panel"],
+  ["Micro-onduleur / onduleur solaire","solar micro inverter"],
+  ["Batterie et régulateur solaire","solar battery charge controller"],
+  ["Monitoring photovoltaïque","solar monitoring system wifi"],
+]},
+{ cat:"energie", catNom:"⚡ Électricité / énergie", sous:"Véhicule électrique", items:[
+  ["Borne de recharge (wallbox) connectée","smart ev charger wallbox wifi"],
+  ["Gestionnaire de charge / délestage","ev charger load management"],
+]},
+
+{ cat:"central", catNom:"🧠 Équipements centraux", sous:"Contrôleurs et hubs", items:[
+  ["Hub / centrale domotique","smart home hub gateway tuya"],
+  ["Passerelle multiprotocole (Zigbee/Z-Wave/KNX)","zigbee z-wave gateway multiprotocol"],
+]},
+{ cat:"central", catNom:"🧠 Équipements centraux", sous:"Réseau", items:[
+  ["Routeur / switch réseau","wifi router network switch"],
+  ["Point d'accès Wi-Fi","wifi access point"],
+  ["Passerelle Zigbee","zigbee gateway hub wifi"],
+]},
+{ cat:"central", catNom:"🧠 Équipements centraux", sous:"Interfaces utilisateur", items:[
+  ["Panneau tactile mural","smart home wall touch panel"],
+  ["Assistant vocal","smart voice assistant speaker"],
+]},
+
+];
+
+/* ═══════════════════════════════════════════════════════════════
+   ÉTAT ET LOGIQUE
+   ═══════════════════════════════════════════════════════════════ */
+let data = [];          // liste à plat : {id, cat, catNom, sous, nom, recherche, prix}
+let db = null;
+let firebaseActif = false;
+const CLE_BROUILLON = "datalink_devis_brouillon_v2";
+let brouillonLocal = {};
+try{ brouillonLocal = JSON.parse(localStorage.getItem(CLE_BROUILLON)) || {}; }catch(e){ brouillonLocal = {}; }
+let selection = {};   // { idProduit: quantité } : vide à l'ouverture de la page, rien n'est coché
+
+// Gamme du devis : bas (prix = champ « prix »), moyen (« prixMoyen »), haut (« prixHaut »)
+const CHAMP_PRIX = { bas:'prix', moyen:'prixMoyen', haut:'prixHaut' };
+const LIBELLE_GAMME = { bas:'Bas de gamme', moyen:'Moyen de gamme', haut:'Haut de gamme' };
+const GAMMES_OK = ['bas','moyen','haut'];
+let gamme = GAMMES_OK.includes(brouillonLocal.gamme) ? brouillonLocal.gamme : 'bas';
+function prixDe(d){ return d[CHAMP_PRIX[gamme]]; }
+let derniereReponses = null;
+let REFS = {}, REFS_CHARGEES = false;
+let marge = (function(){ try{ const v = parseFloat(localStorage.getItem('datalink_marge')); return isFinite(v) && v >= 0 ? v : 30; }catch(e){ return 30; } })();   // marge (%) ajoutée au prix du marché
+const avecMarge = cfa => Math.round(cfa * (1 + marge / 100));
+let PRIX_MODELES = {};   // prix trouvés sur Amazon.fr pour chaque modèle proposé (Firebase : veille_modeles/prix-…)   // dernières recherches de « modèles récents » : prix, modèle et lien par équipement et par gamme      // réponses du dernier questionnaire (enregistrées avec le devis PDF)
+function etatBrouillon(){
+  const c = document.getElementById('qbClient'), t = document.getElementById('qbTva');
+  return { selection, gamme, client: c ? c.value : '', tva: t ? (Number(t.value) || 0) : 18, maj: new Date().toISOString() };
+}
+function sauverSelection(){
+  try{ localStorage.setItem(CLE_BROUILLON, JSON.stringify(etatBrouillon())); }catch(e){}
+  planifierEnvoiBrouillon();
+}
+
+function idUnique(){ return 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+function lienAlibaba(terme){
+  return "https://www.alibaba.com/trade/search?SearchText=" + encodeURIComponent(terme) + "&ta=y&assessmentCompany=true";
+}
+
+
+
+function chargerDonneesInitiales(){
+  const plat = [];
+  CATALOGUE_INITIAL.forEach(bloc=>{
+    bloc.items.forEach(([nom,recherche])=>{
+      plat.push({ id: 'init' + String(plat.length).padStart(3,'0'), cat: bloc.cat, catNom: bloc.catNom, sous: bloc.sous, nom, recherche, prix: null, ordre: plat.length });
+    });
+  });
+  return plat;
+}
+
+/* ── Stockage local (toujours actif, sert de cache/secours) ── */
+const CLE_LOCAL = "datalink_catalogue_domotique_v1";
+function sauverLocal(){
+  try{ localStorage.setItem(CLE_LOCAL, JSON.stringify(data)); }catch(e){}
+}
+function chargerLocal(){
+  try{
+    const brut = localStorage.getItem(CLE_LOCAL);
+    if(brut) return JSON.parse(brut);
+  }catch(e){}
+  return null;
+}
+
+/* ── Firebase (optionnel) ── */
+function firebaseConfigureeCorrectement(){
+  return FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId;
+}
+
+function propre(o){ return JSON.parse(JSON.stringify(o)); }
+
+// Range l'éclairage dans « Électricité / énergie », y compris pour les données déjà enregistrées (navigateur et Firebase)
+function migrerCategories(){
+  let change = false;
+  data.forEach(d=>{
+    const estEclairage = d.sous === 'Éclairage' || d.nom === 'Éclairage extérieur connecté';
+    if(estEclairage && (d.cat !== 'energie' || d.sous !== 'Éclairage')){
+      d.cat = 'energie';
+      d.catNom = '⚡ Électricité / énergie';
+      d.sous = 'Éclairage';
+      change = true;
+      sauverLigne(d);
+    }
+  });
+  return change;
+}   // retire les valeurs « undefined » refusées par Firestore
+function ordreSuivant(){ return data.reduce((m,d)=> Math.max(m, typeof d.ordre === 'number' ? d.ordre : -1), -1) + 1; }
+
+function basculerModeCloud(){
+  firebaseActif = true;
+  const b = document.getElementById('syncBadge');
+  b.className = 'sync-badge cloud';
+  document.getElementById('syncText').textContent = 'Synchronisé (Firebase)';
+}
+function basculerModeLocal(message){
+  firebaseActif = false;
+  const b = document.getElementById('syncBadge');
+  b.className = 'sync-badge local';
+  document.getElementById('syncText').textContent = message || 'Firebase non configuré — données locales seulement';
+}
+function signalerErreurFirebase(e){
+  console.error('Erreur Firebase :', e);
+  const b = document.getElementById('syncBadge');
+  b.className = 'sync-badge err';
+  document.getElementById('syncText').textContent = 'Erreur Firebase — non enregistré (' + ((e && (e.code || e.message)) || 'inconnue') + ')';
+}
+function marquerOk(){
+  if(firebaseActif && document.getElementById('syncBadge').classList.contains('err')) basculerModeCloud();
+}
+
+async function initFirebase(){
+  if(!firebaseConfigureeCorrectement()) return false;
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+    basculerModeCloud();
+    setTimeout(()=> chargerRefs(), 0);           // prix et modèles trouvés par les recherches
+
+    // 1) Catalogue : équipements et prix. Base vide (première connexion) → tout le catalogue actuel y est envoyé.
+    db.collection(FIRESTORE_COLLECTION).onSnapshot(snap=>{
+      if(snap.empty){ envoyerToutLeCatalogue(); return; }
+      if(snap.metadata.hasPendingWrites) return;   // écho de nos propres écritures
+      const distants = [];
+      snap.forEach(doc=> distants.push({ id: doc.id, ...doc.data() }));
+      distants.sort((x,y)=> (typeof x.ordre === 'number' ? x.ordre : 1e9) - (typeof y.ordre === 'number' ? y.ordre : 1e9));
+      data = distants;
+      migrerCategories();
+      sauverLocal();
+      rendre();
+    }, err=> signalerErreurFirebase(err));
+
+    // 2) Sélection en cours : produits cochés, quantités, client, TVA
+    let premierBrouillon = true;
+    db.collection(FIRESTORE_BROUILLON).doc('courant').onSnapshot(doc=>{
+      if(!doc.exists){ premierBrouillon = false; envoyerBrouillon(); return; }
+      if(doc.metadata.hasPendingWrites) return;
+      const d = doc.data() || {};
+      if(premierBrouillon){ premierBrouillon = false; selection = {}; envoyerBrouillon(); }   // ouverture de la page : rien de coché, y compris dans Firebase
+      else selection = d.selection || {};
+      if(GAMMES_OK.includes(d.gamme)){ gamme = d.gamme; document.getElementById('qbGamme').value = gamme; }
+      document.getElementById('qbClient').value = d.client || '';
+      if(d.tva !== undefined) document.getElementById('qbTva').value = d.tva;
+      try{ localStorage.setItem(CLE_BROUILLON, JSON.stringify(etatBrouillon())); }catch(e){}
+      rendreCategories();
+      majDevis();
+    }, err=> signalerErreurFirebase(err));
+
+    return true;
+  }catch(e){
+    signalerErreurFirebase(e);
+    return false;
+  }
+}
+
+let envoiCatalogueEnCours = false;
+async function envoyerToutLeCatalogue(){
+  if(!db || envoiCatalogueEnCours) return;
+  envoiCatalogueEnCours = true;
+  try{
+    data.forEach((d,i)=>{ if(typeof d.ordre !== 'number') d.ordre = i; });
+    for(let i = 0; i < data.length; i += 400){
+      const lot = db.batch();
+      data.slice(i, i+400).forEach(d=> lot.set(db.collection(FIRESTORE_COLLECTION).doc(d.id), propre(d)));
+      await lot.commit();
+    }
+    sauverLocal();
+    marquerOk();
+  }catch(e){ signalerErreurFirebase(e); }
+  envoiCatalogueEnCours = false;
+}
+
+async function sauverLigne(item){
+  sauverLocal();
+  if(firebaseActif && db){
+    try{
+      if(typeof item.ordre !== 'number') item.ordre = ordreSuivant();
+      await db.collection(FIRESTORE_COLLECTION).doc(item.id).set(propre(item));
+      marquerOk();
+      toast('✔ Enregistré dans Firebase', 2200);
+    }catch(e){ signalerErreurFirebase(e); }
+  }
+}
+async function supprimerLigneDistante(id){
+  if(firebaseActif && db){
+    try{ await db.collection(FIRESTORE_COLLECTION).doc(id).delete(); marquerOk(); toast('✔ Supprimé dans Firebase', 2200); }
+    catch(e){ signalerErreurFirebase(e); }
+  }
+}
+
+let timerBrouillon = null;
+function planifierEnvoiBrouillon(){
+  if(!(firebaseActif && db)) return;
+  clearTimeout(timerBrouillon);
+  timerBrouillon = setTimeout(envoyerBrouillon, 500);
+}
+async function envoyerBrouillon(){
+  if(!(firebaseActif && db)) return;
+  try{ await db.collection(FIRESTORE_BROUILLON).doc('courant').set(propre(etatBrouillon())); marquerOk(); }
+  catch(e){ signalerErreurFirebase(e); }
+}
+
+async function enregistrerDevis(rec){
+  if(!(firebaseActif && db)) return false;
+  try{
+    const ref = db.collection(FIRESTORE_DEVIS).doc(rec.numero);
+    await ref.set(propre(rec));
+    const relu = await ref.get({ source:'server' });       // relecture sur le serveur : le devis existe vraiment dans la base
+    if(!relu.exists) throw new Error('devis introuvable après enregistrement');
+    marquerOk(); return true;
+  }
+  catch(e){ signalerErreurFirebase(e); return false; }
+}
+
+// Affiche un message : bandeau en bas de page ET, si une fenêtre est ouverte, dans cette fenêtre (sinon il reste caché derrière)
+function annoncer(msg, ms, erreur){
+  toast(msg, ms);
+  ['asStatut', 'veilleStatut'].forEach(id=>{
+    const el = document.getElementById(id), dlg = el && el.closest('dialog');
+    if(!el || !dlg || !dlg.open) return;
+    el.textContent = msg; el.className = 'statut show' + (erreur ? ' err' : '');
+    clearTimeout(el._t); el._t = setTimeout(()=> el.classList.remove('show'), ms || 7000);
+  });
+}
+let timerToast = null;
+function toast(msg, ms){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(timerToast);
+  timerToast = setTimeout(()=> el.classList.remove('show'), ms || 5000);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RENDU
+   ═══════════════════════════════════════════════════════════════ */
+function formatFCFA(n){
+  if(n === null || n === undefined || n === '') return '';
+  return Number(n).toLocaleString('fr-FR');
+}
+
+function rendre(){
+  rendreCategories();
+  majDevis();
+}
+
+function rendreCategories(){
+  const cont = document.getElementById('categories');
+  const ouvertsAvant = new Set([...cont.querySelectorAll('.cat.open')].map(e=>e.dataset.cat));
+  cont.innerHTML = '';
+
+  const catsOrdre = ["securite","confort","energie","central"];
+  catsOrdre.forEach(catKey=>{
+    const lignesCat = data.filter(d=>d.cat===catKey);
+    if(!lignesCat.length) return;
+    const catNom = lignesCat[0].catNom;
+
+    const sec = document.createElement('div');
+    sec.className = 'cat' + (ouvertsAvant.has(catKey) ? ' open' : '');
+    sec.dataset.cat = catKey;
+
+    const head = document.createElement('div');
+    head.className = 'cat-head';
+    head.innerHTML = `<span class="cat-ic"></span><span class="cat-title">${catNom}</span><button type="button" class="cat-clear" style="display:none"></button><span class="cat-count">${lignesCat.length} référence${lignesCat.length>1?'s':''}</span><span class="cat-chevron">▸</span>`;
+    head.onclick = ()=>{ sec.classList.toggle('open'); };
+    head.querySelector('.cat-clear').onclick = (e)=>{ e.stopPropagation(); decocherBloc(catKey); };
+    sec.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'cat-body';
+
+    const sousCats = [...new Set(lignesCat.map(d=>d.sous))];
+    sousCats.forEach(sousNom=>{
+      const lignesSous = lignesCat.filter(d=>d.sous===sousNom);
+      const subTitle = document.createElement('div');
+      subTitle.className = 'sub';
+      subTitle.textContent = sousNom;
+      body.appendChild(subTitle);
+
+      const table = document.createElement('table');
+      table.innerHTML = `<thead><tr>
+        <th class="col-check"></th>
+        <th class="col-nom">Équipement</th>
+        <th class="col-desc">Description</th>
+        <th class="col-prix">Prix HT · ${gamme === 'bas' ? 'bas' : gamme}</th>
+        <th class="col-qte">Qté</th>
+        <th class="col-lien">Fournisseurs</th>
+        <th class="col-actions"></th>
+      </tr></thead>`;
+      const tbody = document.createElement('tbody');
+
+      lignesSous.forEach(item=>{
+        const tr = document.createElement('tr');
+        if(selection[item.id]) tr.classList.add('sel');
+
+        const tdChk = document.createElement('td');
+        tdChk.className = 'col-check';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.className = 'chk';
+        chk.checked = !!selection[item.id];
+        chk.setAttribute('aria-label', 'Sélectionner ' + item.nom);
+        tdChk.appendChild(chk);
+        tr.appendChild(tdChk);
+
+        const tdNom = document.createElement('td');
+        tdNom.className = 'col-nom';
+        const txtNom = document.createElement('div');   // le nom d'un équipement ne se modifie pas
+        txtNom.className = 'nom-text';
+        txtNom.textContent = item.nom;
+        tdNom.appendChild(txtNom);
+        tr.appendChild(tdNom);
+
+        const tdDesc = document.createElement('td');    // description : lecture seule
+        tdDesc.className = 'col-desc';
+        tdDesc.textContent = DESCRIPTIONS[item.nom] || '—';
+        if(DETAILS[item.nom]){
+          tdDesc.appendChild(document.createElement('br'));
+          const btnInfo = document.createElement('button');
+          btnInfo.type = 'button';
+          btnInfo.className = 'btn-info';
+          btnInfo.textContent = 'Détails, choix et points à vérifier';
+          btnInfo.setAttribute('aria-label', 'Voir les détails de ' + item.nom);
+          btnInfo.onclick = ()=> ouvrirDetails(item.nom);
+          tdDesc.appendChild(btnInfo);
+        }
+        {
+          tdDesc.appendChild(document.createElement('br'));
+          const btnVeille = document.createElement('button');
+          btnVeille.type = 'button';
+          btnVeille.className = 'btn-info';
+          btnVeille.textContent = 'Modèles récents (bas / moyen / haut)';
+          btnVeille.setAttribute('aria-label', 'Voir les modèles récents de ' + item.nom);
+          btnVeille.onclick = ()=> ouvrirVeille(item);
+          tdDesc.appendChild(btnVeille);
+        }
+        tr.appendChild(tdDesc);
+
+        const tdPrix = document.createElement('td');
+        tdPrix.className = 'col-prix';
+        const wrap = document.createElement('div');
+        wrap.className = 'prix-wrap';
+        const inpPrix = document.createElement('input');
+        inpPrix.type = 'number';
+        inpPrix.min = '0';
+        inpPrix.step = '1';
+        const champ = CHAMP_PRIX[gamme];
+        inpPrix.className = 'prix-input' + (item[champ]===null||item[champ]===''||item[champ]===undefined ? ' vide' : '');
+        inpPrix.placeholder = '—';
+        inpPrix.value = (item[champ]===null||item[champ]===undefined) ? '' : item[champ];
+        inpPrix.oninput = ()=>{ inpPrix.classList.toggle('vide', inpPrix.value===''); };
+        inpPrix.onchange = ()=>{
+          item[champ] = inpPrix.value==='' ? null : Number(inpPrix.value);
+          sauverLigne(item);
+          majDevis();
+        };
+        wrap.appendChild(inpPrix);
+        const unit = document.createElement('span');
+        unit.className = 'prix-unit';
+        unit.textContent = 'FCFA HT';
+        wrap.appendChild(unit);
+        tdPrix.appendChild(wrap);
+        const btPrix = document.createElement('button');
+        btPrix.type = 'button'; btPrix.className = 'prix-trouve'; btPrix.hidden = true; btPrix.dataset.nom = item.nom;
+        btPrix.onclick = ()=>{ const r = prixModele(item.nom, gamme); if(r) appliquerPrixTrouve(item, gamme, r.txt); };
+        tdPrix.appendChild(btPrix);
+        tr.appendChild(tdPrix);
+
+        const tdQte = document.createElement('td');
+        tdQte.className = 'col-qte';
+        const inpQte = document.createElement('input');
+        inpQte.type = 'number';
+        inpQte.min = '1';
+        inpQte.step = '1';
+        inpQte.className = 'qte-input';
+        inpQte.value = selection[item.id] || 0;
+        inpQte.disabled = !selection[item.id];
+        inpQte.setAttribute('aria-label', 'Quantité de ' + item.nom);
+        tdQte.appendChild(inpQte);
+        tr.appendChild(tdQte);
+
+        chk.onchange = ()=>{
+          if(chk.checked){ const q = Math.max(1, parseInt(inpQte.value) || 1); selection[item.id] = q; inpQte.value = q; inpQte.disabled = false; }
+          else { delete selection[item.id]; inpQte.value = 0; inpQte.disabled = true; }
+          tr.classList.toggle('sel', chk.checked);
+          sauverSelection();
+          majDevis();
+        };
+        inpQte.onchange = ()=>{
+          const q = Math.max(1, parseInt(inpQte.value) || 1);
+          inpQte.value = q;
+          if(selection[item.id]){ selection[item.id] = q; sauverSelection(); majDevis(); }
+        };
+
+        const tdLien = document.createElement('td');
+        tdLien.className = 'col-lien';
+        const a = document.createElement('a');
+        a.href = lienAlibaba(item.recherche);
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.className = 'lien-btn';
+        a.innerHTML = '🔗 Alibaba';
+        tdLien.appendChild(a);
+        tr.appendChild(tdLien);
+
+        const tdAct = document.createElement('td');
+        tdAct.className = 'col-actions';
+        const btnDel = document.createElement('button');
+        btnDel.className = 'del-btn';
+        btnDel.title = 'Supprimer';
+        btnDel.innerHTML = '✕';
+        btnDel.onclick = ()=> demanderMotDePasse('Supprimer « ' + item.nom + ' » ? Entrez le mot de passe.', ()=>{
+          data = data.filter(d=>d.id !== item.id);
+          delete selection[item.id]; sauverSelection();
+          sauverLocal();
+          supprimerLigneDistante(item.id);
+          rendre();
+        });
+        tdAct.appendChild(btnDel);
+        tr.appendChild(tdAct);
+
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      body.appendChild(table);
+    });
+
+    // ── ligne d'ajout ──
+    const addRow = document.createElement('div');
+    addRow.className = 'add-row';
+    addRow.innerHTML = `
+      <input class="nom" placeholder="Nom de l'équipement">
+      <input class="recherche" placeholder="Terme de recherche (anglais, pour Alibaba)">
+      <input class="prix" type="number" min="0" placeholder="Prix HT FCFA">
+      <button class="add-btn">+ Ajouter</button>
+    `;
+    const inpNomA = addRow.querySelector('.nom');
+    const inpRechA = addRow.querySelector('.recherche');
+    const inpPrixA = addRow.querySelector('.prix');
+    addRow.querySelector('.add-btn').onclick = ()=>{
+      const nom = inpNomA.value.trim();
+      if(!nom){ inpNomA.focus(); return; }
+      const recherche = inpRechA.value.trim() || nom;
+      const prix = inpPrixA.value === '' ? null : Number(inpPrixA.value);
+      const nouvel = {
+        id: idUnique(), cat: catKey, catNom, sous: sousCats[sousCats.length-1] || 'Ajoutés',
+        nom, recherche, prix: null, ordre: ordreSuivant()
+      };
+      nouvel[CHAMP_PRIX[gamme]] = prix;
+      data.push(nouvel);
+      sauverLigne(nouvel);
+      inpNomA.value = ''; inpRechA.value = ''; inpPrixA.value = '';
+      rendre();
+      // ré-ouvre la catégorie après le re-rendu
+      const s = document.querySelector('.cat[data-cat="'+catKey+'"]');
+      if(s) s.classList.add('open');
+    };
+    body.appendChild(addRow);
+
+    sec.appendChild(body);
+    cont.appendChild(sec);
+  });
+  majBoutonsPrix();
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   DEVIS : sélection, totaux HT et génération du PDF
+   ═══════════════════════════════════════════════════════════════ */
+const ORDRE_CAT = ["securite","confort","energie","central"];
+function prixValide(d){ const v = prixDe(d); return v !== null && v !== '' && v !== undefined && !isNaN(v); }
+function fmtN(n){ return Number(n).toLocaleString('fr-FR').replace(/[\u202f\u00a0]/g,' '); }
+function txtPdf(t){ return String(t).replace(/\u2082/g,'2').replace(/[^\u0020-\u00ff\u2013\u2014\u2018\u2019\u201c\u201d\u2026]/g,'').trim(); }
+
+function produitsSelectionnes(){
+  return data.filter(d=> selection[d.id])
+    .sort((a,b)=> ORDRE_CAT.indexOf(a.cat) - ORDRE_CAT.indexOf(b.cat));
+}
+function majDevis(){
+  const choisis = produitsSelectionnes();
+  const avecPrix = choisis.filter(prixValide);
+  const sansPrix = choisis.length - avecPrix.length;
+  const totalHT = avecPrix.reduce((s,d)=> s + Number(prixDe(d)) * selection[d.id], 0);
+  document.getElementById('qbCount').textContent = choisis.length
+    ? choisis.length + ' produit' + (choisis.length>1?'s':'') + ' sélectionné' + (choisis.length>1?'s':'')
+    : 'Aucun produit sélectionné';
+  document.getElementById('qbTotal').innerHTML = 'Total HT : <b style="display:inline">' + fmtN(totalHT) + ' FCFA</b>'
+    + (sansPrix ? ' <span class="warn">· ' + sansPrix + ' sans prix (ignoré' + (sansPrix>1?'s':'') + ')</span>' : '');
+  document.getElementById('qbPdf').disabled = avecPrix.length === 0;
+  document.getElementById('qbEnregBtn').disabled = choisis.length === 0;
+  document.querySelectorAll('.cat').forEach(sec=>{
+    const btn = sec.querySelector('.cat-clear');
+    if(!btn) return;
+    const n = data.filter(d=> d.cat === sec.dataset.cat && selection[d.id]).length;
+    btn.style.display = n ? '' : 'none';
+    btn.textContent = 'Décocher (' + n + ')';
+  });
+}
+
+// Décoche un seul bloc : cases et quantités. Les prix et les liens ne changent jamais.
+function decocherBloc(catKey){
+  data.filter(d=> d.cat === catKey).forEach(d=>{ delete selection[d.id]; });
+  sauverSelection();
+  rendreCategories();
+  majDevis();
+}
+
+// Fiche détaillée d'un équipement (choix possibles, points à vérifier, à savoir)
+function ouvrirDetails(nom){
+  const d = DETAILS[nom];
+  if(!d) return;
+  document.getElementById('infoTitle').textContent = nom;
+  document.getElementById('infoCourt').textContent = DESCRIPTIONS[nom] || '';
+  const liste = (titre, items)=> items && items.length
+    ? '<h4>' + titre + '</h4><ul>' + items.map(t=>'<li>' + t.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</li>').join('') + '</ul>' : '';
+  document.getElementById('infoBody').innerHTML =
+    liste('Les choix possibles', d.c) +
+    liste('À vérifier avant d\'acheter', d.v) +
+    (d.n ? '<div class="info-note"><b>À savoir :</b> ' + d.n.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>' : '');
+  const dlg = document.getElementById('infoDialog');
+  if(dlg.showModal){ dlg.showModal(); } else { alert(nom + '\n\n' + (d.c||[]).join('\n') + '\n\n' + (d.v||[]).join('\n')); }
+}
+
+// Mot de passe demandé avant une suppression
+const MOT_DE_PASSE_SUPPRESSION = 'dean';
+let actionSuppression = null;
+function motDePasseOk(v){ return String(v || '').trim().toLowerCase() === MOT_DE_PASSE_SUPPRESSION; }
+function demanderMotDePasse(message, action){
+  const dlg = document.getElementById('delDialog');
+  if(!dlg.showModal){
+    const v = window.prompt(message);
+    if(v === null) return;
+    if(motDePasseOk(v)) action(); else alert('Mot de passe incorrect.');
+    return;
+  }
+  actionSuppression = action;
+  document.getElementById('delMsg').textContent = message;
+  document.getElementById('delPw').value = '';
+  document.getElementById('delErr').textContent = '';
+  dlg.showModal();
+  document.getElementById('delPw').focus();
+}
+
+function nouveauNumero(){
+  const now = new Date(), p2 = n => String(n).padStart(2,'0');
+  return 'DV-' + now.getFullYear() + p2(now.getMonth()+1) + p2(now.getDate()) + '-' + p2(now.getHours()) + p2(now.getMinutes()) + p2(now.getSeconds());
+}
+
+// « Enregistrer dans Firebase » : préférence gardée sur cet appareil (par défaut : oui)
+let enregAuto = (function(){ try{ return localStorage.getItem('datalink_enreg_auto') !== '0'; }catch(e){ return true; } })();
+function definirEnregAuto(v){
+  enregAuto = !!v;
+  try{ localStorage.setItem('datalink_enreg_auto', enregAuto ? '1' : '0'); }catch(e){}
+  const c = document.getElementById('qbEnreg'); if(c) c.checked = enregAuto;
+  const a = document.getElementById('asEnreg'); if(a) a.checked = enregAuto;
+}
+
+// Un devis = une ou plusieurs « sections » (une par gamme) : [{ gamme, entrees:[{ d: ligne du catalogue, q: quantité }] }]
+function sectionsBarre(){ return [{ gamme, entrees: produitsSelectionnes().map(d=> ({ d, q: selection[d.id] })) }]; }
+
+function construireRec(sections, o){
+  const tauxTva = Math.max(0, Number(document.getElementById('qbTva').value) || 0);
+  const rep = o.reponses || derniereReponses;
+  const voix = rep ? rep.voix : null;
+  const options = sections.map(s=>{
+    const lignes = s.entrees.map(e=>{
+      const p = prixDeG(e.d, s.gamme), ok = prixOk(p), info = infoModele(e.d.nom, s.gamme, voix);
+      return { id: e.d.id, categorie: txtPdf(e.d.catNom), nom: e.d.nom, qte: e.q,
+               modele: (s.gamme === 'bas' && !info.lien) ? null : info.texte, lien: info.lien || null,
+               prixUnitaireHT: ok ? Number(p) : null, totalHT: ok ? Number(p) * e.q : null };
+    });
+    const totalHT = lignes.reduce((t, l)=> t + (l.totalHT || 0), 0);
+    const montantTva = Math.round(totalHT * tauxTva / 100);
+    return { gamme: s.gamme, totalHT, montantTva, ttc: totalHT + montantTva, lignesSansPrix: lignes.filter(l=> l.prixUnitaireHT === null).length, lignes };
+  });
+  const rec = { numero: o.numero, date: o.date, client: String(o.client || '').trim(), tvaTaux: tauxTva, marge, pdf: !!o.pdf };
+  if(options.length === 1) Object.assign(rec, { gamme: options[0].gamme, totalHT: options[0].totalHT, montantTva: options[0].montantTva, ttc: options[0].ttc, lignes: options[0].lignes, lignesSansPrix: options[0].lignesSansPrix });
+  else Object.assign(rec, { gammes: options.map(x=> x.gamme), options });
+  if(rep) rec.questionnaire = rep;
+  return rec;
+}
+
+// Enregistre le devis dans Firebase, sans créer de PDF (bouton « Enregistrer »)
+async function enregistrerDevisSeul(o){
+  o = o || { sections: sectionsBarre() };
+  if(!o.sections.reduce((n, s)=> n + s.entrees.length, 0)){ toast('Aucun produit à enregistrer : coche au moins un produit.', 4000); return; }
+  o.numero = o.numero || nouveauNumero();
+  o.date = new Date().toISOString();
+  if(o.client === undefined) o.client = document.getElementById('qbClient').value;
+  const rec = construireRec(o.sections, o);
+  const ok = await enregistrerDevis(rec);
+  annoncer(ok ? '✔ Devis ' + rec.numero + ' enregistré dans Firebase et relu sur le serveur (' + o.sections.reduce((n, s)=> n + s.entrees.length, 0) + ' ligne(s)).'
+              : (firebaseActif ? '✖ Devis NON enregistré (erreur Firebase).' : '✖ Firebase non configuré : le devis n\'est PAS enregistré.'), 7000, !ok);
+}
+
+async function genererDevisPdf(o){
+  o = o || {};
+  if(!window.jspdf){ alert("Le générateur PDF n'a pas pu être chargé. Vérifiez votre connexion internet puis réessayez."); return; }
+  const brut = o.sections || sectionsBarre();
+  const sections = brut.map(s=> ({ gamme: s.gamme, entrees: s.entrees.filter(e=> prixOk(prixDeG(e.d, s.gamme))) }));
+  const ignores = brut.reduce((n, s, i)=> n + s.entrees.length - sections[i].entrees.length, 0);
+  const utiles = sections.filter(s=> s.entrees.length);
+  if(!utiles.length) return;
+  if(!REFS_CHARGEES && firebaseActif && db) await chargerRefs();     // liens des produits trouvés
+  if(ignores && !confirm(ignores + ' produit(s) sélectionné(s) n\'ont pas de prix et ne seront pas dans le devis. Continuer ?')) return;
+  const multi = utiles.length > 1;
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:'mm', format:'a4' });
+  const W = 210, M = 15, XQ = 128, XP = 162, XT = W - M - 2;
+  const clientBrut = o.client !== undefined ? o.client : document.getElementById('qbClient').value;
+  const client = txtPdf(clientBrut);
+  const tauxTva = Math.max(0, Number(document.getElementById('qbTva').value) || 0);
+  const rep = o.reponses || derniereReponses, voix = rep ? rep.voix : null;
+
+  const now = new Date();
+  const p2 = n => String(n).padStart(2,'0');
+  const numero = o.numero || nouveauNumero();
+  const dateFr = p2(now.getDate()) + '/' + p2(now.getMonth()+1) + '/' + now.getFullYear();
+
+  // En-tête
+  doc.setTextColor(44,74,110); doc.setFont('helvetica','bold'); doc.setFontSize(20);
+  doc.text('Datalink CI', M, 22);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(107,114,128);
+  doc.text('Abidjan, C\u00f4te d\'Ivoire', M, 28);
+  doc.text('contact@datalinkci.com \u00b7 datalinkci.com', M, 33);
+  doc.setTextColor(44,74,110); doc.setFont('helvetica','bold'); doc.setFontSize(22);
+  doc.text('DEVIS', W - M, 22, { align:'right' });
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(107,114,128);
+  doc.text('N\u00b0 ' + numero, W - M, 28, { align:'right' });
+  doc.text('Date : ' + dateFr, W - M, 33, { align:'right' });
+  if(multi) doc.text(utiles.length + ' options au choix', W - M, 38, { align:'right' });
+  else if(utiles[0].gamme !== 'bas') doc.text(LIBELLE_GAMME[utiles[0].gamme], W - M, 38, { align:'right' });
+
+  let y = 46;
+  if(client){
+    doc.setFontSize(8); doc.setTextColor(107,114,128); doc.text('CLIENT', M, y);
+    doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(31,41,51);
+    doc.text(client, M, y + 6);
+    doc.setFont('helvetica','normal');
+    y += 16;
+  }
+
+  function enteteTableau(){
+    doc.setFillColor(241,244,248); doc.rect(M, y, W - 2*M, 8, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(44,74,110);
+    doc.text('D\u00e9signation', M + 2, y + 5.4);
+    doc.text('Qt\u00e9', XQ, y + 5.4, { align:'right' });
+    doc.text('Prix unitaire HT', XP, y + 5.4, { align:'right' });
+    doc.text('Total HT', XT, y + 5.4, { align:'right' });
+    y += 8;
+  }
+
+  utiles.forEach((s, idx)=>{
+    if(idx > 0){ doc.addPage(); y = 20; }
+    if(multi){
+      doc.setFillColor(74,122,92); doc.rect(M, y, W - 2*M, 9, 'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(255,255,255);
+      doc.text('Option ' + (idx + 1) + ' : ' + LIBELLE_GAMME[s.gamme], M + 3, y + 6.2);
+      y += 13;
+    }
+    enteteTableau();
+
+    let totalHT = 0, catPrec = null;
+    s.entrees.forEach(e=>{
+      const d = e.d, q = e.q, pu = Number(prixDeG(d, s.gamme));
+      const total = pu * q;
+      totalHT += total;
+
+      if(d.cat !== catPrec){
+        catPrec = d.cat;
+        if(y > 262){ doc.addPage(); y = 20; enteteTableau(); }
+        doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(74,122,92);
+        doc.text(txtPdf(d.catNom).toUpperCase(), M + 2, y + 5.5);
+        y += 8;
+      }
+      doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
+      const nomLignes = doc.splitTextToSize(txtPdf(d.nom), 100);
+      const info = infoModele(d.nom, s.gamme, voix);
+      const modeleLigne = (s.gamme === 'bas' && !info.lien) ? null : info.texte;       // bas de gamme : mentionné seulement si une annonce est liée
+      const sousLignes = modeleLigne ? doc.splitTextToSize(txtPdf(LIBELLE_GAMME[s.gamme] + ' : ' + modeleLigne), 100) : [];
+      const h = nomLignes.length * 4.6 + (sousLignes.length ? sousLignes.length * 3.7 + 0.6 : 0) + 3.4;
+      if(y + h > 268){ doc.addPage(); y = 20; enteteTableau(); doc.setFont('helvetica','normal'); doc.setFontSize(9.5); }
+      doc.setTextColor(31,41,51);
+      doc.text(nomLignes, M + 2, y + 5);
+      if(sousLignes.length){
+        const yMod = y + 5 + (nomLignes.length - 1) * 4.6 + 4.1;
+        doc.setFontSize(8);
+        if(info.lien) doc.setTextColor(37,99,235); else doc.setTextColor(107,114,128);
+        doc.text(sousLignes, M + 2, yMod);
+        if(info.lien){                                                              // le modèle est un lien cliquable vers le produit
+          const largeur = Math.max(...sousLignes.map(t=> doc.getTextWidth(t)));
+          doc.link(M + 2, yMod - 3, largeur, sousLignes.length * 3.7 + 0.6, { url: info.lien });
+          doc.setDrawColor(37,99,235); doc.setLineWidth(.15);
+          sousLignes.forEach((t, k)=> doc.line(M + 2, yMod + k * 3.7 + 0.7, M + 2 + doc.getTextWidth(t), yMod + k * 3.7 + 0.7));
+          doc.setDrawColor(227,231,236); doc.setLineWidth(.2);
+        }
+        doc.setFontSize(9.5); doc.setTextColor(31,41,51);
+      }
+      doc.text(String(q), XQ, y + 5, { align:'right' });
+      doc.text(fmtN(pu), XP, y + 5, { align:'right' });
+      doc.text(fmtN(total), XT, y + 5, { align:'right' });
+      y += h;
+      doc.setDrawColor(227,231,236); doc.setLineWidth(.2); doc.line(M, y, W - M, y);
+    });
+
+    // Totaux de la section
+    const montantTva = Math.round(totalHT * tauxTva / 100);
+    const ttc = totalHT + montantTva;
+    if(y > 232){ doc.addPage(); y = 20; }
+    y += 8;
+    const XL = 118;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(31,41,51);
+    doc.text('Total HT', XL, y); doc.text(fmtN(totalHT) + ' FCFA', XT, y, { align:'right' });
+    y += 7;
+    doc.text('TVA (' + String(tauxTva).replace('.',',') + ' %)', XL, y); doc.text(fmtN(montantTva) + ' FCFA', XT, y, { align:'right' });
+    y += 4;
+    doc.setFillColor(44,74,110); doc.rect(XL - 4, y, W - M - XL + 4, 10, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(255,255,255);
+    doc.text('Total TTC', XL, y + 6.8); doc.text(fmtN(ttc) + ' FCFA', XT, y + 6.8, { align:'right' });
+  });
+
+  // Pied de page
+  const n = doc.getNumberOfPages();
+  for(let i=1;i<=n;i++){
+    doc.setPage(i);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(107,114,128);
+    doc.text('Prix exprim\u00e9s en FCFA. Prix unitaires hors taxes.', M, 284);
+    doc.text('Datalink CI \u00b7 Abidjan, C\u00f4te d\'Ivoire \u00b7 contact@datalinkci.com \u00b7 datalinkci.com', M, 289);
+    doc.text('Page ' + i + '/' + n, W - M, 289, { align:'right' });
+  }
+  doc.save('Devis_' + numero + '.pdf');
+
+  // Enregistrement en base (historique des devis), si la case « Enregistrer dans Firebase » est cochée
+  const sauver = o.save === undefined ? enregAuto : o.save;
+  if(!sauver){ annoncer('Devis ' + numero + ' téléchargé (non enregistré dans Firebase).', 6000); return; }
+  const rec = construireRec(brut, { numero, date: now.toISOString(), client: clientBrut, reponses: rep, pdf: true });
+  enregistrerDevis(rec).then(ok=>{
+    annoncer(ok ? '✔ Devis ' + numero + ' enregistré dans Firebase et relu sur le serveur.'
+                : (firebaseActif ? '✖ Devis téléchargé, mais NON enregistré (erreur Firebase).'
+                                 : '✖ Devis téléchargé. Firebase non configuré : il n\'est PAS enregistré en base.'), 7000, !ok);
+  });
+}
+
+document.getElementById('qbGamme').value = gamme;
+document.getElementById('qbGamme').addEventListener('change', e=>{
+  gamme = e.target.value; sauverSelection(); rendreCategories(); majDevis();
+});
+document.getElementById('qbPdf').onclick = ()=> genererDevisPdf();
+document.getElementById('qbMarge').value = marge;
+document.getElementById('qbMarge').addEventListener('change', e=> definirMarge(e.target.value));
+document.getElementById('qbEnreg').checked = enregAuto;
+document.getElementById('qbEnreg').addEventListener('change', e=> definirEnregAuto(e.target.checked));
+document.getElementById('qbEnregBtn').onclick = ()=> enregistrerDevisSeul();
+document.getElementById('qbClient').addEventListener('input', sauverSelection);
+document.getElementById('qbTva').addEventListener('input', sauverSelection);
+document.getElementById('qbClear').onclick = ()=>{
+  if(!Object.keys(selection).length) return;
+  if(!confirm('Reprendre le devis ? Toutes les cases cochées et les quantités seront vidées. Les prix et les liens ne changent pas.')) return;
+  selection = {}; sauverSelection(); rendreCategories(); majDevis();
+};
+document.getElementById('delForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  const champ = document.getElementById('delPw');
+  if(motDePasseOk(champ.value)){
+    const action = actionSuppression;
+    actionSuppression = null;
+    document.getElementById('delDialog').close();
+    if(action) action();
+  }else{
+    document.getElementById('delErr').textContent = 'Mot de passe incorrect.';
+    champ.select();
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   ASSISTANT DEVIS : un questionnaire sur l'environnement du client, puis un devis prêt
+   dans la ou les gammes choisies (équipements, quantités, modèles, prix)
+   ═══════════════════════════════════════════════════════════════ */
+
+const EUR_XOF = 655.957;                    // parité fixe du franc CFA : 1 € = 655,957 FCFA
+const GAMMES_LISTE = ['bas', 'moyen', 'haut'];
+const prixOk = v => v !== null && v !== undefined && v !== '' && !isNaN(v);
+function prixDeG(d, g){ return d[CHAMP_PRIX[g]]; }
+
+// Modèles proposés par gamme : [moyen de gamme, haut de gamme]. Bas de gamme = Tuya d'usine (Alibaba).
+// Liste à valider (voir modeles-proposes.html). Modifie-la ici quand tu changes un modèle.
+const MODELES_GAMME = {
+  "Prise connectée": ["TP-Link Tapo P110M (mesure de conso)", "Shelly Plug S Gen3"],
+  "Ampoule connectée": ["TP-Link Tapo L530E (E27, couleurs)", "Philips Hue White & Color Ambiance E27"],
+  "Interrupteur mural connecté": ["SONOFF TX Ultimate (tactile)", "Aqara Wall Switch H1 (EU, sans neutre)"],
+  "Interrupteur / relais connecté": ["SONOFF MINIR4", "Shelly 1 Gen3"],
+  "Caméra IP intérieure": ["TP-Link Tapo C225 (2K, orientable)", "EZVIZ C6 (2K, orientable)"],
+  "Caméra IP extérieure": ["TP-Link Tapo C320WS (2K)", "EZVIZ H8c ou Hikvision ColorVu"],
+  "Sonnette vidéo connectée": ["TP-Link Tapo D230S1", "EZVIZ DB2 Pro"],
+  "Détecteur d'ouverture porte/fenêtre": ["TP-Link Tapo T110", "Aqara Door and Window Sensor (T1 ou P2)"],
+  "Détecteur de mouvement PIR": ["TP-Link Tapo T100", "Aqara Motion Sensor P1"],
+  "Détecteur de fumée connecté": [null, "Aqara Smart Smoke Detector"],
+  "Détecteur de fuite d'eau / inondation": ["TP-Link Tapo T300", "Aqara Water Leak Sensor T1"],
+  "Serrure connectée": ["Aqara Smart Lock U100", "Yale Linus Smart Lock L2"],
+  "Module IR pour climatiseur": ["BroadLink RM4 Pro", "SwitchBot Hub 2"],
+  "Volet roulant motorisé": [null, "Somfy (moteurs io ou RTS)"],
+  "Motorisation de portail": ["Meross Smart Garage Door Opener MSG100 (contrôleur)", "Nice, FAAC ou CAME (motorisation)"],
+  "Motorisation de porte de garage": ["Meross Smart Garage Door Opener MSG100", "Nice, FAAC ou CAME (motorisation)"],
+  "Capteur température / humidité": ["TP-Link Tapo T315", "Aqara Temperature and Humidity Sensor"],
+  "Passerelle Zigbee": ["TP-Link Tapo H100 ou H200 (hub des capteurs Tapo)", "Aqara Hub M3"],
+  "Enceinte connectée": ["Google Nest Mini (2e génération)", "Google Nest Hub (2e génération)"],
+  "Onduleur (UPS) connecté": ["Eaton Ellipse ECO 650", "APC Back-UPS Pro (1000-1600 VA)"],
+  "Point d'accès Wi-Fi": ["TP-Link Deco (série X)", "Ubiquiti UniFi (série U6 ou U7)"],
+  "Routeur / switch réseau": ["TP-Link Deco (série X)", "Ubiquiti UniFi"]
+};
+// Si le client choisit Alexa, les enceintes deviennent des Amazon Echo
+const MODELES_ALEXA = { "Enceinte connectée": ["Amazon Echo Dot", "Amazon Echo Show 8"] };
+function modeleConnu(nom, g, voix){
+  if(g === 'bas') return null;
+  const m = (voix === 'alexa' && MODELES_ALEXA[nom]) || MODELES_GAMME[nom];
+  return (m && m[g === 'moyen' ? 0 : 1]) || null;          // null = pas de modèle proposé
+}
+function modeleGamme(nom, g, voix){
+  if(g === 'bas') return "Tuya d'usine, sans marque";
+  return infoModele(nom, g, voix).texte || (g === 'moyen' ? 'Marque grand public à choisir' : 'Marque premium à choisir');
+}
+
+// Valeurs de départ : tout est à 0 et aucun choix n'est présélectionné. Le questionnaire ne propose rien : c'est toi qui règles chaque quantité.
+function reponsesInitiales(){
+  return {
+    client:'', logement:null, etages:null, priorites:{ securite:true, energie:true, confort:true }, gammes:{ bas:false, moyen:true, haut:false },
+    lumieres:0, ampoules:0, prises:0, conso:null,
+    splits:0, volets:0, portail:null, garage:null,
+    camInt:0, camExt:0, sonnette:null, serrures:0, enregistrement:null,
+    alarme:null, ouvertures:0, mouvements:0, sirene_ext:null, sos:null, fumee:0, eau:0, gaz:null,
+    coupures:null, wifi:null, voix:null, enceintes:0,
+    arrosage:null, piscine:null, eclExt:0
+  };
+}
+const NON_OUI = [[true,'Oui'],[false,'Non']];
+const ETAPES = [
+  { id:'client', titre:'Le client et le logement', champs:[
+    { t:'texte', k:'client', l:'Nom du client (facultatif)', ph:'Ex : M. Koné' },
+    { t:'choix', k:'logement', l:'Type de logement', o:[['appartement','Appartement'],['villa','Villa'],['grande','Grande villa'],['bureau','Bureau ou commerce']] },
+    { t:'choix', k:'etages', l:'Nombre d\'étages', o:[[1,'Plain-pied'],[2,'2 niveaux'],[3,'3 niveaux ou plus']] } ] },
+  { id:'choix', titre:'Ce que veut le client', champs:[
+    { t:'multi', k:'priorites', l:'Priorités (une ou plusieurs)', o:[['securite','Sécurité : vols et intrusions'],['energie','Énergie : lumières, prises, coupures'],['confort','Confort : clim, volets, portail']] },
+    { t:'multi', k:'gammes', l:'Gammes (une ou plusieurs)', aide:'plusieurs gammes = une option de devis par gamme', o:[['bas','Bas de gamme · Tuya d\'usine, prix le plus bas'],['moyen','Moyen de gamme · marques abordables'],['haut','Haut de gamme · grandes marques']] } ] },
+  { id:'energie', si: r=>r.priorites.energie, titre:'Éclairage et prises', champs:[
+    { t:'nb', k:'lumieres', l:'Points lumineux à commander', aide:'un interrupteur connecté par point', max:60 },
+    { t:'nb', k:'ampoules', l:'Ampoules connectées de couleur', aide:'éclairage d\'ambiance', max:40 },
+    { t:'nb', k:'prises', l:'Prises à commander', aide:'ventilateur, TV, chauffe-eau…', max:40 },
+    { t:'choix', k:'conso', l:'Suivre la consommation d\'électricité ?', o:NON_OUI } ] },
+  { id:'confort', si: r=>r.priorites.confort, titre:'Climatisation et ouvertures', champs:[
+    { t:'nb', k:'splits', l:'Splits (climatiseurs avec télécommande infrarouge)', max:30 },
+    { t:'nb', k:'volets', l:'Volets roulants à motoriser', max:40 },
+    { t:'choix', k:'portail', l:'Portail', o:[['aucun','Pas de portail'],['motoriser','À motoriser'],['relais','Déjà motorisé : le commander']] },
+    { t:'choix', k:'garage', l:'Porte de garage', o:[['aucun','Pas de garage'],['motoriser','À motoriser'],['relais','Déjà motorisée : la commander']] } ] },
+  { id:'video', si: r=>r.priorites.securite, titre:'Caméras et accès', champs:[
+    { t:'nb', k:'camInt', l:'Caméras intérieures', max:20 },
+    { t:'nb', k:'camExt', l:'Caméras extérieures', max:30 },
+    { t:'choix', k:'sonnette', l:'Sonnette vidéo à l\'entrée ?', o:NON_OUI },
+    { t:'nb', k:'serrures', l:'Serrures connectées', aide:'nombre de portes', max:10 },
+    { t:'choix', k:'enregistrement', l:'Enregistrement des vidéos', o:[['sd','Carte SD dans chaque caméra'],['nvr','Enregistreur central (NVR)']], aide:'le NVR demande des caméras compatibles ONVIF', si: r=>(r.camInt + r.camExt) > 0 } ] },
+  { id:'alarme', si: r=>r.priorites.securite, titre:'Alarme et sécurité des personnes', champs:[
+    { t:'choix', k:'alarme', l:'Alarme anti-intrusion ?', o:NON_OUI },
+    { t:'nb', k:'ouvertures', l:'Portes et fenêtres à surveiller', max:60, si: r=>r.alarme },
+    { t:'nb', k:'mouvements', l:'Détecteurs de mouvement', max:30, si: r=>r.alarme },
+    { t:'choix', k:'sirene_ext', l:'Sirène extérieure avec flash ?', o:NON_OUI, si: r=>r.alarme },
+    { t:'choix', k:'sos', l:'Bouton SOS / panique ?', o:NON_OUI, aide:'utile pour une personne âgée ou isolée' },
+    { t:'nb', k:'fumee', l:'Détecteurs de fumée', max:20 },
+    { t:'nb', k:'eau', l:'Détecteurs de fuite d\'eau', aide:'cuisine, salle de bain, chauffe-eau', max:20 },
+    { t:'choix', k:'gaz', l:'Détecteur de fuite de gaz ?', o:NON_OUI } ] },
+  { id:'reseau', titre:'Coupures, Wi-Fi et voix', champs:[
+    { t:'choix', k:'coupures', l:'Coupures de courant', o:[['frequentes','Fréquentes'],['rares','Rares']] },
+    { t:'choix', k:'wifi', l:'Wi-Fi actuel de la maison', o:[['bon','Bon partout'],['moyen','Moyen'],['faible','Faible']] },
+    { t:'choix', k:'voix', l:'Commande vocale', o:[['aucun','Aucune'],['google','Google Home'],['alexa','Alexa (Amazon Echo)']], aide:'Alexa : disponibilité en Côte d\'Ivoire à vérifier' },
+    { t:'nb', k:'enceintes', l:'Enceintes (une par pièce où l\'on veut parler)', max:12, si: r=>r.voix === 'google' || r.voix === 'alexa' } ] },
+  { id:'exterieur', si: r=>r.priorites.confort, titre:'Extérieur', champs:[
+    { t:'choix', k:'arrosage', l:'Arrosage automatique du jardin ?', o:NON_OUI },
+    { t:'choix', k:'piscine', l:'Pompe de piscine à commander ?', o:NON_OUI },
+    { t:'nb', k:'eclExt', l:'Points d\'éclairage extérieur', max:30 } ] }
+];
+
+let REP = reponsesInitiales(), LIGNES = [], etapeIdx = 0, etapesActives = [];
+let SAISIES = {}, numeroCourant = null, applGamme = null;
+let AUTO = {};   // prix pré-remplis avec le prix trouvé : « équipement|gamme » → { txt, source } (pas enregistrés dans le catalogue tant qu'on ne les valide pas)
+const gammesChoisies = ()=> GAMMES_LISTE.filter(g=> REP.gammes[g]);
+
+// Les règles : ce que le client a répondu → équipements et quantités (noms exacts du catalogue)
+function calculerLignes(r){
+  const M = new Map(), P = r.priorites, Q = Math.min(Math.max(Number(r.etages) || 1, 1), 3);
+  const add = (nom, qte, raison)=>{
+    qte = Math.round(Number(qte) || 0); if(qte <= 0) return;
+    const e = M.get(nom);
+    if(e){ e.qte += qte; if(raison && !e.raison.includes(raison)) e.raison += ' · ' + raison; }
+    else M.set(nom, { nom, qte, raison: raison || '' });
+  };
+  let capteurs = 0;                                   // capteurs à pile : ils demandent une passerelle Zigbee
+  if(P.energie){
+    add('Interrupteur mural connecté', r.lumieres, 'un par point lumineux');
+    add('Ampoule connectée', r.ampoules, 'éclairage d\'ambiance en couleurs');
+    add('Prise connectée', r.prises, 'commande à distance et programmation');
+    if(r.conso) add('Compteur électrique intelligent', 1, 'suivi de la consommation');
+  }
+  if(P.confort){
+    add('Module IR pour climatiseur', r.splits, 'un par split');
+    if(r.splits > 0){ const n = Math.min(r.splits, 4); add('Capteur température / humidité', n, 'allume la clim selon la chaleur'); capteurs += n; }
+    add('Volet roulant motorisé', r.volets, 'un moteur par volet');
+    if(r.volets > 0) add('Commande murale / télécommande volet', 1, 'commande sans téléphone');
+    if(r.portail === 'motoriser') add('Motorisation de portail', 1, 'ouverture à distance');
+    if(r.portail === 'relais') add('Interrupteur / relais connecté', 1, 'commande le moteur existant du portail');
+    if(r.garage === 'motoriser') add('Motorisation de porte de garage', 1, 'ouverture à distance');
+    if(r.garage === 'relais') add('Interrupteur / relais connecté', 1, 'commande le moteur existant du garage');
+    if(r.arrosage) add('Arrosage automatique connecté', 1, 'arrose aux heures choisies');
+    if(r.piscine) add('Pompe / filtration piscine connectée', 1, 'mise en marche programmée');
+    add('Éclairage extérieur connecté', r.eclExt, 'jardin, cour et portail');
+  }
+  if(P.securite){
+    add('Caméra IP intérieure', r.camInt, 'surveillance de l\'intérieur');
+    add('Caméra IP extérieure', r.camExt, 'surveillance de la cour et des accès');
+    if(r.sonnette) add('Sonnette vidéo connectée', 1, 'voir et parler au visiteur');
+    add('Serrure connectée', r.serrures, 'ouverture sans clé');
+    if(r.enregistrement === 'nvr' && (r.camInt + r.camExt) > 0){
+      add('Enregistreur NVR', 1, 'centralise les vidéos (caméras compatibles ONVIF)');
+      add('Disque dur pour vidéosurveillance', 1, 'stockage des vidéos');
+    }
+    if(r.alarme){
+      add('Détecteur d\'ouverture porte/fenêtre', r.ouvertures, 'alerte à l\'ouverture'); capteurs += Number(r.ouvertures) || 0;
+      add('Détecteur de mouvement PIR', r.mouvements, 'détecte les déplacements'); capteurs += Number(r.mouvements) || 0;
+      if((r.ouvertures + r.mouvements) > 0) add('Sirène intérieure', 1, 'dissuade et alerte');
+      if(r.sirene_ext) add('Sirène extérieure avec flash', 1, 'alerte le voisinage');
+    }
+    if(r.sos){ add('Bouton SOS / panique', 1, 'alerte immédiate'); capteurs += 1; }
+    add('Détecteur de fumée connecté', r.fumee, 'alerte incendie sur le téléphone'); capteurs += Number(r.fumee) || 0;
+    add('Détecteur de fuite d\'eau / inondation', r.eau, 'alerte dès qu\'il touche de l\'eau'); capteurs += Number(r.eau) || 0;
+    if(r.gaz) add('Détecteur de fuite de gaz', 1, 'alerte en cas de fuite de gaz');
+  }
+  if(capteurs > 0) add('Passerelle Zigbee', Q, 'relie les capteurs à pile (une par étage)');
+  if(r.voix === 'google' || r.voix === 'alexa') add('Enceinte connectée', r.enceintes, 'commande vocale ' + (r.voix === 'alexa' ? 'Alexa' : 'Google Home'));
+  if(r.coupures === 'frequentes') add('Onduleur (UPS) connecté', 1, 'garde le routeur et la passerelle allumés pendant une coupure');
+  if(r.wifi === 'moyen') add('Point d\'accès Wi-Fi', Q, 'renforce le Wi-Fi (un par étage)');
+  if(r.wifi === 'faible'){ add('Point d\'accès Wi-Fi', Q + 1, 'Wi-Fi faible : une borne par étage en plus'); add('Routeur / switch réseau', 1, 'base solide pour les bornes'); }
+  const idx = nom => { const it = data.find(d=>d.nom === nom); return it ? ORDRE_CAT.indexOf(it.cat) : 9; };
+  return [...M.values()].sort((a,b)=> idx(a.nom) - idx(b.nom));
+}
+
+const etapesVisibles = ()=> ETAPES.filter(e=> !e.si || e.si(REP));
+const vJ = v => JSON.stringify(v).replace(/"/g,'&quot;');
+
+function champHtml(c){
+  if(c.si && !c.si(REP)) return '';
+  const aide = c.aide ? ' <span class="as-aide">· ' + esc(c.aide) + '</span>' : '';
+  let corps = '';
+  if(c.t === 'texte') corps = '<input type="text" data-texte="' + c.k + '" value="' + esc(REP[c.k]) + '" placeholder="' + esc(c.ph || '') + '" maxlength="80">';
+  else if(c.t === 'choix') corps = '<div class="as-choix">' + c.o.map(([v,l])=> '<button type="button" class="as-opt' + (REP[c.k] === v ? ' on' : '') + '" data-choix="' + c.k + '" data-v="' + vJ(v) + '">' + esc(l) + '</button>').join('') + '</div>';
+  else if(c.t === 'multi') corps = '<div class="as-choix">' + c.o.map(([v,l])=> '<button type="button" class="as-opt' + (REP[c.k][v] ? ' on' : '') + '" data-multi="' + c.k + '" data-v="' + v + '">' + esc(l) + '</button>').join('') + '</div>';
+  else if(c.t === 'nb') corps = '<div class="as-nb"><button type="button" data-nb="' + c.k + '" data-d="-1" aria-label="Moins">−</button><output>' + REP[c.k] + '</output><button type="button" data-nb="' + c.k + '" data-d="1" aria-label="Plus">+</button></div>';
+  return '<div class="as-champ"><label>' + esc(c.l) + aide + '</label>' + corps + '</div>';
+}
+
+function trouverItem(nom){ return data.find(d=> d.nom === nom); }
+function prixLigne(l, g){ const it = trouverItem(l.nom); const p = it ? prixDeG(it, g) : null; return prixOk(p) ? Number(p) : null; }
+function montantLigne(l, g){ const p = prixLigne(l, g); return p === null ? null : p * l.qte; }
+
+// Ce qui s'affiche dans la case prix : la saisie d'origine (€ ou FCFA) si elle correspond encore au prix enregistré
+const texteAuto = a => 'Prix du marché (' + a.source + ' : ' + a.txt + ') + marge ' + (Math.round(marge * 10) / 10).toLocaleString('fr-FR') + ' %';
+function saisieAffichee(nom, g, stocke){
+  const s = SAISIES[nom + '|' + g];
+  if(s && s.val !== null && stocke !== null && Math.round(s.cur === 'EUR' ? s.val * EUR_XOF : s.val) === stocke) return s;
+  return { val: stocke, cur: 'XOF' };
+}
+
+function rendreAssistant(){
+  etapesActives = etapesVisibles();
+  const enResume = etapeIdx >= etapesActives.length;
+  const total = etapesActives.length + 1;
+  const n = Math.min(etapeIdx, etapesActives.length);
+  const corps = document.getElementById('asCorps'), pied = document.getElementById('asPied'), actions = document.getElementById('asActions');
+  document.getElementById('asBarre').style.width = Math.round((n + 1) / total * 100) + '%';
+  if(!enResume){
+    const e = etapesActives[etapeIdx];
+    document.getElementById('asTitre').textContent = e.titre;
+    document.getElementById('asEtape').textContent = 'Étape ' + (etapeIdx + 1) + ' sur ' + total;
+    corps.innerHTML = e.champs.map(champHtml).join('') + '<p class="as-err" id="asErr"></p>';
+    actions.innerHTML = '<button type="button" class="qb-clear" data-nav="fermer">✕ Fermer</button>';
+    pied.innerHTML = (etapeIdx > 0 ? '<button type="button" class="qb-clear" data-nav="prec">← Retour</button>' : '<span></span>') +
+      '<div class="droite"><button type="button" class="add-btn" data-nav="suiv">Suivant →</button></div>';
+  }else{
+    const gs = gammesChoisies();
+    if(!(LIGNES.length && LIGNES.__pour === JSON.stringify(REP))) LIGNES = Object.assign(calculerLignes(REP), { __pour: JSON.stringify(REP) });
+    if(!applGamme || !gs.includes(applGamme)) applGamme = gs[0];
+    document.getElementById('asTitre').textContent = gs.length > 1 ? 'Votre devis proposé : ' + gs.length + ' options' : 'Votre devis proposé';
+    document.getElementById('asEtape').textContent = 'Dernière étape · ' + gs.map(g=> LIBELLE_GAMME[g]).join(' · ');
+    corps.innerHTML = resumeHtml(gs);
+    actions.innerHTML =
+      (gs.length > 1 ? '<label class="as-appl">Appliquer : <select id="asApplGamme">' + gs.map(g=> '<option value="' + g + '"' + (g === applGamme ? ' selected' : '') + '>' + LIBELLE_GAMME[g] + '</option>').join('') + '</select></label>' : '') +
+      '<button type="button" class="qb-clear" data-nav="enreg" title="Enregistre ce devis dans Firebase, sans créer de PDF">Enregistrer</button>' +
+      '<button type="button" class="qb-clear" data-nav="appliquer">Appliquer au devis</button>' +
+      '<button type="button" class="add-btn" data-nav="pdf">Générer le PDF</button>' +
+      '<button type="button" class="qb-clear" data-nav="fermer" aria-label="Fermer">✕</button>';
+    pied.innerHTML = '<button type="button" class="qb-clear" data-nav="prec">← Modifier les réponses</button><span></span>';
+    majTotauxResume(); if(PRIX_ETAT) etatPrix(PRIX_ETAT.msg, PRIX_ETAT.type, PRIX_ETAT.bouton); chargerRefs(true);
+  }
+}
+
+function cellGamme(l, i, g){
+  const it = trouverItem(l.nom);
+  const stocke = it && prixOk(prixDeG(it, g)) ? Number(prixDeG(it, g)) : null;
+  const s = saisieAffichee(l.nom, g, stocke);
+  return '<td class="as-g" data-g="' + g + '" data-lib="' + LIBELLE_GAMME[g] + '"><div class="as-modele">' + modeleHtml(l.nom, g) + '</div>' +
+    (it ? '<div class="as-pv"><input class="as-prix' + (AUTO[l.nom + '|' + g] ? ' as-auto' : '') + '" type="number" min="0" step="any" placeholder="—" value="' + (s.val === null || s.val === undefined ? '' : esc(s.val)) + '" aria-label="Prix HT ' + esc(l.nom) + ' ' + LIBELLE_GAMME[g] + '">' +
+      '<select class="as-dev" aria-label="Devise"><option value="XOF"' + (s.cur === 'XOF' ? ' selected' : '') + '>FCFA</option><option value="EUR"' + (s.cur === 'EUR' ? ' selected' : '') + '>€</option></select></div>' +
+      '<div class="as-conv"></div><div class="as-autotag">' + (AUTO[l.nom + '|' + g] ? esc(texteAuto(AUTO[l.nom + '|' + g])) : '') + '</div><div class="as-ref"></div><div class="as-ltot"></div>' : '') + '</td>';
+}
+
+function resumeHtml(gs){
+  const logement = { appartement:'Appartement', villa:'Villa', grande:'Grande villa', bureau:'Bureau ou commerce' }[REP.logement] || '';
+  let cat = null, lignes = '';
+  const nbCol = 2 + gs.length;
+  LIGNES.forEach((l, i)=>{
+    const it = trouverItem(l.nom);
+    if(it && it.cat !== cat){ cat = it.cat; lignes += '<tr class="as-cat"><td colspan="' + nbCol + '">' + esc(it.catNom) + '</td></tr>'; }
+    lignes += '<tr data-i="' + i + '"><td class="as-nom"><b>' + esc(l.nom) + '</b>' + (it ? '' : ' <span class="as-manque">(absent du catalogue)</span>') + '<div class="as-raison">' + esc(l.raison) + '</div></td>' +
+      '<td class="as-qt"><div class="as-qte"><button type="button" data-q="-1" aria-label="Moins">−</button><output>' + l.qte + '</output><button type="button" data-q="1" aria-label="Plus">+</button></div></td>' +
+      gs.map(g=> cellGamme(l, i, g)).join('') + '</tr>';
+  });
+  return '<p class="as-resume-meta">' + (REP.client ? 'Client : <b>' + esc(REP.client) + '</b> · ' : '') + (logement ? esc(logement) + ' · ' : '') + gs.map(g=> '<b>' + LIBELLE_GAMME[g] + '</b>').join(' · ') + '</p>' +
+    '<div class="as-options"><label class="as-enreg"><input type="checkbox" id="asEnreg"' + (enregAuto ? ' checked' : '') + '> Enregistrer aussi dans Firebase quand je génère le PDF</label>' +
+    '<label class="as-marge">Ma marge sur le prix du marché : <input id="asMarge" type="number" min="0" max="500" step="1" value="' + marge + '"> %</label></div>' +
+    '<div class="as-prixetat" id="asPrixEtat"></div>' +
+    '<div class="as-scroll"><table class="as-table"><thead><tr><th>Équipement</th><th>Qté</th>' + gs.map(g=> '<th>' + LIBELLE_GAMME[g] + '</th>').join('') + '</tr></thead><tbody>' +
+    (lignes || '<tr><td colspan="' + nbCol + '">Aucun équipement : reviens en arrière pour modifier les réponses.</td></tr>') + '</tbody></table></div>' +
+    '<div class="as-total" id="asTotal"></div>' +
+    '<p class="as-note">Tu peux saisir chaque prix en FCFA ou en euros : les euros sont convertis en FCFA (1 € = 655,957 FCFA, parité fixe). Les prix sont enregistrés dans le catalogue, par gamme. ' +
+    (gs.some(g=> g !== 'bas') ? 'Modèles moyen et haut de gamme : proposition à valider, vérifie qu\'ils sont toujours vendus. ' : '') +
+    'Les prix vides sont remplis avec le prix du marché trouvé sur Amazon.fr, converti en FCFA, plus ta marge (cadre orange) : tu n\'as rien à saisir. Ce sont des prix publics Amazon, TTC en France. Ils ne sont enregistrés dans le catalogue que si tu les modifies ou si tu cliques sur « Appliquer au devis ». Chaque modèle est cliquable.</p>';
+}
+
+function majTotauxResume(){
+  const gs = gammesChoisies(), tot = {}, manque = {};
+  gs.forEach(g=>{ tot[g] = 0; manque[g] = 0; });
+  LIGNES.forEach((l, i)=>{
+    const tr = document.querySelector('#asCorps tr[data-i="' + i + '"]'); if(!tr) return;
+    tr.classList.toggle('zero', l.qte <= 0);
+    tr.querySelector('.as-qte output').textContent = l.qte;
+    gs.forEach(g=>{
+      const m = montantLigne(l, g), cell = tr.querySelector('td.as-g[data-g="' + g + '"]');
+      if(cell && cell.querySelector('.as-ltot')) cell.querySelector('.as-ltot').textContent = m === null || l.qte <= 0 ? '' : 'Total : ' + fmtN(m) + ' FCFA';
+      if(l.qte > 0){ if(m === null) manque[g]++; else tot[g] += m; }
+    });
+  });
+  const el = document.getElementById('asTotal');
+  if(el) el.innerHTML = '<span>' + LIGNES.filter(l=>l.qte > 0).length + ' ligne(s)</span>' +
+    gs.map(g=> '<div class="as-tg"><b>' + LIBELLE_GAMME[g] + '</b> : Total HT <b>' + fmtN(tot[g]) + ' FCFA</b>' + (manque[g] ? ' <span class="as-manque">· ' + manque[g] + ' sans prix</span>' : '') + '</div>').join('');
+}
+
+/* ── Prix trouvés par la recherche de « modèles récents » (Firebase) : lecture, conversion, utilisation ── */
+const SYMBOLES = { EUR:'€', USD:'$', GBP:'£', XOF:'FCFA' };
+function parsePrixTexte(txt){
+  if(!txt) return null;
+  const s = String(txt), marques = [];
+  if(/€|EUR|euro/i.test(s)) marques.push('EUR');
+  if(/£|GBP/i.test(s)) marques.push('GBP');
+  if(/US\s*\$|\$|USD/i.test(s)) marques.push('USD');
+  if(/FCFA|XOF|CFA/i.test(s)) marques.push('XOF');
+  if(marques.length !== 1) return null;                       // aucune devise, ou plusieurs : trop ambigu
+  const m = s.match(/(\d{1,3}(?:[\s\u00a0\u202f.]\d{3})+|\d+)(?:[.,](\d{1,2}))?/);   // premier nombre : le plus bas d'une fourchette
+  if(!m) return null;
+  return { val: Number(m[1].replace(/[\s\u00a0\u202f.]/g, '') + (m[2] ? '.' + m[2] : '')), dev: marques[0] };
+}
+const parseEur = txt => { const p = parsePrixTexte(txt); return p && p.dev === 'EUR' ? p.val : null; };
+
+// FCFA pour 1 unité de la devise : euro = parité fixe ; dollar et livre = taux du jour de la BCE (Frankfurter), gardé 12 h
+async function tauxXof(dev, silencieux){
+  if(dev === 'XOF') return 1;
+  if(dev === 'EUR') return EUR_XOF;
+  const cle = 'datalink_taux_' + dev; let cache = null;
+  try{ cache = JSON.parse(localStorage.getItem(cle)); }catch(e){ cache = null; }
+  if(cache && cache.v > 0 && Date.now() - cache.t < 12 * 3600 * 1000) return cache.v;
+  for(const url of ['https://api.frankfurter.dev/v1/latest?base=' + dev + '&symbols=EUR', 'https://api.frankfurter.app/latest?from=' + dev + '&to=EUR']){
+    try{
+      const ctrl = new AbortController(), tm = setTimeout(()=> ctrl.abort(), 5000);
+      const r = await fetch(url, { signal: ctrl.signal }); clearTimeout(tm);
+      if(!r.ok) continue;
+      const j = await r.json(), e = j && j.rates && j.rates.EUR;
+      if(e > 0){ const v = e * EUR_XOF; try{ localStorage.setItem(cle, JSON.stringify({ v, t: Date.now(), d: j.date })); }catch(x){} return v; }
+    }catch(e){ /* on essaie l'adresse suivante */ }
+  }
+  if(cache && cache.v > 0) return cache.v;                    // taux enregistré plus tôt, faute de mieux
+  if(silencieux) return null;                                 // remplissage automatique : on ne dérange pas l'utilisateur
+  const saisi = Number(String(window.prompt('Taux du jour indisponible. Combien de FCFA pour 1 ' + (dev === 'USD' ? 'dollar US' : 'livre sterling') + ' ?') || '').replace(',', '.'));
+  if(saisi > 0){ try{ localStorage.setItem(cle, JSON.stringify({ v: saisi, t: Date.now(), d: 'saisi' })); }catch(x){} return saisi; }
+  return null;
+}
+async function convertirEnXof(p, silencieux){
+  const t = await tauxXof(p.dev, silencieux);
+  return t ? { cfa: Math.round(p.val * t), taux: t } : null;
+}
+const fmtDec = n => (Math.round(n * 100) / 100).toLocaleString('fr-FR');
+async function appliquerPrixTrouve(item, g, txt){
+  const p = parsePrixTexte(txt);
+  if(!p){ annoncer('Prix illisible : « ' + txt + ' ».', 5000, true); return false; }
+  const r = await convertirEnXof(p);
+  if(!r){ annoncer('Conversion impossible : le taux ' + p.dev + ' → FCFA est indisponible.', 6000, true); return false; }
+  const prixVente = avecMarge(r.cfa);
+  item[CHAMP_PRIX[g]] = prixVente;
+  rendreCategories(); majDevis();
+  await sauverLigne(item);                                    // le message « enregistré » de la ligne passe d'abord, le nôtre ensuite
+  annoncer('Prix HT (' + g + ') de « ' + item.nom + ' » = ' + fmtN(prixVente) + ' FCFA (prix du marché ' + (p.dev === 'XOF' ? '' : fmtDec(p.val) + ' ' + SYMBOLES[p.dev] + ' × ' + fmtDec(r.taux) + ' = ') + fmtN(r.cfa) + ' FCFA + marge ' + marge + ' %).', 8000);
+  return true;
+}
+
+function extraireRefs(r){
+  const out = {};
+  const b = r.bas && r.bas.candidats && r.bas.candidats[0];
+  if(b) out.bas = { txt: b.prix_indicatif || '', p: parsePrixTexte(b.prix_indicatif), lien: b.lien || null, modele: null, source: 'Alibaba' };
+  ['moyen', 'haut'].forEach(g=>{
+    const a = r[g] && r[g].amazon;
+    if(a) out[g] = { txt: a.prix_indicatif || '', p: parsePrixTexte(a.prix_indicatif), lien: a.lien || null, modele: [a.marque, a.modele].filter(Boolean).join(' ') || null, source: 'Amazon.fr' };
+  });
+  return out;
+}
+async function chargerRefs(force){
+  if((!REFS_CHARGEES || force) && firebaseActif && db){
+    try{
+      const snap = await db.collection('veille_modeles').get();
+      snap.forEach(doc=>{
+        const d = doc.data() || {}; let r = null;
+        try{ r = JSON.parse(d.resultat || d.json); }catch(e){ r = null; }
+        if(doc.id.startsWith('prixjob-')) return;                                   // suivi d'une demande de prix
+        if(doc.id.startsWith('prix-')){ if(r) PRIX_MODELES[doc.id.slice(5)] = Object.assign({ maj: d.maj || null }, r); return; }
+        if(r) REFS[doc.id] = extraireRefs(r);
+      });
+      REFS_CHARGEES = true;
+    }catch(e){ /* les prix de référence sont facultatifs */ }
+  }
+  majRefs(); majBoutonsPrix();
+  if(document.getElementById('assistantDialog').open && etapeIdx >= etapesActives.length){ preRemplirPrix(); verifierPrixManquants(); }
+}
+
+/* ── Prix de chaque modèle proposé : cherchés sur Amazon.fr (fonction Netlify), gardés 30 jours dans Firebase ── */
+// Le prix d'une ligne : celui du modèle trouvé par la recherche, sinon celui du modèle proposé (cherché sur Amazon.fr)
+function prixModele(nom, g){
+  if(g === 'bas'){ const r = (REFS[slugEquipement(nom)] || {}).bas; return r && r.p ? { p: r.p, txt: r.txt, source: r.source, lien: r.lien } : null; }
+  const i = infoModele(nom, g, REP.voix);
+  if(i.source === 'recherche'){ const r = (REFS[slugEquipement(nom)] || {})[g]; return r && r.p ? { p: r.p, txt: r.txt, source: r.source, lien: r.lien } : null; }
+  if(!i.texte) return null;
+  const m = PRIX_MODELES[slugEquipement(i.texte)];
+  return m && m.prix_eur ? { p: { val: m.prix_eur, dev: 'EUR' }, txt: fmtDec(m.prix_eur) + ' EUR', source: 'Amazon.fr', lien: m.lien || null } : null;
+}
+let PRIX_JOB_ACTIF = false, prixEcoute = null, prixDemandeFaite = false, PRIX_ETAT = null, prixMinuteur = null;
+function etatPrix(msg, type, bouton){
+  PRIX_ETAT = msg ? { msg, type: type || 'on', bouton: bouton || null } : null;
+  const box = document.getElementById('asPrixEtat'); if(!box) return;
+  if(!PRIX_ETAT){ box.className = 'as-prixetat'; box.innerHTML = ''; return; }
+  box.className = 'as-prixetat on ' + PRIX_ETAT.type;
+  box.innerHTML = (PRIX_ETAT.type === 'on' && PRIX_JOB_ACTIF ? '<span class="spin"></span>' : '') + esc(PRIX_ETAT.msg) + (PRIX_ETAT.bouton ? ' <button type="button" class="qb-clear" data-nav="prixmodeles">' + PRIX_ETAT.bouton + '</button>' : '');
+}
+function modelesSansPrix(){
+  const vus = new Map(), gs = gammesChoisies().filter(g=> g !== 'bas');
+  LIGNES.forEach(l=>{
+    const it = trouverItem(l.nom); if(l.qte <= 0 || !it) return;
+    gs.forEach(g=>{
+      if(prixOk(prixDeG(it, g))) return;                                            // prix déjà saisi
+      const i = infoModele(l.nom, g, REP.voix);
+      if(i.source !== 'proposition' || !i.texte) return;                            // modèle sans nom, ou issu d'une recherche (son prix vient d'elle)
+      const cle = slugEquipement(i.texte), m = PRIX_MODELES[cle];
+      if(m && m.maj && (Date.now() - Date.parse(m.maj)) < 30 * 86400000) return;   // déjà cherché il y a moins de 30 jours (trouvé ou non)
+      if(!vus.has(cle)) vus.set(cle, { equipement: l.nom, modele: i.texte });
+    });
+  });
+  return [...vus.values()];
+}
+function verifierPrixManquants(){
+  if(!(firebaseActif && db) || PRIX_JOB_ACTIF) return;
+  const manquants = modelesSansPrix();
+  if(!manquants.length){ if(PRIX_ETAT && !/^✔|^✖/.test(PRIX_ETAT.msg)) etatPrix(''); return; }
+  const cout = (manquants.length * 0.03).toFixed(2).replace('.', ',');
+  etatPrix('Prix à chercher sur Amazon.fr : ' + manquants.length + ' modèle(s), environ ' + cout + ' $ (une seule fois : le résultat est gardé 30 jours).', 'on', 'Chercher les prix');
+  if(!prixDemandeFaite){ prixDemandeFaite = true; lancerPrixModeles(manquants); }   // automatique : le mot de passe n'est demandé qu'une fois par session
+}
+function arreterEcoutePrix(){ if(prixEcoute){ prixEcoute(); prixEcoute = null; } clearTimeout(prixMinuteur); }
+function lancerPrixModeles(manquants){
+  manquants = manquants || modelesSansPrix(); if(!manquants.length || PRIX_JOB_ACTIF) return;
+  demanderMotDePasseVeille(async pw=>{
+    const jobId = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    PRIX_JOB_ACTIF = true; etatPrix('Recherche du prix de ' + manquants.length + ' modèle(s) sur Amazon.fr… (1 à 3 minutes)', 'on');
+    arreterEcoutePrix();
+    prixEcoute = db.collection('veille_modeles').doc('prixjob-' + jobId).onSnapshot(async snap=>{
+      const d = snap.exists ? snap.data() : null; if(!d) return;
+      if(d.statut === 'erreur'){
+        PRIX_JOB_ACTIF = false; arreterEcoutePrix();
+        if(/incorrect/i.test(d.message || '')) sessionStorage.removeItem('veille_pw');
+        etatPrix('✖ ' + (d.message || 'Erreur inconnue.'), 'err'); return;
+      }
+      await chargerRefs(true);                                                       // relit les prix trouvés : les cases se remplissent au fur et à mesure
+      if(d.statut === 'termine'){
+        PRIX_JOB_ACTIF = false; arreterEcoutePrix();
+        etatPrix('✔ Prix trouvés pour ' + (d.trouves || 0) + ' modèle(s) sur ' + (d.total || manquants.length) + '. Ils sont gardés 30 jours.', 'ok');
+      }else etatPrix('Recherche en cours : ' + (d.done || 0) + ' / ' + (d.total || manquants.length) + ' modèle(s)…', 'on');
+    }, err=>{ PRIX_JOB_ACTIF = false; etatPrix('✖ Lecture impossible : ' + (err && (err.code || err.message)), 'err'); });
+    prixMinuteur = setTimeout(()=>{ if(PRIX_JOB_ACTIF){ PRIX_JOB_ACTIF = false; arreterEcoutePrix(); etatPrix('✖ Pas de réponse après 6 minutes : vérifie que la fonction prix-modeles-background est déployée sur Netlify.', 'err'); } }, 360000);
+    try{
+      const r = await fetch('/.netlify/functions/prix-modeles-background', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ id: jobId, pass: pw, modeles: manquants }) });
+      if(!(r.ok || r.status === 202)){
+        PRIX_JOB_ACTIF = false; arreterEcoutePrix();
+        etatPrix('✖ ' + (r.status === 404 ? "La fonction n'est pas encore déployée sur Netlify (fichier netlify/functions/prix-modeles-background.js)." : 'Erreur du serveur (' + r.status + ').'), 'err');
+      }
+    }catch(e){ PRIX_JOB_ACTIF = false; arreterEcoutePrix(); etatPrix('✖ Connexion impossible (' + (e && e.message) + ').', 'err'); }
+  }, 'Prix des modèles du devis', 'Claude cherche le prix de chaque modèle sur Amazon.fr (environ 0,03 $ par modèle, une seule fois). Entre le mot de passe pour continuer.');
+}
+
+// Modèle affiché pour une ligne et une gamme : celui trouvé par la recherche (avec son lien), sinon la proposition de la liste
+function infoModele(nom, g, voix){
+  const ref = (REFS[slugEquipement(nom)] || {})[g];
+  if(g === 'bas') return { texte: "Tuya d'usine, sans marque", lien: ref && ref.lien || null, source: ref && ref.lien ? 'Alibaba' : null };
+  if(ref && ref.modele) return { texte: ref.modele, lien: ref.lien || lienAmazon(ref.modele), source: 'recherche' };
+  const t = modeleConnu(nom, g, voix);
+  const trouve = t ? PRIX_MODELES[slugEquipement(t)] : null;
+  return { texte: t, lien: t ? ((trouve && trouve.lien) || lienAmazon(t)) : null, source: t ? 'proposition' : null };
+}
+function modeleHtml(nom, g){
+  const i = infoModele(nom, g, REP.voix), texte = i.texte || (g === 'moyen' ? 'Marque grand public à choisir' : g === 'haut' ? 'Marque premium à choisir' : "Tuya d'usine, sans marque");
+  const etiquette = i.source === 'recherche' ? ' <span class="as-src">· trouvé par la recherche</span>' : i.source === 'Alibaba' ? ' <span class="as-src">· annonce Alibaba</span>' : '';
+  return (i.lien ? '<a href="' + esc(i.lien) + '" target="_blank" rel="noopener">' + esc(texte) + '</a>' : esc(texte)) + etiquette;
+}
+async function preRemplirPrix(){
+  const gs = gammesChoisies(); let change = false;
+  for(const l of LIGNES){
+    if(l.qte <= 0) continue;
+    const it = trouverItem(l.nom); if(!it) continue;
+    for(const g of gs){
+      if(prixOk(prixDeG(it, g))) continue;                                       // jamais de remplacement d'un prix déjà saisi
+      const r = prixModele(l.nom, g); if(!r || !r.p) continue;
+      const conv = await convertirEnXof(r.p, true); if(!conv) continue;
+      if(prixOk(prixDeG(it, g))) continue;
+      it[CHAMP_PRIX[g]] = avecMarge(conv.cfa); AUTO[l.nom + '|' + g] = { txt: r.txt, source: r.source, base: conv.cfa }; change = true;
+    }
+  }
+  if(change && document.getElementById('assistantDialog').open) rafraichirPrix();
+}
+function rafraichirPrix(){
+  LIGNES.forEach((l, i)=>{
+    const tr = document.querySelector('#asCorps tr[data-i="' + i + '"]'), it = trouverItem(l.nom); if(!tr || !it) return;
+    tr.querySelectorAll('td.as-g').forEach(cell=>{
+      const g = cell.dataset.g, auto = AUTO[l.nom + '|' + g], inp = cell.querySelector('.as-prix'), tag = cell.querySelector('.as-autotag');
+      if(!inp || !auto || !prixOk(prixDeG(it, g))) return;
+      inp.value = prixDeG(it, g); inp.classList.add('as-auto'); cell.querySelector('.as-dev').value = 'XOF';
+      if(tag) tag.textContent = texteAuto(auto);
+    });
+  });
+  majTotauxResume();
+}
+// Enregistre une ligne SANS emporter les prix pré-remplis (simples suggestions) : la copie envoyée est faite avant le premier « await »
+function sauverSansAuto(it){
+  const memo = [];
+  Object.keys(AUTO).forEach(k=>{ const [nom, g] = k.split('|'), x = trouverItem(nom); if(x){ memo.push([x, CHAMP_PRIX[g], x[CHAMP_PRIX[g]]]); x[CHAMP_PRIX[g]] = null; } });
+  const r = sauverLigne(it);
+  memo.forEach(([x, c, v])=>{ x[c] = v; });
+  return r;
+}
+// Changement de marge : les prix pré-remplis sont recalculés (les prix saisis à la main ne bougent pas)
+function definirMarge(v){
+  marge = Math.min(500, Math.max(0, Number(v) || 0));
+  try{ localStorage.setItem('datalink_marge', String(marge)); }catch(e){}
+  ['qbMarge', 'asMarge'].forEach(id=>{ const e = document.getElementById(id); if(e && Number(e.value) !== marge) e.value = marge; });
+  Object.keys(AUTO).forEach(k=>{ const [nom, g] = k.split('|'), it = trouverItem(nom), a = AUTO[k]; if(it && a.base != null) it[CHAMP_PRIX[g]] = avecMarge(a.base); });
+  if(document.getElementById('assistantDialog').open && etapeIdx >= etapesActives.length) rafraichirPrix();
+  majBoutonsPrix();
+}
+// Valide les prix pré-remplis : ils entrent dans le catalogue (à l'« application » du devis)
+function validerPrixAuto(){
+  Object.keys(AUTO).forEach(k=>{ const it = trouverItem(k.split('|')[0]); if(it) sauverLigne(it); });
+  AUTO = {};
+}
+// Fenêtre fermée sans validation : les prix pré-remplis ne restent pas dans le catalogue
+function annulerPrixAuto(){
+  const cles = Object.keys(AUTO); if(!cles.length) return;
+  cles.forEach(k=>{ const [nom, g] = k.split('|'), it = trouverItem(nom); if(it) it[CHAMP_PRIX[g]] = null; });
+  AUTO = {}; rendreCategories(); majDevis();
+}
+
+function majRefs(){
+  LIGNES.forEach((l, i)=>{
+    const tr = document.querySelector('#asCorps tr[data-i="' + i + '"]'); if(!tr) return;
+    tr.querySelectorAll('td.as-g').forEach(cell=>{
+      const g = cell.dataset.g, mod = cell.querySelector('.as-modele'), box = cell.querySelector('.as-ref');
+      if(mod) mod.innerHTML = modeleHtml(l.nom, g);
+      const r = prixModele(l.nom, g); if(!r || !box || !r.p) { if(box && r && r.txt) box.textContent = 'Réf. ' + r.source + ' : ' + r.txt; return; }
+      if(r.p.dev === 'EUR' || r.p.dev === 'XOF'){
+        const cfa = Math.round(r.p.dev === 'EUR' ? r.p.val * EUR_XOF : r.p.val);
+        box.innerHTML = 'Marché ' + esc(r.source) + ' : ' + esc(r.txt) + ' = ' + fmtN(cfa) + ' FCFA → avec marge <b>' + fmtN(avecMarge(cfa)) + ' FCFA</b> <button type="button" class="as-use" data-txt="' + esc(r.txt) + '">Utiliser</button>';
+      }else box.innerHTML = 'Marché ' + esc(r.source) + ' : ' + esc(r.txt) + ' <button type="button" class="as-use" data-txt="' + esc(r.txt) + '">Utiliser (taux du jour + marge)</button>';
+    });
+  });
+}
+
+// Tableau principal : petit lien « Prix trouvé » sous la case Prix HT quand la recherche a trouvé un prix pour la gamme affichée
+function majBoutonsPrix(){
+  document.querySelectorAll('.prix-trouve').forEach(bt=>{
+    const r = prixModele(bt.dataset.nom, gamme);
+    if(!r || !r.p){ bt.hidden = true; return; }
+    const item = data.find(d=> d.nom === bt.dataset.nom), actuel = item ? prixDeG(item, gamme) : null;
+    if(item && prixOk(actuel) && r.p.dev !== 'USD' && r.p.dev !== 'GBP' && avecMarge(Math.round(r.p.dev === 'EUR' ? r.p.val * EUR_XOF : r.p.val)) === Number(actuel)){ bt.hidden = true; return; }
+    bt.textContent = 'Utiliser le prix du marché + marge ' + marge + ' % : ' + r.txt;
+    bt.title = 'Prix relevé sur ' + r.source + ', converti en FCFA, auquel ta marge est ajoutée.';
+    bt.hidden = false;
+  });
+}
+
+/* ── Actions ── */
+function sectionsAssistant(){
+  const entrees = LIGNES.filter(l=> l.qte > 0).map(l=> ({ d: trouverItem(l.nom), q: l.qte })).filter(e=> e.d);
+  return gammesChoisies().map(g=> ({ gamme: g, entrees }));
+}
+function appliquerAuDevis(){
+  const manquants = [], gs = gammesChoisies();
+  const g = gs.includes(applGamme) ? applGamme : gs[0];
+  selection = {};
+  LIGNES.forEach(l=>{ const it = trouverItem(l.nom); if(!it){ manquants.push(l.nom); return; } if(l.qte > 0) selection[it.id] = l.qte; });
+  gamme = g; document.getElementById('qbGamme').value = gamme;
+  if(REP.client) document.getElementById('qbClient').value = REP.client;
+  derniereReponses = JSON.parse(JSON.stringify(REP));
+  validerPrixAuto();
+  sauverSelection(); rendreCategories(); majDevis();
+  document.getElementById('assistantDialog').close();
+  toast('Devis prêt : ' + Object.keys(selection).length + ' équipement(s), ' + LIBELLE_GAMME[gamme].toLowerCase() + '.' + (manquants.length ? ' Absents du catalogue : ' + manquants.join(', ') + '.' : ''), 4500);
+}
+function optionsAssistant(){
+  numeroCourant = numeroCourant || nouveauNumero();
+  return { sections: sectionsAssistant(), client: REP.client || document.getElementById('qbClient').value, reponses: JSON.parse(JSON.stringify(REP)), numero: numeroCourant };
+}
+
+function ouvrirAssistant(){
+  REP = reponsesInitiales(); LIGNES = []; etapeIdx = 0; SAISIES = {}; numeroCourant = null; applGamme = null; AUTO = {}; prixDemandeFaite = false; PRIX_ETAT = null;
+  const dlg = document.getElementById('assistantDialog');
+  rendreAssistant();
+  if(dlg.showModal) dlg.showModal();
+}
+
+(function brancherAssistant(){
+  const dlg = document.getElementById('assistantDialog');
+  document.getElementById('btnAssistant').onclick = ouvrirAssistant;
+  dlg.addEventListener('close', annulerPrixAuto);
+  dlg.addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b || !dlg.contains(b)) return;
+    if(b.dataset.choix){
+      const k = b.dataset.choix, v = JSON.parse(b.dataset.v);
+      REP[k] = v;
+      rendreAssistant(); return;
+    }
+    if(b.dataset.multi){ REP[b.dataset.multi][b.dataset.v] = !REP[b.dataset.multi][b.dataset.v]; rendreAssistant(); return; }
+    if(b.dataset.nb){
+      const k = b.dataset.nb, c = ETAPES.flatMap(x=>x.champs).find(x=>x.k === k);
+      REP[k] = Math.min(c.max, Math.max(0, (Number(REP[k]) || 0) + Number(b.dataset.d)));
+      rendreAssistant(); return;
+    }
+    if(b.dataset.q){
+      const tr = b.closest('tr'), l = LIGNES[Number(tr.dataset.i)];
+      l.qte = Math.max(0, l.qte + Number(b.dataset.q)); majTotauxResume(); return;
+    }
+    if(b.dataset.txt){
+      const cell = b.closest('td.as-g'), inp = cell.querySelector('.as-prix'), sel = cell.querySelector('.as-dev'), p = parsePrixTexte(b.dataset.txt);
+      if(!p) return;
+      convertirEnXof(p).then(r=>{
+        if(!r){ annoncer('Conversion impossible : taux indisponible.', 6000, true); return; }
+        sel.value = 'XOF'; inp.value = avecMarge(r.cfa); inp.dispatchEvent(new Event('change', { bubbles:true }));
+        annoncer('Prix HT rempli : ' + fmtN(avecMarge(r.cfa)) + ' FCFA (prix du marché ' + (p.dev === 'XOF' ? '' : fmtDec(p.val) + ' ' + SYMBOLES[p.dev] + ' × ' + fmtDec(r.taux) + ' = ') + fmtN(r.cfa) + ' FCFA + marge ' + marge + ' %).', 6000);
+      });
+      return;
+    }
+    const nav = b.dataset.nav; if(!nav) return;
+    if(nav === 'fermer'){ dlg.close(); return; }
+    if(nav === 'prec'){ etapeIdx = Math.max(0, etapeIdx - 1); rendreAssistant(); return; }
+    if(nav === 'suiv'){
+      const etape = etapesActives[etapeIdx];
+      if(etape.id === 'choix'){
+        if(!Object.values(REP.priorites).some(Boolean)){ document.getElementById('asErr').textContent = 'Choisis au moins une priorité.'; return; }
+        if(!Object.values(REP.gammes).some(Boolean)){ document.getElementById('asErr').textContent = 'Choisis au moins une gamme.'; return; }
+      }
+      etapeIdx++; if(etapeIdx > etapesVisibles().length) etapeIdx = etapesVisibles().length; rendreAssistant(); return;
+    }
+    if(nav === 'prixmodeles'){ prixDemandeFaite = true; lancerPrixModeles(); return; }
+    if(nav === 'appliquer'){ appliquerAuDevis(); return; }
+    if(nav === 'enreg'){ enregistrerDevisSeul(optionsAssistant()); return; }
+    if(nav === 'pdf'){
+      const o = optionsAssistant();
+      if(!o.sections.some(s=> s.entrees.some(en=> prixOk(prixDeG(en.d, s.gamme))))){ annoncer('Renseigne au moins un prix avant de générer le PDF.', 4500, true); return; }
+      o.save = enregAuto; genererDevisPdf(o); return;
+    }
+  });
+  dlg.addEventListener('input', e=>{
+    if(e.target.dataset && e.target.dataset.texte){ REP[e.target.dataset.texte] = e.target.value; }
+  });
+  dlg.addEventListener('change', e=>{
+    const t = e.target;
+    if(t.id === 'asApplGamme'){ applGamme = t.value; return; }
+    if(t.id === 'asEnreg'){ definirEnregAuto(t.checked); return; }
+    if(t.id === 'asMarge'){ definirMarge(t.value); return; }
+    if(t.classList && (t.classList.contains('as-prix') || t.classList.contains('as-dev'))){
+      const cell = t.closest('td.as-g'), tr = t.closest('tr'), g = cell.dataset.g, l = LIGNES[Number(tr.dataset.i)], it = l && trouverItem(l.nom); if(!it) return;
+      const inp = cell.querySelector('.as-prix'), sel = cell.querySelector('.as-dev');
+      const v = inp.value === '' ? null : Math.max(0, Number(inp.value));
+      const cfa = v === null ? null : Math.round(sel.value === 'EUR' ? v * EUR_XOF : v);
+      it[CHAMP_PRIX[g]] = cfa;
+      delete AUTO[l.nom + '|' + g]; inp.classList.remove('as-auto'); cell.querySelector('.as-autotag').textContent = '';
+      SAISIES[l.nom + '|' + g] = { val: v, cur: sel.value };
+      cell.querySelector('.as-conv').textContent = (sel.value === 'EUR' && cfa !== null) ? '= ' + fmtN(cfa) + ' FCFA' : '';
+      sauverSansAuto(it); majTotauxResume();
+    }
+  });
+})();
+
+
+/* ═══════════════════════════════════════════════════════════════
+   DEVIS ENREGISTRÉS : la liste de ce qui est vraiment dans Firebase, avec rechargement et suppression
+   ═══════════════════════════════════════════════════════════════ */
+let DEVIS_LISTE = [];
+function resumeDevis(rec){
+  const opts = rec.options || [{ gamme: rec.gamme, totalHT: rec.totalHT, ttc: rec.ttc, lignes: rec.lignes }];
+  return opts.map(o=> '<div><span class="dl-tag">' + esc(LIBELLE_GAMME[o.gamme] || 'Bas de gamme') + '</span>' + fmtN(o.ttc || 0) + ' FCFA TTC <span style="color:var(--muted)">(' + (o.lignes || []).length + ' ligne(s))</span></div>').join('');
+}
+function rendreListeDevis(){
+  const corps = document.getElementById('dlCorps');
+  if(!DEVIS_LISTE.length){ corps.innerHTML = '<p>Aucun devis enregistré pour le moment. Utilise « Enregistrer » ou génère un PDF avec « Enregistrer dans Firebase » coché.</p>'; return; }
+  corps.innerHTML = '<div class="as-scroll"><table class="dl-table"><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Gamme et total</th><th>PDF</th><th></th></tr></thead><tbody>' +
+    DEVIS_LISTE.map((r, i)=>{
+      const opts = r.options || [{ gamme: r.gamme }];
+      return '<tr data-i="' + i + '"><td><b>' + esc(r.numero) + '</b></td><td>' + esc(dateFr(r.date)) + '</td><td>' + esc(r.client || '—') + '</td><td>' + resumeDevis(r) + '</td>' +
+        '<td>' + (r.pdf ? '<span class="dl-tag">PDF généré</span>' : '<span class="dl-tag non">sans PDF</span>') + '</td>' +
+        '<td><div class="dl-act">' + opts.map(o=> '<button type="button" data-rech="' + (o.gamme || 'bas') + '">Recharger' + (opts.length > 1 ? ' (' + (LIBELLE_GAMME[o.gamme] || '').replace(' de gamme', '') + ')' : '') + '</button>').join('') +
+        '<button type="button" class="sup" data-sup="1">Supprimer</button></div></td></tr>';
+    }).join('') + '</tbody></table></div><p class="as-note">« Recharger » remet les lignes, la gamme, le client et la TVA dans le devis en cours. Les prix repris sont ceux du catalogue actuel.</p>';
+}
+async function ouvrirDevisEnregistres(){
+  const dlg = document.getElementById('devisListeDialog'), corps = document.getElementById('dlCorps');
+  corps.innerHTML = '<p>Chargement…</p>';
+  if(dlg.showModal && !dlg.open) dlg.showModal();
+  if(!(firebaseActif && db)){ corps.innerHTML = '<p class="as-manque">Firebase n\'est pas actif : le badge en haut doit afficher « Synchronisé (Firebase) ».</p>'; return; }
+  try{
+    const snap = await db.collection(FIRESTORE_DEVIS).get(), L = [];
+    snap.forEach(d=> L.push(d.data()));
+    L.sort((a, b)=> String(b.date || '').localeCompare(String(a.date || '')));
+    DEVIS_LISTE = L.slice(0, 100);
+    rendreListeDevis();
+  }catch(e){ corps.innerHTML = '<p class="as-manque">Lecture impossible : ' + esc(e && (e.code || e.message)) + '</p>'; }
+}
+function rechargerDevis(rec, g){
+  const o = rec.options ? (rec.options.find(x=> x.gamme === g) || rec.options[0]) : rec;
+  const nouvelle = {}, manquants = [];
+  (o.lignes || []).forEach(l=>{
+    const it = data.find(d=> d.id === l.id) || data.find(d=> d.nom === l.nom);
+    if(it) nouvelle[it.id] = l.qte; else manquants.push(l.nom);
+  });
+  selection = nouvelle;
+  gamme = GAMMES_OK.includes(o.gamme) ? o.gamme : 'bas'; document.getElementById('qbGamme').value = gamme;
+  document.getElementById('qbClient').value = rec.client || '';
+  if(rec.tvaTaux !== undefined) document.getElementById('qbTva').value = rec.tvaTaux;
+  derniereReponses = rec.questionnaire || null;
+  sauverSelection(); rendreCategories(); majDevis();
+  document.getElementById('devisListeDialog').close();
+  annoncer('Devis ' + rec.numero + ' rechargé : ' + Object.keys(selection).length + ' équipement(s), ' + LIBELLE_GAMME[gamme].toLowerCase() + '.' + (manquants.length ? ' Absents du catalogue : ' + manquants.join(', ') + '.' : ''), 6000);
+}
+document.getElementById('btnDevisListe').onclick = ouvrirDevisEnregistres;
+document.getElementById('dlFermer').onclick = ()=> document.getElementById('devisListeDialog').close();
+document.getElementById('devisListeDialog').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  const tr = b.closest('tr'), rec = tr && DEVIS_LISTE[Number(tr.dataset.i)]; if(!rec) return;
+  if(b.dataset.rech){ rechargerDevis(rec, b.dataset.rech); return; }
+  if(b.dataset.sup){
+    demanderMotDePasse('Supprimer le devis ' + rec.numero + ' de Firebase ?', async ()=>{
+      try{ await db.collection(FIRESTORE_DEVIS).doc(rec.numero).delete(); annoncer('Devis ' + rec.numero + ' supprimé de Firebase.', 5000); }
+      catch(err){ annoncer('Suppression impossible : ' + (err && (err.code || err.message)), 6000, true); }
+      ouvrirDevisEnregistres();
+    });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   MODÈLES RÉCENTS (option B) : Claude cherche, le résultat est lu dans Firebase
+   ═══════════════════════════════════════════════════════════════ */
+const URL_VEILLE = '/.netlify/functions/veille-modeles-background';
+const AGE_MAX_JOURS = 30;
+let veilleItem = null, veilleUnsub = null, veilleDebut = 0, veilleMinuteur = null, veilleDernier = null, veilleLocal = '';
+
+function slugEquipement(nom){
+  return String(nom).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,70) || 'equipement';
+}
+function esc(t){ return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function lienAmazon(terme){ return 'https://www.amazon.fr/s?k=' + encodeURIComponent(terme); }
+function dateFr(iso){ const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('fr-FR') + ' à ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}); }
+const ul = (arr)=> arr && arr.length ? '<ul>' + arr.map(x=>'<li>' + esc(x) + '</li>').join('') + '</ul>' : '';
+
+function agePageHtml(age){
+  if(!age) return '';
+  const d = new Date(age), vieux = !isNaN(d) && (Date.now() - d.getTime()) > 365*86400000;
+  const lib = isNaN(d) ? age : d.toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' });
+  return '<span class="vbadge" style="' + (vieux ? '' : 'background:#eef5f0;color:#4a7a5c') + '">Page du ' + esc(lib) + (vieux ? ' : ancienne' : '') + '</span>';
+}
+function blocAmazon(m, titre, gk){
+  m = m || {};
+  if(!m.modele && !m.marque) return '<div class="vsource-block"><div class="vsource-title">Amazon.fr</div><p class="vinfo">Aucun modèle trouvé.</p><a href="' + lienAmazon(titre) + '" target="_blank" rel="noopener">Chercher sur Amazon.fr</a></div>';
+  const nom = [m.marque, m.modele].filter(Boolean).join(' ');
+  const infos = [m.annee ? 'Sortie ' + m.annee : '', m.protocole || '', m.appli ? 'Appli ' + m.appli : '', 'Google Home : ' + (m.google_home || 'inconnu')].filter(Boolean).join(' · ');
+  const lien = m.lien
+    ? '<a href="' + esc(m.lien) + '" target="_blank" rel="noopener">Voir l\'annonce Amazon.fr</a>'
+    : '<a href="' + lienAmazon(nom || titre) + '" target="_blank" rel="noopener">Chercher sur Amazon.fr</a>';
+  return '<div class="vsource-block"><div class="vsource-title">Amazon.fr</div><p class="vtitre">' + esc(nom) + '</p><p class="vinfo">' + esc(infos) + '</p>' +
+    (m.prix_indicatif ? '<p><b>Prix indicatif :</b> ' + esc(m.prix_indicatif) + '</p>' + boutonPrix(m.prix_indicatif, gk) : '') +
+    (m.vendeur ? '<p class="vinfo">' + esc(m.vendeur) + '</p>' : '') +
+    (m.remplace_par ? '<p class="vwarn">Remplacé par un modèle plus récent : ' + esc(m.remplace_par) + '</p>' : '') +
+    (m.points_forts && m.points_forts.length ? '<p class="vlab">Points forts</p>' + ul(m.points_forts) : '') +
+    (m.points_faibles && m.points_faibles.length ? '<p class="vlab">Points faibles</p>' + ul(m.points_faibles) : '') +
+    (m.lien ? '<p style="margin-top:.4rem">' + agePageHtml(m.age_page) + '</p>' : '') +
+    '<div class="vliens">' + lien + '</div></div>';
+}
+
+function fmtUsd(v){ return v == null ? '' : (Math.round(v*100)/100).toLocaleString('fr-FR') + ' $'; }
+function boutonPrix(txt, gk){
+  if(!gk || !parsePrixTexte(txt)) return '';
+  return '<button type="button" class="vprix" data-g="' + gk + '" data-txt="' + esc(txt) + '">Utiliser ce prix + ma marge dans « Prix HT · ' + gk + ' »</button>';
+}
+function carteAlibabaDirect(c, gk){
+  const chips = (c.trade_assurance ? '<span class="vchip">✔ Trade Assurance</span>' : '') + (c.verifie ? '<span class="vchip">✔ Fournisseur vérifié</span>' : '') +
+    (c.annees != null ? '<span class="vchip neutre">' + esc(c.annees) + ' ans</span>' : '') +
+    (c.note != null && c.note > 0 ? '<span class="vchip neutre">★ ' + esc(c.note) + (c.avis != null ? ' (' + esc(c.avis) + ')' : '') + '</span>' : '') +
+    (c.ventes ? '<span class="vchip neutre">' + esc(c.ventes) + '</span>' : '');
+  const paliers = (c.tiers || []).filter(t => t.qte != null && t.prix != null).map(t => esc(t.qte) + '+ : ' + fmtUsd(t.prix)).join(' · ');
+  return '<div class="vcand">' + (c.image ? '<img src="' + esc(c.image) + '" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">' : '') +
+    '<div><div class="vt">' + esc(c.titre) + '</div>' +
+    '<div class="vinfo">' + [c.prix_indicatif, c.moq ? 'MOQ ' + esc(c.moq) : '', c.certificats].filter(Boolean).map(esc).join(' · ') + '</div>' + boutonPrix(c.prix_indicatif, gk) +
+    (paliers ? '<div class="vinfo">Paliers : ' + paliers + '</div>' : '') +
+    (chips ? '<div>' + chips + '</div>' : '') +
+    ((c.fournisseur || c.pays) ? '<div class="vinfo">' + esc([c.fournisseur, c.pays].filter(Boolean).join(', ')) + '</div>' : '') +
+    (c.pourquoi ? '<div class="vinfo"><i>' + esc(c.pourquoi) + '</i></div>' : '') +
+    (c.age_page ? '<div>' + agePageHtml(c.age_page) + '</div>' : '') +
+    (c.lien ? '<a href="' + esc(c.lien) + '" target="_blank" rel="noopener" style="font-size:.78rem;font-weight:700;color:var(--primary)">Voir l\'annonce</a>' : '') + '</div></div>';
+}
+
+function blocAlibaba(candidats, item, direct, gk){
+  const cands = (candidats || []).length
+    ? candidats.map(c=> carteAlibabaDirect(c, gk)).join('')
+    : '<p class="vinfo">Aucune annonce Alibaba sélectionnée pour cette gamme.</p>';
+  return '<div class="vsource-block"><div class="vsource-title">Alibaba.com ' + (direct ? '<span class="vdirect">en direct</span>' : '<span class="vbadge">copies de pages</span>') + '</div>' + cands +
+    '<div class="vliens"><a href="' + lienAlibaba(item.recherche || item.nom) + '" target="_blank" rel="noopener">Voir Alibaba pour cette recherche</a></div></div>';
+}
+
+function colonneGamme(cls, titre, g, item){
+  g = g || {};
+  const gk = { vbas:'bas', vmoy:'moyen', vhaut:'haut' }[cls];
+  const type = g.type_produit || item.nom;
+  return '<div class="vcol ' + cls + '"><h4>' + titre + '</h4><p class="vsous">' + esc(type) + '</p>' +
+    blocAlibaba(g.candidats, item, g.direct !== false, gk) + blocAmazon(g.amazon || g, titre, gk) +
+    (g.a_exiger && g.a_exiger.length ? '<p class="vlab">À exiger</p>' + ul(g.a_exiger) : '') +
+    (g.remarque ? '<p class="vinfo">' + esc(g.remarque) + '</p>' : '') + '</div>';
+}
+
+function colonneBas(b, item){ return colonneGamme('vbas', 'Bas de gamme', b, item); }
+function colonneModele(cls, titre, m, item){ return colonneGamme(cls, titre, m, item); }
+
+function rendreVeille(d){
+  veilleDernier = d;
+  const item = veilleItem; if(!item) return;
+  const etat = document.getElementById('veilleEtat'), cols = document.getElementById('veilleCols'), src = document.getElementById('veilleSources'), meta = document.getElementById('veilleMeta'), btn = document.getElementById('veilleLancer');
+  let res = null;
+  try{ res = d && (d.resultat || d.json) ? JSON.parse(d.resultat || d.json) : null; }catch(e){ res = null; }
+  const enCours = (d && d.statut === 'en_cours') || veilleLocal === 'attente';
+  const fini = d && (d.statut === 'termine' || d.statut === 'erreur') && d.maj && Date.parse(d.maj) >= veilleDebut - 2000;
+  if(veilleLocal === 'attente' && fini){ veilleLocal = ''; clearTimeout(veilleMinuteur); }
+  if(veilleLocal.startsWith('erreur:')){ /* erreur locale (réseau, fonction absente) */ }
+  const attente = (d && d.statut === 'en_cours') || veilleLocal === 'attente';
+
+  if(veilleLocal.startsWith('erreur:')) etat.innerHTML = '<div class="veille-etat erreur">' + esc(veilleLocal.slice(7)) + '</div>';
+  else if(attente) etat.innerHTML = '<div class="veille-etat attente"><span class="spin"></span>Recherche en cours : Alibaba pour les 3 gammes puis Amazon.fr pour les 3 gammes (30 secondes à 3 minutes). Tu peux fermer cette fenêtre, le résultat sera enregistré.</div>';
+  else if(d && d.statut === 'erreur') {
+    if(/incorrect/i.test(d.message || '')) sessionStorage.removeItem('veille_pw');
+    etat.innerHTML = '<div class="veille-etat erreur">' + esc(d.message || 'Erreur inconnue.') + (res ? ' Les derniers résultats enregistrés restent affichés ci-dessous.' : '') + '</div>';
+  }
+  else if(!res) etat.innerHTML = '<div class="veille-etat info">Aucune recherche pour cet équipement. Alibaba et Amazon.fr seront recherchés pour les 3 gammes. Une recherche coûte environ 0,10 à 0,20 $ (limite : 20 par jour et 30 par mois).</div>';
+  else if(res) etat.innerHTML = '<div class="veille-etat info">Résultats déjà enregistrés dans Firebase. Aucune nouvelle recherche n’est lancée automatiquement. Clique sur « Actualiser » (en haut à droite) uniquement si tu veux refaire une recherche.</div>';
+  else etat.innerHTML = '';
+
+  if(res){
+    const dateResultat = d.date_recherche || d.maj;
+    const age = dateResultat ? (Date.now() - Date.parse(dateResultat)) / 86400000 : 0;
+    meta.innerHTML = 'Résultats enregistrés le ' + esc(dateFr(dateResultat)) + (age > AGE_MAX_JOURS ? '<span class="vbadge">à actualiser</span>' : '') +
+      (res.alibaba_direct ? '<span class="vdirect">Alibaba en direct</span>' : '') + (res.usage ? ' · ' + (res.usage.recherches || 0) + ' recherche(s) web' : '');
+    cols.innerHTML = colonneBas(res.bas, item) + colonneModele('vmoy', 'Moyen de gamme', res.moyen, item) + colonneModele('vhaut', 'Haut de gamme', res.haut, item);
+    src.innerHTML = (res.avertissements && res.avertissements.length ? '<p class="vwarn" style="background:#fff7e6;color:#8a5a1f;border-radius:6px;padding:.4rem .6rem;margin-bottom:.5rem"><b>Avertissements :</b> ' + res.avertissements.map(esc).join(' · ') + '</p>' : '') +
+      (res.sources && res.sources.length ? '<b>Sources consultées :</b> ' + res.sources.map(x=>'<a href="' + esc(x.url) + '" target="_blank" rel="noopener">' + esc(x.titre) + '</a>').join(' · ') : '');
+  }else{ meta.textContent = ''; cols.innerHTML = ''; src.innerHTML = ''; }
+
+  btn.disabled = attente;
+  btn.textContent = res ? 'Actualiser' : 'Lancer la recherche';
+}
+
+function ouvrirVeille(item){
+  veilleItem = item; veilleLocal = ''; veilleDebut = 0;
+  document.getElementById('veilleTitle').textContent = 'Modèles récents : ' + item.nom;
+  const dlg = document.getElementById('veilleDialog');
+  if(veilleUnsub){ veilleUnsub(); veilleUnsub = null; }
+  document.getElementById('veilleCols').innerHTML = ''; document.getElementById('veilleSources').innerHTML = ''; document.getElementById('veilleMeta').textContent = '';
+  if(!(firebaseActif && db)){
+    document.getElementById('veilleEtat').innerHTML = '<div class="veille-etat erreur">Cette fonction a besoin de Firebase : le badge en haut doit afficher « Synchronisé (Firebase) ».</div>';
+    document.getElementById('veilleLancer').disabled = true;
+  }else{
+    document.getElementById('veilleLancer').disabled = false;
+    document.getElementById('veilleEtat').innerHTML = '<div class="veille-etat info">Chargement…</div>';
+    veilleUnsub = db.collection('veille_modeles').doc(slugEquipement(item.nom)).onSnapshot(snap=>{
+      rendreVeille(snap.exists ? snap.data() : null);
+    }, err=>{ document.getElementById('veilleEtat').innerHTML = '<div class="veille-etat erreur">Lecture impossible : ' + esc(err && (err.code || err.message)) + '. Ajoute la collection veille_modeles dans les règles Firestore.</div>'; });
+  }
+  if(dlg.showModal) dlg.showModal(); else alert('Ton navigateur est trop ancien pour cette fenêtre.');
+}
+
+const PW_TITRE = 'Recherche des modèles récents';
+const PW_TEXTE = document.getElementById('pwVeilleTexte').textContent;
+function demanderMotDePasseVeille(suite, titre, texte){
+  const memo = sessionStorage.getItem('veille_pw');
+  if(memo){ suite(memo); return; }
+  document.getElementById('pwVeilleTitle').textContent = titre || PW_TITRE;
+  document.getElementById('pwVeilleTexte').textContent = texte || PW_TEXTE;
+  const dlg = document.getElementById('pwVeille'), champ = document.getElementById('pwVeilleInput');
+  champ.value = '';
+  window.__veilleSuite = suite;
+  if(dlg.showModal){ dlg.showModal(); champ.focus(); }
+  else{ const v = window.prompt('Mot de passe :'); if(v) { sessionStorage.setItem('veille_pw', v); suite(v); } }
+}
+
+async function lancerVeille(){
+  const item = veilleItem; if(!item) return;
+  demanderMotDePasseVeille(async (pw)=>{
+    veilleLocal = 'attente'; veilleDebut = Date.now(); rendreVeille(veilleDernier);
+    try{
+      const r = await fetch(URL_VEILLE, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+        id: slugEquipement(item.nom), equipement: item.nom, sous: item.sous, categorie: item.cat,
+        description: DESCRIPTIONS[item.nom] || '', recherche: item.recherche || item.nom, pass: pw }) });
+      if(!(r.ok || r.status === 202)){
+        veilleLocal = 'erreur:' + (r.status === 404 ? "La fonction n'est pas encore déployée sur Netlify (fichier netlify/functions/veille-modeles-background.js)." : 'Erreur du serveur (' + r.status + ').');
+        rendreVeille(veilleDernier); return;
+      }
+      clearTimeout(veilleMinuteur);
+      veilleMinuteur = setTimeout(()=>{
+        if(veilleLocal === 'attente'){ veilleLocal = 'erreur:Pas de réponse après 3 minutes. Vérifie que la fonction est déployée, la clé Claude dans Netlify et les règles Firestore.'; rendreVeille(veilleDernier); }
+      }, 180000);
+    }catch(e){
+      veilleLocal = 'erreur:Connexion impossible (' + (e && e.message) + ').'; rendreVeille(veilleDernier);
+    }
+  });
+}
+
+document.getElementById('veilleLancer').onclick = lancerVeille;
+document.getElementById('veilleDialog').addEventListener('click', e=>{
+  const b = e.target.closest('.vprix'); if(!b || !veilleItem) return;
+  appliquerPrixTrouve(veilleItem, b.dataset.g, b.dataset.txt);
+});
+document.getElementById('veilleClose').onclick = ()=>{ document.getElementById('veilleDialog').close(); };
+document.getElementById('veilleDialog').addEventListener('close', ()=>{ if(veilleUnsub){ veilleUnsub(); veilleUnsub = null; } clearTimeout(veilleMinuteur); veilleItem = null; });
+document.getElementById('pwVeilleCancel').onclick = ()=>{ window.__veilleSuite = null; document.getElementById('pwVeille').close(); };
+document.getElementById('pwVeilleForm').addEventListener('submit', e=>{
+  e.preventDefault();
+  const v = document.getElementById('pwVeilleInput').value.trim();
+  if(!v) return;
+  sessionStorage.setItem('veille_pw', v);
+  document.getElementById('pwVeille').close();
+  const f = window.__veilleSuite; window.__veilleSuite = null;
+  if(f) f(v);
+});
+
+document.getElementById('infoClose').onclick = ()=>{ document.getElementById('infoDialog').close(); };
+document.getElementById('delCancel').onclick = ()=>{ actionSuppression = null; document.getElementById('delDialog').close(); };
+
+/* ═══════════════════════════════════════════════════════════════
+   DÉMARRAGE
+   ═══════════════════════════════════════════════════════════════ */
+(async function demarrer(){
+  const local = chargerLocal();
+  data = local && local.length ? local : chargerDonneesInitiales();
+  if(!(local && local.length)) sauverLocal();   // fige les identifiants pour conserver la sélection
+  migrerCategories();
+  if(brouillonLocal.client) document.getElementById('qbClient').value = brouillonLocal.client;
+  if(brouillonLocal.tva !== undefined) document.getElementById('qbTva').value = brouillonLocal.tva;
+  rendre();
+
+  if(firebaseConfigureeCorrectement()){
+    await initFirebase();
+  }
+})();
+</script>
+</body>
+</html>
