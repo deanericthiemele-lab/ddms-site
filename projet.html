@@ -69,10 +69,10 @@ const isCongestionProjet    = p => !!p && (p.nom||'').toUpperCase().includes('CO
 const isMaintenanceCEProjet = p => !!p && (p.nom||'').toUpperCase().includes('MAINTENANCE CE');
 const isMaintenanceLSProjet = p => !!p && (p.nom||'').toUpperCase().includes('MAINTENANCE LS');
 const CUSTOM_TABLE_TYPES = [
-  { test:isCallCenterProjet,    fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'reference',label:'Référence'}, {id:'produit',label:'Produit'}, {id:'localisation',label:'Localisation'} ] },
-  { test:isCongestionProjet,    fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'localite',label:'Localité'}, {id:'gps',label:'GPS'}, {id:'debit',label:'Débit'} ] },
-  { test:isMaintenanceCEProjet, fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'ip',label:'@IP'}, {id:'equipements',label:'Équipements'} ] },
-  { test:isMaintenanceLSProjet, fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'localisation',label:'Localisation'}, {id:'typeLien',label:'Type de lien'}, {id:'debit',label:'Débit'}, {id:'incidentsN1',label:'Incidents répétitifs (année N-1)'} ] },
+  { test:isCallCenterProjet,    fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'reference',label:'Référence'}, {id:'produit',label:'Produit'}, {id:'localisation',label:'Localisation'}, {id:'description',label:'Commentaire',type:'textarea'} ] },
+  { test:isCongestionProjet,    hideStatut:true, statutLabel:'Avancement', fields:[ {id:'ville',label:'Ville / Zone'}, {id:'client',label:'Client'}, {id:'reference',label:'Lien / Référence'}, {id:'circuit',label:'Circuit'}, {id:'statutLien',label:'Statut'}, {id:'lat',label:'GPS Zone (Lat)'}, {id:'lon',label:'GPS Zone (Lon)'}, {id:'debit',label:'Débit'}, {id:'resultatTest',label:'Résultat de test'}, {id:'description',label:'Commentaire',type:'textarea'} ] },
+  { test:isMaintenanceCEProjet, fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'ip',label:'@IP'}, {id:'equipements',label:'Équipements'}, {id:'description',label:'Commentaire',type:'textarea'} ] },
+  { test:isMaintenanceLSProjet, fields:[ {id:'date',label:'Date',type:'date'}, {id:'client',label:'Client'}, {id:'localisation',label:'Localisation'}, {id:'typeLien',label:'Type de lien'}, {id:'debit',label:'Débit'}, {id:'incidentsN1',label:'Incidents répétitifs (année N-1)'}, {id:'description',label:'Commentaire',type:'textarea'} ] },
 ];
 const getCustomType = p => CUSTOM_TABLE_TYPES.find(ct => ct.test(p));
 
@@ -110,7 +110,7 @@ const clone=o=>JSON.parse(JSON.stringify(o||null));
 function snapSet(p){ SNAP[p.id]=clone(p); }
 const J_PROJ_FIELDS={nom:'Nom',chefProjet:'Chef de projet',budget:'Budget',dateDebut:'Date début',dateFin:'Date fin',statut:'Statut',priorite:'Priorité',problematique:'Problématique',objectifs:'Objectifs',description:'Description',membres:'Membres'};
 const J_TACHE_FIELDS={titre:'Nom',objectif:'Objectif',volume:'Volume',realise:'Réalisé',porteur:'Porteur',dateDebut:'Début',dateFin:'Fin',statut:'Statut',description:'Commentaire',nd:'ND',raisonSociale:'Raison sociale',dateMigration:'Date de migration',raisonSociale:'Raison sociale',nd:'ND',porteur:'PORTEUR'};
-const J_PDA_FIELDS={date:'Date',client:'Client',reference:'Référence',produit:'Produit',localisation:'Localisation',recurrent:'Récurrent',typeSite:'Type de site',dateConstruction:'Date construction',techno:'Techno',cause:'Cause',statut:'Statut'};
+const J_PDA_FIELDS={date:'Date',client:'Client',reference:'Référence',produit:'Produit',localisation:'Localisation',recurrent:'Récurrent',typeSite:'Type de site',dateConstruction:'Date construction',techno:'Techno',cause:'Cause',statut:'Statut',commentaire:'Commentaire'};
 const jv=v=>Array.isArray(v)?v.join(', '):(v===undefined||v===null?'':String(v));
 const tKey=t=>((t.raisonSociale||t.titre||'')+'|'+(t.nd||'')).trim().toUpperCase();
 const lKey=l=>((l.reference||'')+'|'+(l.client||'')+'|'+(l.date||'')).trim().toUpperCase();
@@ -363,6 +363,7 @@ function renderProjet() {
   document.getElementById('btn-seed-mig').style.display = isMigrationProjet(p) ? 'inline-flex' : 'none';
   document.getElementById('btn-import-resilience').style.display = ct ? 'inline-flex' : 'none';
   if(isMigrationProjet(p) && p.migSeedV!==MIG_SEED_V) migLoadSeed(p);
+  if(isCongestionProjet(p) && p.congSeedV!==CONG_SEED_V) congLoadSeed(p);
 }
 
 // ── KPI (projet MIGRATION) ──
@@ -403,6 +404,24 @@ window.reloadMigSeed=function(){
   migLoadSeed(p);
 };
 
+
+// ── Jeu de données CONGESTION (Congestion_NOC_B2B_14-09-2026_vF.xlsx — 18 lignes, sans la colonne « eligibilité ») ──
+const CONG_SEED = [{"ville":"BEOUMI","client":"FRANCHISE ORANGE COTE D'IVOIRE BEOUMI","reference":"SYTHD130007","circuit":"KATIOLA-BONIEREDOUGOU","statutLien":"Internet","lat":"7.65","lon":"-5.55","debit":"10M","resultatTest":"2M/3M","description":"","statut":"À faire"},{"ville":"BETTIE","client":"AFG","reference":"BUVPN220220","circuit":"ABONGOUA-KOTOBI","statutLien":"interco","lat":"6.0769","lon":"-3.4144","debit":"5M","resultatTest":"","description":"","statut":"À faire"},{"ville":"BETTIE","client":"AFRILAND","reference":"BUVPN200163","circuit":"ABONGOUA-KOTOBI","statutLien":"interco","lat":"6.0769","lon":"-3.4144","debit":"1M","resultatTest":"","description":"","statut":"À faire"},{"ville":"BETTIE","client":"DGTCP","reference":"BUVPN180152","circuit":"ABONGOUA-KOTOBI","statutLien":"interco","lat":"6.0769","lon":"-3.4144","debit":"4M","resultatTest":"","description":"","statut":"À faire"},{"ville":"BETTIE","client":"FRANCHISE","reference":"VPNLL240029","circuit":"ABONGOUA-KOTOBI","statutLien":"interco","lat":"6.0769","lon":"-3.4144","debit":"2M","resultatTest":"","description":"","statut":"À faire"},{"ville":"BETTIE","client":"PALMCI","reference":"BUVPN140334","circuit":"ABONGOUA-KOTOBI","statutLien":"interco","lat":"6.0769","lon":"-3.4144","debit":"4M","resultatTest":"","description":"","statut":"À faire"},{"ville":"BINGERVILLE","client":"STE PALMAFRIQUE ABIDJAN","reference":"BUVPN140315","circuit":"GRABO - GBAPET","statutLien":"interco","lat":"5.3558","lon":"-3.8885","debit":"5M","resultatTest":"2M/7M","description":"","statut":"À faire"},{"ville":"BOCANDA","client":"SGCI BOCANDA","reference":"BUVPN190132","circuit":"BANABO-N'GUESSANKRO","statutLien":"interco","lat":"7.0626","lon":"-4.4995","debit":"512K","resultatTest":"","description":"","statut":"À faire"},{"ville":"BOUNA","client":"STE AMPELLA MINING (BOUNA DANOA) COTE D'IVOIRE","reference":"SYTHD220028","circuit":"GRABO - GBAPET","statutLien":"Internet","lat":"9.2717","lon":"-2.9926","debit":"50M","resultatTest":"12M/20M","description":"","statut":"À faire"},{"ville":"DABOU","client":"STE PALMCI ABIDJAN","reference":"BUVPN150298","circuit":"DABOU-COSROU","statutLien":"interco","lat":"5.324","lon":"-4.3723","debit":"4M","resultatTest":"","description":"","statut":"À faire"},{"ville":"DABOU","client":"BIAO-B-DABOU","reference":"BUVPN140452","circuit":"KANI-MONT_FOUIMBA","statutLien":"interco","lat":"5.324","lon":"-4.3723","debit":"2M","resultatTest":"670Kbps","description":"","statut":"À faire"},{"ville":"EHANIA 1","client":"PALMCI","reference":"BUVPN150453","circuit":"GRABO - GBAPET","statutLien":"interco","lat":"5.2333","lon":"-2.7667","debit":"4M","resultatTest":"","description":"","statut":"À faire"},{"ville":"NAFANA","client":"AFG BANK","reference":"BUVPN220239","circuit":"NAFANA-KONG","statutLien":"interco","lat":"9.1923","lon":"-4.7849","debit":"5M","resultatTest":"","description":"","statut":"À faire"},{"ville":"NAFANA","client":"DGI","reference":"VPNLL150071","circuit":"NAFANA-KONG","statutLien":"interco","lat":"9.1923","lon":"-4.7849","debit":"1M","resultatTest":"","description":"","statut":"À faire"},{"ville":"ODIENNE","client":"DGTCP TIEME","reference":"BUVPN170121","circuit":"TIEME - ODIENNE","statutLien":"interco","lat":"9.543308","lon":"-7.317229","debit":"4M","resultatTest":"7M/17M","description":"","statut":"À faire"},{"ville":"SEGUELA","client":"MOTA-ENGIL COTE D'IVOIRE","reference":"SYTHD240401","circuit":"GRABO-GBAPET","statutLien":"Internet","lat":"7.9614","lon":"-6.6702","debit":"10M","resultatTest":"5M/10M","description":"","statut":"À faire"},{"ville":"SOUBRE","client":"FRANCHISE GUEYO (primaire)","reference":"NOUVELLE PROD","circuit":"DAGOUAHIO - SOUBRE","statutLien":"interco","lat":"5.7856","lon":"-6.6083","debit":"1G","resultatTest":"30M/19M","description":"","statut":"À faire"},{"ville":"TOUMODI","client":"STE EIFFAGE INFRASTRUCTURES CI / PROJET PHSA","reference":"SYTHD210131","circuit":"TOUMODI_RESIDENTIEL-TOUMODI","statutLien":"internet","lat":"6.5602","lon":"-5.0161","debit":"x","resultatTest":"","description":"","statut":"À faire"}];
+const CONG_SEED_V = 1;
+let congSeedBusy=false;
+async function congLoadSeed(p){
+  if(congSeedBusy || !p) return;
+  congSeedBusy=true;
+  p.taches=CONG_SEED.map(o=>({...o}));   // remplace tout le contenu précédent
+  p.congSeedV=CONG_SEED_V;
+  JOURNAL_OFF=true;
+  try{
+    await fsSave(p); renderProjet(); renderSidebar();
+    toast(`${CONG_SEED.length} lignes de congestion chargées ✓`,'success');
+  }catch(e){ toast('Erreur chargement : '+e.message,'error'); }
+  JOURNAL_OFF=false; congSeedBusy=false;
+}
+
 // ── IMPORT DES LIGNES DEPUIS "2026 PLAN DE RESILIENCE" (PDA des tâches sources) ──
 // Champs disponibles côté PDA source : client, reference, produit, localisation, recurrent, typeSite, dateConstruction, techno, statut
 // Champs sans correspondance directe dans les nouveaux projets (GPS, débit, @IP, incidents N-1…) sont laissés vides à compléter.
@@ -437,6 +456,7 @@ window.importDepuisResilience=async function(){
       else if(f.id==='produit')      base.produit=l.produit||'';
       else if(f.id==='localisation') base.localisation=l.localisation||'';
       else if(f.id==='localite')     base.localite=l.localisation||'';
+      else if(f.id==='ville')        base.ville=l.localisation||'';
       else if(f.id==='equipements')  base.equipements=l.produit||l.typeSite||'';
       else if(f.id==='typeLien')     base.typeLien=l.techno||l.typeSite||'';
       else base[f.id]=''; // gps, debit, ip, incidentsN1 : pas de source équivalente → à compléter manuellement
@@ -444,7 +464,7 @@ window.importDepuisResilience=async function(){
     return base;
   };
   const nouvelles=(srcTask.pda||[]).map(mapLine);
-  const champsVides=ct.fields.filter(f=>!['date','client','reference','produit','localisation','localite','equipements','typeLien'].includes(f.id)).map(f=>f.label);
+  const champsVides=ct.fields.filter(f=>!['date','client','reference','produit','localisation','localite','ville','equipements','typeLien','description'].includes(f.id)).map(f=>f.label);
   const noteVides = champsVides.length ? `\nChamps sans source (à compléter) : ${champsVides.join(', ')}.` : '';
   if(!confirm(`Importer ${nouvelles.length} ligne(s) depuis "${srcProjNom} → ${srcTask.titre}" ?${noteVides}`)) return;
 
@@ -474,7 +494,8 @@ function renderTachesCustom(taches, ct) {
   taches.forEach((t,i)=>{ (groups[t.statut]||groups['À faire']).push({...t,_i:i}); });
   const gcol={'À faire':'var(--text3)','En cours':'var(--accent)','Bloqué':'var(--red)','Terminé':'var(--green)'};
   const gicon={'À faire':'○','En cours':'◑','Bloqué':'✕','Terminé':'●'};
-  const cols=ct.fields;
+  const cols=ct.fields, showSt=!ct.hideStatut;
+  const cv=(f,t)=>f.type==='date'&&t[f.id]?formatDate(t[f.id]):(esc(t[f.id])||'—');
 
   let html=`<div class="t-table-wrap">
     <table class="t-table">
@@ -482,22 +503,22 @@ function renderTachesCustom(taches, ct) {
         <th style="width:32px" class="fix-chk"></th>
         <th class="fix-nom">${cols[0].label}</th>
         ${cols.slice(1).map(f=>`<th>${f.label}</th>`).join('')}
-        <th>Statut</th>
+        ${showSt?'<th>Statut</th>':''}
         <th style="width:64px"></th>
       </tr></thead>
       <tbody>`;
 
   Object.entries(groups).forEach(([grp,items])=>{
     if(!items.length) return;
-    html+=`<tr class="t-group-row"><td colspan="${cols.length+3}" class="fix-grp" style="color:${gcol[grp]};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px"><span class="grp-lbl">${gicon[grp]} ${grp} <span style="opacity:.5">(${items.length})</span></span></td></tr>`;
+    html+=`<tr class="t-group-row"><td colspan="${cols.length+2+(showSt?1:0)}" class="fix-grp" style="color:${gcol[grp]};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px"><span class="grp-lbl">${gicon[grp]} ${grp} <span style="opacity:.5">(${items.length})</span></span></td></tr>`;
     items.forEach(t=>{
       const i=t._i;
       const sc=gcol[t.statut]||'var(--text3)';
       html+=`<tr class="t-row ${t.statut==='Terminé'?'t-row-done':''}">
         <td class="t-cell-chk fix-chk"><div class="t-chk ${t.statut==='Terminé'?'checked':''}" onclick="toggleTache(${i})"></div></td>
-        <td class="t-cell-nom fix-nom"><span class="${t.statut==='Terminé'?'struck':''}">${cols[0].type==='date'&&t[cols[0].id]?formatDate(t[cols[0].id]):(t[cols[0].id]||'—')}</span></td>
-        ${cols.slice(1).map(f=>`<td>${f.type==='date'&&t[f.id]?formatDate(t[f.id]):(t[f.id]||'—')}</td>`).join('')}
-        <td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${t.statut}</span></td>
+        <td class="t-cell-nom fix-nom"><span class="${t.statut==='Terminé'?'struck':''}">${cv(cols[0],t)}</span></td>
+        ${cols.slice(1).map(f=>`<td${f.type==='textarea'?' class="t-cell-comment"':''}>${cv(f,t)}</td>`).join('')}
+        ${showSt?`<td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${t.statut}</span></td>`:''}
         <td class="t-cell-actions">
           <button class="btn-icon" onclick="editTache(${i})" title="Modifier">✏️</button>
           <button class="btn-icon del" onclick="deleteTache(${i})" title="Supprimer">✕</button>
@@ -532,7 +553,9 @@ function tacheVolumes(t){
   const l=t.pda||[];
   if(l.length){
     const done=l.filter(isPdaDone).length;
-    return {vol:l.length, real:done, reste:l.length-done, fromPda:true};
+    const vol=(t.volumeManuel&&t.volume!==undefined&&t.volume!=='')?Number(t.volume):l.length;
+    const real=(t.realiseManuel&&t.realise!==undefined&&t.realise!=='')?Number(t.realise):done;
+    return {vol, real, reste:Math.max(0,vol-real), fromPda:!t.volumeManuel};
   }
   const hasV=t.volume!==undefined&&t.volume!=='', hasR=t.realise!==undefined&&t.realise!=='';
   return {vol:hasV?t.volume:'—', real:hasR?t.realise:'—', reste:(hasV&&hasR)?Math.max(0,Number(t.volume)-Number(t.realise)):'—', fromPda:false};
@@ -613,13 +636,14 @@ function renderTachesMigration(taches) {
         <th>STATUT</th>
         <th>PORTEUR</th>
         <th>Date de migration</th>
+        <th>Commentaire</th>
       </tr></thead>
       <tbody>`;
 
   Object.entries(groups).forEach(([grp,items])=>{
     if(!items.length) return;
     const gc=MIGC[grp]||'var(--text3)';
-    html+=`<tr class="t-group-row"><td colspan="7" class="fix-grp" style="color:${gc};font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px"><span class="grp-lbl">${MIGI[grp]||'○'} ${grp} <span style="opacity:.5">(${items.length})</span></span></td></tr>`;
+    html+=`<tr class="t-group-row"><td colspan="8" class="fix-grp" style="color:${gc};font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;padding:10px 12px 5px"><span class="grp-lbl">${MIGI[grp]||'○'} ${grp} <span style="opacity:.5">(${items.length})</span></span></td></tr>`;
     items.forEach(t=>{
       const i=t._i;
       const sc=MIGC[t.statut]||'var(--text3)';
@@ -634,6 +658,7 @@ function renderTachesMigration(taches) {
         <td class="t-cell-statut"><span class="t-statut-badge" style="color:${sc};background:${sc}14;border:1px solid ${sc}33">${t.statut||''}</span></td>
         <td class="t-cell-obj">${t.porteur||'—'}</td>
         <td class="t-cell-date">${t.dateMigration?formatDate(t.dateMigration):'—'}</td>
+        <td class="t-cell-comment">${esc(t.description)||'—'}</td>
       </tr>`;
     });
   });
@@ -664,6 +689,7 @@ window.editTache=function(i){
     document.getElementById('t-statut-mig').value=t.statut||'A migré';
     document.getElementById('t-porteur-mig').value=t.porteur||'';
     document.getElementById('t-dateMigration').value=t.dateMigration||'';
+    document.getElementById('t-desc-mig').value=t.description||'';
     document.getElementById('tache-modal-title').innerHTML='Modifier la ligne <button class="modal-close" onclick="closeModal(\'modal-tache\')">✕</button>';
   } else if(ct){
     ct.fields.forEach(f=>{ document.getElementById('t-cf-'+f.id).value=t[f.id]||''; });
@@ -676,9 +702,9 @@ window.editTache=function(i){
     if(hasPda) syncPdaVolume(t);
     document.getElementById('t-volume').value=t.volume||'';
     document.getElementById('t-realise').value=t.realise||'';
-    document.getElementById('t-volume').readOnly=hasPda;
-    document.getElementById('t-realise').readOnly=hasPda;
-    document.getElementById('t-volume-pda-note').style.display=hasPda?'inline':'none';
+    document.getElementById('t-volume').readOnly=false;
+    document.getElementById('t-realise').readOnly=false;
+    document.getElementById('t-volume-pda-note').style.display=(hasPda&&!t.volumeManuel)?'inline':'none';
     document.getElementById('t-porteur').value=t.porteur||'';
     document.getElementById('t-dateDebut').value=t.dateDebut||'';
     document.getElementById('t-dateFin').value=t.dateFin||'';
@@ -695,7 +721,7 @@ window.openAddTache=function(){
   toggleTacheModalFields(p);
   const ct=getCustomType(p);
   if(isMigrationProjet(p)){
-    ['t-nd','t-raisonSociale','t-dateMigration','t-porteur-mig'].forEach(id=>document.getElementById(id).value='');
+    ['t-nd','t-raisonSociale','t-dateMigration','t-porteur-mig','t-desc-mig'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('t-statut-mig').value='A migré';
     document.getElementById('tache-modal-title').innerHTML='Nouvelle ligne <button class="modal-close" onclick="closeModal(\'modal-tache\')">✕</button>';
   } else if(ct){
@@ -723,8 +749,9 @@ function toggleTacheModalFields(p){
 function buildCustomTacheFields(ct){
   const el=document.getElementById('tache-fields-custom');
   const reqId=(ct.fields.find(f=>f.id==='client')||ct.fields[0]).id;
-  el.innerHTML = ct.fields.map(f=>`<div class="field"><label>${f.label}${f.id===reqId?' *':''}</label><input id="t-cf-${f.id}" type="${f.type==='date'?'date':'text'}" ${f.type==='date'?'':`placeholder="ex: ${f.label}"`}></div>`).join('')
-    + `<div class="field"><label>Statut</label><select id="t-cf-statut"><option>À faire</option><option>En cours</option><option>Terminé</option><option>Bloqué</option></select></div>`;
+  el.innerHTML = ct.fields.filter(f=>f.type!=='textarea').map(f=>`<div class="field"><label>${f.label}${f.id===reqId?' *':''}</label><input id="t-cf-${f.id}" type="${f.type==='date'?'date':'text'}" ${f.type==='date'?'':`placeholder="ex: ${f.label}"`}></div>`).join('')
+    + `<div class="field"><label>${ct.statutLabel||'Statut'}</label><select id="t-cf-statut"><option>À faire</option><option>En cours</option><option>Terminé</option><option>Bloqué</option></select></div>`
+    + ct.fields.filter(f=>f.type==='textarea').map(f=>`<div class="field"><label>${f.label}</label><textarea id="t-cf-${f.id}" style="min-height:72px" placeholder="Notes, observations, informations complémentaires…"></textarea></div>`).join('');
 }
 
 window.saveTache=async function(){
@@ -739,6 +766,7 @@ window.saveTache=async function(){
       statut: document.getElementById('t-statut-mig').value,
       porteur: document.getElementById('t-porteur-mig').value,
       dateMigration: document.getElementById('t-dateMigration').value,
+      description: document.getElementById('t-desc-mig').value,
     };
   } else if(ct){
     const reqField=(ct.fields.find(f=>f.id==='client')||ct.fields[0]).id;
@@ -764,7 +792,13 @@ window.saveTache=async function(){
   if(editTacheIdx!==null){
     const prev=p.taches[editTacheIdx]||{};
     if(prev.fichiers) obj.fichiers=prev.fichiers;
-    if(prev.pda){ obj.pda=prev.pda; syncPdaVolume(obj); }
+    if(prev.pda){
+      obj.pda=prev.pda;
+      const nPda=prev.pda.length, nDone=prev.pda.filter(isPdaDone).length;
+      obj.volumeManuel  = obj.volume!==''  && String(obj.volume)!==String(nPda);
+      obj.realiseManuel = obj.realise!=='' && String(obj.realise)!==String(nDone);
+      syncPdaVolume(obj);
+    }
     p.taches[editTacheIdx]=obj;
   } else p.taches.push(obj);
   try{
@@ -1012,6 +1046,7 @@ const PDA_SCHEMAS={
     {f:'dateConstruction',label:'Date construction',xl:'Date construction',alts:['dateconstruction','datedeconstruction','construction','date'],type:'date'},
     {f:'techno',label:'Techno',xl:'Technologie',alts:['techno','technologie','technology','tech']},
     {f:'statut',label:'Statut',xl:'Statut',alts:['statut','status','etat'],type:'statut'},
+    {f:'commentaire',label:'Commentaire',xl:'Commentaire',alts:['commentaire','commentaires','observation','observations','remarque','remarques','note','notes']},
   ],
   dispo:[
     {f:'date',label:'Date',xl:'Date',alts:['date','dateincident','datedebut','jour'],type:'date',fix:true},
@@ -1019,6 +1054,7 @@ const PDA_SCHEMAS={
     {f:'client',label:'Client',xl:'Client',alts:['client','raisonsociale','nomclient']},
     {f:'cause',label:'Cause',xl:'Cause',alts:['cause','causereelle','motif','raison','origine','probleme']},
     {f:'statut',label:'Statut',xl:'Statut',alts:['statut','status','etat'],type:'statut'},
+    {f:'commentaire',label:'Commentaire',xl:'Commentaire',alts:['commentaire','commentaires','observation','observations','remarque','remarques','note','notes']},
   ],
 };
 const isDispoTache=t=>!!t && /D[IS]*PONIB|DISPO\b/.test((t.titre||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''));
@@ -1030,8 +1066,8 @@ const PDA_STATUTS=['À faire','En cours','Terminé','Bloqué'];
 const PDAC={'À faire':'var(--text3)','En cours':'var(--accent)','Terminé':'var(--green)','Bloqué':'var(--red)'};
 function syncPdaVolume(t){
   const l=t.pda||[]; if(!l.length) return;
-  t.volume=String(l.length);
-  t.realise=String(l.filter(isPdaDone).length);
+  if(!t.volumeManuel) t.volume=String(l.length);
+  if(!t.realiseManuel) t.realise=String(l.filter(isPdaDone).length);
 }
 window._syncPdaVolume=syncPdaVolume;
 const pdaTache=()=>{ const p=proj(); return (p&&p.taches&&pdaTacheIdx!==null)?p.taches[pdaTacheIdx]:null; };
@@ -1720,7 +1756,7 @@ document.addEventListener('input', function(e){
       <div class="field"><label>Nom de la tâche *</label><input id="t-titre" list="dl-t-titre" placeholder="ex: Rédiger le cahier des charges"><datalist id="dl-t-titre" data-champ="t-titre"></datalist></div>
       <div class="field"><label>Objectif</label><input id="t-objectif" list="dl-t-objectif" placeholder="ex: Définir le périmètre technique du projet"><datalist id="dl-t-objectif" data-champ="t-objectif"></datalist></div>
       <div class="grid2" style="margin-bottom:11px">
-        <div class="field"><label>Volume <span id="t-volume-pda-note" style="display:none;color:var(--text3);font-weight:400">(auto depuis PDA)</span></label><input id="t-volume" type="number" min="0" placeholder="ex: 100"></div>
+        <div class="field"><label>Volume <span id="t-volume-pda-note" style="display:none;color:var(--text3);font-weight:400">(auto depuis PDA · modifiable)</span></label><input id="t-volume" type="number" min="0" placeholder="ex: 100"></div>
         <div class="field"><label>Réalisé</label><input id="t-realise" type="number" min="0" placeholder="ex: 40"> </div>
       </div>
       <div class="field" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;">
@@ -1751,6 +1787,7 @@ document.addEventListener('input', function(e){
         </div>
       </div>
       <div class="field"><label>Date de migration</label><input id="t-dateMigration" type="date"></div>
+      <div class="field"><label>Commentaire</label><textarea id="t-desc-mig" style="min-height:72px" placeholder="Notes, blocages, informations complémentaires…"></textarea></div>
     </div>
 
     <div id="tache-fields-custom" style="display:none"></div>
