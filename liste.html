@@ -2222,11 +2222,18 @@ function basculerModeLocal(message){
   b.className = 'sync-badge local';
   document.getElementById('syncText').textContent = message || 'Firebase non configuré — données locales seulement';
 }
+// Traduit les erreurs Firebase les plus courantes en phrase claire
+function messageFirebase(msg){
+  const m = String(msg || '');
+  if(/429|resource-exhausted|quota/i.test(m)) return "Firebase a atteint la limite du plan gratuit (lectures ou écritures du jour). Le compteur repart de zéro chaque jour vers 07:00, heure d'Abidjan. Réessaie plus tard, ou passe le projet au plan Blaze (quelques centimes) dans la console Firebase.";
+  return m;
+}
 function signalerErreurFirebase(e){
   console.error('Erreur Firebase :', e);
   const b = document.getElementById('syncBadge');
   b.className = 'sync-badge err';
-  document.getElementById('syncText').textContent = 'Erreur Firebase — non enregistré (' + ((e && (e.code || e.message)) || 'inconnue') + ')';
+  const brut = (e && (e.code || e.message)) || 'inconnue';
+  document.getElementById('syncText').textContent = /429|resource-exhausted|quota/i.test(brut) ? 'Quota Firebase du jour atteint (plan gratuit) — non enregistré' : 'Erreur Firebase — non enregistré (' + brut + ')';
 }
 function marquerOk(){
   if(firebaseActif && document.getElementById('syncBadge').classList.contains('err')) basculerModeCloud();
@@ -3120,7 +3127,7 @@ function rendreAssistant(){
       '<button type="button" class="add-btn" data-nav="pdf">Générer le PDF</button>' +
       '<button type="button" class="qb-clear" data-nav="fermer" aria-label="Fermer">✕</button>';
     pied.innerHTML = '<button type="button" class="qb-clear" data-nav="prec">← Modifier les réponses</button><span></span>';
-    majTotauxResume(); if(PRIX_ETAT) etatPrix(PRIX_ETAT.msg, PRIX_ETAT.type, PRIX_ETAT.bouton); chargerRefs(true);
+    majTotauxResume(); if(PRIX_ETAT) etatPrix(PRIX_ETAT.msg, PRIX_ETAT.type, PRIX_ETAT.bouton); chargerRefs();
   }
 }
 
@@ -3241,7 +3248,13 @@ function extraireRefs(r){
   });
   return out;
 }
+const CLE_CACHE_REFS = 'datalink_refs_cache_v1';
+function sauverCacheRefs(){ try{ localStorage.setItem(CLE_CACHE_REFS, JSON.stringify({ t: Date.now(), refs: REFS, prix: PRIX_MODELES })); }catch(e){} }
+function lireCacheRefs(){
+  try{ const c = JSON.parse(localStorage.getItem(CLE_CACHE_REFS)); return c && Date.now() - c.t < 15 * 60 * 1000 ? c : null; }catch(e){ return null; }
+}
 async function chargerRefs(force){
+  if(!REFS_CHARGEES && !force){ const c = lireCacheRefs(); if(c){ REFS = c.refs || {}; PRIX_MODELES = c.prix || {}; REFS_CHARGEES = true; } }   // lecture déjà faite il y a moins de 15 min : aucune lecture Firebase
   if((!REFS_CHARGEES || force) && firebaseActif && db){
     try{
       const snap = await db.collection('veille_modeles').get();
@@ -3252,7 +3265,7 @@ async function chargerRefs(force){
         if(doc.id.startsWith('prix-')){ if(r) PRIX_MODELES[doc.id.slice(5)] = Object.assign({ maj: d.maj || null }, r); return; }
         if(r) REFS[doc.id] = extraireRefs(r);
       });
-      REFS_CHARGEES = true;
+      REFS_CHARGEES = true; sauverCacheRefs();
     }catch(e){ /* les prix de référence sont facultatifs */ }
   }
   majRefs(); majBoutonsPrix();
@@ -3312,7 +3325,7 @@ function lancerPrixModeles(manquants){
       if(d.statut === 'erreur'){
         PRIX_JOB_ACTIF = false; arreterEcoutePrix();
         if(/incorrect/i.test(d.message || '')) sessionStorage.removeItem('veille_pw');
-        etatPrix('✖ ' + (d.message || 'Erreur inconnue.'), 'err'); return;
+        etatPrix('✖ ' + (messageFirebase(d.message) || 'Erreur inconnue.'), 'err'); return;
       }
       await chargerRefs(true);                                                       // relit les prix trouvés : les cases se remplissent au fur et à mesure
       if(d.statut === 'termine'){
@@ -3685,6 +3698,7 @@ function rendreVeille(d){
   const etat = document.getElementById('veilleEtat'), cols = document.getElementById('veilleCols'), src = document.getElementById('veilleSources'), meta = document.getElementById('veilleMeta'), btn = document.getElementById('veilleLancer');
   let res = null;
   try{ res = d && (d.resultat || d.json) ? JSON.parse(d.resultat || d.json) : null; }catch(e){ res = null; }
+  if(res && item){ REFS[slugEquipement(item.nom)] = extraireRefs(res); sauverCacheRefs(); majBoutonsPrix(); }   // le résultat affiché sert aussi aux prix (aucune lecture en plus)
   const enCours = (d && d.statut === 'en_cours') || veilleLocal === 'attente';
   const fini = d && (d.statut === 'termine' || d.statut === 'erreur') && d.maj && Date.parse(d.maj) >= veilleDebut - 2000;
   if(veilleLocal === 'attente' && fini){ veilleLocal = ''; clearTimeout(veilleMinuteur); }
@@ -3695,7 +3709,7 @@ function rendreVeille(d){
   else if(attente) etat.innerHTML = '<div class="veille-etat attente"><span class="spin"></span>Recherche en cours : Alibaba pour les 3 gammes puis Amazon.fr pour les 3 gammes (30 secondes à 3 minutes). Tu peux fermer cette fenêtre, le résultat sera enregistré.</div>';
   else if(d && d.statut === 'erreur') {
     if(/incorrect/i.test(d.message || '')) sessionStorage.removeItem('veille_pw');
-    etat.innerHTML = '<div class="veille-etat erreur">' + esc(d.message || 'Erreur inconnue.') + (res ? ' Les derniers résultats enregistrés restent affichés ci-dessous.' : '') + '</div>';
+    etat.innerHTML = '<div class="veille-etat erreur">' + esc(messageFirebase(d.message) || 'Erreur inconnue.') + (res ? ' Les derniers résultats enregistrés restent affichés ci-dessous.' : '') + '</div>';
   }
   else if(!res) etat.innerHTML = '<div class="veille-etat info">Aucune recherche pour cet équipement. Alibaba et Amazon.fr seront recherchés pour les 3 gammes. Une recherche coûte environ 0,10 à 0,20 $ (limite : 20 par jour et 30 par mois).</div>';
   else if(res) etat.innerHTML = '<div class="veille-etat info">Résultats déjà enregistrés dans Firebase. Aucune nouvelle recherche n’est lancée automatiquement. Clique sur « Actualiser » (en haut à droite) uniquement si tu veux refaire une recherche.</div>';
