@@ -479,6 +479,8 @@ onValue(ref(db, "statut_options"), (snapshot) => {
 window._db_ref = ref;
 window._db_set = set;
 window._db = db;
+window._db_onValue = onValue;
+if(typeof window._daInit === "function") window._daInit();
 
 // Table de correspondance statut -> porteur (valeurs par defaut)
 window._porteurParStatut = {
@@ -926,6 +928,7 @@ button.delai-kpi-card{
   <span style="font-weight:700;color:#555;">FMS total</span>
   <strong id="fmsTotal" style="font-size:22px;font-weight:800;color:#111;">0</strong>
  </div>
+ <button id="daOpenBtn" type="button" onclick="window._daOpen()" style="display:flex;align-items:center;gap:8px;border:1px solid #FF7900;border-radius:6px;padding:7px 11px;background:#fff;font-size:14px;font-weight:700;color:#000;cursor:pointer;">Dossiers annulés <strong id="daCount" style="font-size:22px;font-weight:800;color:#FF7900;">0</strong></button>
  <span id="resumeLabel" style="display:none;"></span>
 </div>
 <div class="delai-kpi-grid" id="delaiResume">
@@ -4626,4 +4629,214 @@ async function _pdaAddAction(){
  if(btn) btn.addEventListener("click", _pdaAddAction);
 });
 </script>
+<!-- ═══ Dossiers annulés ═══ -->
+<style>
+#daModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;align-items:flex-start;justify-content:center;padding:30px 12px;overflow:auto;}
+#daModal .da-box{background:#fff;border-radius:8px;width:100%;max-width:1150px;padding:16px 18px;box-shadow:0 10px 30px rgba(0,0,0,.25);}
+#daModal .da-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+#daModal .da-head h3{margin:0;font-size:17px;color:#000;}
+#daModal .da-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;}
+#daModal .da-tab{border:1px solid #ccc;background:#f5f5f5;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:700;color:#000;cursor:pointer;}
+#daModal .da-tab.active{background:#FF7900;border-color:#FF7900;color:#fff;}
+#daModal .da-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+#daModal .da-btn{border:1px solid #ccc;background:#fff;border-radius:6px;padding:6px 12px;font-size:13px;font-weight:600;color:#000;cursor:pointer;}
+#daModal .da-btn.primary{background:#FF7900;border-color:#FF7900;color:#fff;}
+#daModal .da-wrap{overflow-x:auto;max-height:65vh;overflow-y:auto;border:1px solid #e5e5e5;border-radius:6px;}
+#daModal table{border-collapse:collapse;width:100%;font-size:12.5px;}
+#daModal th{position:sticky;top:0;background:#222;color:#fff;text-align:left;padding:7px 8px;white-space:nowrap;}
+#daModal td{border-top:1px solid #eee;padding:6px 8px;color:#000;}
+#daModal tr:nth-child(even) td{background:#fafafa;}
+#daModal .da-del{border:none;background:none;color:#c00;cursor:pointer;font-size:16px;font-weight:800;line-height:1;padding:2px 6px;}
+#daModal .da-del:hover{background:#fde8e8;border-radius:4px;}
+#daModal td[contenteditable="true"]{cursor:text;outline:none;min-width:60px;}
+#daModal td[contenteditable="true"]:focus{background:#fff4e6 !important;box-shadow:inset 0 0 0 2px #FF7900;}
+#daMsg{font-size:12.5px;color:#000;}
+</style>
+<div id="daModal" onclick="if(event.target===this)window._daClose()">
+ <div class="da-box">
+  <div class="da-head">
+   <h3>Dossiers annulés</h3>
+   <button class="da-btn" type="button" onclick="window._daClose()">✕</button>
+  </div>
+  <div class="da-tabs">
+   <button class="da-tab active" type="button" data-cat="elec" onclick="window._daTab('elec')">Electricité &amp; Local en chantier (<span id="daCntElec">0</span>)</button>
+   <button class="da-tab" type="button" data-cat="frais" onclick="window._daTab('frais')">Attente frais (<span id="daCntFrais">0</span>)</button>
+  </div>
+  <div class="da-actions">
+   <label class="da-btn primary" style="display:inline-block;">Importer Excel<input type="file" id="daFile" accept=".xlsx,.xls" style="display:none;"></label>
+   <button class="da-btn primary" type="button" onclick="window._daAdd()">+ Ajouter</button>
+   <button class="da-btn" type="button" onclick="window._daExport()">Exporter Excel</button>
+   <span id="daMsg"></span>
+  </div>
+  <div class="da-wrap"><table><thead id="daThead"></thead><tbody id="daTbody"></tbody></table></div>
+ </div>
+</div>
+<script>
+(function(){
+ // Colonnes identiques au fichier Excel "Demande_annulées"
+ const DA_COLS={
+  elec:[["id","ID DOSSIER"],["date","DATE CREATION DOSSIER"],["duree","DURÉE (j)"],["etape","ETAPE"],["client","CLIENT"],["adr","ADR. GEO"],["type","TYPE ABONNEMENT"],["cause","Cause"]],
+  frais:[["client","CLIENT"],["reference","REFERENCE"],["etat","ETAT"],["cause","CAUSE"],["produits","PRODUITS"],["gaia","DEMANDE GAIA"],["id","ID DOSSIER"]]
+ };
+ const DA_SHEET={elec:"Electricité & Local en chantier",frais:"Attente frais"};
+ let daData={elec:{},frais:{}};
+ let daCat="elec";
+ let daStarted=false;
+
+ const norm=v=>String(v==null?"":v).replace(/\u00a0/g," ").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim().toUpperCase();
+ const clean=v=>String(v==null?"":v).replace(/\u00a0/g," ").replace(/\s+/g," ").trim();
+ const esc=v=>String(v==null?"":v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+ const safeKey=v=>clean(v).replace(/[.#$\[\]\/]/g,"_");
+ function fmtDate(v){
+  if(v==null||v==="") return "";
+  let d=null;
+  if(v instanceof Date) d=v;
+  else if(typeof v==="number"){const p=XLSX.SSF.parse_date_code(v); if(p) d=new Date(p.y,p.m-1,p.d);}
+  else return clean(v);
+  if(!d||isNaN(d)) return clean(v);
+  return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();
+ }
+
+ window._daInit=function(){
+  if(daStarted||!window._db_onValue) return;
+  daStarted=true;
+  window._db_onValue(window._db_ref(window._db,"dossiers_annules"),snap=>{
+   const v=snap.val()||{};
+   daData={elec:v.elec||{},frais:v.frais||{}};
+   const a=document.activeElement;
+   if(a && a.closest && a.closest("#daTbody")){
+    const nE=Object.keys(daData.elec).length, nF=Object.keys(daData.frais).length;
+    document.getElementById("daCount").textContent=nE+nF;
+    return;
+   }
+   daRender();
+  });
+ };
+
+ function daRender(){
+  const nE=Object.keys(daData.elec).length, nF=Object.keys(daData.frais).length;
+  document.getElementById("daCount").textContent=nE+nF;
+  document.getElementById("daCntElec").textContent=nE;
+  document.getElementById("daCntFrais").textContent=nF;
+  const cols=DA_COLS[daCat];
+  document.getElementById("daThead").innerHTML="<tr>"+cols.map(c=>"<th>"+esc(c[1])+"</th>").join("")+"<th></th></tr>";
+  const rows=Object.entries(daData[daCat]);
+  document.getElementById("daTbody").innerHTML=rows.length
+   ? rows.map(([k,r])=>`<tr data-key="${esc(k)}">`+cols.map(c=>`<td contenteditable="${window._prodReadOnly?"false":"true"}" data-field="${c[0]}" onfocus="this.dataset.old=this.textContent" onblur="window._daEdit(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">${esc(r[c[0]])}</td>`).join("")+`<td style="text-align:right;"><button class="da-del" type="button" title="Supprimer" onclick="window._daDelete('${daCat}','${esc(k)}')">✕</button></td></tr>`).join("")
+   : `<tr><td colspan="${cols.length+1}" style="text-align:center;color:#888;padding:14px;">Aucun dossier</td></tr>`;
+ }
+
+ window._daOpen=function(){window._daInit(); daRender(); document.getElementById("daModal").style.display="flex";};
+ window._daClose=function(){document.getElementById("daModal").style.display="none";};
+ window._daTab=function(cat){
+  daCat=cat;
+  document.querySelectorAll("#daModal .da-tab").forEach(b=>b.classList.toggle("active",b.dataset.cat===cat));
+  daRender();
+ };
+
+ window._daAdd=async function(){
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
+  const key="tmp_"+Date.now();
+  const rec={}; DA_COLS[daCat].forEach(([k])=>rec[k]="");
+  rec.importedAt=new Date().toISOString();
+  daData[daCat][key]=rec;
+  daRender();
+  const td=document.querySelector(`#daTbody tr[data-key="${key}"] td[data-field="id"]`)||document.querySelector(`#daTbody tr[data-key="${key}"] td`);
+  if(td) td.focus();
+  try{ await window._db_set(window._db_ref(window._db,"dossiers_annules/"+daCat+"/"+key),rec); }
+  catch(e){ alert("Ajout : "+e.message); }
+ };
+
+ window._daEdit=async function(td){
+  const val=clean(td.textContent);
+  if(val===clean(td.dataset.old)) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()){ td.textContent=td.dataset.old; return; }
+  const cat=daCat, key=td.parentElement.dataset.key, field=td.dataset.field;
+  const rec=daData[cat][key]; if(!rec) return;
+  try{
+   if(field==="id"){
+    const newKey=safeKey(val);
+    if(!newKey){ td.textContent=td.dataset.old; return; }
+    if(newKey!==key && daData[cat][newKey]){ alert("L'ID "+val+" existe déjà."); td.textContent=td.dataset.old; return; }
+    const nrec=Object.assign({},rec,{id:val});
+    await window._db_set(window._db_ref(window._db,"dossiers_annules/"+cat+"/"+newKey),nrec);
+    if(newKey!==key) await window._db_set(window._db_ref(window._db,"dossiers_annules/"+cat+"/"+key),null);
+    td.parentElement.dataset.key=newKey;
+    daData[cat][newKey]=nrec; if(newKey!==key) delete daData[cat][key];
+   }else{
+    await window._db_set(window._db_ref(window._db,"dossiers_annules/"+cat+"/"+key+"/"+field),val);
+   }
+  }catch(e){ alert("Modification : "+e.message); td.textContent=td.dataset.old; }
+ };
+
+ window._daDelete=async function(cat,key){
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
+  const r=daData[cat][key]||{};
+  if(!confirm("Supprimer le dossier "+(r.id||"(sans ID)")+" ?")) return;
+  try{ await window._db_set(window._db_ref(window._db,"dossiers_annules/"+cat+"/"+key),null); }
+  catch(e){ alert("Suppression : "+e.message); }
+ };
+
+ // Détection de la catégorie d'un onglet par ses en-têtes
+ function detectCat(headers){
+  const h=headers.map(norm);
+  if(h.includes("DEMANDE GAIA")||h.includes("REFERENCE")) return "frais";
+  if(h.includes("ETAPE")||h.includes("DUREE (J)")||h.includes("ADR. GEO")) return "elec";
+  return null;
+ }
+
+ document.getElementById("daFile").addEventListener("change",async function(e){
+  const f=e.target.files[0]; e.target.value="";
+  if(!f) return;
+  if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
+  const msg=document.getElementById("daMsg");
+  msg.textContent="Import en cours…";
+  try{
+   const wb=XLSX.read(await f.arrayBuffer(),{type:"array",cellDates:true});
+   const res={elec:{add:0,skip:0},frais:{add:0,skip:0}};
+   const ops=[];
+   wb.SheetNames.forEach(sn=>{
+    const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});
+    if(!aoa.length) return;
+    const headers=aoa[0];
+    const cat=detectCat(headers);
+    if(!cat) return;
+    const idx={};
+    DA_COLS[cat].forEach(([k,label])=>{idx[k]=headers.map(norm).indexOf(norm(label));});
+    aoa.slice(1).forEach(row=>{
+     const id=idx.id>=0?clean(row[idx.id]):"";
+     if(!id) return;
+     const key=safeKey(id);
+     if(daData[cat][key]){res[cat].skip++; return;}   // pas d'écrasement
+     const rec={};
+     DA_COLS[cat].forEach(([k])=>{
+      const v=idx[k]>=0?row[idx[k]]:"";
+      rec[k]=k==="date"?fmtDate(v):clean(v);
+     });
+     rec.importedAt=new Date().toISOString();
+     daData[cat][key]=rec;
+     ops.push(window._db_set(window._db_ref(window._db,"dossiers_annules/"+cat+"/"+key),rec));
+     res[cat].add++;
+    });
+   });
+   await Promise.all(ops);
+   msg.textContent=`${DA_SHEET.elec} : ${res.elec.add} ajouté(s), ${res.elec.skip} déjà en base — ${DA_SHEET.frais} : ${res.frais.add} ajouté(s), ${res.frais.skip} déjà en base`;
+   daRender();
+  }catch(err){ msg.textContent="Erreur import : "+err.message; }
+ });
+
+ window._daExport=function(){
+  const wb=XLSX.utils.book_new();
+  ["elec","frais"].forEach(cat=>{
+   const rows=Object.values(daData[cat]).map(r=>{const o={}; DA_COLS[cat].forEach(([k,l])=>o[l]=r[k]); return o;});
+   const ws=rows.length?XLSX.utils.json_to_sheet(rows):XLSX.utils.aoa_to_sheet([DA_COLS[cat].map(c=>c[1])]);
+   XLSX.utils.book_append_sheet(wb,ws,DA_SHEET[cat].slice(0,31));
+  });
+  XLSX.writeFile(wb,"Demande_annulees.xlsx");
+ };
+
+ window._daInit();
+})();
+</script>
+
 </html>
