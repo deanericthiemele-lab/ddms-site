@@ -4663,7 +4663,7 @@ async function _pdaAddAction(){
   </div>
   <div class="da-tabs" id="daTabs"></div>
   <div class="da-actions">
-   <label class="da-btn primary" style="display:inline-block;">Importer Excel<input type="file" id="daFile" accept=".xlsx,.xls" style="display:none;"></label>
+   <label class="da-btn primary" style="display:inline-block;" onclick="if(event.target===this&&!window._daAuth())event.preventDefault();">Importer Excel<input type="file" id="daFile" accept=".xlsx,.xls" style="display:none;"></label>
    <button class="da-btn primary" type="button" onclick="window._daAdd()">+ Ajouter</button>
    <button class="da-btn" type="button" onclick="window._daExport()">Exporter Excel</button>
    <span id="daMsg"></span>
@@ -4682,6 +4682,15 @@ async function _pdaAddAction(){
  let daData={};              // {catKey:{rowKey:record}}
  let daCat="elec";
  let daStarted=false;
+ let daUnlocked=false;
+ window._daAuth=function(){
+  if(daUnlocked) return true;
+  const pwd=window.prompt("Mot de passe requis pour ouvrir les dossiers annulés :");
+  if(pwd===null) return false;
+  if(pwd!=="edith"){ alert("Mot de passe incorrect."); return false; }
+  daUnlocked=true;
+  return true;
+ };
 
  const norm=v=>String(v==null?"":v).replace(/\u00a0/g," ").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim().toUpperCase();
  const clean=v=>String(v==null?"":v).replace(/\u00a0/g," ").replace(/\s+/g," ").trim();
@@ -4739,19 +4748,28 @@ async function _pdaAddAction(){
   const cols=T[daCat].cols;
   document.getElementById("daThead").innerHTML="<tr>"+cols.map(c=>"<th>"+esc(c[1])+"</th>").join("")+"<th></th></tr>";
   const rows=Object.entries(daData[daCat]||{});
-  const ro=window._prodReadOnly?"false":"true";
+  const ro=(window._prodReadOnly||!daUnlocked)?"false":"true";
   document.getElementById("daTbody").innerHTML=rows.length
-   ? rows.map(([k,r])=>`<tr data-key="${esc(k)}">`+cols.map(c=>`<td contenteditable="${ro}" data-field="${c[0]}" onfocus="this.dataset.old=this.textContent" onblur="window._daEdit(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">${esc((r||{})[c[0]])}</td>`).join("")+`<td style="text-align:right;"><button class="da-del" type="button" title="Supprimer" onmousedown="event.preventDefault()" onclick="window._daDelete(this.closest('tr').dataset.key)">✕</button></td></tr>`).join("")
+   ? rows.map(([k,r])=>`<tr data-key="${esc(k)}">`+cols.map(c=>`<td contenteditable="${ro}" data-field="${c[0]}" onclick="window._daCellClick(this)" onfocus="this.dataset.old=this.textContent" onblur="window._daEdit(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">${esc((r||{})[c[0]])}</td>`).join("")+`<td style="text-align:right;"><button class="da-del" type="button" title="Supprimer" onmousedown="event.preventDefault()" onclick="window._daDelete(this.closest('tr').dataset.key)">✕</button></td></tr>`).join("")
    : `<tr><td colspan="${cols.length+1}" style="text-align:center;color:#888;padding:14px;">Aucun dossier</td></tr>`;
  }
 
- window._daOpen=function(){window._daInit(); daRender(); document.getElementById("daModal").style.display="flex";};
- window._daClose=function(){document.getElementById("daModal").style.display="none";};
+ window._daOpen=function(){if(!window._daAuth()) return; window._daInit(); daRender(); document.getElementById("daModal").style.display="flex";};
+ window._daClose=function(){document.getElementById("daModal").style.display="none"; daUnlocked=false;};
+ window._daCellClick=function(td){
+  if(daUnlocked||window._prodReadOnly) return;
+  if(!window._daAuth()) return;
+  const key=td.parentElement.dataset.key, field=td.dataset.field;
+  daRender();
+  const n=document.querySelector(`#daTbody tr[data-key="${key}"] td[data-field="${field}"]`);
+  if(n) n.focus();
+ };
  window._daTab=function(cat){ daCat=cat; daRender(); };
 
  // ── Onglets ──
  window._daAddTab=async function(){
   if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
+  if(!window._daAuth()) return;
   const nom=clean(prompt("Nom du nouvel onglet :",""));
   if(!nom) return;
   if(Object.values(tabs()).some(t=>norm(t.nom)===norm(nom))){ alert("Cet onglet existe déjà."); return; }
@@ -4767,6 +4785,7 @@ async function _pdaAddAction(){
  };
  window._daDelTab=async function(key){
   if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
+  if(!window._daAuth()) return;
   const t=tabs()[key]; if(!t||!t.custom) return;
   const n=Object.keys(daData[key]||{}).length;
   if(!confirm(`Supprimer l'onglet "${t.nom}" et ses ${n} dossier(s) ?`)) return;
@@ -4780,6 +4799,7 @@ async function _pdaAddAction(){
  // ── Lignes ──
  window._daAdd=async function(){
   if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
+  if(!window._daAuth()) return;
   const cat=daCat, key="tmp_"+Date.now();
   const rec={}; tabs()[cat].cols.forEach(([k])=>rec[k]="");
   rec.importedAt=new Date().toISOString();
@@ -4795,6 +4815,7 @@ async function _pdaAddAction(){
   const val=clean(td.textContent);
   if(val===clean(td.dataset.old)) return;
   if(window._blockIfReadOnly && window._blockIfReadOnly()){ td.textContent=td.dataset.old; return; }
+  if(!daUnlocked){ td.textContent=td.dataset.old; return; }
   const cat=daCat, tr=td.parentElement, key=tr.dataset.key, field=td.dataset.field;
   const rec=(daData[cat]||{})[key]; if(!rec) return;
   try{
@@ -4816,6 +4837,7 @@ async function _pdaAddAction(){
 
  window._daDelete=async function(key){
   if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
+  if(!window._daAuth()) return;
   const cat=daCat, r=(daData[cat]||{})[key];
   if(!r) return;
   if(!confirm("Supprimer le dossier "+(r.id||"(sans ID)")+" ?")) return;
@@ -4841,6 +4863,7 @@ async function _pdaAddAction(){
   const f=e.target.files[0]; e.target.value="";
   if(!f) return;
   if(window._blockIfReadOnly && window._blockIfReadOnly()) return;
+  if(!window._daAuth()) return;
   const msg=document.getElementById("daMsg");
   msg.textContent="Import en cours…";
   try{
